@@ -129,14 +129,15 @@ LOG_SWITCH_BOARD = {
     "missionGUI": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "gen_addresses": {"log": True, "py_console": False, "win_console": False, "range": "lan"},
     "formADSProfileBatchesFor1Vehicle": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
+    "updateIndividualProfileFromBatchSavedTxt": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "genAdsProfileBatchs": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "serveCommander": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "runAllSteps": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "servePlatoons": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "assignWork": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
+    "gatherFingerPrints": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "runbotworks": {"log": True, "py_console": True, "win_console": True, "range": "wan"},
     "runmanagerworks": {"log": True, "py_console": True, "win_console": True, "range": "wan"}
-
 }
 
 # from utils.logger_helper import login

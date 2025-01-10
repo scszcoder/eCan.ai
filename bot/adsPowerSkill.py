@@ -1962,12 +1962,12 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
                 pfJson["cookie"] = merge_cookies(existing_cookies, new_cookies)
             else:
                 # if the individual bot's profile doesn't even exist, create one.
-                print("Warning: bot text profile doesn't exist - "+txt_file_path)
+                log3("Warning: bot text profile doesn't exist - "+txt_file_path, "updateIndividualProfileFromBatchSavedTxt", mainwin)
                 with open(txt_file_path, 'w') as file:
                     pass
 
             #now update txt version of the profile of the bot
-            print("pfJson updating :", txt_file_path)
+            log3("pfJson updating :"+txt_file_path, "updateIndividualProfileFromBatchSavedTxt", mainwin)
             genProfileTxt([pfJson], txt_file_path)
 
             # find the bot related to this fingerprint and update it.
@@ -1978,7 +1978,7 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
                 if settings_var_name:
                     symTab[settings_var_name]["ads_profile_id"] = pfJson["id"]
             else:
-                log3("Warning: Bot corresponding to pfJson -" + pfJson["username"] + " not found.(no data structure to set value to)", "genAdsProfileBatchs", mainwin)
+                log3("Warning: Bot corresponding to pfJson -" + pfJson["username"] + " not found.(no data structure to set value to)", "updateIndividualProfileFromBatchSavedTxt", mainwin)
 
 
 # for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,

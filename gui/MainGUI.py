@@ -9457,7 +9457,7 @@ class MainWindow(QMainWindow):
             updated_profiles = []
             duplicated_profiles = []
             if self.machine_role == "Platoon":
-                log3("gathering finger pritns....")
+                log3("gathering finger prints....", "gatherFingerPrints", self)
                 print("gaterhing fp profiles", self.ads_profile_dir)
 
                 # Define the directory containing profiles*.txt and individual profiles
@@ -9472,15 +9472,13 @@ class MainWindow(QMainWindow):
                     key=os.path.getmtime,
                     reverse=True,
                 )
-                print("time sorted batch_files:", batch_files)
+                log3("time sorted batch_files:"+json.dumps(batch_files), "gatherFingerPrints", self)
 
                 # Track already updated usernames
                 updated_usernames = set()
 
                 # Process each batch file
                 for batch_file in batch_files:
-                    log3(f"Processing batch file: {batch_file}")
-                    print(f"Processing batch file: {batch_file}")
 
                     # Extract usernames from the batch file
                     with open(batch_file, "r") as bf:
@@ -9491,14 +9489,12 @@ class MainWindow(QMainWindow):
                         for line in batch_content
                         if line.startswith("username=")
                     )
-                    print("usernames in this batch file:", batch_file, usernames)
+                    # print("usernames in this batch file:", batch_file, usernames)
                     # Exclude already updated usernames when processing this batch
                     remaining_usernames = usernames - updated_usernames
-                    print("remaining_usernames", remaining_usernames)
+                    log3("remaining_usernames"+json.dumps(remaining_usernames), "gatherFingerPrints", self)
 
                     if remaining_usernames:
-                        log3(f"Updating profiles for: {remaining_usernames}")
-                        print(f"Updating profiles for: {remaining_usernames}")
                         updateIndividualProfileFromBatchSavedTxt(self, batch_file,
                                                                       excludeUsernames=list(updated_usernames))
                         # obtain batch file's time stamp
@@ -9513,27 +9509,25 @@ class MainWindow(QMainWindow):
                             if os.path.exists(individual_profile_path):
                                 os.utime(individual_profile_path, (batch_file_timestamp, batch_file_timestamp))
                     else:
-                        log3(f"Duplicate profiles detected in: {batch_file}")
                         duplicated_profiles.append(batch_file)
 
                     # Add processed usernames to the updated list
                     updated_usernames.update(usernames)
-                    print(f"Updating usernames: {updated_usernames}")
 
-                print(f"Updating usernames: {len(updated_usernames)} {updated_usernames}")
+                log3(f"Updating usernames: {len(updated_usernames)} {updated_usernames}", "gatherFingerPrints", self)
                 # **Point #5: Save Backups and Delete Old Backup Directories**
                 # Create backup directory with a date suffix
                 today_date = datetime.now().strftime("%Y%m%d")
                 backup_dir = os.path.join(self.ads_profile_dir, f"backup_{today_date}")
                 os.makedirs(backup_dir, exist_ok=True)
-                print(f"backup_dir: {backup_dir}")
+                # print(f"backup_dir: {backup_dir}")
 
                 # Backup all updated profiles
                 for profile in updated_profiles:
                     if os.path.exists(profile):
                         shutil.copy2(profile, backup_dir)  # Preserve file metadata during copy
 
-                print(f"Backup created at: {backup_dir}")
+                log3(f"Backup created at: {backup_dir}", "gatherFingerPrints", self)
 
                 # Delete old backups (older than 2 weeks)
                 two_weeks_ago = datetime.now() - timedelta(weeks=2)
@@ -9545,9 +9539,9 @@ class MainWindow(QMainWindow):
                             folder_date = datetime.strptime(folder.split("_")[1], "%Y%m%d")
                             if folder_date < two_weeks_ago:
                                 shutil.rmtree(folder_path)
-                                log3(f"Deleted old backup folder: {folder_path}")
+                                log3(f"Deleted old backup folder: {folder_path}", "gatherFingerPrints", self)
                         except (IndexError, ValueError):
-                            log3(f"Skipped invalid backup folder: {folder_path}")
+                            log3(f"Skipped invalid backup folder: {folder_path}", "gatherFingerPrints", self)
 
                 # **Remove Old Duplicated Profiles**
                 for duplicate_file in duplicated_profiles:
@@ -9557,9 +9551,9 @@ class MainWindow(QMainWindow):
                                                                          "%Y_%m_%d")
                         if duplicate_file_date < two_weeks_ago:
                             os.remove(duplicate_file)
-                            log3(f"Deleted old duplicate profile: {duplicate_file}")
+                            log3(f"Deleted old duplicate profile: {duplicate_file}", "gatherFingerPrints", self)
                     except (IndexError, ValueError):
-                        log3(f"Skipped invalid duplicate file: {duplicate_file}")
+                        log3(f"Skipped invalid duplicate file: {duplicate_file}", "gatherFingerPrints", self)
 
             return updated_profiles
 
