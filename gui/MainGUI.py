@@ -2587,7 +2587,8 @@ class MainWindow(QMainWindow):
                 if len(v_groups[key]) > 0:
                     for k, v in enumerate(v_groups[key]):
                         log3("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n", "assignWork", self)
-
+            print("assigning work....")
+            print("unassigned_scheduled_task_groups", self.unassigned_scheduled_task_groups)
             # for platform in v_groups.keys():
             #     p_task_groups = self.unassigned_scheduled_task_groups[platform]
             #     p_nsites = len(v_groups[platform])
@@ -2597,10 +2598,12 @@ class MainWindow(QMainWindow):
             tbd_unassigned = []
             for vname in self.unassigned_scheduled_task_groups:
                 log3("assignwork scheduled checking vehicle: "+vname, "assignWork", self)
+                print("vname:", vname)
                 p_task_groups = self.unassigned_scheduled_task_groups[vname]      # flattend per vehicle tasks.
                 log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
+                print("p_task_groups:", p_task_groups)
                 if len(p_task_groups) > 0:
-
+                    print("some work to assign...", self.machine_name)
                     if self.machine_name in vname:
                         vehicle = self.getVehicleByName(vname)
 
@@ -2626,18 +2629,22 @@ class MainWindow(QMainWindow):
 
                         # vidx = i
                         vehicle = self.getVehicleByName(vname)
+                        print("VVV:",vehicle)
                         log3("assign work for vehicle:"+vname, "assignWork", self)
+                        print("assign for other machine...", vname, vehicle.getVid(), vehicle.getStatus())
                         if vehicle and "running" in vehicle.getStatus():
                             log3("working on remote task group vehicle : " + vname, "assignWork", self)
                             # flatten tasks and regroup them based on sites, and divide them into batches
                             # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
+                            print("add buy search", batched_tasks)
                             self.add_buy_searchs(batched_tasks)
 
-
+                            print("ads_profiles:", ads_profiles)
                             # send fingerprint browser profiles to platoon/vehicle
-                            for profile in ads_profiles:
-                                self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+                            # for profile in ads_profiles:
+                            #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+                            self.vehicleSetupTeam(vehicle)
 
                             # now need to fetch this task associated bots, mission, skills
                             # get all bots IDs involved. get all mission IDs involved.
@@ -4432,7 +4439,7 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorAddVehicle: traceback information not available:" + str(e)
 
             self.showMsg(ex_stat)
-
+        print("added vehicle:", resultV.getName(), resultV.getStatus())
         return resultV
 
 
@@ -5000,11 +5007,11 @@ class MainWindow(QMainWindow):
                 print("selected indexes:", selected_indexes)
 
                 self.selected_vehicle_row = source.indexAt(event.pos()).row()
-                self.selected_vehicle_item = self.vehicleModel.item(self.selected_vehicle_row)
+                self.selected_vehicle_item = self.runningVehicleModel.item(self.selected_vehicle_row)
 
                 if selected_act == self.vehicleSetUpTeamAction:
-                    print("vehicle setup team clicked....")
-                    self.vehicleSetupTeam()
+                    print("vehicle setup team clicked....", self.selected_vehicle_item.getName())
+                    self.vehicleSetupTeam(self.selected_vehicle_item)
 
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
@@ -7135,7 +7142,11 @@ class MainWindow(QMainWindow):
             elif msg["type"] == "botsADSProfilesBatchUpdate":
                 self.showMsg("received botsADSProfilesBatchUpdate message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.receivePlatoonBotsADSProfilesBatchUpdateMessage(msg)
+                self.receiveBotsADSProfilesBatchUpdateMessage(msg)
+                self.expected_vehicle_responses[found_vehicle.getName()] = "Yes"
+                if self.allResponded():
+                    print("all ads profiles updated...")
+
             elif msg["type"] == "missionResultFile":
                 self.showMsg("received missionResultFile message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
@@ -7177,6 +7188,13 @@ class MainWindow(QMainWindow):
 
             self.showMsg(ex_stat)
 
+    def allResponded(self):
+        alldone = False
+
+        alldone = all([self.expected_vehicle_responses[v] for v in self.expected_vehicle_responses])
+
+        return alldone
+
 
     # what's received here is a ADS profile for one individual bot, for safety, save the existing
     # file to file.old so that we at least always have two copies and in case something is wrong
@@ -7194,38 +7212,47 @@ class MainWindow(QMainWindow):
             file.write(file_contents)
             file.close()
 
-    def receivePlatoonBotsADSProfilesBatchUpdateMessage(self, pMsg):
+    def receiveBotsADSProfilesBatchUpdateMessage(self, pMsg):
         """
-        Receive multiple fingerprint profiles sent from the sender side.
-        Args:
-            pMsg: A dictionary containing:
-                  - "profiles": A list of dictionaries, each containing:
-                      - "file_name": The name of the file to be saved
-                      - "file_type": The type of the file (e.g., txt)
-                      - "file_contents": The base64-encoded content of the file
-        """
+            Receive multiple fingerprint profiles sent from the sender side.
+            Args:
+                pMsg: A dictionary containing:
+                      - "profiles": A list of dictionaries, each containing:
+                          - "file_name": The name of the file to be saved
+                          - "file_type": The type of the file (e.g., txt)
+                          - "timestamp": The timestamp of the incoming file
+                          - "file_contents": The base64-encoded content of the file
+            """
         try:
             profiles = pMsg.get("profiles", [])
             if not profiles:
-                self.showMsg("ErrorReceiveBatchProfiles: No profiles received.")
+                log3("ErrorReceiveBatchProfiles: No profiles received.")
                 return
 
             for profile in profiles:
-                file_name = self.my_ecb_data_homepath + profile[
-                    "file_name"]  # msg["file_name"] should start with "/"
-                file_name_wo_extension = os.path.basename(file_name).split(".")[0]
-                file_name_dir = os.path.dirname(file_name)
-                new_filename = os.path.join(file_name_dir, f"{file_name_wo_extension}_old.txt")
-
-                # Rename existing file, if it exists
-                if os.path.exists(file_name):
-                    os.rename(file_name, new_filename)
-
-                # Decode and write the new profile
-                file_type = profile["file_type"]
+                # Resolve full file path
+                incoming_file_name = self.my_ecb_data_homepath + profile["file_name"]
+                incoming_file_timestamp = profile.get("timestamp")
                 file_contents = base64.b64decode(profile["file_contents"])  # Decode base64-encoded binary data
-                with open(file_name, "wb") as file:
-                    file.write(file_contents)
+
+                # Check if the file already exists
+                if os.path.exists(incoming_file_name):
+                    # Compare timestamps
+                    existing_file_timestamp = os.path.getmtime(incoming_file_name)
+
+                    if incoming_file_timestamp > existing_file_timestamp:
+                        # Incoming file is newer, replace the existing file
+                        with open(incoming_file_name, "wb") as file:
+                            file.write(file_contents)
+                        log3(f"Updated profile: {incoming_file_name} (newer timestamp)")
+                    else:
+                        # Incoming file is older, skip saving
+                        log3(f"Skipped profile: {incoming_file_name} (existing file is newer or the same)")
+                else:
+                    # File doesn't exist, save it
+                    with open(incoming_file_name, "wb") as file:
+                        file.write(file_contents)
+                    log3(f"Saved new profile: {incoming_file_name}")
 
                 log3(f"Successfully updated profile: {file_name}")
 
@@ -7237,6 +7264,7 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorReceiveBatchFPProfiles: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
+
 
     def receivePlatoonMissionResultFilesMessage(self, pMsg):
         file_name = pMsg["file_name"]           # msg["file_name"] should start with "/"
@@ -7525,6 +7553,12 @@ class MainWindow(QMainWindow):
                 # first gather all finger prints and update them to the latest
                 localFingerPrintProfiles = self.gatherFingerPrints()
                 self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
+
+            elif msg["type"] == "botsADSProfilesBatchUpdate":
+                self.showMsg("received botsADSProfilesBatchUpdate message")
+                # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
+                self.receiveBotsADSProfilesBatchUpdateMessage(msg)
+
             elif msg["cmd"] == "ping":
                 # respond to ping with pong
                 self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
@@ -8362,7 +8396,7 @@ class MainWindow(QMainWindow):
                         })
 
                 else:
-                    self.showMsg(f"ErrorSendFileToCommander: File [{file_name_full_path}] not found")
+                    self.showMsg(f"Warning: ADS Profile [{file_name_full_path}] not found")
 
             # Send data
             json_data = json.dumps({
@@ -9377,12 +9411,21 @@ class MainWindow(QMainWindow):
                 reqMsg = {"cmd": "reqSyncFingerPrintProfiles", "contents": "now"}
 
                 # send over scheduled tasks to platton.
+                self.expected_vehicle_responses = {}
                 for vehicle in self.vehicles:
                     if vehicle.getFieldLink() and "running" in vehicle.getStatus():
                         self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
                             "ip"] + "]: " + json.dumps(reqMsg))
 
                         self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
+                        self.expected_vehicle_responses[vehicle.getName()] = None
+
+                #now wait for the response to all come back. for each v, give it 10 seconds.
+                VTIMEOUT = 8
+                sync_time_out =  len(self.expected_vehicle_responses.keys())*VTIMEOUT
+                while not self.allResponded() and not (sync_time_out == 0):
+                    time.sleep(1)
+
 
         except Exception as e:
             # Get the traceback information
@@ -9478,9 +9521,9 @@ class MainWindow(QMainWindow):
             log3(ex_stat)
             return []
 
-    def vehicleSetupTeam(self):
+    def vehicleSetupTeam(self, vehicle):
         print("send all ads profiles to the vehicle")
-        vname = ""
+        vname = vehicle.getName()
         # find all bots on this vehicle,
         vbs = [b for b in self.bots if b.getVehicle() == vname]
         # gather all ads profiles fo the bots, and send over the files.
@@ -9490,4 +9533,12 @@ class MainWindow(QMainWindow):
 
         # if not self.tcpServer == None:
         if vlink:
+            print("sending all bot profiles to platoon...")
             self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)
+
+
+    def setUpBotADSProfilesOnVehicles(self):
+        print("send all ads profiles to all running vehicle")
+        for v in self.vehicles:
+            if "running" in v.getStatus():
+                self.vehicleSetupTeam(v)

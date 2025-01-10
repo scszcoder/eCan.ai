@@ -3695,6 +3695,8 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("boolean", "dispatch_success", "NA", False, this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("boolean", "profiles_updated", "NA", False, this_step)
+        psk_words = psk_words + step_words
 
         # this_step, step_words = genStepCreateData("string", "file_path", "NA", "daily_prep_hook.py", this_step)
         # psk_words = psk_words + step_words
@@ -3725,6 +3727,9 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
 
         # fetch daily schedule
         this_step, step_words = genStepECBFetchDailySchedule("ts_name", "forceful", "daily_schedule", "fetch_success", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepECBCollectBotProfiles("op_results", "profiles_updated", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern("global params, daily_schedule\nparams['daily_schedule']=daily_schedule\n", "", "in_line", "", this_step)

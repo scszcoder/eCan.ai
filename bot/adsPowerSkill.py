@@ -1876,6 +1876,7 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
             bot_work["fingerprint_profile"] = ""
 
         log3("bot fingerprint_profile:" + bot_work["fingerprint_profile"] + ">", "genAdsProfileBatchs", thisHost)
+        print("bot fingerprint_profile:" + bot_work["fingerprint_profile"] + ">")
 
         if len(found_bots) > 0 and found_mision:
             found_bot = found_bots[0]
@@ -1890,6 +1891,8 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
                     batch_bot_profiles_read.append(bot_txt_profile_name)
                 else:
                     # if not thisHost.isPlatoon():
+                    print("bot_txt_profile_name doesn't exist!"+bot_txt_profile_name)
+
                     log3("bot_txt_profile_name doesn't exist!"+bot_txt_profile_name, "genAdsProfileBatchs", thisHost)
                     if not os.path.exists(batch_file):
                         log3("batched xlsx file doesn't exist either!", "genAdsProfileBatchs", thisHost)

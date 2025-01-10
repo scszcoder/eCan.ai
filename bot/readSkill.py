@@ -32,7 +32,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processPasteToData, processMouseMove, processGetWindowsInfo, processBringWindowToFront, \
     processExternalHook, processCreateRequestsSession, processECBCreateBots, processECBUpdateBots, \
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
-    processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates
+    processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates, \
+    processECBCollectBotProfiles
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -265,6 +266,7 @@ RAIS = {
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
     "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
     "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y),
+    "ECB Collect Bot Profiles": lambda x, y: processECBCollectBotProfiles(x, y),
     "API ADS Create Profile": lambda x, y: processAPIADSCreateProfile(x, y),
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
@@ -425,6 +427,7 @@ ARAIS = {
     "ECB Delete Missions": lambda x, y: processECBDeleteMissions(x, y),
     "ECB Fetch Daily Schedule": lambda x, y: processECBFetchDailySchedule(x, y),
     "ECB Dispatch Troops": lambda x, y: processECBDispatchTroops(x, y),
+    "ECB Collect Bot Profiles": lambda x, y: processECBCollectBotProfiles(x, y),
     "API ADS Create Profile": lambda x, y: processAPIADSCreateProfile(x, y),
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
