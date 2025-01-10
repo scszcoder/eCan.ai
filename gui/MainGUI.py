@@ -7255,7 +7255,7 @@ class MainWindow(QMainWindow):
                         file.write(file_contents)
                     log3(f"Saved new profile: {incoming_file_name}")
 
-                log3(f"Successfully updated profile: {file_name}")
+                log3(f"Successfully updated profile: {incoming_file_name}")
 
         except Exception as e:
             # Handle and log errors
@@ -9455,6 +9455,7 @@ class MainWindow(QMainWindow):
     def gatherFingerPrints(self):
         try:
             updated_profiles = []
+            duplicated_profiles = []
             if self.machine_role == "Platoon":
                 log3("gathering finger pritns....")
                 print("gaterhing fp profiles", self.ads_profile_dir)
@@ -9511,6 +9512,9 @@ class MainWindow(QMainWindow):
                             # Set the timestamp of the individual profile to match the batch profile's timestamp
                             if os.path.exists(individual_profile_path):
                                 os.utime(individual_profile_path, (batch_file_timestamp, batch_file_timestamp))
+                    else:
+                        log3(f"Duplicate profiles detected in: {batch_file}")
+                        duplicated_profiles.append(batch_file)
 
                     # Add processed usernames to the updated list
                     updated_usernames.update(usernames)
@@ -9544,6 +9548,18 @@ class MainWindow(QMainWindow):
                                 log3(f"Deleted old backup folder: {folder_path}")
                         except (IndexError, ValueError):
                             log3(f"Skipped invalid backup folder: {folder_path}")
+
+                # **Remove Old Duplicated Profiles**
+                for duplicate_file in duplicated_profiles:
+                    duplicate_file_date = os.path.basename(duplicate_file).split("_")[1:4]  # Extract yyyy, mm, dd
+                    try:
+                        duplicate_file_date = datetime.strptime("_".join(duplicate_file_date),
+                                                                         "%Y_%m_%d")
+                        if duplicate_file_date < two_weeks_ago:
+                            os.remove(duplicate_file)
+                            log3(f"Deleted old duplicate profile: {duplicate_file}")
+                    except (IndexError, ValueError):
+                        log3(f"Skipped invalid duplicate file: {duplicate_file}")
 
             return updated_profiles
 
