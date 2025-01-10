@@ -9479,6 +9479,7 @@ class MainWindow(QMainWindow):
                 # Process each batch file
                 for batch_file in batch_files:
                     log3(f"Processing batch file: {batch_file}")
+                    print(f"Processing batch file: {batch_file}")
 
                     # Extract usernames from the batch file
                     with open(batch_file, "r") as bf:
@@ -9496,6 +9497,7 @@ class MainWindow(QMainWindow):
 
                     if remaining_usernames:
                         log3(f"Updating profiles for: {remaining_usernames}")
+                        print(f"Updating profiles for: {remaining_usernames}")
                         updateIndividualProfileFromBatchSavedTxt(self, batch_file,
                                                                       excludeUsernames=list(updated_usernames))
                         # obtain batch file's time stamp
@@ -9512,28 +9514,31 @@ class MainWindow(QMainWindow):
 
                     # Add processed usernames to the updated list
                     updated_usernames.update(usernames)
+                    print(f"Updating usernames: {updated_usernames}")
 
+                print(f"Updating usernames: {len(updated_usernames)} {updated_usernames}")
                 # **Point #5: Save Backups and Delete Old Backup Directories**
                 # Create backup directory with a date suffix
-                today_date = datetime.datetime.now().strftime("%Y%m%d")
+                today_date = datetime.now().strftime("%Y%m%d")
                 backup_dir = os.path.join(self.ads_profile_dir, f"backup_{today_date}")
                 os.makedirs(backup_dir, exist_ok=True)
+                print(f"backup_dir: {backup_dir}")
 
                 # Backup all updated profiles
                 for profile in updated_profiles:
                     if os.path.exists(profile):
                         shutil.copy2(profile, backup_dir)  # Preserve file metadata during copy
 
-                log3(f"Backup created at: {backup_dir}")
+                print(f"Backup created at: {backup_dir}")
 
                 # Delete old backups (older than 2 weeks)
-                two_weeks_ago = datetime.datetime.now() - datetime.timedelta(weeks=2)
+                two_weeks_ago = datetime.now() - timedelta(weeks=2)
                 for folder in os.listdir(self.ads_profile_dir):
                     if folder.startswith("backup_"):
                         folder_path = os.path.join(self.ads_profile_dir, folder)
                         # Parse the date suffix from the folder name
                         try:
-                            folder_date = datetime.datetime.strptime(folder.split("_")[1], "%Y%m%d")
+                            folder_date = datetime.strptime(folder.split("_")[1], "%Y%m%d")
                             if folder_date < two_weeks_ago:
                                 shutil.rmtree(folder_path)
                                 log3(f"Deleted old backup folder: {folder_path}")
