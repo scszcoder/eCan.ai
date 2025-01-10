@@ -195,6 +195,7 @@ def log3(msg, mask='all', gui_main=None):
         wan_enabled = False
 
         log_flags = log_switches.get(mask, {"log": False, "py_console": False, "win_console": True, "range": "lan"})
+        # print("log_flags:", mask, log_flags)
         if log_flags["log"]:
             file_log_enabled = True
 

@@ -7416,6 +7416,7 @@ class MainWindow(QMainWindow):
                 # Handle network-related errors
                 log3(f"Error sending heartbeat to Commander: {e}", "serveCommander", self)
 
+            print("serving commander, checking queue...")
             if not msgQueue.empty():
                 try:
                     net_message = await msgQueue.get()
@@ -7432,13 +7433,14 @@ class MainWindow(QMainWindow):
                     log3("Error processing commander msg:" + traceback.format_exc() + " " + str(e), "serveCommander", self)
 
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             # log3("watching Commanders...", "serveCommander", self)
 
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         try:
+
             log3("received from commander: "+msgString, "serveCommander", self)
             if "!connection!" in msgString:
                 msg = {"cmd": "connection"}
@@ -7550,6 +7552,7 @@ class MainWindow(QMainWindow):
                 # this is for manual generated missions, simply added to the todo list.
             elif msg["cmd"] == "reqSyncFingerPrintProfiles":
                 # update vehicle status display.
+                # print("profile syncing request received.....")
                 log3(json.dumps(msg["content"]), "serveCommander", self)
                 # first gather all finger prints and update them to the latest
                 localFingerPrintProfiles = self.gatherFingerPrints()
@@ -8360,6 +8363,7 @@ class MainWindow(QMainWindow):
                 "profiles": profiles
             })
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
+            print("About to return sync resp: "+json_data)
             commander_link.write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
@@ -9409,7 +9413,7 @@ class MainWindow(QMainWindow):
             if self.machine_role == "Commander":
                 log3("syncing finger prints")
 
-                reqMsg = {"cmd": "reqSyncFingerPrintProfiles", "contents": "now"}
+                reqMsg = {"cmd": "reqSyncFingerPrintProfiles", "content": "now"}
 
                 # send over scheduled tasks to platton.
                 self.expected_vehicle_responses = {}
