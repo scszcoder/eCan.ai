@@ -59,22 +59,73 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         print(f"now we have {len(fieldLinks)} field links")
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+hostname))
 
-
     def data_received(self, data):
         try:
-            # Append incoming data to the buffer
-            self.buffer += data.decode()
+            # Decode the incoming data safely with error handling
+            decoded_data = data.decode('utf-8', errors='ignore')
+
+            # Append incoming decoded data to the buffer
+            self.buffer += decoded_data
 
             # Process each complete message in the buffer
             while "!ENDMSG!" in self.buffer:
                 message, self.buffer = self.buffer.split("!ENDMSG!", 1)
-                print("TCP received message:", message)
+                print("TCP received message (raw):", message)
 
-                # Enqueue the complete message
-                asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + message))
+                # Find the first '{' to clean up any junk before the JSON
+                start_index = message.find('{')
 
+                # Clean the message by slicing from the first '{'
+                if start_index != -1:
+                    clean_message = message[start_index:]
+                else:
+                    clean_message = message  # No '{' found, keep the original message
+
+                # Handle concatenated JSONs
+                while clean_message.strip():
+                    try:
+                        # Attempt to parse the first JSON object
+                        json_obj, end_index = json.JSONDecoder().raw_decode(clean_message)
+
+                        # Enqueue the parsed JSON object
+                        asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + json.dumps(json_obj)))
+
+                        # Remove the processed JSON from the clean_message
+                        clean_message = clean_message[end_index:].lstrip()
+                    except json.JSONDecodeError:
+                        # Break the loop if no more valid JSON objects can be decoded
+                        break
+
+        except UnicodeDecodeError as e:
+            # Handle decoding errors gracefully
+            print(f"Error decoding data: {e}. Skipping this chunk of data.")
         except Exception as e:
-            print(f"Error in data_received: {e}")
+            # Handle unexpected errors
+            print(f"Unexpected error in data_received: {e}")
+
+    #
+    # def data_received(self, data):
+    #     try:
+    #         # Append incoming data to the buffer
+    #         self.buffer += data.decode()
+    #
+    #         # Process each complete message in the buffer
+    #         while "!ENDMSG!" in self.buffer:
+    #             message, self.buffer = self.buffer.split("!ENDMSG!", 1)
+    #             print("TCP received message:", message)
+    #             start_index = message.find('{')
+    #
+    #             # Clean the message by slicing from the first '{'
+    #             if start_index != -1:
+    #                 clean_message = message[start_index:]
+    #             else:
+    #                 clean_message = message  # No '{' found, keep the original message
+    #
+    #             # Enqueue the complete message
+    #             asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net data!" + clean_message))
+    #
+    #     except Exception as e:
+    #         print(f"Error in data_received: {e}")
 
         # if not self.topgui == None:
         #     print("Queueing TCP recevied message:", message)

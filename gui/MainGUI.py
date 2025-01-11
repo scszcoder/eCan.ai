@@ -7040,6 +7040,7 @@ class MainWindow(QMainWindow):
             global running_step_index, fieldLinks
             fl_ips = [x["ip"] for x in fieldLinks]
             self.showMsg("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
+            print("msgString:", msgString)
             msg = json.loads(msgString)
 
             found = next((x for x in fieldLinks if x["ip"] == ip), None)
@@ -8360,6 +8361,7 @@ class MainWindow(QMainWindow):
             # Send data
             json_data = json.dumps({
                 "type": "botsADSProfilesBatchUpdate",
+                "ip": self.ip,
                 "profiles": profiles
             })
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
@@ -9418,6 +9420,7 @@ class MainWindow(QMainWindow):
                 # send over scheduled tasks to platton.
                 self.expected_vehicle_responses = {}
                 for vehicle in self.vehicles:
+                    print("vehicle:", vehicle.getName(), vehicle.getStatus())
                     if vehicle.getFieldLink() and "running" in vehicle.getStatus():
                         self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
                             "ip"] + "]: " + json.dumps(reqMsg))
@@ -9426,10 +9429,13 @@ class MainWindow(QMainWindow):
                         self.expected_vehicle_responses[vehicle.getName()] = None
 
                 #now wait for the response to all come back. for each v, give it 10 seconds.
-                VTIMEOUT = 8
+                VTIMEOUT = 10
                 sync_time_out =  len(self.expected_vehicle_responses.keys())*VTIMEOUT
+                print("waiting for ", sync_time_out, "seconds....")
                 while not self.allResponded() and not (sync_time_out == 0):
                     time.sleep(1)
+                    sync_time_out = sync_time_out-1
+                    print("tick...", sync_time_out)
 
 
         except Exception as e:
