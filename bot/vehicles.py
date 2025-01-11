@@ -25,7 +25,7 @@ class VEHICLE(QStandardItem):
         self.daily_mids = []
         self.functions = ""
         self.CAP = 16*4*2       # 16xhr/day, 4x15min time slot/hr, 1 agent can run every 2 days.
-
+        self.test_disabled = False
 
     def getFieldLink(self):
         return self.field_link
@@ -128,6 +128,12 @@ class VEHICLE(QStandardItem):
     def setFunctions(self, fs):
         self.functions = fs
 
+    def getTestDisabled(self):
+        return self.test_disabled
+
+    def setTestDisabled(self, td):
+        self.test_disabled = td
+
     def genJson(self):
         jsd = {
                 "vid": self.id,
@@ -138,6 +144,7 @@ class VEHICLE(QStandardItem):
                 "bot_ids": self.bot_ids,
                 "status": self.status,
                 "functions": self.functions,
+                "test_disabled": self.test_disabled,
                 "last_update_time": self.last_update_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
                 }
         return jsd
@@ -152,4 +159,5 @@ class VEHICLE(QStandardItem):
         self.setStatus(dj.get("status", ""))
         self.bot_ids = dj.get("bot_ids", [])
         self.functions = dj.get("functions", [])
+        self.test_disabled = dj.get("test_disabled", False)
         self.last_update_time = datetime.strptime(dj.get("last_update_time", "1970-01-01 00:00:00.000"), "%Y-%m-%d %H:%M:%S.%f")
