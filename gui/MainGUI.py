@@ -1827,7 +1827,7 @@ class MainWindow(QMainWindow):
             print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
             # print("current work to do:", self.todays_work)
             # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
-            self.assignWork()
+            # self.assignWork()
 
             log3("current unassigned scheduled task groups after assignwork:"+json.dumps(self.unassigned_scheduled_task_groups), "fetchSchedule", self)
             log3("current work to do after assignwork:"+json.dumps(self.todays_work), "fetchSchedule", self)
@@ -2616,17 +2616,11 @@ class MainWindow(QMainWindow):
                     for k, v in enumerate(v_groups[key]):
                         log3("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n", "assignWork", self)
             print("assigning work....")
-            print("unassigned_scheduled_task_groups", self.unassigned_scheduled_task_groups)
-            # for platform in v_groups.keys():
-            #     p_task_groups = self.unassigned_scheduled_task_groups[platform]
-            #     p_nsites = len(v_groups[platform])
-            #
-            #     self.showMsg("p_nsites for "+platform+":"+str(p_nsites))
+
             log3("unassigned_scheduled_task_groups: "+json.dumps(self.unassigned_scheduled_task_groups), "assignWork", self)
             tbd_unassigned = []
             for vname in self.unassigned_scheduled_task_groups:
                 log3("assignwork scheduled checking vehicle: "+vname, "assignWork", self)
-                print("vname:", vname)
                 p_task_groups = self.unassigned_scheduled_task_groups[vname]      # flattend per vehicle tasks.
                 log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
                 print("p_task_groups:", p_task_groups)
@@ -2661,9 +2655,10 @@ class MainWindow(QMainWindow):
                         log3("assign work for vehicle:"+vname, "assignWork", self)
                         print("assign for other machine...", vname, vehicle.getVid(), vehicle.getStatus())
 
-                        self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
-                        if "running" in vehicle.getStatus():
-                            self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
+                        if not vehicle.getTestDisabled():
+                            self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
+                            if "running" in vehicle.getStatus():
+                                self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
             if tbd_unassigned:
                 log3("deleting alread assigned schedule task groups", "assignWork", self)
                 for vname in tbd_unassigned:
@@ -2706,9 +2701,10 @@ class MainWindow(QMainWindow):
                         # vidx = i
                         vehicle = self.getVehicleByName(vname)
                         log3("assign reactive work for vehicle:"+vname, "assignWork", self)
-                        self.vehicleSetupWorkSchedule(vehicle, p_task_groups, False)
-                        if "running" in vehicle.getStatus():
-                            self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
+                        if not vehicle.getTestDisabled():
+                            self.vehicleSetupWorkSchedule(vehicle, p_task_groups, False)
+                            if "running" in vehicle.getStatus():
+                                self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
 
             if tbd_unassigned:
                 log3("deleting alread assigned reactive task groups", "assignWork", self)
@@ -4625,7 +4621,10 @@ class MainWindow(QMainWindow):
                 self.saveVehicle(new_v)
                 self.vehicles.append(new_v)
                 self.runningVehicleModel.appendRow(new_v)             # initially set to be offline state and will be updated later when network status is updated
-
+            else:
+                if "test_disabled" in vjd:
+                    foundV = self.getVehicleByName(vjd["name"])
+                    foundV.setTestDisabled(vjd["test_disabled"])
 
     def saveVehiclesJsonFile(self):
         if self.VEHICLES_FILE == None:
@@ -4972,7 +4971,7 @@ class MainWindow(QMainWindow):
 
                 if selected_act == self.vehicleSetUpWorkScheduleAction:
                     print("vehicle setup work schedule clicked....", self.selected_vehicle_item.getName())
-                    self.vehicleSetupWorkSchedule(self.selected_vehicle_item, self.todaysSchedule)
+                    self.vehicleSetupWorkSchedule(self.selected_vehicle_item, self.todays_scheduled_task_groups)
 
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
@@ -6478,7 +6477,7 @@ class MainWindow(QMainWindow):
                     if not (botTodos == None):
                         log3("working on..... "+botTodos["name"], "runbotworks", self)
                         self.working_state = "running_working"
-                        
+
                         if botTodos["name"] == "automation":
                             # run 1 bot's work
                             log3("running RPA.............."+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
@@ -7084,6 +7083,7 @@ class MainWindow(QMainWindow):
                     # check = all(item in List1 for item in List2)
                     # this means all reports are collected, this is the last missing piece, ready to send to cloud.
                     self.doneWithToday()
+                    self.num_todays_task_groups = 0
             elif msg["type"] == "botsADSProfilesUpdate":
                 self.showMsg("received botsADSProfilesUpdate message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
