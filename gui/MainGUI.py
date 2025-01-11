@@ -306,7 +306,7 @@ class MainWindow(QMainWindow):
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
-
+        self.botsFingerPrintsReady = False
         self.default_webdriver = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
 
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
@@ -7142,12 +7142,13 @@ class MainWindow(QMainWindow):
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receivePlatoonBotsADSProfileUpdateMessage(msg)
             elif msg["type"] == "botsADSProfilesBatchUpdate":
-                self.showMsg("received botsADSProfilesBatchUpdate message")
+                log3("received botsADSProfilesBatchUpdate message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receiveBotsADSProfilesBatchUpdateMessage(msg)
                 self.expected_vehicle_responses[found_vehicle.getName()] = "Yes"
                 if self.allResponded():
                     print("all ads profiles updated...")
+                    self.botsFingerPrintsReady = True
 
             elif msg["type"] == "missionResultFile":
                 self.showMsg("received missionResultFile message")
@@ -7233,7 +7234,8 @@ class MainWindow(QMainWindow):
 
             for profile in profiles:
                 # Resolve full file path
-                incoming_file_name = self.my_ecb_data_homepath + profile["file_name"]
+                file_name = os.path.basename(profile["file_name"])
+                incoming_file_name = os.path.join(self.ads_profile_dir, file_name)
                 incoming_file_timestamp = profile.get("timestamp")
                 file_contents = base64.b64decode(profile["file_contents"])  # Decode base64-encoded binary data
 
@@ -7246,6 +7248,8 @@ class MainWindow(QMainWindow):
                         # Incoming file is newer, replace the existing file
                         with open(incoming_file_name, "wb") as file:
                             file.write(file_contents)
+
+                        os.utime(incoming_file_name, (incoming_file_timestamp, incoming_file_timestamp))
                         log3(f"Updated profile: {incoming_file_name} (newer timestamp)")
                     else:
                         # Incoming file is older, skip saving
@@ -7254,6 +7258,8 @@ class MainWindow(QMainWindow):
                     # File doesn't exist, save it
                     with open(incoming_file_name, "wb") as file:
                         file.write(file_contents)
+                    # Optionally, set the timestamp to the incoming file's timestamp (if desired)
+                    os.utime(incoming_file_name, (incoming_file_timestamp, incoming_file_timestamp))
                     log3(f"Saved new profile: {incoming_file_name}")
 
                 log3(f"Successfully updated profile: {incoming_file_name}")
@@ -7559,8 +7565,8 @@ class MainWindow(QMainWindow):
                 localFingerPrintProfiles = self.gatherFingerPrints()
                 self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
 
-            elif msg["type"] == "botsADSProfilesBatchUpdate":
-                self.showMsg("received botsADSProfilesBatchUpdate message")
+            elif msg["cmd"] == "botsADSProfilesBatchUpdate":
+                log3("received commander botsADSProfilesBatchUpdate message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receiveBotsADSProfilesBatchUpdateMessage(msg)
 
@@ -8381,13 +8387,17 @@ class MainWindow(QMainWindow):
     def batch_send_ads_profiles_to_platoon(self, platoon_link, file_type, file_paths):
         try:
             if not platoon_link:
-                self.showMsg("ErrorSendFilesToCommander: TCP link doesn't exist")
+                log3("ErrorSendFilesToCommander: TCP link doesn't exist", "gatherFingerPrints", self)
                 return
 
+            print("# files", len(file_paths))
             profiles = []
             for file_name_full_path in file_paths:
+                print("checking", file_name_full_path)
                 if os.path.exists(file_name_full_path):
-                    self.showMsg(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}")
+                    print("hello?")
+                    # log3(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}", "gatherFingerPrints", self)
+                    # print(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}")
                     with open(file_name_full_path, 'rb') as fileTBSent:
                         binary_data = fileTBSent.read()
                         encoded_data = base64.b64encode(binary_data).decode('utf-8')
@@ -8403,13 +8413,17 @@ class MainWindow(QMainWindow):
                         })
 
                 else:
-                    self.showMsg(f"Warning: ADS Profile [{file_name_full_path}] not found")
+                    log3(f"Warning: ADS Profile [{file_name_full_path}] not found", "gatherFingerPrints", self)
+                    print(f"Warning: ADS Profile [{file_name_full_path}] not found")
 
             # Send data
+            print("profiles ready")
             json_data = json.dumps({
-                "type": "botsADSProfilesBatchUpdate",
+                "cmd": "botsADSProfilesBatchUpdate",
+                "ip": self.ip,
                 "profiles": profiles
             })
+            print("about to sendout:", json_data)
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
             platoon_link.write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
@@ -9412,6 +9426,7 @@ class MainWindow(QMainWindow):
     # if the incoming file has a later time stamp, then overwrite the existing one.
     def syncFingerPrintRequest(self):
         try:
+            self.botFingerPrintsReady = False
             if self.machine_role == "Commander":
                 log3("syncing finger prints")
 
@@ -9429,10 +9444,11 @@ class MainWindow(QMainWindow):
                         self.expected_vehicle_responses[vehicle.getName()] = None
 
                 #now wait for the response to all come back. for each v, give it 10 seconds.
-                VTIMEOUT = 10
+                VTIMEOUT = 12
                 sync_time_out =  len(self.expected_vehicle_responses.keys())*VTIMEOUT
+                sync_time_out = VTIMEOUT
                 print("waiting for ", sync_time_out, "seconds....")
-                while not self.allResponded() and not (sync_time_out == 0):
+                while not( sync_time_out == 0):
                     time.sleep(1)
                     sync_time_out = sync_time_out-1
                     print("tick...", sync_time_out)
@@ -9579,19 +9595,28 @@ class MainWindow(QMainWindow):
             return []
 
     def vehicleSetupTeam(self, vehicle):
-        print("send all ads profiles to the vehicle")
         vname = vehicle.getName()
+        print("send all ads profiles to the vehicle", vname)
+
         # find all bots on this vehicle,
         vbs = [b for b in self.bots if b.getVehicle() == vname]
+        allvbids = [b.getBid() for b in vbs]
+        print([(b.getBid(), b.getVehicle(), b.getEmail()) for b in self.bots])
+        print("all bids on vehicle:", len(vbs), allvbids)
         # gather all ads profiles fo the bots, and send over the files.
-        bot_profile_paths = [b.getADSProfile() for b in vbs]
+        bot_profile_paths = [os.path.join(self.ads_profile_dir, b.getEmail().split("@")[0]+".txt") for b in vbs]
+        # bot_profile_paths = [b.getADSProfile() for b in vbs]
+        print("all vb profiles:", bot_profile_paths)
+        print("all fl names:", [fl["name"] for fl in fieldLinks])
         #
-        vlink = next((fl for i, fl in enumerate(fieldLinks) if vname in fl["name"]), None)
+        vlink = next((fl for i, fl in enumerate(fieldLinks) if fl["name"] in vname), None)
 
         # if not self.tcpServer == None:
         if vlink:
             print("sending all bot profiles to platoon...")
             self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)
+        else:
+            print("WARNING: vehicle not connected!")
 
 
     def setUpBotADSProfilesOnVehicles(self):
