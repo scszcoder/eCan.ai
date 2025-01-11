@@ -226,6 +226,8 @@ class MainWindow(QMainWindow):
             self.functions = "manager,hr,it"
         else:
             self.functions = ""
+
+        self.todaysSchedule = {}
         self.schedule_mode = schedule_mode
         self.ip = ip
         self.main_key = main_key
@@ -1558,7 +1560,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Reschedule"))
-        new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings("true")))
+        new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings("true"), True))
         return new_action
 
 
@@ -1751,6 +1753,12 @@ class MainWindow(QMainWindow):
         # self.test_scroll()
         # test_get_all_wins()
 
+        today = datetime.now()
+        # Format the date as yyyymmdd
+        yyyymmdd = today.strftime("%Y%m%d")
+        sf_name = "schedule" + yyyymmdd
+        schedule_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
+        print("schedule file name:", schedule_file)
         # test_ads_batch(self)
         # test_sqlite3(self)
         # test_read_buy_req_files(self)
@@ -1830,7 +1838,7 @@ class MainWindow(QMainWindow):
             self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
 
     # this function fetches schedule and assign work based on fetch schedule results...
-    def fetchSchedule(self, ts_name, settings):
+    def fetchSchedule(self, ts_name, settings, forceful=False):
         log3("start fetching schedule...", "fetchSchedule", self)
         ex_stat = "Completed:0"
         try:
@@ -1838,14 +1846,25 @@ class MainWindow(QMainWindow):
             # self.newBuyMissionFromFiles()
             # self.createNewBotsFromBotsXlsx()
             # self.createNewMissionsFromOrdersXlsx()
+            today = datetime.now()
+            # Format the date as yyyymmdd
+            yyyymmdd = today.strftime("%Y%m%d")
+            sf_name = "schedule" + yyyymmdd+".json"
+            schedule_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
 
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
             bodyobj = {}
             # next line commented out for testing purpose....
             if not self.debug_mode and self.schedule_mode == "auto":
                 log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
-                jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
-                log3("schedule JRESP:"+json.dumps(jresp), "fetchSchedule", self)
+                todaysScheduleExists = os.path.exists(schedule_file)
+                log3(f"schedule file {schedule_file} exists: {todaysScheduleExists}", "fetchSchedule", self)
+                if not todaysScheduleExists or forceful:
+                    jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
+                    log3("schedule JRESP:"+json.dumps(jresp), "fetchSchedule", self)
+                else:
+                    with open(schedule_file) as sf:
+                        jresp = json.load(sf)
             else:
                 log3("debug mode, skipping cloud fetch schedule", "fetchSchedule", self)
                 jresp = {}
@@ -1857,7 +1876,10 @@ class MainWindow(QMainWindow):
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
                 if not self.debug_mode and self.schedule_mode == "auto":
-                    uncompressed = self.zipper.decompressFromBase64(jresp["body"])            # commented out for testing
+                    if not todaysScheduleExists or forceful:
+                        uncompressed = self.zipper.decompressFromBase64(jresp["body"])   # commented out for testing
+                    else:
+                        uncompressed = "{}"
                 else:
                     uncompressed = "{}"
 
@@ -1872,7 +1894,10 @@ class MainWindow(QMainWindow):
                     bodyobj = {"task_groups": {}, "added_missions": []}
 
                     if not self.debug_mode and self.schedule_mode == "auto":
-                        bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
+                        if not todaysScheduleExists or forceful:
+                            bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
+                        else:
+                            bodyobj = jresp
                     else:
                         log3("debug mode, using test vector....", "fetchSchedule", self)
                         # file = 'C:/software/scheduleResultTest7.json'
@@ -1889,8 +1914,11 @@ class MainWindow(QMainWindow):
                 else:
                     self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
 
-
+            if ((not todaysScheduleExists) or forceful) and (not self.debug_mode) and (self.schedule_mode == "auto"):
+                log3(f"saving schedule file {schedule_file}", "fetchSchedule", self)
+                json.dump(bodyobj, schedule_file, indent=4)
             print("done with fetch schedule....", bodyobj)
+            self.todaysSchedule = bodyobj
             return bodyobj
         # ni is already incremented by processExtract(), so simply return it.
         except Exception as e:
@@ -2632,53 +2660,10 @@ class MainWindow(QMainWindow):
                         print("VVV:",vehicle)
                         log3("assign work for vehicle:"+vname, "assignWork", self)
                         print("assign for other machine...", vname, vehicle.getVid(), vehicle.getStatus())
-                        if vehicle and "running" in vehicle.getStatus():
-                            log3("working on remote task group vehicle : " + vname, "assignWork", self)
-                            # flatten tasks and regroup them based on sites, and divide them into batches
-                            # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
-                            print("add buy search", batched_tasks)
-                            self.add_buy_searchs(batched_tasks)
 
-                            print("ads_profiles:", ads_profiles)
-                            # send fingerprint browser profiles to platoon/vehicle
-                            # for profile in ads_profiles:
-                            #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
-                            self.vehicleSetupTeam(vehicle)
-
-                            # now need to fetch this task associated bots, mission, skills
-                            # get all bots IDs involved. get all mission IDs involved.
-                            tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups)
-                            vehicle.setBotIds(tg_botids)
-                            vehicle.setMids(tg_botids)
-
-                            self.showMsg("tg_skids:"+json.dumps(tg_skids))
-                            # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
-                            # execute
-                            # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
-                            resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
-                            schedule = {"cmd": "reqSetSchedule", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
-
-                            # send over scheduled tasks to platton.
-                            if vehicle.getFieldLink():
-                                self.showMsg(get_printable_datetime() + "SENDING ["+vname+"]PLATOON["+vehicle.getFieldLink()["ip"]+"] SCHEDULE::: "+json.dumps(schedule))
-
-                                self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
-
-                                # send over skills to platoon
-                                self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
-
-                                self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
-
-                            else:
-                                self.showMsg(get_printable_datetime() + "scheduled vehicle "+vname+" is not FOUND on LAN.")
-                        else:
-                            log3("WARNING: scheduled vehicle not found on network at the moment: "+vname, "assignWork", self)
-
-                    # else:
-                    #     self.showMsg(get_printable_datetime() + f" - There is no [{platform}] based vehicles at this moment for "+ str(len(p_task_groups)) + f" task groups on {platform}")
-
-
+                        self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
+                        if "running" in vehicle.getStatus():
+                            self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
             if tbd_unassigned:
                 log3("deleting alread assigned schedule task groups", "assignWork", self)
                 for vname in tbd_unassigned:
@@ -2721,45 +2706,9 @@ class MainWindow(QMainWindow):
                         # vidx = i
                         vehicle = self.getVehicleByName(vname)
                         log3("assign reactive work for vehicle:"+vname, "assignWork", self)
-                        if vehicle and "running" in vehicle.getStatus():
-                            log3("working on reactive task group vehicle : " + vname, "assignWork", self)
-                            # flatten tasks and regroup them based on sites, and divide them into batches
-                            # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
-                            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
-
-                            # send fingerprint browser profiles to platoon/vehicle
-                            # for profile in ads_profiles:
-                            #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
-                            self.vehicleSetupTeam(vehicle)
-
-                            # now need to fetch this task associated bots, mission, skills
-                            # get all bots IDs involved. get all mission IDs involved.
-                            tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups)
-                            vehicle.setBotIds(tg_botids)
-                            vehicle.setMids(tg_botids)
-
-                            log3("tg_skids:"+json.dumps(tg_skids), "assignWork", self)
-                            # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
-                            # execute
-                            # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
-                            resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids, tg_skids)
-                            schedule = {"cmd": "reqSetReactiveWorks", "todos": batched_tasks, "bots": resource_bots, "missions": resource_missions, "skills": resource_skills}
-
-                            # send over scheduled tasks to platton.
-                            if vehicle.getFieldLink():
-                                self.showMsg(get_printable_datetime() + "SENDING ["+vname+"]PLATOON["+vehicle.getFieldLink()["ip"]+"] SCHEDULE::: "+json.dumps(schedule))
-
-                                self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
-
-                                # send over skills to platoon
-                                self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
-
-                                self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
-
-                            else:
-                                log3(get_printable_datetime() + "reactive vehicle "+vname+" is not FOUND on LAN.", "assignWork", self)
-                        else:
-                            log3("WARNING: reactive vehicle not found on network at the moment: "+vname, "assignWork", self)
+                        self.vehicleSetupWorkSchedule(vehicle, p_task_groups, False)
+                        if "running" in vehicle.getStatus():
+                            self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
 
             if tbd_unassigned:
                 log3("deleting alread assigned reactive task groups", "assignWork", self)
@@ -4357,37 +4306,42 @@ class MainWindow(QMainWindow):
                 self.showMsg("WARNIN: cloud NOT updated.", "warn")
 
     def addBotsMissionsSkillsFromCommander(self, botsJson, missionsJson, skillsJson):
-
+        existinBids = [b.getBid() for b in self.bots]
+        existinMids = [m.getMid() for m in self.missions]
+        existinSkids = [sk.getSkid() for sk in self.skills]
         # self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
         # self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
         # self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
         for bjs in botsJson:
-            self.newBot = EBBOT(self)
-            self.newBot.loadJson(bjs)
-            self.newBot.updateIcon()
-            self.bots.append(self.newBot)
-            self.botModel.appendRow(self.newBot)
-            self.selected_bot_row = self.botModel.rowCount() - 1
-            self.selected_bot_item = self.botModel.item(self.selected_bot_row)
-            bot_profile_name = self.my_ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
-            if bot_profile_name not in self.todays_bot_profiles:
-                self.todays_bot_profiles.append(bot_profile_name)
+            if int(bjs["bid"]) not in existinBids:
+                self.newBot = EBBOT(self)
+                self.newBot.loadJson(bjs)
+                self.newBot.updateIcon()
+                self.bots.append(self.newBot)
+                self.botModel.appendRow(self.newBot)
+                self.selected_bot_row = self.botModel.rowCount() - 1
+                self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+                bot_profile_name = self.my_ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
+                if bot_profile_name not in self.todays_bot_profiles:
+                    self.todays_bot_profiles.append(bot_profile_name)
 
         for mjs in missionsJson:
-            self.newMission = EBMISSION(self)
-            self.newMission.loadJson(mjs)
-            self.newMission.updateIcon()
-            self.missions.append(self.newMission)
-            self.missionModel.appendRow(self.newMission)
-            self.selected_mission_row = self.missionModel.rowCount() - 1
-            self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
+            if int(mjs["mid"]) not in existinMids:
+                self.newMission = EBMISSION(self)
+                self.newMission.loadJson(mjs)
+                self.newMission.updateIcon()
+                self.missions.append(self.newMission)
+                self.missionModel.appendRow(self.newMission)
+                self.selected_mission_row = self.missionModel.rowCount() - 1
+                self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
 
         for skjs in skillsJson:
-            self.newSkill = WORKSKILL(self, skjs["name"])
-            self.newSkill.loadJson(skjs)
-            self.newSkill.updateIcon()
-            self.skills.append(self.newSkill)
-            # self.skillModel.appendRow(self.newSkill)
+            if int(skjs["skid"]) not in existinSkids:
+                self.newSkill = WORKSKILL(self, skjs["name"])
+                self.newSkill.loadJson(skjs)
+                self.newSkill.updateIcon()
+                self.skills.append(self.newSkill)
+                # self.skillModel.appendRow(self.newSkill)
 
 
     def addVehicle(self, vname, vip):
@@ -5000,7 +4954,9 @@ class MainWindow(QMainWindow):
             self.vehicleViewAction = self._createVehicleViewAction()
             self.popMenu.addAction(self.vehicleViewAction)
             self.vehicleSetUpTeamAction = self._createVehicleSetUpTeamAction()
+            self.vehicleSetUpWorkScheduleAction = self._createVehicleSetUpWorkScheduleAction()
             self.popMenu.addAction(self.vehicleSetUpTeamAction)
+            self.popMenu.addAction(self.vehicleSetUpWorkScheduleAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -5013,6 +4969,10 @@ class MainWindow(QMainWindow):
                 if selected_act == self.vehicleSetUpTeamAction:
                     print("vehicle setup team clicked....", self.selected_vehicle_item.getName())
                     self.vehicleSetupTeam(self.selected_vehicle_item)
+
+                if selected_act == self.vehicleSetUpWorkScheduleAction:
+                    print("vehicle setup work schedule clicked....", self.selected_vehicle_item.getName())
+                    self.vehicleSetupWorkSchedule(self.selected_vehicle_item, self.todaysSchedule)
 
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
@@ -5338,6 +5298,11 @@ class MainWindow(QMainWindow):
     def _createVehicleSetUpTeamAction(self):
        new_action = QAction(self)
        new_action.setText(QApplication.translate("QAction", "&Set Up Team"))
+       return new_action
+
+    def _createVehicleSetUpWorkScheduleAction(self):
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Set Up Work Schedule"))
        return new_action
 
 
@@ -6513,26 +6478,8 @@ class MainWindow(QMainWindow):
                     if not (botTodos == None):
                         log3("working on..... "+botTodos["name"], "runbotworks", self)
                         self.working_state = "running_working"
-                        if botTodos["name"] == "fetch schedule":
-                            log3("fetching schedule.........."+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "runbotworks", self)
-                            last_start = int(datetime.now().timestamp()*1)
-
-                            # this should be a daily routine, do it along with fetch schedule which is also daily routine.
-                            self.dailySkillsetUpdate()
-
-                            botTodos["status"] = self.fetchSchedule("", self.get_vehicle_settings())
-                            last_end = int(datetime.now().timestamp()*1)
-                            # there should be a step here to reconcil the mission fetched and missions already there in local data structure.
-                            # if there are new cloud created walk missions, should add them to local data structure and store to the local DB.
-                            # if "Completed" in botTodos["status"]:
-                            current_run_report = self.genRunReport(runType, last_start, last_end, 0, 0, botTodos["status"])
-                            log3("POP the daily initial fetch schedule task from queue", "runbotworks", self)
-                            finished = self.todays_work["tbd"].pop(0)
-                            self.todays_completed.append(finished)
-                            time.sleep(5)
-                            log3("done fetching schedule."+"<>" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "runbotworks", self)
-
-                        elif botTodos["name"] == "automation":
+                        
+                        if botTodos["name"] == "automation":
                             # run 1 bot's work
                             log3("running RPA.............."+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
                             if "Completed" not in botTodos["status"]:
@@ -8425,7 +8372,7 @@ class MainWindow(QMainWindow):
             })
             print("about to sendout:", json_data)
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
-            platoon_link.write(length_prefix + json_data.encode('utf-8'))
+            platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
             # Get the traceback information
@@ -9624,3 +9571,68 @@ class MainWindow(QMainWindow):
         for v in self.vehicles:
             if "running" in v.getStatus():
                 self.vehicleSetupTeam(v)
+
+    # from task group extract the vehicle related work, and get bots, missions, skills
+    # all ready and send over to the vehicle to get the work started.
+    def vehicleSetupWorkSchedule(self, vehicle, p_task_groups, scheduled=True):
+        try:
+            vname = vehicle.getName()
+            if vehicle and "running" in vehicle.getStatus():
+                log3("working on remote task group vehicle : " + vname, "assignWork", self)
+                # flatten tasks and regroup them based on sites, and divide them into batches
+                # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
+                batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
+                print("add buy search", batched_tasks)
+                self.add_buy_searchs(batched_tasks)
+
+                print("ads_profiles:", ads_profiles)
+                # send fingerprint browser profiles to platoon/vehicle
+                # for profile in ads_profiles:
+                #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+                self.vehicleSetupTeam(vehicle)
+
+                # now need to fetch this task associated bots, mission, skills
+                # get all bots IDs involved. get all mission IDs involved.
+                tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups)
+                vehicle.setBotIds(tg_botids)
+                vehicle.setMids(tg_botids)
+
+                self.showMsg("tg_skids:" + json.dumps(tg_skids))
+                # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
+                # execute
+                # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
+                resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids,
+                                                                                                        tg_skids)
+                if scheduled:
+                    workCmd = "reqSetSchedule"
+                else:
+                    workCmd = "reqSetReactiveWorks"
+                schedule = {"cmd": workCmd, "todos": batched_tasks, "bots": resource_bots,
+                            "missions": resource_missions, "skills": resource_skills}
+
+                # send over scheduled tasks to platton.
+                if vehicle.getFieldLink():
+                    self.showMsg(get_printable_datetime() + "SENDING [" + vname + "]PLATOON[" + vehicle.getFieldLink()[
+                        "ip"] + "] SCHEDULE::: " + json.dumps(schedule))
+
+                    self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+
+                    # send over skills to platoon
+                    self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
+
+                else:
+                    log3(get_printable_datetime() + "scheduled vehicle " + vname + " is not FOUND on LAN.", "assignWork", self)
+            else:
+                log3("WARNING: scheduled vehicle not found on network at the moment: " + vname, "assignWork", self)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorVehicleSetupWorkSchedule:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorVehicleSetupWorkSchedule: traceback information not available:" + str(e)
+            log3(ex_stat, "assignWork", self)
+
+
