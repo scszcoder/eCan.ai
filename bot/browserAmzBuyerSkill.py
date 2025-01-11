@@ -3679,74 +3679,74 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
 
         this_step, step_words = genStepStub("start skill main", "public/win_chrome_amz_home/team_prep", "", this_step)
         psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("obj", "daily_schedule", "NA", None, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("boolean", "fetch_success", "NA", False, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("boolean", "prep_success", "NA", False, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("boolean", "dispatch_success", "NA", False, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("boolean", "profiles_updated", "NA", False, this_step)
-        psk_words = psk_words + step_words
-
-        # this_step, step_words = genStepCreateData("string", "file_path", "NA", "daily_prep_hook.py", this_step)
+        #
+        # this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
         # psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("string", "file_prefix", "NA", "", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'team_prep_hook.py'", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login\nparams['test_mode']=True", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("string", "ts_name", "NA", "", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("string", "forceful", "NA", "false", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("obj", "hook_result", "NA", None, this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCreateData("obj", "works_ready_to_dispatch", "NA", None, this_step)
-        psk_words = psk_words + step_words
-
-        # fetch daily schedule
-        this_step, step_words = genStepECBFetchDailySchedule("ts_name", "forceful", "daily_schedule", "fetch_success", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepECBCollectBotProfiles("op_results", "profiles_updated", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCallExtern("global params, daily_schedule\nparams['daily_schedule']=daily_schedule\n", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
-
-        # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
-        # 1) check whether an account has enough resource to do the job(funding)
-        # 2）for the ones qualified to run, fill in buy details.
-        this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "hook_result", "prep_success", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepCallExtern("global works_ready_to_dispatch, hook_result\nworks_ready_to_dispatch=hook_result['result']\n", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
-
-        # dispatch the works to the worker agents.
-        this_step, step_words = genStepECBDispatchTroops("works_ready_to_dispatch", "dispatch_result", "dispatch_success", this_step)
-        psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("obj", "daily_schedule", "NA", None, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("boolean", "fetch_success", "NA", False, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("boolean", "prep_success", "NA", False, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("boolean", "dispatch_success", "NA", False, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("boolean", "profiles_updated", "NA", False, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # # this_step, step_words = genStepCreateData("string", "file_path", "NA", "daily_prep_hook.py", this_step)
+        # # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("string", "file_prefix", "NA", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'team_prep_hook.py'", "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login\nparams['test_mode']=True", "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("string", "ts_name", "NA", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("string", "forceful", "NA", "false", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("obj", "hook_result", "NA", None, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCreateData("obj", "works_ready_to_dispatch", "NA", None, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # # fetch daily schedule
+        # this_step, step_words = genStepECBFetchDailySchedule("ts_name", "forceful", "daily_schedule", "fetch_success", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepECBCollectBotProfiles("op_results", "profiles_updated", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCallExtern("global params, daily_schedule\nparams['daily_schedule']=daily_schedule\n", "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
+        # # 1) check whether an account has enough resource to do the job(funding)
+        # # 2）for the ones qualified to run, fill in buy details.
+        # this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "hook_result", "prep_success", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCallExtern("global works_ready_to_dispatch, hook_result\nworks_ready_to_dispatch=hook_result['result']\n", "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # # dispatch the works to the worker agents.
+        # this_step, step_words = genStepECBDispatchTroops("works_ready_to_dispatch", "dispatch_result", "dispatch_success", this_step)
+        # psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_chrome_amz_home/team_prep", "", this_step)
         psk_words = psk_words + step_words
