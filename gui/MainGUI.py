@@ -8293,8 +8293,6 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg(f"ErrorSendJsonToCommander: TCP link doesn't exist")
 
-
-
     def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and commander_link:
             self.showMsg(f"Sending File [{file_name_full_path}] to commander: " + self.commanderIP)
