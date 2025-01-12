@@ -1819,7 +1819,7 @@ class MainWindow(QMainWindow):
             bd_parts = nm["createon"].split()
             nm["createon"] = formatted_today + " " + bd_parts[1]
 
-        log3("cloud schedule works: " + json.dumps(bodyobj), "fetchSchedule", self)
+        log3("cloud schedule works:" + json.dumps(bodyobj), "fetchSchedule", self)
         if len(bodyobj) > 0:
             log3("BEGIN ASSIGN INCOMING MISSION....", "fetchSchedule", self)
             self.build_cookie_site_lists()
