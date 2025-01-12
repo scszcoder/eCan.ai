@@ -1804,7 +1804,7 @@ class MainWindow(QMainWindow):
 
     def runTodaysLocalWork(self):
         # send a request to commander for today's scheduled work.
-        workReq = {"type": "reqResendWorkReq"}
+        workReq = {"type": "reqResendWorkReq", "ip": self.ip, "content": "now"}
         self.send_json_to_commander(self.commanderXport, workReq)
 
     # 1) prepre ads profile cookies
