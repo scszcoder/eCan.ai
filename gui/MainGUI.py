@@ -583,6 +583,7 @@ class MainWindow(QMainWindow):
         self.settingsAccountAction = self._createSettingsAccountAction()
         self.settingsEditAction = self._createSettingsEditAction()
 
+        self.runRunLocalWorksAction = self._createRunLocalWorkAction()
         self.runRunAllAction = self._createRunRunAllAction()
         self.runTestAllAction = self._createRunTestAllAction()
 
@@ -1231,7 +1232,7 @@ class MainWindow(QMainWindow):
         try:
             self.showMsg("saving general settings:" + json.dumps(self.general_settings))
             with open(self.general_settings_file, 'w') as f:
-                json.dump(self.general_settings, f)
+                json.dump(self.general_settings, f, indent=4)
                 # self.rebuildHTML()
                 f.close()
         except IOError:
@@ -1314,6 +1315,7 @@ class MainWindow(QMainWindow):
 
         run_menu = QMenu(QApplication.translate("QMenu", "&Run"), self)
         run_menu.setFont(self.main_menu_font)
+        run_menu.addAction(self.runRunLocalWorksAction)
         run_menu.addAction(self.runRunAllAction)
         run_menu.addAction(self.runTestAllAction)
         menu_bar.addMenu(run_menu)
@@ -1530,6 +1532,13 @@ class MainWindow(QMainWindow):
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Run All"))
         new_action.triggered.connect(self.manualRunAll)
+        return new_action
+
+    def _createRunLocalWorkAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Run Local Work"))
+        new_action.triggered.connect(self.runTodaysLocalWork)
         return new_action
 
     def _createRunTestAllAction(self):
@@ -1753,12 +1762,7 @@ class MainWindow(QMainWindow):
         # self.test_scroll()
         # test_get_all_wins()
 
-        today = datetime.now()
-        # Format the date as yyyymmdd
-        yyyymmdd = today.strftime("%Y%m%d")
-        sf_name = "schedule" + yyyymmdd
-        schedule_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
-        print("schedule file name:", schedule_file)
+
         # test_ads_batch(self)
         # test_sqlite3(self)
         # test_read_buy_req_files(self)
@@ -1798,6 +1802,10 @@ class MainWindow(QMainWindow):
 
         testWebdriverADSAndChromeConnection(self, filename)
 
+    def runTodaysLocalWork(self):
+        # send a request to commander for today's scheduled work.
+        workReq = {"type": "reqResendWorkReq"}
+        self.send_json_to_commander(self.commanderXport, workReq)
 
     # 1) prepre ads profile cookies
     # 2) group them by vehicle
@@ -1916,7 +1924,12 @@ class MainWindow(QMainWindow):
 
             if ((not todaysScheduleExists) or forceful) and (not self.debug_mode) and (self.schedule_mode == "auto"):
                 log3(f"saving schedule file {schedule_file}", "fetchSchedule", self)
-                json.dump(bodyobj, schedule_file, indent=4)
+
+                with open(schedule_file, 'w') as sf:
+                    json.dump(bodyobj, sf, indent=4)
+
+                sf.close()
+
             print("done with fetch schedule....", bodyobj)
             self.todaysSchedule = bodyobj
             return bodyobj
@@ -3077,7 +3090,7 @@ class MainWindow(QMainWindow):
                             os.makedirs(rskFileDir)
                         log3("rskFileName: "+rskFileName+" step_idx: "+str(step_idx), "runRPA", self)
                         with open(rskFileName, "w") as outfile:
-                            json.dump(pskJson, outfile)
+                            json.dump(pskJson, outfile, indent=4)
                         outfile.close()
 
                         all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
@@ -3242,7 +3255,7 @@ class MainWindow(QMainWindow):
                             os.makedirs(rskFileDir)
                         log3("rskFileName: "+rskFileName+" step_idx: "+str(step_idx), "runRPA", self)
                         with open(rskFileName, "w") as outfile:
-                            json.dump(pskJson, outfile)
+                            json.dump(pskJson, outfile, indent=4)
                         outfile.close()
 
                         all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
@@ -4584,7 +4597,7 @@ class MainWindow(QMainWindow):
                 botsdata = self.genBotsJson()
                 self.showMsg("BOTS_FILE: " + self.file_resource.BOTS_FILE)
                 with open(self.file_resource.BOTS_FILE, 'w') as jsonfile:
-                    json.dump(botsdata, jsonfile)
+                    json.dump(botsdata, jsonfile, indent=4)
 
                 jsonfile.close()
                 # self.rebuildHTML()
@@ -4644,7 +4657,7 @@ class MainWindow(QMainWindow):
 
                 self.showMsg("WRITE TO VEHICLES_FILE: " + self.VEHICLES_FILE)
                 with open(self.VEHICLES_FILE, 'w') as jsonfile:
-                    json.dump(vehiclesdata, jsonfile)
+                    json.dump(vehiclesdata, jsonfile, indent=4)
 
                 jsonfile.close()
                 # self.rebuildHTML()
@@ -4722,7 +4735,7 @@ class MainWindow(QMainWindow):
                 missionsdata = self.genMissionsJson()
                 self.showMsg("MISSIONS_FILE:" + self.file_resource.MISSIONS_FILE)
                 with open(self.file_resource.MISSIONS_FILE, 'w') as jsonfile:
-                    json.dump(missionsdata, jsonfile)
+                    json.dump(missionsdata, jsonfile, indent=4)
 
                 jsonfile.close()
                 # self.rebuildHTML()
@@ -7102,6 +7115,10 @@ class MainWindow(QMainWindow):
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receivePlatoonMissionResultFilesMessage(msg)
 
+            elif msg["type"] == "reqResendWorkReq":
+                self.showMsg("received reqResendWorkReq message")
+                # get work for this vehicle and send setWork
+                self.vehicleSetupWorkSchedule(found_vehicle, self.todays_scheduled_task_groups)
 
             elif msg["type"] == "chat":
                 self.showMsg("received chat message")
@@ -7394,7 +7411,6 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         try:
-
             log3("received from commander: "+msgString, "serveCommander", self)
             if "!connection!" in msgString:
                 msg = {"cmd": "connection"}
@@ -7461,6 +7477,17 @@ class MainWindow(QMainWindow):
                 # clean up the reports on this vehicle....
                 self.todaysReports = []
                 self.DONE_WITH_TODAY = False
+
+                today = datetime.now()
+                # Format the date as yyyymmdd
+                yyyymmdd = today.strftime("%Y%m%d")
+                sf_name = "schedule" + yyyymmdd + ".json"
+                schedule_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
+                if not os.path.exists(schedule_file):
+                    with open(schedule_file, 'w') as sf:
+                        json.dump(localworks, sf, indent=4)
+
+                    sf.close()
 
             elif msg["cmd"] == "reqSetReactiveWorks":
                 # schedule work now..... append to array data structure and set up the pointer to the 1st task.
@@ -7848,7 +7875,7 @@ class MainWindow(QMainWindow):
 
     def saveADSSettings(self, settings):
         with open(self.ads_settings_file, 'w') as ads_settings_f:
-            json.dump(settings["fp_browser_settings"], ads_settings_f)
+            json.dump(settings["fp_browser_settings"], ads_settings_f, indent=4)
             ads_settings_f.close()
 
     def getIP(self):
@@ -8260,6 +8287,20 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"ErrorSendJsonToPlatoon: JSON empty")
             else:
                 self.showMsg(f"ErrorSendJsonToPlatoon: TCP link doesn't exist")
+
+    def send_json_to_commander(self, commander_link, json_data):
+        if json_data and commander_link:
+            self.showMsg(f"Sending JSON Data to commander::" + json.dumps(json_data))
+            json_string = json.dumps(json_data)
+            encoded_json_string = json_string.encode('utf-8')
+            length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
+            # Send data
+            commander_link.write(length_prefix+encoded_json_string)
+        else:
+            if json_data == None:
+                self.showMsg(f"ErrorSendJsonToCommander: JSON empty")
+            else:
+                self.showMsg(f"ErrorSendJsonToCommander: TCP link doesn't exist")
 
 
     def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
