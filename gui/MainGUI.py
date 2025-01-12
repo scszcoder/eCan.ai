@@ -7411,6 +7411,7 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         try:
+            print("rx from commander:", msgString)
             log3("received from commander: "+msgString, "serveCommander", self)
             if "!connection!" in msgString:
                 msg = {"cmd": "connection"}
@@ -7477,17 +7478,6 @@ class MainWindow(QMainWindow):
                 # clean up the reports on this vehicle....
                 self.todaysReports = []
                 self.DONE_WITH_TODAY = False
-
-                today = datetime.now()
-                # Format the date as yyyymmdd
-                yyyymmdd = today.strftime("%Y%m%d")
-                sf_name = "schedule" + yyyymmdd + ".json"
-                schedule_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
-                if not os.path.exists(schedule_file):
-                    with open(schedule_file, 'w') as sf:
-                        json.dump(localworks, sf, indent=4)
-
-                    sf.close()
 
             elif msg["cmd"] == "reqSetReactiveWorks":
                 # schedule work now..... append to array data structure and set up the pointer to the 1st task.
@@ -7875,7 +7865,7 @@ class MainWindow(QMainWindow):
 
     def saveADSSettings(self, settings):
         with open(self.ads_settings_file, 'w') as ads_settings_f:
-            json.dump(settings["fp_browser_settings"], ads_settings_f, indent=4)
+            json.dump(settings["fp_browser_settings"], ads_settings_f)
             ads_settings_f.close()
 
     def getIP(self):
@@ -8288,20 +8278,6 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg(f"ErrorSendJsonToPlatoon: TCP link doesn't exist")
 
-    def send_json_to_commander(self, commander_link, json_data):
-        if json_data and commander_link:
-            self.showMsg(f"Sending JSON Data to commander::" + json.dumps(json_data))
-            json_string = json.dumps(json_data)
-            encoded_json_string = json_string.encode('utf-8')
-            length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
-            # Send data
-            commander_link.write(length_prefix+encoded_json_string)
-        else:
-            if json_data == None:
-                self.showMsg(f"ErrorSendJsonToCommander: JSON empty")
-            else:
-                self.showMsg(f"ErrorSendJsonToCommander: TCP link doesn't exist")
-
 
     def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and commander_link:
@@ -8413,7 +8389,7 @@ class MainWindow(QMainWindow):
             })
             print("about to sendout:", json_data)
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
-            platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
+            platoon_link.write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
             # Get the traceback information
@@ -9612,68 +9588,3 @@ class MainWindow(QMainWindow):
         for v in self.vehicles:
             if "running" in v.getStatus():
                 self.vehicleSetupTeam(v)
-
-    # from task group extract the vehicle related work, and get bots, missions, skills
-    # all ready and send over to the vehicle to get the work started.
-    def vehicleSetupWorkSchedule(self, vehicle, p_task_groups, scheduled=True):
-        try:
-            vname = vehicle.getName()
-            if vehicle and "running" in vehicle.getStatus():
-                log3("working on remote task group vehicle : " + vname, "assignWork", self)
-                # flatten tasks and regroup them based on sites, and divide them into batches
-                # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
-                batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
-                print("add buy search", batched_tasks)
-                self.add_buy_searchs(batched_tasks)
-
-                print("ads_profiles:", ads_profiles)
-                # send fingerprint browser profiles to platoon/vehicle
-                # for profile in ads_profiles:
-                #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
-                self.vehicleSetupTeam(vehicle)
-
-                # now need to fetch this task associated bots, mission, skills
-                # get all bots IDs involved. get all mission IDs involved.
-                tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups)
-                vehicle.setBotIds(tg_botids)
-                vehicle.setMids(tg_botids)
-
-                self.showMsg("tg_skids:" + json.dumps(tg_skids))
-                # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
-                # execute
-                # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
-                resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids,
-                                                                                                        tg_skids)
-                if scheduled:
-                    workCmd = "reqSetSchedule"
-                else:
-                    workCmd = "reqSetReactiveWorks"
-                schedule = {"cmd": workCmd, "todos": batched_tasks, "bots": resource_bots,
-                            "missions": resource_missions, "skills": resource_skills}
-
-                # send over scheduled tasks to platton.
-                if vehicle.getFieldLink():
-                    self.showMsg(get_printable_datetime() + "SENDING [" + vname + "]PLATOON[" + vehicle.getFieldLink()[
-                        "ip"] + "] SCHEDULE::: " + json.dumps(schedule))
-
-                    self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
-
-                    # send over skills to platoon
-                    self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
-
-                else:
-                    log3(get_printable_datetime() + "scheduled vehicle " + vname + " is not FOUND on LAN.", "assignWork", self)
-            else:
-                log3("WARNING: scheduled vehicle not found on network at the moment: " + vname, "assignWork", self)
-
-        except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorVehicleSetupWorkSchedule:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorVehicleSetupWorkSchedule: traceback information not available:" + str(e)
-            log3(ex_stat, "assignWork", self)
-
-
