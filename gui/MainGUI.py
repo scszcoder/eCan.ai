@@ -8310,6 +8310,21 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg(f"ErrorSendJsonToPlatoon: TCP link doesn't exist")
 
+
+    def send_json_to_commander(self, commander_link, json_data):
+        if json_data and commander_link:
+            self.showMsg(f"Sending JSON Data to platoon::" + json.dumps(json_data))
+            json_string = json.dumps(json_data)
+            encoded_json_string = json_string.encode('utf-8')
+            length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
+            # Send data
+            commander_link.write(length_prefix + encoded_json_string)
+        else:
+            if json_data == None:
+                self.showMsg(f"ErrorSendJsonToCommander: JSON empty")
+            else:
+                self.showMsg(f"ErrorSendJsonToCommander: TCP link doesn't exist")
+
     def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and commander_link:
             self.showMsg(f"Sending File [{file_name_full_path}] to commander: " + self.commanderIP)
