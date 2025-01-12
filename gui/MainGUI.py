@@ -26,7 +26,8 @@ from os.path import exists
 import glob
 import threading
 
-from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent, QSize
+from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent, \
+    QSize
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
@@ -43,7 +44,7 @@ from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
-    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,\
+    send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud, \
     send_update_vehicles_request_to_cloud
 
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
@@ -55,10 +56,12 @@ from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, \
+    updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
 from bot.basicSkill import symTab, STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
 from bot.envi import getECBotDataHome
-from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, ManagerTriggerTable
+from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, \
+    ManagerTriggerTable
 from bot.inventories import INVENTORY
 from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage, wanSendMessage8, parseCommandString
 from lzstring import LZString
@@ -70,7 +73,8 @@ from pynput.mouse import Controller
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
-from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
+from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, \
+    running, running_step_index
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
@@ -85,10 +89,9 @@ import psutil
 from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 
-
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
-START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
+START_TIME = 15  # 15 x 20 minute = 5 o'clock in the morning
 
 Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
 
@@ -97,6 +100,7 @@ rpaConfig = None
 ecb_data_homepath = getECBotDataHome()
 
 in_data_string = ""
+
 
 # adopted from web: https://stackoverflow.com/questions/32476006/how-to-make-an-expandable-collapsable-section-widget-in-qt
 class Expander(QWidget):
@@ -158,15 +162,13 @@ class Expander(QWidget):
         self.toggleAnimation.setDirection(direction)
         self.toggleAnimation.start()
 
-
-
     def setContentLayout(self, contentLayout):
         # Not sure if this is equivalent to self.contentArea.destroy()
         self.contentArea.destroy()
         self.contentArea.setLayout(contentLayout)
         collapsedHeight = self.sizeHint().height() - self.contentArea.maximumHeight()
         contentHeight = contentLayout.sizeHint().height()
-        for i in range(self.toggleAnimation.animationCount()-1):
+        for i in range(self.toggleAnimation.animationCount() - 1):
             expandAnimation = self.toggleAnimation.animationAt(i)
             expandAnimation.setDuration(self.animationDuration)
             expandAnimation.setStartValue(collapsedHeight)
@@ -179,7 +181,8 @@ class Expander(QWidget):
 
 class AsyncInterface:
     """ Class to handle async tasks within the Qt Event Loop. """
-    def __init__(self,queue):
+
+    def __init__(self, queue):
         self.active_queue = queue
         asyncio.create_task(self.worker_task())  # Start the worker task
 
@@ -193,13 +196,15 @@ class AsyncInterface:
             self.showMsg(f"Processed message from GUI: {message}")
             self.queue.task_done()
 
+
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, loginout_gui, main_key, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
+    def __init__(self, loginout_gui, main_key, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role,
+                 schedule_mode, lang):
         super(MainWindow, self).__init__()
         self.loginout_gui = loginout_gui
-        if homepath[len(homepath)-1] == "/":
-            self.homepath = homepath[:len(homepath)-1]
+        if homepath[len(homepath) - 1] == "/":
+            self.homepath = homepath[:len(homepath) - 1]
         else:
             self.homepath = homepath
         self.gui_net_msg_queue = gui_msg_queue
@@ -242,11 +247,11 @@ class MainWindow(QMainWindow):
         self.VEHICLES_FILE = self.my_ecb_data_homepath + "/vehicles.json"
         self.host_role = machine_role
         self.screen_size = getScreenSize()
-        self.display_resolution = "D"+str(self.screen_size[0])+"X"+str(self.screen_size[1])
+        self.display_resolution = "D" + str(self.screen_size[0]) + "X" + str(self.screen_size[1])
         if "Only" in self.host_role:
             self.chat_id = self.chat_id + "_Commander"
         else:
-            self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
+            self.chat_id = self.chat_id + "_" + "".join(self.host_role.split())
         print("my chatId:", self.chat_id)
         self.staff_officer_on_line = False
         self.working_state = "running_idle"
@@ -286,9 +291,9 @@ class MainWindow(QMainWindow):
         self.bot_states = ["active", "disabled", "banned", "deleted"]
         self.todays_bot_profiles = []
         # self.readBotJsonFile()
-        self.vehicles = []                              # computers on LAN that can carry out bots's tasks.， basically tcp transports
+        self.vehicles = []  # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
-        self.missions = []                              # mission 0 will always default to be the fetch schedule mission
+        self.missions = []  # mission 0 will always default to be the fetch schedule mission
         self.trMission = self.createTrialRunMission()
         self.skills = []
         self.missionsToday = []
@@ -344,8 +349,8 @@ class MainWindow(QMainWindow):
         elif self.system == "Darwin":
             self.os_short = "mac"
 
-        self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
-        self.todaysReports = []             # per vehicle/host
+        self.todaysReport = []  # per task group. (inside this report, there are list of individual task/mission result report.
+        self.todaysReports = []  # per vehicle/host
         self.todaysPlatoonReports = []
         self.tester = Tester()
         self.wifis = []
@@ -378,7 +383,6 @@ class MainWindow(QMainWindow):
         else:
             self.log_settings = {}
 
-
         if os.path.exists(self.general_settings_file):
             with open(self.general_settings_file, 'r', encoding='utf-8') as gen_settings_f:
                 self.general_settings = json.load(gen_settings_f)
@@ -410,7 +414,6 @@ class MainWindow(QMainWindow):
                 else:
                     self.local_db_server = "http://192.168.0.18:5000/api"
 
-
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
         self.showMsg("Debug Mode:" + str(self.debug_mode) + " Schedule Mode:" + str(self.schedule_mode))
         self.showMsg("self.platform==================================================>" + self.platform)
@@ -421,7 +424,7 @@ class MainWindow(QMainWindow):
                     self.ads_profile_dir = self.ads_settings["ads_profile_dir"]
 
             ads_settings_f.close()
-        self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
+        self.showMsg("ADS SETTINGS:" + json.dumps(self.ads_settings))
         self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
@@ -467,7 +470,8 @@ class MainWindow(QMainWindow):
         self.east0ScrollArea = QWidget()
         self.east0ScrollLayout = QVBoxLayout(self)
         if (self.machine_role == "Platoon"):
-            self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Running Missions:"), alignment=Qt.AlignLeft)
+            self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Running Missions:"),
+                                           alignment=Qt.AlignLeft)
         else:
             self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Vehicles:"), alignment=Qt.AlignLeft)
         self.east0ScrollLabel.setFont(self.menuFont)
@@ -496,7 +500,8 @@ class MainWindow(QMainWindow):
         self.mission_search_layout = QHBoxLayout(self)
         self.mission_search_edit = QLineEdit()
         self.mission_search_edit.setClearButtonEnabled(True)
-        self.mission_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
+        self.mission_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'),
+                                           QLineEdit.LeadingPosition)
         self.mission_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
         self.mission_search_edit.returnPressed.connect(self.search_mission_button.click)
         self.mission_search_layout.addWidget(self.mission_from_date_label)
@@ -524,7 +529,8 @@ class MainWindow(QMainWindow):
         self.bot_search_layout = QHBoxLayout(self)
         self.bot_search_edit = QLineEdit()
         self.bot_search_edit.setClearButtonEnabled(True)
-        self.bot_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
+        self.bot_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'),
+                                       QLineEdit.LeadingPosition)
         self.bot_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
         self.bot_search_edit.returnPressed.connect(self.search_bot_button.click)
         self.bot_search_layout.addWidget(self.bot_from_date_label)
@@ -538,7 +544,6 @@ class MainWindow(QMainWindow):
         self.centralScrollLayout.addWidget(self.centralScrollLabel)
         self.centralScrollLayout.addWidget(self.centralScroll)
         self.centralScrollArea.setLayout(self.centralScrollLayout)
-
 
         self.east0ScrollLayout.addWidget(self.east0ScrollLabel)
         self.east0ScrollLayout.addWidget(self.east0Scroll)
@@ -690,7 +695,6 @@ class MainWindow(QMainWindow):
         self.vehicleListView.setSelectionMode(QListView.ExtendedSelection)
         self.vehicleListView.setSelectionBehavior(QListView.SelectRows)
 
-
         self.completed_missionListView.setModel(self.completedMissionModel)
         self.completed_missionListView.setViewMode(QListView.ListMode)
         self.completed_missionListView.setMovement(QListView.Snap)
@@ -726,15 +730,12 @@ class MainWindow(QMainWindow):
         # centralWidget.addBot(self.botListView)
         self.centralScroll.setWidget(self.botListView)
 
-
         #centralWidget.setPlainText("Central widget")
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignTop)
         self.centralSplitter = QSplitter(Qt.Horizontal)
         self.bottomSplitter = QSplitter(Qt.Vertical)
-
-
 
         # Because BorderLayout doesn't call its super-class addWidget() it
         # doesn't take ownership of the widgets until setLayout() is called.
@@ -825,7 +826,6 @@ class MainWindow(QMainWindow):
         self.rpa_quit_ok_button.clicked.connect(on_ok)
         self.rpa_quit_cancel_button.clicked.connect(on_cancel)
 
-
         self.mainWidget.setLayout(layout)
         self.setCentralWidget(self.mainWidget)
         self.wan_connected = False
@@ -834,9 +834,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Main Bot&Mission Scheduler")
         self.showMsg("================= DONE with GUI Setup ==============================")
 
-
         self.todays_scheduled_task_groups = {}
-        self.unassigned_scheduled_task_groups = {}                # per vehicle, flatten task list
+        self.unassigned_scheduled_task_groups = {}  # per vehicle, flatten task list
         self.unassigned_reactive_task_groups = {}  # per vehicle, flatten task list
         self.checkVehicles()
 
@@ -845,12 +844,13 @@ class MainWindow(QMainWindow):
             print("vname:", v.getName(), "status:", v.getStatus(), )
 
         # get current wifi ssid and store it.
-        self.showMsg("Checking Wifi on OS platform: "+self.platform)
+        self.showMsg("Checking Wifi on OS platform: " + self.platform)
         wifi_info = None
         if self.platform == "win":
             wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
         elif self.platform == 'dar':
-            wifi_info = subprocess.check_output(['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
+            wifi_info = subprocess.check_output(
+                ['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
 
         if wifi_info:
             try:
@@ -875,7 +875,7 @@ class MainWindow(QMainWindow):
         self.showMsg("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
             self.readVehicleJsonFile()
-            self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
+            self.showMsg("Vehicle files loaded" + json.dumps(self.vehiclesJsonData))
             # load skills into memory.
             if not self.debug_mode or self.schedule_mode == "auto":
                 print("getting bots from cloud....")
@@ -906,14 +906,14 @@ class MainWindow(QMainWindow):
         self.showMsg("set up rais extensions ")
         rais_extensions_file = self.my_ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
         rais_extensions_dir = self.my_ecb_data_homepath + "/my_rais_extensions/"
-        added_handlers=[]
-        print("rais extension file:"+rais_extensions_file)
+        added_handlers = []
+        print("rais extension file:" + rais_extensions_file)
         if os.path.isfile(rais_extensions_file):
             with open(rais_extensions_file, 'r') as rais_extensions:
                 user_rais_modules = json.load(rais_extensions)
                 print("user_rais_modules:", user_rais_modules)
                 for i, user_module in enumerate(user_rais_modules):
-                    module_file = self.my_ecb_data_homepath + "/" + user_module["dir"] + "/"+user_module["file"]
+                    module_file = self.my_ecb_data_homepath + "/" + user_module["dir"] + "/" + user_module["file"]
                     added_ins = user_module['instructions']
                     module_name = os.path.splitext(user_module["file"])[0]
                     spec = importlib.util.spec_from_file_location(module_name, module_file)
@@ -955,19 +955,18 @@ class MainWindow(QMainWindow):
             # For commander creates
             fetchCloudScheduledWork = {
                 "name": "fetch schedule",
-               "works": self.gen_default_fetch(),
-               "status": "yet to start",
-               "current widx": 0,
-               "completed" : [],
-               "aborted": []
+                "works": self.gen_default_fetch(),
+                "status": "yet to start",
+                "current widx": 0,
+                "completed": [],
+                "aborted": []
             }
             print("debug mode:", self.debug_mode, self.schedule_mode)
             if not self.debug_mode and self.schedule_mode == "auto":
                 print("add fetch schedule to todo list....")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
-
-    # async def setupAsyncTasks(self):
+        # async def setupAsyncTasks(self):
         self.showMsg("ready to spawn mesg server task")
         if not self.host_role == "Platoon":
             if not self.host_role == "Staff Officer":
@@ -1016,12 +1015,12 @@ class MainWindow(QMainWindow):
         print("vehicles after init:", [v.getName() for v in self.vehicles])
         self.saveSettings()
 
-
     # SC note - really need to have
     async def run_async_tasks(self):
         if self.host_role != "Staff Officer":
             self.rpa_task = asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-            self.manager_task = asyncio.create_task(self.runmanagerworks(self.gui_manager_msg_queue, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+            self.manager_task = asyncio.create_task(
+                self.runmanagerworks(self.gui_manager_msg_queue, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
 
         else:
             self.rpa_task = asyncio.create_task(self.wait_forever())
@@ -1053,7 +1052,6 @@ class MainWindow(QMainWindow):
 
                     # now read the cloud skill's local definition file to get
 
-
                     self.skills.append(cloud_work_skill)
 
             # this will handle all skill bundled into software itself.
@@ -1066,9 +1064,8 @@ class MainWindow(QMainWindow):
 
             # now add to skill manager display
             for skill in self.skills:
-                    # update skill manager display...
-                    self.SkillManagerWin.addSkillRows([skill])
-
+                # update skill manager display...
+                self.SkillManagerWin.addSkillRows([skill])
 
             # for sanity immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
             # when a skill is selected, its dependencies will added to mission's skills list.
@@ -1093,19 +1090,20 @@ class MainWindow(QMainWindow):
     def regenSkillPSKs(self):
         for ski, sk in enumerate(self.skills):
             # next_step is not used,
-            sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
-            self.showMsg("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name)
+            sk_full_name = sk.getPlatform() + "_" + sk.getApp() + "_" + sk.getSiteName() + "_" + sk.getPage() + "_" + sk.getName()
+            self.showMsg("PSK FILE NAME::::::::::" + str(ski) + "::[" + str(
+                sk.getSkid()) + "::" + sk.getPrivacy() + ":::::" + sk_full_name)
             if sk.getPrivacy() == "public":
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
             else:
                 self.showMsg("GEN PRIVATE SKILL PSK::::::" + sk_full_name)
-                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.my_ecb_data_homepath, first_step, "light")
-            self.showMsg("PSK FILE:::::::::::::::::::::::::"+psk_file)
+                next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.my_ecb_data_homepath, first_step,
+                                                   "light")
+            self.showMsg("PSK FILE:::::::::::::::::::::::::" + psk_file)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
-            print("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
-
+            print("RESULTING DEPENDENCIES:[" + str(sk.getSkid()) + "] ", sk.getDependencies())
 
     def updateTokens(self, tokens):
         self.tokens = tokens
@@ -1227,7 +1225,6 @@ class MainWindow(QMainWindow):
         else:
             return "unknown"
 
-
     def saveSettings(self):
         try:
             self.showMsg("saving general settings:" + json.dumps(self.general_settings))
@@ -1240,7 +1237,6 @@ class MainWindow(QMainWindow):
 
     def get_schedule_mode(self):
         return self.schedule_mode
-
 
     def get_host_role(self):
         return self.host_role
@@ -1340,7 +1336,6 @@ class MainWindow(QMainWindow):
         skill_menu.addAction(self.skillNewFromFileAction)
         menu_bar.addMenu(skill_menu)
 
-
         tools_menu = QMenu(QApplication.translate("QMenu", "&Tools"), self)
         tools_menu.setFont(self.main_menu_font)
         tools_menu.addAction(self.toolsADSProfileConverterAction)
@@ -1352,7 +1347,6 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.toolsGatherFingerPrintsRequestAction)
 
         menu_bar.addMenu(tools_menu)
-
 
         help_menu = QMenu(QApplication.translate("QMenu", "&Help"), self)
         help_menu.setFont(self.main_menu_font)
@@ -1375,7 +1369,6 @@ class MainWindow(QMainWindow):
 
         return new_action
 
-
     def setCommanderXPort(self, xport):
         self.commanderXport = xport
 
@@ -1388,14 +1381,12 @@ class MainWindow(QMainWindow):
     def getUser(self):
         return self.user
 
-
     def _syncBotAccountsAction(self):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Sync Bot Accounts"))
         new_action.triggered.connect(self.syncBotAccounts)
         return new_action
-
 
     def _createBotNewFromFileAction(self):
         # File actions
@@ -1473,14 +1464,12 @@ class MainWindow(QMainWindow):
 
         return new_action
 
-
     def _createFieldMonitorAction(self):
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Field Monitor"))
         #new_action.triggered.connect(self.newMissionView)
 
         return new_action
-
 
     def _createCommandSendAction(self):
         new_action = QAction(self)
@@ -1491,13 +1480,11 @@ class MainWindow(QMainWindow):
 
         return new_action
 
-
     def _createMissionDelAction(self):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Delete M"))
         return new_action
-
 
     def _createMissionImportAction(self):
         # File actions
@@ -1512,7 +1499,6 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Edit"))
         return new_action
 
-
     def _createSettingsAccountAction(self):
         # File actions
         new_action = QAction(self)
@@ -1525,7 +1511,6 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Edit"))
         new_action.triggered.connect(self.editSettings)
         return new_action
-
 
     def _createRunRunAllAction(self):
         # File actions
@@ -1548,14 +1533,12 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.runAllTests)
         return new_action
 
-
     def _createScheduleCalendarViewAction(self):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Calendar View"))
         new_action.triggered.connect(self.scheduleCalendarView)
         return new_action
-
 
     def _createFetchScheduleAction(self):
         # File actions
@@ -1564,14 +1547,12 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings()))
         return new_action
 
-
     def _createRescheduleAction(self):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Reschedule"))
         new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings("true"), True))
         return new_action
-
 
     def _createScheduleNewFromFileAction(self):
         # File actions
@@ -1608,37 +1589,37 @@ class MainWindow(QMainWindow):
     # after click, should pop up a windows to ask user to choose from 3 options
     # start from scratch, start from template, start by interactive show and learn tip bubble "most popular".
     def _createSkillNewAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Create New"))
-            new_action.triggered.connect(self.trainNewSkill)
-            return new_action
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Create New"))
+        new_action.triggered.connect(self.trainNewSkill)
+        return new_action
 
     def _createSkillManagerAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Manager"))
-            new_action.triggered.connect(self.showSkillManager)
-            return new_action
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Manager"))
+        new_action.triggered.connect(self.showSkillManager)
+        return new_action
 
     def _createSkillDeleteAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Delete"))
-            return new_action
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Delete"))
+        return new_action
 
     def _createSkillShowAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Show All"))
-            return new_action
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Show All"))
+        return new_action
 
     def _createSkillUploadAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Upload Skill"))
-            new_action.triggered.connect(self.uploadSkill)
-            return new_action
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Upload Skill"))
+        new_action.triggered.connect(self.uploadSkill)
+        return new_action
 
     def _createSkillNewFromFileAction(self):
         # File actions
@@ -1646,7 +1627,6 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Import"))
         new_action.triggered.connect(self.newSkillFromFile)
         return new_action
-
 
     def _createToolsADSProfileConverterAction(self):
         # File actions
@@ -1661,7 +1641,6 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&ADS Profile Batch To Singles"))
         new_action.triggered.connect(self.runADSProfileBatchToSingles)
         return new_action
-
 
     def _createToolsWanChatTestAction(self):
         # File actions
@@ -1704,7 +1683,6 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&User Guide"))
         new_action.triggered.connect(self.gotoUserGuide)
         return new_action
-
 
     def _createHelpCommunityAction(self):
         # File actions
@@ -1762,7 +1740,6 @@ class MainWindow(QMainWindow):
         # self.test_scroll()
         # test_get_all_wins()
 
-
         # test_ads_batch(self)
         # test_sqlite3(self)
         # test_read_buy_req_files(self)
@@ -1811,7 +1788,7 @@ class MainWindow(QMainWindow):
     # 2) group them by vehicle
     # 3) assign them. (move the troop to the vehicle(host computer where they belong， Bots, Missions, Skills, ADS related data and files.)
     def handleCloudScheduledWorks(self, bodyobj):
-        log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+str(type(bodyobj)), "fetchSchedule", self)
+        log3("handleCloudScheduledWorks...." + str(len(bodyobj)) + " " + str(type(bodyobj)), "fetchSchedule", self)
         print("bodyobj:", bodyobj)
         for nm in bodyobj["added_missions"]:
             today = datetime.today()
@@ -1837,8 +1814,9 @@ class MainWindow(QMainWindow):
             # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
             # self.assignWork()
 
-            log3("current unassigned scheduled task groups after assignwork:"+json.dumps(self.unassigned_scheduled_task_groups), "fetchSchedule", self)
-            log3("current work to do after assignwork:"+json.dumps(self.todays_work), "fetchSchedule", self)
+            log3("current unassigned scheduled task groups after assignwork:" + json.dumps(
+                self.unassigned_scheduled_task_groups), "fetchSchedule", self)
+            log3("current work to do after assignwork:" + json.dumps(self.todays_work), "fetchSchedule", self)
 
             self.logDailySchedule(json.dumps(bodyobj))
         else:
@@ -1857,19 +1835,20 @@ class MainWindow(QMainWindow):
             today = datetime.now()
             # Format the date as yyyymmdd
             yyyymmdd = today.strftime("%Y%m%d")
-            sf_name = "schedule" + yyyymmdd+".json"
+            sf_name = "schedule" + yyyymmdd + ".json"
             schedule_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
 
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
             bodyobj = {}
             # next line commented out for testing purpose....
             if not self.debug_mode and self.schedule_mode == "auto":
-                log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
+                log3("schedule setting:" + json.dumps(settings), "fetchSchedule", self)
                 todaysScheduleExists = os.path.exists(schedule_file)
                 log3(f"schedule file {schedule_file} exists: {todaysScheduleExists}", "fetchSchedule", self)
                 if not todaysScheduleExists or forceful:
-                    jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
-                    log3("schedule JRESP:"+json.dumps(jresp), "fetchSchedule", self)
+                    jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
+                                                           ts_name, settings)
+                    log3("schedule JRESP:" + json.dumps(jresp), "fetchSchedule", self)
                 else:
                     with open(schedule_file) as sf:
                         jresp = json.load(sf)
@@ -1879,13 +1858,14 @@ class MainWindow(QMainWindow):
 
             if "errorType" in jresp:
                 screen_error = True
-                log3("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]), "fetchSchedule", self)
+                log3("ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(jresp["errorInfo"]),
+                     "fetchSchedule", self)
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
                 if not self.debug_mode and self.schedule_mode == "auto":
                     if not todaysScheduleExists or forceful:
-                        uncompressed = self.zipper.decompressFromBase64(jresp["body"])   # commented out for testing
+                        uncompressed = self.zipper.decompressFromBase64(jresp["body"])  # commented out for testing
                     else:
                         uncompressed = "{}"
                 else:
@@ -1895,15 +1875,16 @@ class MainWindow(QMainWindow):
                 # json file instead.
 
                 # uncompressed = jresp["body"]
-                log3("decomppressed response:"+uncompressed+"!", "fetchSchedule", self)
+                log3("decomppressed response:" + uncompressed + "!", "fetchSchedule", self)
                 if uncompressed != "":
-                    self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                    self.showMsg("body string:" + uncompressed + "!" + str(len(uncompressed)) + "::")
 
                     bodyobj = {"task_groups": {}, "added_missions": []}
 
                     if not self.debug_mode and self.schedule_mode == "auto":
                         if not todaysScheduleExists or forceful:
-                            bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
+                            bodyobj = json.loads(
+                                uncompressed)  # for test purpose, comment out, put it back when test is done....
                         else:
                             bodyobj = jresp
                     else:
@@ -1911,7 +1892,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                        file = 'C:/temp/scheduleResultTest9D.json'             # ads ebay amz etsy sell test.
+                        file = 'C:/temp/scheduleResultTest9D.json'  # ads ebay amz etsy sell test.
                         # file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
@@ -1944,7 +1925,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
             return {}
-
 
     def fetchScheduleFromFile(self):
         try:
@@ -2031,16 +2011,20 @@ class MainWindow(QMainWindow):
         month = now.strftime("%m")
         day = now.strftime("%d")
         time = now.strftime("%H:%M:%S - ")
-        dailyScheduleLogFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/schedule{}{}{}.txt".format(self.log_user, year, month, day, year)
+        dailyScheduleLogFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/schedule{}{}{}.txt".format(self.log_user,
+                                                                                                      year, month, day,
+                                                                                                      year)
         if os.path.isfile(dailyScheduleLogFile):
             log3("append to daily schedule file:" + dailyScheduleLogFile, "fetchSchedule", self)
             file1 = open(dailyScheduleLogFile, "a")  # append mode
-            file1.write(json.dumps(time+netSched) + "\n=====================================================================\n")
+            file1.write(json.dumps(
+                time + netSched) + "\n=====================================================================\n")
             file1.close()
         else:
-            log3("daily schedule file not exist:"+dailyScheduleLogFile, "fetchSchedule", self)
+            log3("daily schedule file not exist:" + dailyScheduleLogFile, "fetchSchedule", self)
             file1 = open(dailyScheduleLogFile, "w")  # write mode
-            file1.write(json.dumps(time+netSched) + "\n=====================================================================\n")
+            file1.write(json.dumps(
+                time + netSched) + "\n=====================================================================\n")
             file1.close()
 
     def saveDailyRunReport(self, runStat):
@@ -2049,21 +2033,22 @@ class MainWindow(QMainWindow):
         month = now.strftime("%m")
         day = now.strftime("%d")
         time = now.strftime("%H:%M:%S - ")
-        dailyRunReportFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/runreport{}{}{}.txt".format(self.log_user, year, month, day, year)
+        dailyRunReportFile = self.my_ecb_data_homepath + "/runlogs/{}/{}/runreport{}{}{}.txt".format(self.log_user,
+                                                                                                     year, month, day,
+                                                                                                     year)
 
         if os.path.isfile(dailyRunReportFile):
             with open(dailyRunReportFile, 'a') as f:
 
-                f.write(time+json.dumps(runStat) + "\n")
+                f.write(time + json.dumps(runStat) + "\n")
 
                 f.close()
         else:
             with open(dailyRunReportFile, 'w') as f:
 
-                f.write(time+json.dumps(runStat) + "\n")
+                f.write(time + json.dumps(runStat) + "\n")
 
                 f.close()
-
 
     def fill_mission(self, blank_m, m, tgs):
         print("BLANK:", m)
@@ -2078,7 +2063,7 @@ class MainWindow(QMainWindow):
                         for bw in bot_works["bw_works"]:
                             if m["mid"] == bw["mid"]:
                                 # now add this mission to the list.
-                                self.showMsg("found a bw mission matching mid.... "+str(bw["mid"]))
+                                self.showMsg("found a bw mission matching mid.... " + str(bw["mid"]))
                                 mconfig = bw["config"]
                                 break
                         if mconfig:
@@ -2087,7 +2072,7 @@ class MainWindow(QMainWindow):
                         for ow in bot_works["other_works"]:
                             if m["mid"] == ow["mid"]:
                                 # now add this mission to the list.
-                                self.showMsg("found a other mission matching mid.... "+str(ow["mid"]))
+                                self.showMsg("found a other mission matching mid.... " + str(ow["mid"]))
                                 mconfig = ow["config"]
                                 break
                         if mconfig:
@@ -2112,17 +2097,18 @@ class MainWindow(QMainWindow):
             for tz in tg:
                 for wg in tg[tz]:
                     for w in wg["bw_works"]:
-                        mb_words = mb_words + "M"+str(w["mid"])+"B"+str(wg["bid"]) + ", "
+                        mb_words = mb_words + "M" + str(w["mid"]) + "B" + str(wg["bid"]) + ", "
 
                     for w in wg["other_works"]:
-                        mb_words = mb_words + "M"+str(w["mid"])+"B"+str(wg["bid"]) + ", "
+                        mb_words = mb_words + "M" + str(w["mid"]) + "B" + str(wg["bid"]) + ", "
 
         log3(mb_words, "fetchSchedule", self)
 
         newAdded = []
         newly_added_missions = resp_data["added_missions"]
-        true_newly_added = []       # newly_added_missions includes some previous incompleted missions, they're not really NEW.
-        log3("Added MS:"+json.dumps(["M"+str(m["mid"])+"B"+str(m["botid"]) for m in newly_added_missions]), "fetchSchedule", self)
+        true_newly_added = []  # newly_added_missions includes some previous incompleted missions, they're not really NEW.
+        log3("Added MS:" + json.dumps(["M" + str(m["mid"]) + "B" + str(m["botid"]) for m in newly_added_missions]),
+             "fetchSchedule", self)
         loadedMids = [m.getMid() for m in self.missions]
         for m in newly_added_missions:
             if m["mid"] not in loadedMids:
@@ -2132,11 +2118,11 @@ class MainWindow(QMainWindow):
                 new_mission.updateDisplay()
                 self.missions.append(new_mission)
                 self.missionModel.appendRow(new_mission)
-                log3("adding mission.... "+str(new_mission.getRetry()), "fetchSchedule", self)
+                log3("adding mission.... " + str(new_mission.getRetry()), "fetchSchedule", self)
                 true_newly_added.append(new_mission)
                 newAdded.append(new_mission)
             else:
-                log3("this mission already exists:"+str(m["mid"]), "fetchSchedule", self)
+                log3("this mission already exists:" + str(m["mid"]), "fetchSchedule", self)
                 # in such a case, simply sync up the data
                 existingMission = self.getMissionByID(m["mid"])
                 # now, update data from cloud...
@@ -2145,7 +2131,7 @@ class MainWindow(QMainWindow):
 
         self.addMissionsToLocalDB(true_newly_added)
 
-        return(newAdded)
+        return (newAdded)
 
     # this is really about setting up fingerprint profile automatically for a new Mission
     # if it's not already set up, basically using bot's email + site in cuspas to create
@@ -2157,7 +2143,8 @@ class MainWindow(QMainWindow):
         if foundBot:
             botEmail = foundBot.getEmail()
 
-        similar = [m for m in self.missions if m.getType() == newMission.getType() and m.getCusPAS() == newMission.getCusPAS()]
+        similar = [m for m in self.missions if
+                   m.getType() == newMission.getType() and m.getCusPAS() == newMission.getCusPAS()]
         similarWithFingerPrintProfile = [m for m in similar if m.getFingerPrintProfile()]
 
         print("similar w fpp: ", [m.getFingerPrintProfile() for m in similarWithFingerPrintProfile])
@@ -2189,7 +2176,6 @@ class MainWindow(QMainWindow):
 
         return result
 
-
     def formMissionsJsons(self, mids):
         result = []
         for mid in mids:
@@ -2203,7 +2189,7 @@ class MainWindow(QMainWindow):
     def formSkillsJsons(self, skids):
         result = []
         all_skids = [sk.getSkid() for sk in self.skills]
-        self.showMsg("all known skids:"+json.dumps(all_skids))
+        self.showMsg("all known skids:" + json.dumps(all_skids))
         for skid in skids:
             # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
             found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
@@ -2211,17 +2197,18 @@ class MainWindow(QMainWindow):
                 print("found skill")
                 result.append(found_skill.genJson())
             else:
-                self.showMsg("ERROR: skill id not found [" + str(skid)+"]")
+                self.showMsg("ERROR: skill id not found [" + str(skid) + "]")
         return result
 
     def formBotsMissionsSkillsString(self, botids, mids, skids):
         # result = "{\"bots\": " + self.formBotsString(botids) + ",\"missions\": " + self.formMissionsString(mids) + "}"
-        BMS_Json = {"bots": self.formBotsJsons(botids), "missions": self.formMissionsJsons(mids), "skills": self.formSkillsJsons(skids)}
+        BMS_Json = {"bots": self.formBotsJsons(botids), "missions": self.formMissionsJsons(mids),
+                    "skills": self.formSkillsJsons(skids)}
 
         return json.dumps(BMS_Json)
 
     def formBotsMissionsSkillsJsonData(self, botids, mids, skids):
-        return self.formBotsJsons(botids),self.formMissionsJsons(mids),self.formSkillsJsons(skids)
+        return self.formBotsJsons(botids), self.formMissionsJsons(mids), self.formSkillsJsons(skids)
 
     def getAllBotidsMidsSkidsFromTaskGroup(self, task_group):
         # bids = []
@@ -2253,7 +2240,7 @@ class MainWindow(QMainWindow):
             m = next((mission for i, mission in enumerate(self.missions) if mission.getMid() == mid), None)
 
             if m:
-                print("m skillls: "+m.getSkills())
+                print("m skillls: " + m.getSkills())
                 if m.getSkills() != "":
                     if "," in m.getSkills():
                         m_skids = [int(skstring.strip()) for skstring in m.getSkills().strip().split(",")]
@@ -2271,7 +2258,7 @@ class MainWindow(QMainWindow):
                     else:
                         self.showMsg("ERROR: skill id not found - " + str(m_main_skid))
                 else:
-                    self.showMsg("ERROR: mission has no skill "+str(mid))
+                    self.showMsg("ERROR: mission has no skill " + str(mid))
             else:
                 self.showMsg("ERROR: mission ID not found " + str(mid))
 
@@ -2280,8 +2267,8 @@ class MainWindow(QMainWindow):
             skids = list(skill_set)
         else:
             skids = []
-        self.showMsg("bids in the task group:: "+json.dumps(bids))
-        self.showMsg("mids in the task group:: "+json.dumps(mids))
+        self.showMsg("bids in the task group:: " + json.dumps(bids))
+        self.showMsg("mids in the task group:: " + json.dumps(mids))
         self.showMsg("skids in the task group:: " + json.dumps(skids))
         return bids, mids, skids
 
@@ -2299,7 +2286,7 @@ class MainWindow(QMainWindow):
                 # platform = self.missions[midx].getPlatform()
                 platform = tg[tz][0]["cuspas"]
                 break
-        self.showMsg("Platform of the group:: "+platform)
+        self.showMsg("Platform of the group:: " + platform)
         return platform
 
     # flatten all tasks associated with a vehicle.
@@ -2324,7 +2311,7 @@ class MainWindow(QMainWindow):
                     other["bid"] = bid
                     all_works.append(other)
 
-            self.showMsg("after flatten and aggregation, total of "+str(len(all_works))+"tasks in this group!")
+            self.showMsg("after flatten and aggregation, total of " + str(len(all_works)) + "tasks in this group!")
             time_ordered_works = sorted(all_works, key=lambda x: x["start_time"], reverse=False)
         except Exception as e:
             # Get the traceback information
@@ -2336,7 +2323,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorFlattenTasks: traceback information not available:" + str(e)
 
         return time_ordered_works
-
 
     def groupTaskGroupsByOS(self, tgs):
         result = {
@@ -2362,7 +2348,6 @@ class MainWindow(QMainWindow):
             vtgs[vehicle] = vtasks
         return vtgs
 
-
     def getUnassignedVehiclesByOS(self):
         self.showMsg("N vehicles " + str(len(self.vehicles)))
         result = {
@@ -2370,11 +2355,12 @@ class MainWindow(QMainWindow):
             "mac": [v for v in self.vehicles if v.getOS().lower() in "Mac".lower() and len(v.getBotIds()) == 0],
             "linux": [v for v in self.vehicles if v.getOS().lower() in "Linux".lower() and len(v.getBotIds()) == 0]
         }
-        self.showMsg("N vehicles win " + str(len(result["win"]))+" " + str(len(result["mac"]))+" " + str(len(result["linux"])))
+        self.showMsg("N vehicles win " + str(len(result["win"])) + " " + str(len(result["mac"])) + " " + str(
+            len(result["linux"])))
         if self.host_role == "Commander" and not self.rpa_work_assigned_for_today:
             print("checking commander", self.todays_work["tbd"])
             if len([wk for wk in self.todays_work["tbd"] if wk["name"] == "automation"]) == 0:
-                self.showMsg("myself unassigned "+self.getIP())
+                self.showMsg("myself unassigned " + self.getIP())
                 # put in a dummy V
                 self_v = VEHICLE(self)
                 self_v.setIP(self.getIP())
@@ -2393,9 +2379,8 @@ class MainWindow(QMainWindow):
 
         return result
 
-
     def groupVehiclesByOS(self):
-        self.showMsg("groupVehiclesByOS>>>>>>>>>>>> "+self.host_role)
+        self.showMsg("groupVehiclesByOS>>>>>>>>>>>> " + self.host_role)
         result = {
             "win": [v for v in self.vehicles if v.getOS() == "Windows"],
             "mac": [v for v in self.vehicles if v.getOS() == "Mac"],
@@ -2404,7 +2389,7 @@ class MainWindow(QMainWindow):
         self.showMsg("all vehicles>>>>>>>>>>>> " + json.dumps(result))
         self.showMsg("now take care of commander machine itself in case of being a dual role commander")
         if self.host_role == "Commander":
-            self.showMsg("checking commander>>>>>>>>>>>>>>>>>>>>>>>>> "+self.getIP())
+            self.showMsg("checking commander>>>>>>>>>>>>>>>>>>>>>>>>> " + self.getIP())
             # put in a dummy V
             self_v = VEHICLE(self)
             self_v.setIP(self.getIP())
@@ -2419,7 +2404,6 @@ class MainWindow(QMainWindow):
                 result["linux"].insert(0, self_v)
 
         return result
-
 
     # generate a buy associated browse-search configuration
     # on the cloud side, a search config should have been attached to the buy_*** mission,
@@ -2446,31 +2430,32 @@ class MainWindow(QMainWindow):
 
         # simply duplate the last prodlist_pages enough times to satisfy up to 5 pages requreiment
         if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
-            last_page = work["config"]["searches"][nth_search]["prodlist_pages"][n_pages-1]
+            last_page = work["config"]["searches"][nth_search]["prodlist_pages"][n_pages - 1]
             if n_pages < 5:  # we will browse up to 5 pages for a product purchase.
-                for i in range(5-n_pages):
+                for i in range(5 - n_pages):
                     work["config"]["searches"][nth_search]["prodlist_pages"].append(copy.deepcopy(last_page))
 
             # on each pages, add the target buy product onto the list.
             for page in work["config"]["searches"][nth_search]["prodlist_pages"]:
                 if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
                     target_buy = {
-                        "selType": "cus",   # this is key, the skill itself will do the swapping of search terms once it see "cus" here.
+                        "selType": "cus",
+                        # this is key, the skill itself will do the swapping of search terms once it see "cus" here.
                         "detailLvl": 3,
                         "purchase": [{
-                                    "action": work["name"].split("_")[1],
-                                    "asin": mission.getASIN(),
-                                    "seller": mission.getStore(),
-                                    "brand": mission.getBrand(),
-                                    "img": mission.getImagePath(),
-                                    "title": mission.getTitle(),
-                                    "variations": mission.getVariations(),
-                                    "rating": mission.getRating(),
-                                    "feedbacks": mission.getFeedbacks(),
-                                    "price": mission.getPrice(),
-                                    "follow_seller": mission.getFollowSeller(),
-                                    "follow_price": mission.getFollowPrice()
-                                }]
+                            "action": work["name"].split("_")[1],
+                            "asin": mission.getASIN(),
+                            "seller": mission.getStore(),
+                            "brand": mission.getBrand(),
+                            "img": mission.getImagePath(),
+                            "title": mission.getTitle(),
+                            "variations": mission.getVariations(),
+                            "rating": mission.getRating(),
+                            "feedbacks": mission.getFeedbacks(),
+                            "price": mission.getPrice(),
+                            "follow_seller": mission.getFollowSeller(),
+                            "follow_price": mission.getFollowPrice()
+                        }]
                     }
                 page["products"].append(target_buy)
 
@@ -2478,40 +2463,38 @@ class MainWindow(QMainWindow):
             # in all other case, simply replace last st product of the 1st page.
             first_page = work["config"]["searches"][nth_search]["prodlist_pages"][0]
             first_page["products"][0] = {
-                        "selType": "cus",  # this is key,
-                        "detailLvl": 0,
-                        "purchase": [
-                            {
-                                "action": work["name"].split("_")[1],
-                                "asin": mission.getASIN(),
-                                "seller": mission.getStore(),
-                                "brand": mission.getBrand(),
-                                "img": mission.getImagePath(),
-                                "title": mission.getTitle(),
-                                "variations": mission.getVariations(),
-                                "rating": mission.getRating(),
-                                "feedbacks": mission.getFeedbacks(),
-                                "price": mission.getPrice(),
-                                "order_id": mission.getOrderID(),
-                                "feedback_rating": mission.getFeedbackRating(),
-                                "feedback_title": mission.getFeedbackTitle(),
-                                "feedback_text": mission.getFeedbackText(),
-                                "feedback_image": mission.getFeedbackImgLink(),
-                                "feedback_video": mission.getFeedbackVideoLink(),
-                                "feedback_instructions": mission.getFeedbackInstructions(),
-                                "follow_seller": mission.getFollowSeller(),
-                                "follow_price": mission.getFollowPrice()
-                            }
-                        ]
+                "selType": "cus",  # this is key,
+                "detailLvl": 0,
+                "purchase": [
+                    {
+                        "action": work["name"].split("_")[1],
+                        "asin": mission.getASIN(),
+                        "seller": mission.getStore(),
+                        "brand": mission.getBrand(),
+                        "img": mission.getImagePath(),
+                        "title": mission.getTitle(),
+                        "variations": mission.getVariations(),
+                        "rating": mission.getRating(),
+                        "feedbacks": mission.getFeedbacks(),
+                        "price": mission.getPrice(),
+                        "order_id": mission.getOrderID(),
+                        "feedback_rating": mission.getFeedbackRating(),
+                        "feedback_title": mission.getFeedbackTitle(),
+                        "feedback_text": mission.getFeedbackText(),
+                        "feedback_image": mission.getFeedbackImgLink(),
+                        "feedback_video": mission.getFeedbackVideoLink(),
+                        "feedback_instructions": mission.getFeedbackInstructions(),
+                        "follow_seller": mission.getFollowSeller(),
+                        "follow_price": mission.getFollowPrice()
                     }
+                ]
+            }
 
-        logger_helper.debug("Modified Buy Work:"+json.dumps(work))
-
+        logger_helper.debug("Modified Buy Work:" + json.dumps(work))
 
     def gen_prod_sel(self):
         idx = math.floor(random.random() * (len(self.static_resource.PRODUCT_SEL_TYPES.length) - 1));
         return self.static_resource.PRODUCT_SEL_TYPES[idx];
-
 
     # given a derived buy mission, find out the original buy mission that was put in order by the users.
     # this is done thru searching ticket number. since this is likely to be a mission created 2 wks ago,
@@ -2529,7 +2512,8 @@ class MainWindow(QMainWindow):
             original_buy_mission.setBrand("Tikom")
             original_buy_mission.setImagePath("")
             original_buy_mission.setSearchKW("dumb bells")
-            original_buy_mission.setTitle("Tikom Robot Vacuum and Mop Combo with LiDAR Navigation, L9000 Robotic Vacuum Cleaner with 4000Pa Suction,150Min Max, 14 No-Go Zones, Smart Mapping, Good for Pet Hair, Carpet, Hard Floor")
+            original_buy_mission.setTitle(
+                "Tikom Robot Vacuum and Mop Combo with LiDAR Navigation, L9000 Robotic Vacuum Cleaner with 4000Pa Suction,150Min Max, 14 No-Go Zones, Smart Mapping, Good for Pet Hair, Carpet, Hard Floor")
             original_buy_mission.setVariations("")
             original_buy_mission.setRating("5.0")
             original_buy_mission.setFeedbacks("23")
@@ -2550,7 +2534,6 @@ class MainWindow(QMainWindow):
 
         return original_buy_mission
 
-
     # if function will add buy task related search if there is any 1st stage buy type of missions. (Note a buy mission will always have a same CUSPUS browse action go along with it.
     # will go into the configuration of the browse mission, if there is a keyword search run, go the last one, and swap out the auto assigned
     # search phrase and replace with the buy search phrase. If there is no keyword search run, then simply create one and replace whatever the last
@@ -2566,7 +2549,7 @@ class MainWindow(QMainWindow):
         print("add buy to taskgroup:", p_task_groups)
 
         #1st find all 1st stage buy missions.
-        self.showMsg("task name:" + json.dumps([tsk["name"]  for tsk in p_task_groups]))
+        self.showMsg("task name:" + json.dumps([tsk["name"] for tsk in p_task_groups]))
         buys = [tsk for tsk in p_task_groups if (tsk["name"].split("_")[0] in self.static_resource.BUY_TYPES)]
         initial_buys = []
         later_buys = []
@@ -2581,7 +2564,8 @@ class MainWindow(QMainWindow):
         print(len(buys), len(initial_buys), len(later_buys))
         for buytask in buys:
             # make sure we do search before buy
-            midx = next( (i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
+            midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])),
+                        -1)
             if midx >= 0:
                 task_mission = self.missions[midx]
                 original_buy = self.find_original_buy(task_mission)
@@ -2620,22 +2604,24 @@ class MainWindow(QMainWindow):
         # tasks should already be sorted by botid,
         try:
             nsites = 0
-            
-            v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
+
+            v_groups = self.getUnassignedVehiclesByOS()  #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
             # print some debug info.
             for key in v_groups:
-                log3("num vehicles in "+key+" :"+str(len(v_groups[key])), "assignWork", self)
+                log3("num vehicles in " + key + " :" + str(len(v_groups[key])), "assignWork", self)
                 if len(v_groups[key]) > 0:
                     for k, v in enumerate(v_groups[key]):
-                        log3("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n", "assignWork", self)
+                        log3("Vehicle OS:" + key + "[" + str(k) + "]" + json.dumps(v.genJson()) + "\n", "assignWork",
+                             self)
             print("assigning work....")
 
-            log3("unassigned_scheduled_task_groups: "+json.dumps(self.unassigned_scheduled_task_groups), "assignWork", self)
+            log3("unassigned_scheduled_task_groups: " + json.dumps(self.unassigned_scheduled_task_groups), "assignWork",
+                 self)
             tbd_unassigned = []
             for vname in self.unassigned_scheduled_task_groups:
-                log3("assignwork scheduled checking vehicle: "+vname, "assignWork", self)
-                p_task_groups = self.unassigned_scheduled_task_groups[vname]      # flattend per vehicle tasks.
-                log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
+                log3("assignwork scheduled checking vehicle: " + vname, "assignWork", self)
+                p_task_groups = self.unassigned_scheduled_task_groups[vname]  # flattend per vehicle tasks.
+                log3("p_task_groups: " + json.dumps(p_task_groups), "assignWork", self)
                 print("p_task_groups:", p_task_groups)
                 if len(p_task_groups) > 0:
                     print("some work to assign...", self.machine_name)
@@ -2650,13 +2636,15 @@ class MainWindow(QMainWindow):
                             # SC - at this point, p_task_groups should already be a flattened list of tasks
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                             # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                            self.showMsg("arranged for today on this machine...."+vname, "assignWork", self)
+                            self.showMsg("arranged for today on this machine...." + vname, "assignWork", self)
 
                             # handle any buy-side tasks.
                             self.add_buy_searchs(batched_tasks)
 
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                            self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
+                            self.todays_work["tbd"].append(
+                                {"name": "automation", "works": batched_tasks, "status": "yet to start",
+                                 "current widx": 0, "vname": vname, "completed": [], "aborted": []})
                             vidx = 0
                             self.rpa_work_assigned_for_today = True
                             self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
@@ -2664,8 +2652,8 @@ class MainWindow(QMainWindow):
 
                         # vidx = i
                         vehicle = self.getVehicleByName(vname)
-                        print("VVV:",vehicle)
-                        log3("assign work for vehicle:"+vname, "assignWork", self)
+                        print("VVV:", vehicle)
+                        log3("assign work for vehicle:" + vname, "assignWork", self)
                         print("assign for other machine...", vname, vehicle.getVid(), vehicle.getStatus())
 
                         if not vehicle.getTestDisabled():
@@ -2678,11 +2666,11 @@ class MainWindow(QMainWindow):
                     del self.unassigned_scheduled_task_groups[vname]
 
                 tbd_unassigned = []
-                
+
             for vname in self.unassigned_reactive_task_groups:
-                log3("assignwork reactive checking vehicle: "+vname, "assignWork", self)
-                p_task_groups = self.unassigned_reactive_task_groups[vname]      # flattend per vehicle tasks.
-                log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
+                log3("assignwork reactive checking vehicle: " + vname, "assignWork", self)
+                p_task_groups = self.unassigned_reactive_task_groups[vname]  # flattend per vehicle tasks.
+                log3("p_task_groups: " + json.dumps(p_task_groups), "assignWork", self)
                 if len(p_task_groups) > 0:
 
                     if self.machine_name in vname:
@@ -2696,16 +2684,19 @@ class MainWindow(QMainWindow):
                             # SC - at this point, p_task_groups should already be a flattened list of tasks
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                             # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                            log3("arranged for today on this machine...."+vname, "assignWork", self)
+                            log3("arranged for today on this machine...." + vname, "assignWork", self)
 
                             #need to do some prep work here if the work needs to download certain files......
                             for tsk in batched_tasks:
                                 if tsk["name"] == "sellFullfill_genECBLabels":
-                                    tskMission = next((m for i, m in enumerate(self.missions) if m.getMid() == tsk["mid"]), None)
+                                    tskMission = next(
+                                        (m for i, m in enumerate(self.missions) if m.getMid() == tsk["mid"]), None)
                                     self.downloadForFullfillGenECBLabels(tskMission.getConfig()[1], tsk['config'][1][0])
 
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
-                            self.reactive_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
+                            self.reactive_work["tbd"].append(
+                                {"name": "automation", "works": batched_tasks, "status": "yet to start",
+                                 "current widx": 0, "vname": vname, "completed": [], "aborted": []})
                             vidx = 0
                             self.rpa_work_assigned_for_today = True
                             self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
@@ -2713,7 +2704,7 @@ class MainWindow(QMainWindow):
 
                         # vidx = i
                         vehicle = self.getVehicleByName(vname)
-                        log3("assign reactive work for vehicle:"+vname, "assignWork", self)
+                        log3("assign reactive work for vehicle:" + vname, "assignWork", self)
                         if not vehicle.getTestDisabled():
                             self.vehicleSetupWorkSchedule(vehicle, p_task_groups, False)
                             if "running" in vehicle.getStatus():
@@ -2723,7 +2714,7 @@ class MainWindow(QMainWindow):
                 log3("deleting alread assigned reactive task groups", "assignWork", self)
                 for vname in tbd_unassigned:
                     del self.unassigned_reactive_task_groups[vname]
-                    
+
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -2734,11 +2725,9 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorAssignWork: traceback information not available:" + str(e)
             log3(ex_stat, "assignWork", self)
 
-
     def getVehicleByName(self, vname):
         found_vehicle = next((v for i, v in enumerate(self.vehicles) if v.getName() == vname), None)
         return found_vehicle
-
 
     def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
@@ -2749,11 +2738,10 @@ class MainWindow(QMainWindow):
                     psk_file = self.homepath + found_skill.getPskFileName()
                 else:
                     psk_file = self.my_ecb_data_homepath + found_skill.getPskFileName()
-                log3("Empowering platoon with skill PSK"+psk_file, "empower_platoon_with_skills", self)
+                log3("Empowering platoon with skill PSK" + psk_file, "empower_platoon_with_skills", self)
                 self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
                 log3("ERROR: skid NOT FOUND [" + str(skid) + "]", "empower_platoon_with_skills", self)
-
 
     def setTaskGroupInitialState(self, tg):
         initial_tz = ""
@@ -2768,7 +2756,6 @@ class MainWindow(QMainWindow):
             break
         return initial_tz, initial_group
 
-
     # find to todos.,
     # 1) check whether need to fetch schedules, this is highest priority, it occurs at 2am, there should be no requested work anyways...
     # 2) checking whether need to do RPA
@@ -2781,7 +2768,7 @@ class MainWindow(QMainWindow):
     # in case of 2 elements, the 0th element will be the fetch schedule, the 1st element will be the bot tasks(as a whole)
     # self.todays_work = {"tbd": [], "allstat": "working"}
     def checkNextToRun(self):
-        log3("checkNextToRun: todays tbd... "+json.dumps(self.todays_work["tbd"]), "checkNextToRun", self)
+        log3("checkNextToRun: todays tbd... " + json.dumps(self.todays_work["tbd"]), "checkNextToRun", self)
         log3("checkNextToRun: reactive tbd... " + json.dumps(self.reactive_work["tbd"]), "checkNextToRun", self)
         nextrun = None
         runType = "scheduled"
@@ -2793,16 +2780,17 @@ class MainWindow(QMainWindow):
         pt = pt + ten_hours
 
         if len(self.todays_work["tbd"]) > 0:
-            if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
+            if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (
+                    self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
                 log3("set up first todo", "checkNextToRun", self)
-                if self.ts2time(int(self.todays_work["tbd"][0]["works"][0]["start_time"]/1)) < pt:
-                    log3("set up next run"+json.dumps(self.todays_work["tbd"][0]), "checkNextToRun", self)
+                if self.ts2time(int(self.todays_work["tbd"][0]["works"][0]["start_time"] / 1)) < pt:
+                    log3("set up next run" + json.dumps(self.todays_work["tbd"][0]), "checkNextToRun", self)
                     nextrun = self.todays_work["tbd"][0]
             elif "Completed" not in self.todays_work["tbd"][0]["status"]:
                 # in case the 1st todos is an automation task.
-                log3("self.todays_work[\"tbd\"][0] : "+json.dumps(self.todays_work["tbd"][0]), "checkNextToRun", self)
-                log3("time right now is: "+str(self.time2ts(pt)), "checkNextToRun", self)
+                log3("self.todays_work[\"tbd\"][0] : " + json.dumps(self.todays_work["tbd"][0]), "checkNextToRun", self)
+                log3("time right now is: " + str(self.time2ts(pt)), "checkNextToRun", self)
 
                 # determin next task group:
 
@@ -2813,12 +2801,13 @@ class MainWindow(QMainWindow):
                     current_work_idx = self.todays_work["tbd"][0]["current widx"]
 
                     # if time is up to run the next work group,
-                    if self.ts2time(int(self.todays_work["tbd"][0]["works"][current_work_idx]["start_time"]/3)) < pt:
+                    if self.ts2time(int(self.todays_work["tbd"][0]["works"][current_work_idx]["start_time"] / 3)) < pt:
                         log3("next run is now set up......", "checkNextToRun", self)
                         nextrun = self.todays_work["tbd"][0]
-                log3("nextRUN>>>>>: "+json.dumps(nextrun), "checkNextToRun", self)
+                log3("nextRUN>>>>>: " + json.dumps(nextrun), "checkNextToRun", self)
             else:
-                log3("now today's schedule work are all finished, only serve the reactive work...", "checkNextToRun", self)
+                log3("now today's schedule work are all finished, only serve the reactive work...", "checkNextToRun",
+                     self)
                 if self.reactive_work["tbd"]:
                     nextrun = self.reactive_work["tbd"][0]
                 log3("nextRUN reactive>>>>>: " + json.dumps(nextrun), "checkNextToRun", self)
@@ -2840,9 +2829,8 @@ class MainWindow(QMainWindow):
             num = num + len(self.unassigned_reactive_task_groups[key])
         return num
 
-
     def checkToDos(self):
-        log3("checking todos...... "+json.dumps(self.todays_work["tbd"]), "checkToDos", self)
+        log3("checking todos...... " + json.dumps(self.todays_work["tbd"]), "checkToDos", self)
         nextrun = None
         # go thru tasks and check the 1st task whose designated start_time has passed.
         pt = datetime.now()
@@ -2851,15 +2839,17 @@ class MainWindow(QMainWindow):
         # Add 10 hours to the current date and time
         pt = pt + ten_hours
         if len(self.todays_work["tbd"]) > 0:
-            if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (self.todays_work["tbd"][0]["name"] == "fetch schedule"):
+            if ("Completed" not in self.todays_work["tbd"][0]["status"]) and (
+                    self.todays_work["tbd"][0]["name"] == "fetch schedule"):
                 # in case the 1st todos is fetch schedule
                 log3("checking fetch time", "checkToDos", self)
-                if self.ts2time(int(self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"]/1)) < pt:
+                if self.ts2time(int(
+                        self.todays_work["tbd"][0]["works"]["eastern"][0]["other_works"][0]["start_time"] / 1)) < pt:
                     nextrun = self.todays_work["tbd"][0]
             elif "Completed" not in self.todays_work["tbd"][0]["status"]:
                 # in case the 1st todos is an automation task.
-                log3("eastern:"+json.dumps(self.todays_work["tbd"][0]["works"]["eastern"]), "checkToDos", self)
-                log3("self.todays_work[\"tbd\"][0] : "+json.dumps(self.todays_work["tbd"][0]), "checkToDos", self)
+                log3("eastern:" + json.dumps(self.todays_work["tbd"][0]["works"]["eastern"]), "checkToDos", self)
+                log3("self.todays_work[\"tbd\"][0] : " + json.dumps(self.todays_work["tbd"][0]), "checkToDos", self)
                 tz = self.todays_work["tbd"][0]["current tz"]
 
                 bith = self.todays_work["tbd"][0]["current bidx"]
@@ -2867,23 +2857,27 @@ class MainWindow(QMainWindow):
                 # determin next task group:
                 current_bw_idx = self.todays_work["tbd"][0]["current widx"]
                 current_other_idx = self.todays_work["tbd"][0]["current oidx"]
-                log3("time right now is: "+self.time2ts(pt)+"("+str(pt)+")"+datetime.now().strftime('%Y-%m-%d %H:%M:%S')+" tz:"+tz+" bith:"+str(bith)+" bw idx:"+str(current_bw_idx)+"other idx:"+str(current_other_idx), "checkToDos", self)
+                log3("time right now is: " + self.time2ts(pt) + "(" + str(pt) + ")" + datetime.now().strftime(
+                    '%Y-%m-%d %H:%M:%S') + " tz:" + tz + " bith:" + str(bith) + " bw idx:" + str(
+                    current_bw_idx) + "other idx:" + str(current_other_idx), "checkToDos", self)
 
                 if current_bw_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"]):
-                    current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx]["start_time"]
+                    current_bw_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["bw_works"][current_bw_idx][
+                        "start_time"]
                     log3("current bw start time: " + str(current_bw_start_time), "checkToDos", self)
                 else:
                     # just give it a huge number so that, this group won't get run
                     current_bw_start_time = 1000
-                log3("current_bw_start_time: "+str(current_bw_start_time), "checkToDos", self)
+                log3("current_bw_start_time: " + str(current_bw_start_time), "checkToDos", self)
 
                 if current_other_idx < len(self.todays_work["tbd"][0]["works"][tz][bith]["other_works"]):
-                    current_other_start_time = self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
+                    current_other_start_time = \
+                    self.todays_work["tbd"][0]["works"][tz][bith]["other_works"][current_other_idx]["start_time"]
                     log3("current bw start time: " + str(current_other_start_time), "checkToDos", self)
                 else:
                     # in case, all just give it a huge number so that, this group won't get run
                     current_other_start_time = 1000
-                log3("current_other_start_time: "+current_other_start_time, "checkToDos", self)
+                log3("current_other_start_time: " + current_other_start_time, "checkToDos", self)
 
                 # if a buy-walk task is scheduled earlier than other tasks, arrange the buy-walk task, otherwise arrange other works.
                 if current_bw_start_time < current_other_start_time:
@@ -2898,19 +2892,19 @@ class MainWindow(QMainWindow):
                     wjth = -1
 
                 self.todays_work["tbd"][0]["current grp"] = grp
-                log3("tz: "+tz+" bith: "+str(bith)+" grp: "+grp+" wjth: "+str(wjth), "checkToDos", self)
+                log3("tz: " + tz + " bith: " + str(bith) + " grp: " + grp + " wjth: " + str(wjth), "checkToDos", self)
 
                 if wjth >= 0:
-                    if self.ts2time(int(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"]/3)) < pt:
+                    if self.ts2time(
+                            int(self.todays_work["tbd"][0]["works"][tz][bith][grp][wjth]["start_time"] / 3)) < pt:
                         self.showMsg("next run is now set up......")
                         nextrun = self.todays_work["tbd"][0]
-                log3("nextRUN>>>>>: "+json.dumps(nextrun), "checkToDos", self)
+                log3("nextRUN>>>>>: " + json.dumps(nextrun), "checkToDos", self)
         return nextrun
-
 
     def findWorksToBeRetried(self, todos):
         retries = copy.deepcopy(todos)
-        log3("MISSIONS needs retry: "+str(retries), "findWorksToBeRetried", self)
+        log3("MISSIONS needs retry: " + str(retries), "findWorksToBeRetried", self)
         return retries
 
     def findMissonsToBeRetried(self, todos):
@@ -2932,7 +2926,7 @@ class MainWindow(QMainWindow):
 
         #now point to the 1st item in this todo list
 
-        log3("MISSIONS needs retry: "+str(retries), "findMissonsToBeRetried", self)
+        log3("MISSIONS needs retry: " + str(retries), "findMissonsToBeRetried", self)
         return retries
 
     def flatten_todos(self, todos):
@@ -2949,7 +2943,6 @@ class MainWindow(QMainWindow):
                                 all_missions.update(value3)
         return all_missions
 
-
     def loadSkillFile(self, skname, pub):
         #slap on a file path prefix, then read in the file.
         skillsubnames = skname.split("_")
@@ -2959,22 +2952,21 @@ class MainWindow(QMainWindow):
         else:
             skill_file = self.my_ecb_data_homepath + "/my_skills/" + skname + "/scripts/" + skname + ".psk"
 
-        log3("loadSKILLFILE: "+skill_file, "loadSkillFile", self)
+        log3("loadSKILLFILE: " + skill_file, "loadSkillFile", self)
         stepKeys = readPSkillFile(skname, skill_file, lvl=0)
 
         return stepKeys
-
 
     # fill in real address to some placeholders
     def reAddrAndUpdateSteps(self, pskJson, init_step_idx, work_settings):
         # self.showMsg("PSK JSON::::: "+json.dumps(pskJson))
         newPskJson = {}
-        log3("New Index:"+str(init_step_idx), "reAddrAndUpdateSteps", self)
+        log3("New Index:" + str(init_step_idx), "reAddrAndUpdateSteps", self)
         new_idx = init_step_idx
         old_keys = list(pskJson.keys())
         for key in old_keys:
             if "step" in key:
-                new_key = "step "+str(new_idx)
+                new_key = "step " + str(new_idx)
                 newPskJson[new_key] = pskJson[key]
                 new_idx = new_idx + STEP_GAP
                 # print("old/new key:", key, new_key, pskJson[key])
@@ -2983,14 +2975,13 @@ class MainWindow(QMainWindow):
                         newPskJson[new_key]["key_value"] = work_settings
                         # newPskJson[new_key]["key_value"] = copy.deepcopy(work_settings)
                         # newPskJson[new_key]["key_value"]["commander_link"] = ""
-                        log3("REPLACED WORKSETTINGS HERE: "+new_key+" :::: "+json.dumps(newPskJson[new_key]), "reAddrAndUpdateSteps", self)
+                        log3("REPLACED WORKSETTINGS HERE: " + new_key + " :::: " + json.dumps(newPskJson[new_key]),
+                             "reAddrAndUpdateSteps", self)
 
                 pskJson.pop(key)
 
         # self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
         return new_idx, newPskJson
-
-
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
     async def runRPA(self, worksTBD, rpa_msg_queue, monitor_msg_queue):
@@ -3000,11 +2991,13 @@ class MainWindow(QMainWindow):
         all_done = False
         try:
             worksettings = getWorkRunSettings(self, worksTBD)
-            log3("worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
+            log3("worksettings: bid, mid " + str(worksettings["botid"]) + " " + str(worksettings["mid"]) + " " + str(
+                worksettings["midx"]) + " " + json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA",
+                 self)
 
             bot_idx = next((i for i, b in enumerate(self.bots) if str(b.getBid()) == str(worksettings["botid"])), -1)
             if bot_idx >= 0:
-                log3("found BOT to be run......"+str(self.bots[bot_idx].getEmail()), "runRPA", self)
+                log3("found BOT to be run......" + str(self.bots[bot_idx].getEmail()), "runRPA", self)
                 running_bot = self.bots[bot_idx]
 
             rpaScripts = []
@@ -3014,40 +3007,47 @@ class MainWindow(QMainWindow):
 
             # no finger print profile, no run for ads.
             if 'ads' in self.running_mission.getCusPAS() and self.running_mission.getFingerPrintProfile() == "":
-                log3("ERROR ADS mission has no profile: " + str(self.running_mission.getMid()) + " " + self.running_mission.getCusPAS() + " " + self.running_mission.getFingerPrintProfile(), "runRPA", self)
+                log3("ERROR ADS mission has no profile: " + str(
+                    self.running_mission.getMid()) + " " + self.running_mission.getCusPAS() + " " + self.running_mission.getFingerPrintProfile(),
+                     "runRPA", self)
                 runResult = "ErrorRPA ADS mission has no profile " + str(self.running_mission.getMid())
                 self.update1MStat(worksettings["midx"], runResult)
                 self.update1WorkRunStatus(worksTBD, worksettings["midx"])
             else:
-                log3("current RUNNING MISSION: "+json.dumps(self.running_mission.genJson()), "runRPA", self)
-                log3("RPA all skill ids:"+json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
+                log3("current RUNNING MISSION: " + json.dumps(self.running_mission.genJson()), "runRPA", self)
+                log3("RPA all skill ids:" + json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
                 if self.running_mission.getSkills() != "":
                     rpaSkillIdWords = self.running_mission.getSkills().split(",")
-                    log3("current RUNNING MISSION SKILL: "+json.dumps(self.running_mission.getSkills()), "runRPA", self)
+                    log3("current RUNNING MISSION SKILL: " + json.dumps(self.running_mission.getSkills()), "runRPA",
+                         self)
                     rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-                    log3("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(self.running_mission.getMid()), "runRPA", self)
+                    log3("rpaSkillIds: " + json.dumps(rpaSkillIds) + " " + str(
+                        type(rpaSkillIds[0])) + " " + " running mission id: " + str(self.running_mission.getMid()),
+                         "runRPA", self)
 
                     # get skills data structure by IDs
                     all_skids = [sk.getSkid() for sk in self.skills]
-                    log3("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
+                    log3("all skills ids:" + json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
                     rpaSkillIds = list(dict.fromkeys(rpaSkillIds))
-                    log3("rpaSkillIds:"+json.dumps(rpaSkillIds), "runRPA", self)
+                    log3("rpaSkillIds:" + json.dumps(rpaSkillIds), "runRPA", self)
 
                     relevant_skills = [self.skills[all_skids.index(skid)] for skid in rpaSkillIds]
 
-                    log3("N relevant skills:"+str(len(relevant_skills))+json.dumps([sk.getSkid() for sk in relevant_skills]), "runRPA", self)
+                    log3("N relevant skills:" + str(len(relevant_skills)) + json.dumps(
+                        [sk.getSkid() for sk in relevant_skills]), "runRPA", self)
                     relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
                     relevant_skill_ids = list(set(relevant_skill_ids))
-                    log3("relevant skills ids: "+json.dumps(relevant_skill_ids), "runRPA", self)
-                    dependent_skids=[]
+                    log3("relevant skills ids: " + json.dumps(relevant_skill_ids), "runRPA", self)
+                    dependent_skids = []
                     for sk in relevant_skills:
-                        log3("add dependency: " + json.dumps(sk.getDependencies()) + "for skill#" + str(sk.getSkid()), "runRPA", self)
+                        log3("add dependency: " + json.dumps(sk.getDependencies()) + "for skill#" + str(sk.getSkid()),
+                             "runRPA", self)
                         dependent_skids = dependent_skids + sk.getDependencies()
 
                     dependent_skids = list(set(dependent_skids))
                     dependent_skids = [skid for skid in dependent_skids if skid not in relevant_skill_ids]
-                    log3("all dependencies: "+json.dumps(dependent_skids), "runRPA", self)
+                    log3("all dependencies: " + json.dumps(dependent_skids), "runRPA", self)
 
                     dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
                     relevant_skills = relevant_skills + dependent_skills
@@ -3056,14 +3056,15 @@ class MainWindow(QMainWindow):
                     if len(relevant_skill_ids) < len(rpaSkillIds):
                         s = set(relevant_skill_ids)
                         missing = [x for x in rpaSkillIds if x not in s]
-                        log3("ERROR: Required Skills not found:"+json.dumps(missing), "runRPA", self)
+                        log3("ERROR: Required Skills not found:" + json.dumps(missing), "runRPA", self)
 
-
-                    log3("all skids involved in this skill: "+json.dumps([sk.getSkid() for sk in relevant_skills]), "runRPA", self)
+                    log3("all skids involved in this skill: " + json.dumps([sk.getSkid() for sk in relevant_skills]),
+                         "runRPA", self)
                     all_skill_codes = []
                     step_idx = 0
                     for sk in relevant_skills:
-                        log3("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName()+" "+str(worksettings["b_email"]), "runRPA", self)
+                        log3("settingSKKKKKKKK: " + str(sk.getSkid()) + " " + sk.getName() + " " + str(
+                            worksettings["b_email"]), "runRPA", self)
                         setWorkSettingsSkill(worksettings, sk)
                         # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
 
@@ -3072,7 +3073,7 @@ class MainWindow(QMainWindow):
                             sk_dir = self.homepath
                         else:
                             sk_dir = self.my_ecb_data_homepath
-                        pskJson = readPSkillFile(worksettings["name_space"], sk_dir+sk.getPskFileName(), lvl=0)
+                        pskJson = readPSkillFile(worksettings["name_space"], sk_dir + sk.getPskFileName(), lvl=0)
                         # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
                         # now regen address and update settings, after running, pskJson will be updated.
@@ -3088,17 +3089,17 @@ class MainWindow(QMainWindow):
                         rskFileDir = os.path.dirname(rskFileName)
                         if not os.path.exists(rskFileDir):
                             os.makedirs(rskFileDir)
-                        log3("rskFileName: "+rskFileName+" step_idx: "+str(step_idx), "runRPA", self)
+                        log3("rskFileName: " + rskFileName + " step_idx: " + str(step_idx), "runRPA", self)
                         with open(rskFileName, "w") as outfile:
                             json.dump(pskJson, outfile, indent=4)
                         outfile.close()
 
                         all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
 
-                    log3("all_skill_codes: "+json.dumps(all_skill_codes), "runRPA", self)
+                    log3("all_skill_codes: " + json.dumps(all_skill_codes), "runRPA", self)
 
                     rpa_script = prepRunSkill(all_skill_codes)
-                    log3("generated ready2run: "+json.dumps(rpa_script), "runRPA", self)
+                    log3("generated ready2run: " + json.dumps(rpa_script), "runRPA", self)
                     # self.showMsg("generated psk: " + str(len(rpa_script.keys())))
 
                     # doing this just so that the code below can run multiple codes if needed. but in reality
@@ -3108,16 +3109,16 @@ class MainWindow(QMainWindow):
                     # forseaable future.
                     rpaScripts.append(rpa_script)
                     # self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
-                    log3("rpaScripts:["+str(len(rpaScripts))+"] "+str(len(relevant_skills))+" "+str(worksettings["midx"])+" "+str(len(self.missions)), "runRPA", self)
+                    log3("rpaScripts:[" + str(len(rpaScripts)) + "] " + str(len(relevant_skills)) + " " + str(
+                        worksettings["midx"]) + " " + str(len(self.missions)), "runRPA", self)
 
                     # Before running do the needed prep to get "fin" input parameters ready.
                     # this is the case when this mission is run as an independent server, the input
                     # of the mission will come from the another computer, and there might even be
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
-                        log3("SETTING MISSSION INPUT:"+json.dumps(self.running_mission.getConfig()), "runRPA", self)
+                        log3("SETTING MISSSION INPUT:" + json.dumps(self.running_mission.getConfig()), "runRPA", self)
                         setMissionInput(self.running_mission.getConfig())
-
 
                     # (steps, mission, skill, mode="normal"):
                     # it_items = (item for i, item in enumerate(self.skills) if item.getSkid() == rpaSkillIds[0])
@@ -3131,18 +3132,21 @@ class MainWindow(QMainWindow):
                     # runResult = await runStepsTask
 
                     log3("BEFORE RUN: " + worksettings["b_email"], "runRPA", self)
-                    runResult = await runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
+                    runResult = await runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0],
+                                                  rpa_msg_queue, monitor_msg_queue)
 
                     # for retry test purpose:
                     # runResult = "Incomplete Error"
 
                     # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
                     # the timer tick will trigger the run of the next mission on the list....
-                    log3("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult, "runRPA", self)
+                    log3("UPDATEing completed mmission status:: " + str(
+                        worksettings["midx"]) + "RUN result:" + runResult, "runRPA", self)
                     self.update1MStat(worksettings["midx"], runResult)
                     self.update1WorkRunStatus(worksTBD, worksettings["midx"])
                 else:
-                    log3("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1", "runRPA", self)
+                    log3("UPDATEing ERROR mmission status:: " + str(
+                        worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1", "runRPA", self)
                     self.update1MStat(worksettings["midx"], "Incomplete: ERRORRunRPA:No Skill To Run")
                     self.update1WorkRunStatus(worksTBD, worksettings["midx"])
                     raise Exception('ERROR: NO SKILL TO RUN!')
@@ -3159,9 +3163,8 @@ class MainWindow(QMainWindow):
             log3(ex_stat, "runRPA", self)
             runResult = "Incomplete: ERRORRunRPA:-1"
 
-        log3("botid, mid:"+str(worksettings["botid"]) + " "+str(worksettings["mid"]), "runRPA", self)
+        log3("botid, mid:" + str(worksettings["botid"]) + " " + str(worksettings["mid"]), "runRPA", self)
         return worksettings["botid"], worksettings["mid"], runResult
-
 
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
     async def run1ManagerMission(self, mission, self_in_queue, rpa_msg_queue, monitor_msg_queue):
@@ -3171,7 +3174,9 @@ class MainWindow(QMainWindow):
         all_done = False
         try:
             worksettings = getWorkRunSettings(self, mission)
-            log3("manager worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
+            log3("manager worksettings: bid, mid " + str(worksettings["botid"]) + " " + str(
+                worksettings["mid"]) + " " + str(worksettings["midx"]) + " " + json.dumps(
+                [m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
 
             print("manager work settings:", worksettings)
             rpaScripts = []
@@ -3181,38 +3186,45 @@ class MainWindow(QMainWindow):
 
             # no finger print profile, no run for ads.
             if 'ads' in self.running_manager_mission.getCusPAS() and self.running_manager_mission.getFingerPrintProfile() == "":
-                log3("ERROR ADS mission has no profile: " + str(self.running_manager_mission.getMid()) + " " + self.running_mission.getCusPAS() + " " + self.running_mission.getFingerPrintProfile(), "runRPA", self)
+                log3("ERROR ADS mission has no profile: " + str(
+                    self.running_manager_mission.getMid()) + " " + self.running_mission.getCusPAS() + " " + self.running_mission.getFingerPrintProfile(),
+                     "runRPA", self)
                 runResult = "ErrorRPA ADS mission has no profile " + str(self.running_manager_mission.getMid())
             else:
-                log3("current RUNNING MISSION: "+json.dumps(self.running_manager_mission.genJson()), "runRPA", self)
-                log3("RPA all skill ids:"+json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
+                log3("current RUNNING MISSION: " + json.dumps(self.running_manager_mission.genJson()), "runRPA", self)
+                log3("RPA all skill ids:" + json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
                 if self.running_manager_mission.getSkills() != "":
                     rpaSkillIdWords = self.running_manager_mission.getSkills().split(",")
-                    log3("current RUNNING MISSION SKILL: "+json.dumps(self.running_manager_mission.getSkills()), "runRPA", self)
+                    log3("current RUNNING MISSION SKILL: " + json.dumps(self.running_manager_mission.getSkills()),
+                         "runRPA", self)
                     rpaSkillIds = [int(skidword.strip()) for skidword in rpaSkillIdWords]
 
-                    log3("rpaSkillIds: "+json.dumps(rpaSkillIds)+" "+str(type(rpaSkillIds[0]))+" "+" running mission id: "+str(self.running_manager_mission.getMid()), "runRPA", self)
+                    log3("rpaSkillIds: " + json.dumps(rpaSkillIds) + " " + str(
+                        type(rpaSkillIds[0])) + " " + " running mission id: " + str(
+                        self.running_manager_mission.getMid()), "runRPA", self)
 
                     # get skills data structure by IDs
                     all_skids = [sk.getSkid() for sk in self.skills]
-                    log3("all skills ids:"+json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
+                    log3("all skills ids:" + json.dumps([sk.getSkid() for sk in self.skills]), "runRPA", self)
                     rpaSkillIds = list(dict.fromkeys(rpaSkillIds))
-                    log3("rpaSkillIds:"+json.dumps(rpaSkillIds), "runRPA", self)
+                    log3("rpaSkillIds:" + json.dumps(rpaSkillIds), "runRPA", self)
 
                     relevant_skills = [self.skills[all_skids.index(skid)] for skid in rpaSkillIds]
 
-                    log3("N relevant skills:"+str(len(relevant_skills))+json.dumps([sk.getSkid() for sk in relevant_skills]), "runRPA", self)
+                    log3("N relevant skills:" + str(len(relevant_skills)) + json.dumps(
+                        [sk.getSkid() for sk in relevant_skills]), "runRPA", self)
                     relevant_skill_ids = [sk.getSkid() for sk in self.skills if sk.getSkid() in rpaSkillIds]
                     relevant_skill_ids = list(set(relevant_skill_ids))
-                    log3("relevant skills ids: "+json.dumps(relevant_skill_ids), "runRPA", self)
-                    dependent_skids=[]
+                    log3("relevant skills ids: " + json.dumps(relevant_skill_ids), "runRPA", self)
+                    dependent_skids = []
                     for sk in relevant_skills:
-                        log3("add dependency: " + json.dumps(sk.getDependencies()) + "for skill#" + str(sk.getSkid()), "runRPA", self)
+                        log3("add dependency: " + json.dumps(sk.getDependencies()) + "for skill#" + str(sk.getSkid()),
+                             "runRPA", self)
                         dependent_skids = dependent_skids + sk.getDependencies()
 
                     dependent_skids = list(set(dependent_skids))
                     dependent_skids = [skid for skid in dependent_skids if skid not in relevant_skill_ids]
-                    log3("all dependencies: "+json.dumps(dependent_skids), "runRPA", self)
+                    log3("all dependencies: " + json.dumps(dependent_skids), "runRPA", self)
 
                     dependent_skills = [sk for sk in self.skills if sk.getSkid() in dependent_skids]
                     relevant_skills = relevant_skills + dependent_skills
@@ -3221,14 +3233,15 @@ class MainWindow(QMainWindow):
                     if len(relevant_skill_ids) < len(rpaSkillIds):
                         s = set(relevant_skill_ids)
                         missing = [x for x in rpaSkillIds if x not in s]
-                        log3("ERROR: Required Skills not found:"+json.dumps(missing), "runRPA", self)
+                        log3("ERROR: Required Skills not found:" + json.dumps(missing), "runRPA", self)
 
-
-                    log3("all skids involved in this skill: "+json.dumps([sk.getSkid() for sk in relevant_skills]), "runRPA", self)
+                    log3("all skids involved in this skill: " + json.dumps([sk.getSkid() for sk in relevant_skills]),
+                         "runRPA", self)
                     all_skill_codes = []
                     step_idx = 0
                     for sk in relevant_skills:
-                        log3("settingSKKKKKKKK: "+str(sk.getSkid())+" "+sk.getName()+" "+str(worksettings["b_email"]), "runRPA", self)
+                        log3("settingSKKKKKKKK: " + str(sk.getSkid()) + " " + sk.getName() + " " + str(
+                            worksettings["b_email"]), "runRPA", self)
                         setWorkSettingsSkill(worksettings, sk)
                         # self.showMsg("settingSKKKKKKKK: "+json.dumps(worksettings, indent=4))
 
@@ -3237,7 +3250,7 @@ class MainWindow(QMainWindow):
                             sk_dir = self.homepath
                         else:
                             sk_dir = self.my_ecb_data_homepath
-                        pskJson = readPSkillFile(worksettings["name_space"], sk_dir+sk.getPskFileName(), lvl=0)
+                        pskJson = readPSkillFile(worksettings["name_space"], sk_dir + sk.getPskFileName(), lvl=0)
                         # self.showMsg("RAW PSK JSON::::"+json.dumps(pskJson))
 
                         # now regen address and update settings, after running, pskJson will be updated.
@@ -3253,17 +3266,17 @@ class MainWindow(QMainWindow):
                         rskFileDir = os.path.dirname(rskFileName)
                         if not os.path.exists(rskFileDir):
                             os.makedirs(rskFileDir)
-                        log3("rskFileName: "+rskFileName+" step_idx: "+str(step_idx), "runRPA", self)
+                        log3("rskFileName: " + rskFileName + " step_idx: " + str(step_idx), "runRPA", self)
                         with open(rskFileName, "w") as outfile:
                             json.dump(pskJson, outfile, indent=4)
                         outfile.close()
 
                         all_skill_codes.append({"ns": worksettings["name_space"], "skfile": rskFileName})
 
-                    log3("all_skill_codes: "+json.dumps(all_skill_codes), "runRPA", self)
+                    log3("all_skill_codes: " + json.dumps(all_skill_codes), "runRPA", self)
 
                     rpa_script = prepRunSkill(all_skill_codes)
-                    log3("generated ready2run: "+json.dumps(rpa_script), "runRPA", self)
+                    log3("generated ready2run: " + json.dumps(rpa_script), "runRPA", self)
                     # self.showMsg("generated psk: " + str(len(rpa_script.keys())))
 
                     # doing this just so that the code below can run multiple codes if needed. but in reality
@@ -3273,27 +3286,30 @@ class MainWindow(QMainWindow):
                     # forseaable future.
                     rpaScripts.append(rpa_script)
                     # self.showMsg("rpaScripts:["+str(len(rpaScripts))+"] "+json.dumps(rpaScripts))
-                    log3("rpaScripts:["+str(len(rpaScripts))+"] "+str(len(relevant_skills))+" "+str(worksettings["midx"])+" "+str(len(self.missions)), "runRPA", self)
+                    log3("rpaScripts:[" + str(len(rpaScripts)) + "] " + str(len(relevant_skills)) + " " + str(
+                        worksettings["midx"]) + " " + str(len(self.missions)), "runRPA", self)
 
                     # Before running do the needed prep to get "fin" input parameters ready.
                     # this is the case when this mission is run as an independent server, the input
                     # of the mission will come from the another computer, and there might even be
                     # files to be downloaded first as the input to the mission.
                     if worksettings["as_server"]:
-                        log3("SETTING MISSSION INPUT:"+json.dumps(self.running_manager_mission.getConfig()), "runRPA", self)
+                        log3("SETTING MISSSION INPUT:" + json.dumps(self.running_manager_mission.getConfig()), "runRPA",
+                             self)
                         setMissionInput(self.running_manager_mission.getConfig())
 
-
                     log3("BEFORE RUN: " + worksettings["b_email"], "runRPA", self)
-                    runResult = await runAllSteps(rpa_script, self.running_manager_mission, relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
-
+                    runResult = await runAllSteps(rpa_script, self.running_manager_mission, relevant_skills[0],
+                                                  rpa_msg_queue, monitor_msg_queue)
 
                     # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
                     # the timer tick will trigger the run of the next mission on the list....
-                    log3("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult, "runRPA", self)
+                    log3("UPDATEing completed mmission status:: " + str(
+                        worksettings["midx"]) + "RUN result:" + runResult, "runRPA", self)
                     mission.setResult(runResult)
                 else:
-                    log3("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1", "runRPA", self)
+                    log3("UPDATEing ERROR mmission status:: " + str(
+                        worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1", "runRPA", self)
                     mission.setResult("Incomplete: ERRORRunRPA:-1")
                     raise Exception('ERROR: NO SKILL TO RUN!')
 
@@ -3311,17 +3327,18 @@ class MainWindow(QMainWindow):
             log3(ex_stat, "run1managerMission", self)
             runResult = "Incomplete: ERRORRunRPA:-1"
 
-        log3("manager mission run result:"+json.dums(runResult), "runRPA", self)
+        log3("manager mission run result:" + json.dums(runResult), "runRPA", self)
         return runResult
 
-
-
     def update1MStat(self, midx, result):
-        log3("1 mission run completed."+str(midx)+" "+str(self.missions[midx].getMid())+" "+str(self.missions[midx].getRetry())+" "+str(self.missions[midx].getNRetries())+"status:"+result, "update1MStat", self)
+        log3("1 mission run completed." + str(midx) + " " + str(self.missions[midx].getMid()) + " " + str(
+            self.missions[midx].getRetry()) + " " + str(self.missions[midx].getNRetries()) + "status:" + result,
+             "update1MStat", self)
         self.missions[midx].setStatus(result)
         retry_count = self.missions[midx].getNRetries()
         self.missions[midx].setNRetries(retry_count + 1)
-        log3("update1MStat:"+str(midx)+":"+str(self.missions[midx].getMid())+":"+str(self.missions[midx].getNRetries()), "update1MStat", self)
+        log3("update1MStat:" + str(midx) + ":" + str(self.missions[midx].getMid()) + ":" + str(
+            self.missions[midx].getNRetries()), "update1MStat", self)
         bid = self.missions[midx].getBid()
 
         # if platoon send this updated info to commander boss
@@ -3329,7 +3346,8 @@ class MainWindow(QMainWindow):
             self.sendCommanderMissionsStatMsg([self.missions[midx].getMid()])
             missionResultFiles = self.getMissionResultFileNames(self.missions[midx])
             if missionResultFiles:
-                self.send_mission_result_files_to_commander(self.commanderXport, self.missions[midx].getMid(), "zip", missionResultFiles)
+                self.send_mission_result_files_to_commander(self.commanderXport, self.missions[midx].getMid(), "zip",
+                                                            missionResultFiles)
         elif "Commander" in self.host_role:
             self.updateMissionsStatToCloud([self.missions[midx]])
 
@@ -3348,7 +3366,7 @@ class MainWindow(QMainWindow):
         for mstat in mStats:
             foundMission = next((m for i, m in enumerate(self.missions) if m.getMid() == mstat["mid"]), None)
             if foundMission:
-                foundMission.setStatus= mstat.get("status", foundMission.getStatus())
+                foundMission.setStatus = mstat.get("status", foundMission.getStatus())
                 if "ast" in mstat:
                     foundMission.setActualStartTime = mstat.get("ast", foundMission.getActualStartTime())
                     foundMission.setAsd = mstat.get("ast", foundMission.getAsd())
@@ -3375,36 +3393,38 @@ class MainWindow(QMainWindow):
         else:
             return []
 
-
     def updateMissionsStatToCloud(self, missions):
         mstats = [{"mid": m.getMid(), "status": m.getStatus()} for m in missions]
         send_update_missions_ex_status_to_cloud(self.session, mstats, self.tokens['AuthenticationResult']['IdToken'])
-
 
     def updateUnassigned(self, tg_type, vname, task_group, tbd):
         tg_mids = [tsk["mid"] for tsk in task_group]
         if tg_type == "scheduled":
             if vname in self.unassigned_scheduled_task_groups:
                 # maybe an expensive way of remove a task from the group.
-                self.unassigned_scheduled_task_groups[vname] = [tsk for tsk in self.unassigned_scheduled_task_groups[vname] if tsk['mid'] not in tg_mids]
+                self.unassigned_scheduled_task_groups[vname] = [tsk for tsk in
+                                                                self.unassigned_scheduled_task_groups[vname] if
+                                                                tsk['mid'] not in tg_mids]
 
                 # if this vehcle no longer has unassigned work, then remove this vehicle from unassigned_task_group
                 if not self.unassigned_scheduled_task_groups[vname]:
                     tbd.append(vname)
                     log3("Remove alredy assigned mission from unassigned scheduled list", "updateUnassigned", self)
             else:
-                log3(vname+" NOT FOUND in unassigned scheduled work group", "updateUnassigned", self)
+                log3(vname + " NOT FOUND in unassigned scheduled work group", "updateUnassigned", self)
         elif tg_type == "reactive":
             if vname in self.unassigned_reactive_task_groups:
                 # maybe an expensive way of remove a task from the group.
-                self.unassigned_reactive_task_groups[vname] = [tsk for tsk in self.unassigned_reactive_task_groups[vname] if tsk['mid'] not in tg_mids]
+                self.unassigned_reactive_task_groups[vname] = [tsk for tsk in
+                                                               self.unassigned_reactive_task_groups[vname] if
+                                                               tsk['mid'] not in tg_mids]
 
                 # if this vehcle no longer has unassigned work, then remove this vehicle from unassigned_task_group
                 if not self.unassigned_reactive_task_groups[vname]:
                     tbd.append(vname)
                     log3("Remove already assigned mission from unassigned reactive list", "updateUnassigned", self)
             else:
-                log3(vname+" NOT FOUND in unassigned reactive work group", "updateUnassigned", self)
+                log3(vname + " NOT FOUND in unassigned reactive work group", "updateUnassigned", self)
 
         # find and delete mission from the work group.
 
@@ -3414,18 +3434,20 @@ class MainWindow(QMainWindow):
         this_stat = self.missions[midx].getStatus()
         worksTBD["current widx"] = worksTBD["current widx"] + 1
 
-        log3("updatin 1 work run status:"+this_stat+" "+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])), "update1WorkRunStatus", self)
+        log3("updatin 1 work run status:" + this_stat + " " + str(worksTBD["current widx"]) + " " + str(
+            len(worksTBD["works"])), "update1WorkRunStatus", self)
 
         if worksTBD["current widx"] >= len(worksTBD["works"]):
             worksTBD["current widx"] = self.checkTaskGroupCompleteness(worksTBD)
-            log3("current widx pointer after checking retries:"+str(worksTBD["current widx"])+" "+str(len(worksTBD["works"])), "update1WorkRunStatus", self)
+            log3("current widx pointer after checking retries:" + str(worksTBD["current widx"]) + " " + str(
+                len(worksTBD["works"])), "update1WorkRunStatus", self)
             if worksTBD["current widx"] >= len(worksTBD["works"]):
                 log3("current work group is COMPLETED.", "update1WorkRunStatus", self)
                 worksTBD["status"] = "Completed"
 
-
-        self.showMsg("current widx pointer now at:"+str(worksTBD["current widx"])+" worksTBD status: "+worksTBD["status"], "update1WorkRunStatus", self)
-
+        self.showMsg(
+            "current widx pointer now at:" + str(worksTBD["current widx"]) + " worksTBD status: " + worksTBD["status"],
+            "update1WorkRunStatus", self)
 
     def checkTaskGroupCompleteness(self, worksTBD):
         mids = [w["mid"] for w in worksTBD["works"]]
@@ -3436,9 +3458,10 @@ class MainWindow(QMainWindow):
                 this_stat = self.missions[midx].getStatus()
                 n_2b_retried = self.missions[midx].getRetry()
                 retry_count = self.missions[midx].getNRetries()
-                log3("check retries: "+str(mid)+" "+str(self.missions[midx].getMid())+" n2b retries: "+str(n_2b_retried)+" n retried: "+str(retry_count), "checkTaskGroupCompleteness", self)
+                log3("check retries: " + str(mid) + " " + str(self.missions[midx].getMid()) + " n2b retries: " + str(
+                    n_2b_retried) + " n retried: " + str(retry_count), "checkTaskGroupCompleteness", self)
                 if "Complete" not in this_stat and retry_count < n_2b_retried:
-                    log3("scheduing retry#:"+str(j)+" MID: "+str(mid), "checkTaskGroupCompleteness", self)
+                    log3("scheduing retry#:" + str(j) + " MID: " + str(mid), "checkTaskGroupCompleteness", self)
                     next_run_index = j
                     break
         return next_run_index
@@ -3461,7 +3484,8 @@ class MainWindow(QMainWindow):
 
         this_stat = self.missions[midx].getStatus()
 
-        log3("TZ:"+tz+" GRP:"+grp+" BIDX:"+str(bidx)+" WIDX:"+str(widx)+" OIDX:"+str(oidx)+" THIS STATUS:"+this_stat, "updateRunStatus", self)
+        log3("TZ:" + tz + " GRP:" + grp + " BIDX:" + str(bidx) + " WIDX:" + str(widx) + " OIDX:" + str(
+            oidx) + " THIS STATUS:" + this_stat, "updateRunStatus", self)
 
         if "Completed" in this_stat:
             # check whether need to switch group?
@@ -3473,7 +3497,7 @@ class MainWindow(QMainWindow):
                 # update after already started
                 if len(works[tz]) > 0:
                     if grp == "other_works":
-                        if len(works[tz][bidx][grp])-1 > oidx:
+                        if len(works[tz][bidx][grp]) - 1 > oidx:
                             oidx = oidx + 1
                         else:
                             # all other_works are done. simply go to the next bw_works if there are more
@@ -3481,7 +3505,7 @@ class MainWindow(QMainWindow):
                             grp = "bw_works"
                             # but if no more work after switching grp, switch timezone.
                             if len(works[tz][bidx][grp]) > 0:
-                                if widx > len(works[tz][bidx][grp])-1:
+                                if widx > len(works[tz][bidx][grp]) - 1:
                                     if bidx < len(works[tz]) - 1:
                                         bidx = bidx + 1
                                         switch_bot = True
@@ -3493,7 +3517,7 @@ class MainWindow(QMainWindow):
                                     widx = widx + 1
                             else:
                                 # all other_works and bw_works of this region(timezone) are done, check to see whether to switch bot.
-                                if bidx < len(works[tz])-1:
+                                if bidx < len(works[tz]) - 1:
                                     bidx = bidx + 1
                                     switch_bot = True
                                 else:
@@ -3501,13 +3525,13 @@ class MainWindow(QMainWindow):
                                     switch_tz = True
                     else:
                         # bw works
-                        if len(works[tz][bidx][grp])-1 > widx:
+                        if len(works[tz][bidx][grp]) - 1 > widx:
                             widx = widx + 1
                         else:
                             # all walk-buy works are done. simply go to the next other_works  if there are more
                             grp = "other_works"
                             if len(works[tz][bidx][grp]) > 0:
-                                if oidx > len(works[tz][bidx][grp])-1:
+                                if oidx > len(works[tz][bidx][grp]) - 1:
                                     if bidx < len(works[tz]) - 1:
                                         bidx = bidx + 1
                                         switch_bot = True
@@ -3518,7 +3542,7 @@ class MainWindow(QMainWindow):
                                     switch_grp = True
                                     oidx = oidx + 1
                             else:
-                                if bidx < len(works[tz])-1:
+                                if bidx < len(works[tz]) - 1:
                                     bidx = bidx + 1
                                     switch_bot = True
                                 else:
@@ -3528,7 +3552,8 @@ class MainWindow(QMainWindow):
                     if switch_tz == False:
                         if switch_bot == False:
                             if switch_grp == False:
-                                if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
+                                if works[tz][bidx]["other_works"][oidx]["start_time"] < \
+                                        works[tz][bidx]["bw_works"][widx]["start_time"]:
                                     worksTBD["current grp"] = "other_works"
                                 else:
                                     worksTBD["current grp"] = "bw_works"
@@ -3538,9 +3563,10 @@ class MainWindow(QMainWindow):
                             # if bot is changed, oidx and widx restart from 0.
                             oidx = 0
                             widx = 0
-                            log3("SWITCHED BOT:"+str(bidx), "updateRunStatus", self)
+                            log3("SWITCHED BOT:" + str(bidx), "updateRunStatus", self)
                             if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
-                                if works[tz][bidx]["other_works"][oidx]["start_time"] < works[tz][bidx]["bw_works"][widx]["start_time"]:
+                                if works[tz][bidx]["other_works"][oidx]["start_time"] < \
+                                        works[tz][bidx]["bw_works"][widx]["start_time"]:
                                     worksTBD["current grp"] = "other_works"
                                 else:
                                     worksTBD["current grp"] = "bw_works"
@@ -3564,10 +3590,11 @@ class MainWindow(QMainWindow):
 
                 if tzi < len(Tzs):
                     tz = Tzs[tzi]
-                    log3("SWITCHED TZ: "+tz, "updateRunStatus", self)
+                    log3("SWITCHED TZ: " + tz, "updateRunStatus", self)
                     if len(works[tz][bidx]["other_works"]) > 0 and len(works[tz][bidx]["bw_works"]) > 0:
                         # see which one's start time is earlier
-                        if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0]["start_time"]:
+                        if works[tz][bidx]["other_works"][0]["start_time"] < works[tz][bidx]["bw_works"][0][
+                            "start_time"]:
                             worksTBD["current grp"] = "other_works"
                             worksTBD["current bidx"] = 0
                             worksTBD["current widx"] = -1
@@ -3610,7 +3637,6 @@ class MainWindow(QMainWindow):
                             worksTBD["current widx"] = 0
 
         worksTBD["current tz"] = tz
-
 
     def findNextMissonsToBeRetried(self, workgroup):
         found = False
@@ -3748,7 +3774,7 @@ class MainWindow(QMainWindow):
                         workgroup["current oidx"] = -1
                 else:
                     # this is the case we have reach the last mission of the todo list...
-                    tz, bid, grp, mid  = self.findFirstMissonsToBeRetried(works)
+                    tz, bid, grp, mid = self.findFirstMissonsToBeRetried(works)
                     if tz == "":
                         # in such a case there is nothing to retry. consider it done....
                         found = True
@@ -3776,7 +3802,6 @@ class MainWindow(QMainWindow):
             if "Completed" not in this_stat and n_retries > 0:
                 found = True
 
-
     # go thru all todos to find the first mission that's incomplete and retry count is not down to 0 yet.
     def findFirstMissonsToBeRetried(self, todos):
         found = False
@@ -3794,7 +3819,8 @@ class MainWindow(QMainWindow):
                                 for item in value3.items():
                                     # missions
                                     mission_id = item["mid"]
-                                    midx = next((i for i, mission in enumerate(self.missions) if str(mission.getMid()) == mission_id), -1)
+                                    midx = next((i for i, mission in enumerate(self.missions) if
+                                                 str(mission.getMid()) == mission_id), -1)
                                     this_stat = self.missions[midx].getStatus()
                                     n_retry = self.missions[midx].getRetry()
                                     if "Completed" not in this_stat and n_retry > 0:
@@ -3813,11 +3839,9 @@ class MainWindow(QMainWindow):
                 break
         #now point to the 1st item in this todo list
 
-        log3("MISSIONS needs retry: "+tz+" "+str(bid)+" "+grp+" "+str(mid), "findFirstMissonsToBeRetried", self)
+        log3("MISSIONS needs retry: " + tz + " " + str(bid) + " " + grp + " " + str(mid), "findFirstMissonsToBeRetried",
+             self)
         return tz, bid, grp, mid
-
-
-
 
     #convert time zone, time slot to datetime
     # the time slot is defined as following:
@@ -3828,7 +3852,7 @@ class MainWindow(QMainWindow):
     def ts2time(self, ts):
         thistime = datetime.now()
         zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
-        time_change = timedelta(minutes=20*ts)
+        time_change = timedelta(minutes=20 * ts)
         runtime = zerotime + time_change
         return runtime
 
@@ -3836,10 +3860,9 @@ class MainWindow(QMainWindow):
         thistime = datetime.now()
         zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
         # Get the time difference in seconds
-        ts = int((pdt - zerotime).total_seconds()/1200)         # computer time slot in 20minuts chunk
+        ts = int((pdt - zerotime).total_seconds() / 1200)  # computer time slot in 20minuts chunk
 
         return ts
-
 
     def runBotTask(self, task):
         self.working_state = "running_working"
@@ -3847,7 +3870,6 @@ class MainWindow(QMainWindow):
         # run all the todo steps
         # (steps, mission, skill, mode="normal"):
         runResult = runAllSteps(task.todos, task_mission.parent_settings)
-
 
     def runADSProfileConverter(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -3866,7 +3888,6 @@ class MainWindow(QMainWindow):
         except IOError:
             QMessageBox.information(self, "Unable to open/save file: %s" % filename)
 
-
     def runADSProfileBatchToSingles(self):
         filename, _ = QFileDialog.getOpenFileName(
             self,
@@ -3883,29 +3904,26 @@ class MainWindow(QMainWindow):
         except IOError:
             QMessageBox.information(self, "Error", "Unable to open/save file: %s" % filename)
 
-
-
-
     def showAbout(self):
         msgBox = QMessageBox()
         msgBox.setWindowTitle(QApplication.translate("QMessageBox", "ECBot About"))
-        msgBox.setText(QApplication.translate("QMessageBox", "MAIPPS LLC E-Commerce Bots. \n (V1.01 2024-10-11 AIPPS LLC) \n"))
+        msgBox.setText(
+            QApplication.translate("QMessageBox", "MAIPPS LLC E-Commerce Bots. \n (V1.01 2024-10-11 AIPPS LLC) \n"))
         # msgBox.setInformativeText("Do you want to save your changes?")
         # msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         # msgBox.setDefaultButton(QMessageBox.Save)
         ret = msgBox.exec()
 
     def gotoUserGuide(self):
-        url="https://www.maipps.com"
+        url = "https://www.maipps.com"
         webbrowser.open(url, new=0, autoraise=True)
 
-
     def gotoForum(self):
-        url="https://www.maipps.com"
+        url = "https://www.maipps.com"
         webbrowser.open(url, new=0, autoraise=True)
 
     def gotoMyAccount(self):
-        url="https://www.maipps.com"
+        url = "https://www.maipps.com"
         webbrowser.open(url, new=0, autoraise=True)
 
     def newBotView(self):
@@ -3921,7 +3939,6 @@ class MainWindow(QMainWindow):
         self.BotNewWin.setBot(EBBOT(self))
         self.BotNewWin.show()
 
-
     def trainNewSkill(self):
         if self.trainNewSkillWin == None:
             self.trainNewSkillWin = TrainNewWin(self)
@@ -3932,7 +3949,6 @@ class MainWindow(QMainWindow):
         #rem = ReminderWin(self)
         #rem.show()
         self.trainNewSkillWin.set_cloud(self.session, self.tokens)
-
 
     def saveAll(self):
         # Logic for creating a new bot:
@@ -3953,7 +3969,6 @@ class MainWindow(QMainWindow):
         self.showMsg("logged out........")
         self.close()
         # now should close the main window and bring back up the login screen?
-
 
     def addNewBots(self, new_bots):
         # Logic for creating a new bot:
@@ -3991,9 +4006,10 @@ class MainWindow(QMainWindow):
 
         if "errorType" in jresp:
             screen_error = True
-            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+            self.showMsg(
+                "ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(jresp["errorInfo"]))
         else:
-            self.showMsg("jresp:"+json.dumps(jresp))
+            self.showMsg("jresp:" + json.dumps(jresp))
             jbody = jresp["body"]
             #now that add is successfull, update local file as well.
             # first, update bot ID both in data structure and in GUI display.
@@ -4042,10 +4058,12 @@ class MainWindow(QMainWindow):
             })
             # self.updateBotRelatedVehicles(abot)
         if not localOnly:
-            jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'])
+            jresp = send_update_bots_request_to_cloud(self.session, bots,
+                                                      self.tokens['AuthenticationResult']['IdToken'])
             if "errorType" in jresp:
                 screen_error = True
-                self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
+                             "ERROR Info: " + json.dumps(jresp["errorInfo"]))
             else:
                 print("update bot jresp:", jresp)
                 # jbody = jresp["body"]
@@ -4095,7 +4113,8 @@ class MainWindow(QMainWindow):
                 self.updateBotRelatedVehicles(abot)
 
             if not localOnly:
-                jresp = send_update_bots_request_to_cloud(self.session, bjs, self.tokens['AuthenticationResult']['IdToken'])
+                jresp = send_update_bots_request_to_cloud(self.session, bjs,
+                                                          self.tokens['AuthenticationResult']['IdToken'])
                 if "errorType" in jresp:
                     screen_error = True
                     self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
@@ -4124,8 +4143,6 @@ class MainWindow(QMainWindow):
 
             self.showMsg(ex_stat)
 
-
-
     def updateBotRelatedVehicles(self, bot):
         if bot.getVehicle() is not None and bot.getVehicle() != "" and bot.getVehicle() != "NA":
             # if last assigned vehicle is changed. remove botid from last assigned vehicle and botid to the new vehicle.
@@ -4146,7 +4163,8 @@ class MainWindow(QMainWindow):
                             self.vehicle_service.update_vehicle(currentVehicleInLocalDB)
 
                         # update the previous vehicle in local DB
-                        self.vehicle_service.remove_bot_from_current_vehicle(str(bot.getBid()), previousVehicleInLocalDB)
+                        self.vehicle_service.remove_bot_from_current_vehicle(str(bot.getBid()),
+                                                                             previousVehicleInLocalDB)
                 else:
                     bot_ids = ast.literal_eval(currentVehicleInLocalDB.bot_ids)
                     if bot.getBid() not in bot_ids:
@@ -4228,12 +4246,13 @@ class MainWindow(QMainWindow):
                                                    self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
-            self.showMsg("Delete Bots ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
+            self.showMsg("Delete Bots ERROR Type: " + json.dumps(jresp["errorType"]),
+                         "ERROR Info: " + json.dumps(jresp["errorInfo"]))
         else:
             jbody = jresp["body"]
             # now that delete is successfull, update local file as well.
             # self.writeMissionJsonFile()
-            self.showMsg("JUST ADDED mission:"+json.dumps(jbody))
+            self.showMsg("JUST ADDED mission:" + json.dumps(jbody))
             for i, new_mission in enumerate(new_missions):
                 new_mission.setMid(jbody[i]["mid"])
                 new_mission.setTicket(jbody[i]["ticket"])
@@ -4300,13 +4319,15 @@ class MainWindow(QMainWindow):
                 "original_req_file": amission.getReqFile()
             })
 
-        jresp = send_update_missions_request_to_cloud(self.session, missions, self.tokens['AuthenticationResult']['IdToken'])
+        jresp = send_update_missions_request_to_cloud(self.session, missions,
+                                                      self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
-            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+            self.showMsg(
+                "ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(jresp["errorInfo"]))
         else:
             jbody = jresp["body"]
-            self.showMsg("Update Cloud side result:"+json.dumps(jbody))
+            self.showMsg("Update Cloud side result:" + json.dumps(jbody))
             if jbody['numberOfRecordsUpdated'] == len(missions):
                 self.mission_service.update_missions_by_id(api_missions)
                 mid_list = [mission.getMid() for mission in missions]
@@ -4330,7 +4351,8 @@ class MainWindow(QMainWindow):
                 self.botModel.appendRow(self.newBot)
                 self.selected_bot_row = self.botModel.rowCount() - 1
                 self.selected_bot_item = self.botModel.item(self.selected_bot_row)
-                bot_profile_name = self.my_ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
+                bot_profile_name = self.my_ecb_data_homepath + "/ads_profiles/" + \
+                                   bjs["privateProfile"]["email"].split("@")[0] + ".txt"
                 if bot_profile_name not in self.todays_bot_profiles:
                     self.todays_bot_profiles.append(bot_profile_name)
 
@@ -4352,25 +4374,24 @@ class MainWindow(QMainWindow):
                 self.skills.append(self.newSkill)
                 # self.skillModel.appendRow(self.newSkill)
 
-
     def addVehicle(self, vname, vip):
         try:
             # ipfields = vinfo.peername[0].split(".")
 
             if len(self.vehicles) > 0:
                 v_host_names = [v.getName().split(":")[0] for v in self.vehicles]
-                print("existing vehicle "+json.dumps(v_host_names))
+                print("existing vehicle " + json.dumps(v_host_names))
             else:
                 vids = []
 
             found_fl = next((fl for i, fl in enumerate(fieldLinks) if vname in fl["name"]), None)
 
             if vname not in v_host_names:
-                self.showMsg("adding a new vehicle..... "+vname+" "+vip)
+                self.showMsg("adding a new vehicle..... " + vname + " " + vip)
                 newVehicle = VEHICLE(self)
                 newVehicle.setIP(vip)
                 newVehicle.setVid(vip.split(".")[3])
-                newVehicle.setName(vname+":")
+                newVehicle.setName(vname + ":")
                 if found_fl:
                     print("found_fl IP:", found_fl["ip"])
                     newVehicle.setFieldLink(found_fl)
@@ -4383,7 +4404,7 @@ class MainWindow(QMainWindow):
 
                 resultV = newVehicle
             else:
-                self.showMsg("Reconnected: "+vip)
+                self.showMsg("Reconnected: " + vip)
                 foundV = next((v for i, v in enumerate(self.vehicles) if vname in v.getName()), None)
                 foundV.setIP(vip)
                 foundV.setStatus("running_idle")
@@ -4406,12 +4427,11 @@ class MainWindow(QMainWindow):
         print("added vehicle:", resultV.getName(), resultV.getStatus())
         return resultV
 
-
-
     def markVehicleOffline(self, vip, vname):
         global fieldLinks
         lostName = vname.split(":")[0]
-        self.showMsg("marking vehicle offline: "+vip+" "+json.dumps([v.getIP()+":"+v.getName() for v in self.vehicles]))
+        self.showMsg("marking vehicle offline: " + vip + " " + json.dumps(
+            [v.getIP() + ":" + v.getName() for v in self.vehicles]))
 
         found_v_idx = next((i for i, v in enumerate(self.vehicles) if lostName in v.getName()), -1)
         print("found_v_idx", found_v_idx)
@@ -4429,7 +4449,7 @@ class MainWindow(QMainWindow):
         print("existing v names:", existing_names)
         if self.machine_role == "Commander":
             # should add this machine to vehicle list.
-            newVehicle = VEHICLE(self, self.machine_name+":"+self.os_short, self.ip)
+            newVehicle = VEHICLE(self, self.machine_name + ":" + self.os_short, self.ip)
             newVehicle.setStatus("running_idle")
             self.saveVehicle(newVehicle)
             self.vehicles.append(newVehicle)
@@ -4438,12 +4458,12 @@ class MainWindow(QMainWindow):
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
             if fieldLinks[i]["name"].split(":")[0] not in existing_names:
-                self.showMsg("a fieldlink....."+json.dumps(fieldLinks[i]["ip"]))
+                self.showMsg("a fieldlink....." + json.dumps(fieldLinks[i]["ip"]))
                 newVehicle = VEHICLE(self, fieldLinks[i]["name"], fieldLinks[i]["ip"])
                 newVehicle.setFieldLink(fieldLinks[i])
-                newVehicle.setStatus("running_idle")        # if already has a fieldlink, that means it's tcp connected.
+                newVehicle.setStatus("running_idle")  # if already has a fieldlink, that means it's tcp connected.
                 ipfields = fieldLinks[i]["ip"].split(".")
-                ip = ipfields[len(ipfields)-1]
+                ip = ipfields[len(ipfields) - 1]
                 newVehicle.setVid(ip)
                 self.saveVehicle(newVehicle)
                 self.vehicles.append(newVehicle)
@@ -4482,33 +4502,32 @@ class MainWindow(QMainWindow):
         self.showMsg("hello???")
         if command == "refresh":
             # cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
-            cmd = {"cmd":"reqStatusUpdate", "missions":"all"}
+            cmd = {"cmd": "reqStatusUpdate", "missions": "all"}
         elif command == "halt":
             # cmd = '{\"cmd\":\"reqHaltMissions\", \"missions\":\"all\"}'
-            cmd = {"cmd":"reqHaltMissions", "missions":"all"}
+            cmd = {"cmd": "reqHaltMissions", "missions": "all"}
         elif command == "resume":
             # cmd = '{\"cmd\":\"reqResumeMissions\", \"missions\":\"all\"}'
-            cmd = {"cmd":"reqResumeMissions", "missions":"all"}
+            cmd = {"cmd": "reqResumeMissions", "missions": "all"}
         elif command == "cancel this":
             mission_list_string = ','.join(str(x) for x in mids)
             # cmd = '{\"cmd\":\"reqCancelMissions\", \"missions\":\"'+mission_list_string+'\"}'
-            cmd = {"cmd":"reqCancelMissions", "missions": mission_list_string}
+            cmd = {"cmd": "reqCancelMissions", "missions": mission_list_string}
         elif command == "cancel all":
             # cmd = '{\"cmd\":\"reqCancelAllMissions\", \"missions\":\"all\"}'
-            cmd = {"cmd":"reqCancelAllMissions", "missions":"all"}
+            cmd = {"cmd": "reqCancelAllMissions", "missions": "all"}
         else:
             # cmd = '{\"cmd\":\"ping\", \"missions\":\"all\"}'
-            cmd = {"cmd":"ping", "missions":"all"}
+            cmd = {"cmd": "ping", "missions": "all"}
 
-        self.showMsg("cmd is: "+cmd)
+        self.showMsg("cmd is: " + cmd)
         if len(rows) > 0:
             effective_rows = list(filter(lambda r: r >= 0, rows))
         else:
             effective_rows = []
 
-        self.showMsg("effective_rows:"+json.dumps(effective_rows))
+        self.showMsg("effective_rows:" + json.dumps(effective_rows))
         self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
-
 
     def cancelVehicleMission(self, rows):
         # cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
@@ -4525,18 +4544,18 @@ class MainWindow(QMainWindow):
         #self.BotNewWin.resize(400, 200)
         #self.platoonWin.show()
         self.showMsg("sending commands.....")
-        self.showMsg("tcp connections....."+json.dumps([flk["ip"] for flk in fieldLinks]))
+        self.showMsg("tcp connections....." + json.dumps([flk["ip"] for flk in fieldLinks]))
 
         if len(idxs) == 0:
             idxs = range(self.runningVehicleModel.rowCount())
 
         # if not self.tcpServer == None:
         if len(fieldLinks) > 0:
-            self.showMsg("Currently, there are ("+str(len(fieldLinks))+") connection to this server.....")
+            self.showMsg("Currently, there are (" + str(len(fieldLinks)) + ") connection to this server.....")
             for i in range(len(fieldLinks)):
                 if i in idxs:
                     self.send_json_to_platoon(fieldLinks[i], cmd)
-                    self.showMsg("cmd sent on link:"+str(i)+":"+json.dumps(cmd))
+                    self.showMsg("cmd sent on link:" + str(i) + ":" + json.dumps(cmd))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
 
@@ -4554,7 +4573,6 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
 
-
     # This function translate bots data structure matching ebbot.py to Json format for file storage.
     def genBotsJson(self):
         bjs = []
@@ -4564,14 +4582,12 @@ class MainWindow(QMainWindow):
         #self.showMsg(json.dumps(bjs))
         return bjs
 
-
     # This function translate bots data from Json format to the data structure matching ebbot.py
     def translateBotsJson(self):
         for bj in self.botJsonData:
             new_bot = EBBOT(self)
             new_bot.setJsonData(bj)
             self.bots.append(new_bot)
-
 
     def readBotJsonFile(self):
         if exists(self.file_resource.BOTS_FILE):
@@ -4580,7 +4596,6 @@ class MainWindow(QMainWindow):
                 self.translateBotsJson(self.botJsonData)
 
             file.close()
-
 
     def saveBotJsonFile(self):
         if self.file_resource.BOTS_FILE == None:
@@ -4609,9 +4624,8 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("Bot file does NOT exist.")
 
-
     def readVehicleJsonFile(self):
-        self.showMsg("Reading Vehicle Json File: "+self.VEHICLES_FILE)
+        self.showMsg("Reading Vehicle Json File: " + self.VEHICLES_FILE)
         if exists(self.VEHICLES_FILE):
             with open(self.VEHICLES_FILE, 'r') as file:
                 self.vehiclesJsonData = json.load(file)
@@ -4630,10 +4644,12 @@ class MainWindow(QMainWindow):
                 print("add new vehicle to local vehicle data structure but no yet added to GUI", vjd["name"])
                 new_v = VEHICLE(self)
                 new_v.loadJson(vjd)
-                new_v.setStatus("offline")      # always set to offline when load from file. will self correct as we update it later....
+                new_v.setStatus(
+                    "offline")  # always set to offline when load from file. will self correct as we update it later....
                 self.saveVehicle(new_v)
                 self.vehicles.append(new_v)
-                self.runningVehicleModel.appendRow(new_v)             # initially set to be offline state and will be updated later when network status is updated
+                self.runningVehicleModel.appendRow(
+                    new_v)  # initially set to be offline state and will be updated later when network status is updated
             else:
                 if "test_disabled" in vjd:
                     foundV = self.getVehicleByName(vjd["name"])
@@ -4669,7 +4685,6 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("Vehicles json file does NOT exist.")
 
-
     def translateInventoryJson(self):
         #self.showMsg("Translating JSON to data......."+str(len(self.sellerInventoryJsonData)))
         for bj in self.sellerInventoryJsonData:
@@ -4677,16 +4692,15 @@ class MainWindow(QMainWindow):
             new_inventory.setJsonData(bj)
             self.inventories.append(new_inventory)
 
-
     def readSellerInventoryJsonFile(self, inv_file):
         if inv_file == "":
             inv_file_name = self.product_catelog_file
         else:
             inv_file_name = inv_file
 
-        self.showMsg("product catelog file: "+inv_file_name)
+        self.showMsg("product catelog file: " + inv_file_name)
         if exists(inv_file_name):
-            self.showMsg("Reading inventory file: "+inv_file_name)
+            self.showMsg("Reading inventory file: " + inv_file_name)
             with open(inv_file_name, 'r', encoding='utf-8') as file:
                 self.sellerInventoryJsonData = json.load(file)
         else:
@@ -4704,7 +4718,6 @@ class MainWindow(QMainWindow):
         #self.showMsg(json.dumps(bjs))
         return mjs
 
-
     # This function translate bots data from Json format to the data structure matching ebbot.py
     def translateMissionsJson(self):
         for mj in self.missionJsonData:
@@ -4712,13 +4725,11 @@ class MainWindow(QMainWindow):
             new_mission.setJsonData(mj)
             self.missions.append(new_mission)
 
-
     def readMissionJsonFile(self):
         if exists(self.file_resource.MISSIONS_FILE):
             with open(self.file_resource.MISSIONS_FILE, 'r') as file:
                 self.missionJsonData = json.load(file)
                 self.translateMissionsJson(self.missionJsonData)
-
 
     def writeMissionJsonFile(self):
         if self.file_resource.MISSIONS_FILE == None:
@@ -4745,7 +4756,6 @@ class MainWindow(QMainWindow):
                     "Unable to save file: %s" % filename
                 )
 
-
     def readCSVFiles(self):
         # read files from the local disk and. bot file in csv file format.
         # text, icon, ebtype, email, empw, phone, backemail, acctpw, fn, ln,
@@ -4762,7 +4772,7 @@ class MainWindow(QMainWindow):
                 # pass the file object to reader() to get the reader object
                 csv_reader = reader(read_obj)
                 rows = list(csv_reader)
-                i=0
+                i = 0
                 # Iterate over each row in the csv using reader object
                 botjson["text"] = rows[1][i]
                 i = i + 1
@@ -4838,7 +4848,6 @@ class MainWindow(QMainWindow):
                 i = i + 1
                 botjson["status"]["fb_in1m"] = rows[1][i]
                 i = i + 1
-
 
     def runAll(self):
         # Logic for removing a bot, remove the data and remove the file.
@@ -4949,14 +4958,16 @@ class MainWindow(QMainWindow):
                 elif selected_act == self.cusMissionRunAction:
                     print("selected_mission_row: ", self.selected_mission_row)
                     print("selected_cus_mission_item: ", self.selected_cus_mission_item)
-                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue,
+                                                              self.gui_monitor_msg_queue))
 
             return True
-        elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
-            self.showMsg("CLICKED on bot:"+str(source.indexAt(event.pos()).row()))
+        elif (event.type() == QEvent.MouseButtonPress) and source is self.botListView:
+            self.showMsg("CLICKED on bot:" + str(source.indexAt(event.pos()).row()))
         #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
-        elif (event.type() == QEvent.MouseButtonPress ) and source is self.missionListView:
-            self.showMsg("CLICKED on mission:"+str(source.indexAt(event.pos()).row())+"selected row:"+str(self.missions))
+        elif (event.type() == QEvent.MouseButtonPress) and source is self.missionListView:
+            self.showMsg(
+                "CLICKED on mission:" + str(source.indexAt(event.pos()).row()) + "selected row:" + str(self.missions))
         #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
         elif event.type() == QEvent.ContextMenu and source is self.vehicleListView:
             self.showMsg("vehicles RC menu....")
@@ -5015,21 +5026,21 @@ class MainWindow(QMainWindow):
             from ChatGUIV2 import ChatDialog
             if self.selected_bot_item:
                 self.chatWin = ChatDialog(self, self.selected_bot_item.getBid())
-                self.showMsg("done create win............"+str(self.selected_bot_item.getBid()))
+                self.showMsg("done create win............" + str(self.selected_bot_item.getBid()))
             else:
                 self.chatWin = ChatDialog(self, 0)
                 self.showMsg("done create win............commander")
         self.chatWin.show()
 
     def _createCusMissionViewAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&View"))
-       return new_action
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&View"))
+        return new_action
 
     def _createCusMissionEditAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Edit"))
-       return new_action
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
+        return new_action
 
     def _createCusMissionCloneAction(self):
         # File actions
@@ -5065,13 +5076,13 @@ class MainWindow(QMainWindow):
         else:
             self.showMsg("populating a newly created mission GUI............")
             self.missionWin = MissionNewWin(self)
-            self.showMsg("done create mission win............"+str(self.selected_cus_mission_item.getMid())+" skills:"+self.selected_cus_mission_item.getSkills())
+            self.showMsg("done create mission win............" + str(
+                self.selected_cus_mission_item.getMid()) + " skills:" + self.selected_cus_mission_item.getSkills())
             self.missionWin.setMission(self.selected_cus_mission_item)
 
         self.missionWin.setMode("update")
         self.missionWin.show()
         self.showMsg("edit mission" + str(self.selected_mission_row))
-
 
     def cloneCusMission(self):
         # File actions
@@ -5083,7 +5094,8 @@ class MainWindow(QMainWindow):
     def deleteCusMission(self):
         # File actions
         msgBox = QMessageBox()
-        msgBox.setText(QApplication.translate("QMessageBox", "The mission will be removed and won't be able recover from it.."))
+        msgBox.setText(
+            QApplication.translate("QMessageBox", "The mission will be removed and won't be able recover from it.."))
         msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this mission?"))
         msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
         msgBox.setDefaultButton(QMessageBox.Yes)
@@ -5106,7 +5118,7 @@ class MainWindow(QMainWindow):
                 # remove on the cloud side, local DB side, and MainGUI side
                 self.deleteMissionsWithJsons(False, api_removes)
 
-                    # self.writeMissionJsonFile()
+                # self.writeMissionJsonFile()
 
         #self.botModel.removeRow(self.selected_bot_row)
         #self.showMsg("delete bot" + str(self.selected_bot_row))
@@ -5159,7 +5171,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorCreateMissionsWithJsons: traceback information not available:" + str(e)
             log3(ex_stat)
 
-
     def updateCusMissionStatus(self, amission):
         # send this mission's status to Cloud
         api_missions = [amission]
@@ -5171,7 +5182,6 @@ class MainWindow(QMainWindow):
         #     jbody = json.loads(jresp["body"])
         #     # now that delete is successfull, update local file as well.
         #     self.writeMissionJsonFile()
-
 
     def updateMissionsWithJsData(self, mjs):
         try:
@@ -5250,14 +5260,13 @@ class MainWindow(QMainWindow):
 
             self.showMsg(ex_stat)
 
-
     def runCusMissionNowSync(self):
         print("")
         # asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
 
     async def runCusMissionNow(self, amission, gui_rpa_queue, gui_monitor_queue):
         # check if psk is already there, if not generate psk, then run it.
-        self.showMsg("run mission now...."+str(amission.getBid()))
+        self.showMsg("run mission now...." + str(amission.getBid()))
         executor = self.getBotByID(amission.getBid())
 
         tempMissionTasks = [{
@@ -5270,19 +5279,21 @@ class MainWindow(QMainWindow):
             "config": amission.getConfig(),
             "trepeat": 1,
             "fingerprint_profile": amission.getFingerPrintProfile(),
-            "start_time": 1            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
+            "start_time": 1
+            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
         }]
 
         ads_profile_batches_fnames = genAdsProfileBatchs(self, self.ip, tempMissionTasks)
         print("updated tempMissionTasks:", tempMissionTasks)
 
-        self.todays_work["tbd"].append({"name": "automation", "works": tempMissionTasks, "status": "Assigned", "current widx": 0, "completed": [], "aborted": []})
-
+        self.todays_work["tbd"].append(
+            {"name": "automation", "works": tempMissionTasks, "status": "Assigned", "current widx": 0, "completed": [],
+             "aborted": []})
 
     def _createBotRCEditAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Edit"))
-       return new_action
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Edit"))
+        return new_action
 
     def _createBotRCCloneAction(self):
         # File actions
@@ -5303,20 +5314,19 @@ class MainWindow(QMainWindow):
         return new_action
 
     def _createVehicleViewAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&View"))
-       return new_action
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&View"))
+        return new_action
 
     def _createVehicleSetUpTeamAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Set Up Team"))
-       return new_action
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Set Up Team"))
+        return new_action
 
     def _createVehicleSetUpWorkScheduleAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Set Up Work Schedule"))
-       return new_action
-
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Set Up Work Schedule"))
+        return new_action
 
     def editBot(self):
         if self.BotNewWin == None:
@@ -5337,7 +5347,8 @@ class MainWindow(QMainWindow):
     def deleteBot(self):
         # File actions
         msgBox = QMessageBox()
-        msgBox.setText(QApplication.translate("QMessageBox", "The bot will be removed and won't be able recover from it.."))
+        msgBox.setText(
+            QApplication.translate("QMessageBox", "The bot will be removed and won't be able recover from it.."))
         msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this bot?"))
         msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
         msgBox.setDefaultButton(QMessageBox.Yes)
@@ -5362,7 +5373,6 @@ class MainWindow(QMainWindow):
                 self.deleteBotsWithJsons(False, api_removes)
 
                 # self.saveBotJsonFile()
-
 
     # delete from cloud side
     # delete from local DB
@@ -5409,7 +5419,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorCreateBotsWithJsons: traceback information not available:" + str(e)
             log3(ex_stat)
 
-
     # data format conversion. nb is in EBBOT data structure format., nbdata is json
     def fillNewBotPubInfo(self, nbjson, nb):
         self.showMsg("filling bot public data for bot-" + str(nbjson["pubProfile"]["bid"]))
@@ -5428,7 +5437,8 @@ class MainWindow(QMainWindow):
             # then from there, figure out newly added accounts
             # from newly added accounts, screen the ones ready to be converted to a Bot/Agent
             # rows are updated....
-            qualified, rowsNeedUpdate, botsNeedUpdate, vehiclesNeedUpdate = self.screenBuyerBotCandidates(acctRows, self.bots)
+            qualified, rowsNeedUpdate, botsNeedUpdate, vehiclesNeedUpdate = self.screenBuyerBotCandidates(acctRows,
+                                                                                                          self.bots)
             print("qualified:", len(qualified), qualified)
             print("rowsNeedUpdate:", len(rowsNeedUpdate), rowsNeedUpdate)
             print("botsNeedUpdate:", len(botsNeedUpdate), [b.getAddr() for b in botsNeedUpdate])
@@ -5451,7 +5461,6 @@ class MainWindow(QMainWindow):
             # Log and skip errors gracefully
             ex_stat = f"Error in SyncBotAccounts: {traceback.format_exc()} {str(e)}"
             print(f"{ex_stat}")
-
 
     def runGetBotAccountsHook(self):
         try:
@@ -5516,7 +5525,7 @@ class MainWindow(QMainWindow):
             '',
             QApplication.translate("QFileDialog", "Bot Files (*.json *.xlsx *.csv)")
         )
-        log3("loading bots from a file..."+filename)
+        log3("loading bots from a file..." + filename)
         self.createBotsFromFilesOrJsData([filename])
 
     def createBotsFromFilesOrJsData(self, bfiles):
@@ -5538,7 +5547,8 @@ class MainWindow(QMainWindow):
                                             self.fillNewBotFullInfo(fb, new_bot)
                                             bots_from_file.append(new_bot)
                                     else:
-                                        self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
+                                        self.warn(
+                                            QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
                             except (FileNotFoundError, json.JSONDecodeError) as e:
                                 self.warn(QApplication.translate("QMainWindow",
                                                                  f"Error opening or decoding JSON file: {filename} - {e}"))
@@ -5558,7 +5568,8 @@ class MainWindow(QMainWindow):
                                         # Capture header titles from the first row of the first sheet
                                         if idx == 0 and ri == 0:
                                             title_cells = [cell for cell in row]
-                                        elif ri > 0 and len(row) == len(title_cells):  # Ensure row length matches headers
+                                        elif ri > 0 and len(row) == len(
+                                                title_cells):  # Ensure row length matches headers
                                             botJson = {}
                                             for ci, cell in enumerate(title_cells):
                                                 # Format dates if necessary
@@ -5577,10 +5588,12 @@ class MainWindow(QMainWindow):
                                     print(new_bot.genJson())
 
                             except FileNotFoundError as e:
-                                self.warn(QApplication.translate("QMainWindow", f"Excel file not found: {filename} - {e}"))
+                                self.warn(
+                                    QApplication.translate("QMainWindow", f"Excel file not found: {filename} - {e}"))
                             except Exception as e:
                                 self.warn(
-                                    QApplication.translate("QMainWindow", f"Error processing Excel file: {filename} - {e}"))
+                                    QApplication.translate("QMainWindow",
+                                                           f"Error processing Excel file: {filename} - {e}"))
 
                         else:
                             self.showMsg("ERROR: bot files must either be in .json format or .xlsx format!")
@@ -5596,7 +5609,8 @@ class MainWindow(QMainWindow):
                     self.warn(QApplication.translate("QMainWindow", "Warning: No file provided."))
 
             if len(bots_from_file) > 0:
-                print("adding new bots to both cloud and local DB... update BID and Interests along the way since they're cloud generated.")
+                print(
+                    "adding new bots to both cloud and local DB... update BID and Interests along the way since they're cloud generated.")
                 self.addNewBots(bots_from_file)
                 firstAddedBotId = bots_from_file[0].getBid()
                 return firstAddedBotId
@@ -5685,7 +5699,6 @@ class MainWindow(QMainWindow):
         if local_missions:
             self.mission_service.insert_missions_batch_(local_missions)
 
-
     def newMissionFromFile(self):
         self.showMsg("loading missions from a file...")
         api_missions = []
@@ -5722,13 +5735,15 @@ class MainWindow(QMainWindow):
                             #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
                             jresp = send_add_missions_request_to_cloud(self.session, filebmissions,
-                                                                   self.tokens['AuthenticationResult']['IdToken'])
+                                                                       self.tokens['AuthenticationResult']['IdToken'])
 
                             if "errorType" in jresp:
                                 screen_error = True
-                                self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                                self.showMsg(
+                                    "ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(
+                                        jresp["errorInfo"]))
                             else:
-                                self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
+                                self.showMsg("jresp type: " + str(type(jresp)) + " " + str(len(jresp["body"])))
                                 jbody = jresp["body"]
                                 # now that add is successfull, update local file as well.
 
@@ -5753,7 +5768,7 @@ class MainWindow(QMainWindow):
                         dataType = "businessXlsxFile"
                         # if getting missions from xlsx file it's automatically assumed that the
                         # the mission will be for amz buy.
-                        log3("working on order file:"+filename)
+                        log3("working on order file:" + filename)
                         mJsons = self.convert_orders_xlsx_to_json(filename)
                         log3("mJsons from xlsx:" + json.dumps(mJsons))
 
@@ -5766,9 +5781,11 @@ class MainWindow(QMainWindow):
                                 pkString = "songc@yahoo.com"
                             else:
                                 pkString = mJson["email"]
-                            mJson["pseudoStore"] = self.generateShortHash(pkString+":"+mJson.get("store", "NoneStore"))
-                            mJson["pseudoBrand"] = self.generateShortHash(pkString+":"+mJson.get("brand", "NoneBrand"))
-                            mJson["pseudoASIN"] = self.generateShortHash(pkString+":"+mJson["asin"])
+                            mJson["pseudoStore"] = self.generateShortHash(
+                                pkString + ":" + mJson.get("store", "NoneStore"))
+                            mJson["pseudoBrand"] = self.generateShortHash(
+                                pkString + ":" + mJson.get("brand", "NoneBrand"))
+                            mJson["pseudoASIN"] = self.generateShortHash(pkString + ":" + mJson["asin"])
 
                             if not mJson["feedback_type"]:
                                 mJson["type"] = mTypeTable[mJson["feedback_type"]]
@@ -5779,8 +5796,8 @@ class MainWindow(QMainWindow):
                             n_orders = int(mJson["quantity"])
                             missionsJson = missionsJson + [copy.deepcopy(mJson) for _ in range(n_orders)]
 
-                        log3("total # of orders rows read: "+str(len(mJsons)))
-                        log3("mJsons after conversion:"+json.dumps(mJsons))
+                        log3("total # of orders rows read: " + str(len(mJsons)))
+                        log3("mJsons after conversion:" + json.dumps(mJsons))
                         m = sum(int(item["quantity"]) for item in mJsons)
                         log3("total # of missions to be generated: " + str(m))
                 else:
@@ -5808,7 +5825,6 @@ class MainWindow(QMainWindow):
 
             missionsJson[i]['mid'] = mission.getMid()
         return missionsJson
-
 
     def process_original_xlsx_file(self, file_path):
         # Read the Excel file, skipping the first two rows
@@ -5856,13 +5872,10 @@ class MainWindow(QMainWindow):
 
         print(f"File saved as {new_file_name}")
 
-
     def newMissionFromNewReq(self, reqJson, reqFile):
         new_mission = EBMISSION(self)
         new_mission.loadAMZReqData(reqJson, reqFile)
         return new_mission
-
-
 
     # sc - 10/11/2024 - add new missions are they in todays_work?
     def newBuyMissionFromFiles(self):
@@ -5881,7 +5894,8 @@ class MainWindow(QMainWindow):
         new_buy_missions = []
         if os.path.isdir(new_orders_dir):
             files = os.listdir(new_orders_dir)
-            xlsx_files = [os.path.join(new_orders_dir, file) for file in files if os.path.isfile(os.path.join(new_orders_dir, file)) and file.endswith('.xlsx')]
+            xlsx_files = [os.path.join(new_orders_dir, file) for file in files if
+                          os.path.isfile(os.path.join(new_orders_dir, file)) and file.endswith('.xlsx')]
 
             #each row of each xlsx file becomes a new mission
             for xlsx_file in xlsx_files:
@@ -5900,11 +5914,13 @@ class MainWindow(QMainWindow):
         # cloud side first
 
         if len(new_buy_missions) > 0:
-            jresp = send_add_missions_request_to_cloud(self.session, new_buy_missions, self.tokens['AuthenticationResult']['IdToken'])
+            jresp = send_add_missions_request_to_cloud(self.session, new_buy_missions,
+                                                       self.tokens['AuthenticationResult']['IdToken'])
 
             if "errorType" in jresp:
                 screen_error = True
-                self.showMsg( "ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(jresp["errorInfo"]))
+                self.showMsg(
+                    "ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(jresp["errorInfo"]))
             else:
                 self.showMsg("jresp type: " + str(type(jresp)) + " " + str(len(jresp["body"])))
                 jbody = jresp["body"]
@@ -5948,11 +5964,11 @@ class MainWindow(QMainWindow):
             anchor_files = os.listdir(anchor_dir)
             for af in anchor_files:
                 full_af_name = anchor_dir + "/" + af
-                jresp = upload_file(self.session, full_af_name, self.tokens['AuthenticationResult']['IdToken'], "anchor")
+                jresp = upload_file(self.session, full_af_name, self.tokens['AuthenticationResult']['IdToken'],
+                                    "anchor")
 
             csk_file = scripts_dir + "/" + os.path.basename(filename).split(".")[0] + ".csk"
             jresp = upload_file(self.session, csk_file, self.tokens['AuthenticationResult']['IdToken'], "csk")
-
 
     def newSkillFromFile(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -5961,7 +5977,7 @@ class MainWindow(QMainWindow):
             '',
             QApplication.translate("QFileDialog", "Skill Json Files (*.json)")
         )
-        self.showMsg("loading skill from a file..."+filename)
+        self.showMsg("loading skill from a file..." + filename)
         if filename != "":
             api_skills = []
             try:
@@ -5971,13 +5987,15 @@ class MainWindow(QMainWindow):
                     if skill_json:
                         #add skills to the relavant data structure and add these bots to the cloud and local DB.
                         # send_add_skills_to_cloud
-                        jresp = send_add_skills_request_to_cloud(self.session, [skill_json], self.tokens['AuthenticationResult']['IdToken'])
+                        jresp = send_add_skills_request_to_cloud(self.session, [skill_json],
+                                                                 self.tokens['AuthenticationResult']['IdToken'])
 
                         if "errorType" in jresp:
                             screen_error = True
-                            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+                            self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(
+                                jresp["errorInfo"]))
                         else:
-                            self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
+                            self.showMsg("jresp type: " + str(type(jresp)) + " " + str(len(jresp["body"])))
                             jbody = jresp["body"]
                             # now that add is successfull, update local file as well.
 
@@ -6032,9 +6050,9 @@ class MainWindow(QMainWindow):
         # "skill_path": "public/win_chrome_etsy_orders",
         # "skill_args": "gs_input",
         # "output": "total_label_cost"
-        self.showMsg("TRYING...."+main_file)
+        self.showMsg("TRYING...." + main_file)
         if os.path.exists(main_file):
-            self.showMsg("OPENING...."+main_file)
+            self.showMsg("OPENING...." + main_file)
             with open(main_file, 'r') as psk_file:
                 code_jsons = json.load(psk_file)
 
@@ -6043,16 +6061,15 @@ class MainWindow(QMainWindow):
                     if "type" in code_jsons[key]:
                         if code_jsons[key]["type"] == "Use Skill":
                             if "public" in code_jsons[key]["skill_path"]:
-                                dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                                dependency_file = self.homepath + "/resource/skills/" + code_jsons[key][
+                                    "skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
                             else:
-                                dependency_file = self.my_ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
-
+                                dependency_file = self.my_ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + \
+                                                  code_jsons[key]["skill_name"] + ".psk"
 
                             if dependency_file not in dependencies:
                                 dependencies.add(dependency_file)
                                 self.find_dependencies(dependency_file, visited, dependencies)
-
-
 
         # self.platform+"_"+self.App()+"_"+self.site_name+"_"+self.page+"_"+self.name is the output string format
 
@@ -6065,7 +6082,7 @@ class MainWindow(QMainWindow):
                 dep_list = list(dependencies)
             else:
                 dep_list = []
-            self.showMsg("found dependency:"+json.dumps(dep_list))
+            self.showMsg("found dependency:" + json.dumps(dep_list))
 
             dep_ids = []
             for dep in dep_list:
@@ -6075,16 +6092,15 @@ class MainWindow(QMainWindow):
             existing_skill_ids = []
             for dp in dep_ids:
                 if dp[0] == -1:
-                    self.showMsg("ERROR: missing skill dependent skills file:"+str(dp[1]))
+                    self.showMsg("ERROR: missing skill dependent skills file:" + str(dp[1]))
                 else:
                     existing_skill_ids.append(dp[0])
             # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
-            self.showMsg("existing_skill_ids:"+json.dumps(existing_skill_ids))
+            self.showMsg("existing_skill_ids:" + json.dumps(existing_skill_ids))
         else:
             existing_skill_ids = []
 
         return existing_skill_ids
-
 
     def findSkillIDWithSkillFileName(self, skill_file_name):
         skidx = next((i for i, x in enumerate(self.skills) if x.matchPskFileName(skill_file_name)), -1)
@@ -6137,9 +6153,7 @@ class MainWindow(QMainWindow):
                         existingSkill.add_procedural_skill(sk_data['procedural_skill'])
                         existingSkill.add_cloud_skill(sk_data['cloud_skill'])
 
-
         self.showMsg("Added Local public Skills:" + str(len(self.skills)))
-
 
     # load locally stored skills
     def loadLocalPrivateSkills(self):
@@ -6159,7 +6173,7 @@ class MainWindow(QMainWindow):
                     if file.endswith(".json"):
                         file_path = os.path.join(root, file)
                         skill_def_files.append(file_path)
-                        print("load private skill definition json file:" + file+"::"+file_path)
+                        print("load private skill definition json file:" + file + "::" + file_path)
 
             # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
@@ -6171,26 +6185,28 @@ class MainWindow(QMainWindow):
                     sk_data = json.load(json_file)
                     json_file.close()
                     print("sk_data::", sk_data)
-                    self.showMsg("loading private skill f: "+str(sk_data["skid"])+" "+file_path)
+                    self.showMsg("loading private skill f: " + str(sk_data["skid"]) + " " + file_path)
                     if sk_data["skid"] in existing_skids:
                         new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
                         new_skill.loadJson(sk_data)
                         self.skills.append(new_skill)
-                        print("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
+                        print("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(),
+                              new_skill.getPath())
                     else:
                         #update the existing skill or no even needed?
-                        found_skill = next((x for x in self.skills if x.getSkid()==sk_data["skid"]), None)
+                        found_skill = next((x for x in self.skills if x.getSkid() == sk_data["skid"]), None)
                         # if found_skill:
 
-
-                    this_skill_dir = skdir+sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"/"
-                    gen_string = sk_data["platform"]+"_"+sk_data["app"]+"_"+sk_data["site_name"]+"_"+sk_data["page"]+"_"+sk_data["name"]
-                    self.showMsg("total skill files loaded: "+str(len(self.skills)))
+                    this_skill_dir = skdir + sk_data["platform"] + "_" + sk_data["app"] + "_" + sk_data[
+                        "site_name"] + "_" + sk_data["page"] + "/"
+                    gen_string = sk_data["platform"] + "_" + sk_data["app"] + "_" + sk_data["site_name"] + "_" + \
+                                 sk_data["page"] + "_" + sk_data["name"]
+                    self.showMsg("total skill files loaded: " + str(len(self.skills)))
                     self.load_external_functions(this_skill_dir, sk_data["name"], gen_string, sk_data["generator"])
                     # no need to run genSkillCode, since once in table, will be generated later....
                     # genSkillCode(sk_full_name, privacy, root_path, start_step, theme)
 
-            self.showMsg("Added Local Private Skills:"+str(len(self.skills)))
+            self.showMsg("Added Local Private Skills:" + str(len(self.skills)))
 
         except Exception as e:
             # Get the traceback information
@@ -6202,14 +6218,14 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorLoadLocalPrivateSkills: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
 
-
     #  in case private skill use certain external functions, load them
     def load_external_functions(self, sk_dir, sk_name, gen_string, generator):
         try:
-            generator_script = sk_dir+sk_name+".py"
+            generator_script = sk_dir + sk_name + ".py"
             generator_diagram = sk_dir + sk_name + ".skd"
             added_handlers = []
-            self.showMsg("Generator:"+" "+sk_dir+" "+sk_name+" "+gen_string+" "+generator+" "+generator_script+" "+generator_diagram)
+            self.showMsg(
+                "Generator:" + " " + sk_dir + " " + sk_name + " " + gen_string + " " + generator + " " + generator_script + " " + generator_diagram)
             if os.path.isfile(generator_script):
                 spec = importlib.util.spec_from_file_location(sk_name, generator_script)
                 # Create a module object from the spec
@@ -6218,8 +6234,8 @@ class MainWindow(QMainWindow):
                 spec.loader.exec_module(module)
 
                 if hasattr(module, generator):
-                    self.showMsg("add key-val pair: "+gen_string+" "+generator)
-                    SkillGeneratorTable[gen_string+"_my"] = lambda w, x, y, z: getattr(module, generator)(w, x, y, z)
+                    self.showMsg("add key-val pair: " + gen_string + " " + generator)
+                    SkillGeneratorTable[gen_string + "_my"] = lambda w, x, y, z: getattr(module, generator)(w, x, y, z)
 
             elif os.path.isfile(generator_diagram):
                 self.showMsg("gen psk from diagram.")
@@ -6234,15 +6250,14 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorLoadExternalFunction: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
 
-
     def matchSkill(self, sk_long_name, sk):
         sk_words = sk_long_name.split("_")
         sk_name = "_".join(sk_words[4:])
-        if sk.getPlatform() == sk_words[0] and sk.getApp() == sk_words[1] and sk.getSiteName() == sk_words[2] and sk.getName() == sk_name:
+        if sk.getPlatform() == sk_words[0] and sk.getApp() == sk_words[1] and sk.getSiteName() == sk_words[
+            2] and sk.getName() == sk_name:
             return True
         else:
             return False
-
 
     def checkIsMain(self, sk_long_name):
         is_main = False
@@ -6281,7 +6296,7 @@ class MainWindow(QMainWindow):
                 self.bots = []
                 self.botModel.clear()
                 for row in db_data:
-                    self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
+                    self.showMsg("loading a bot: " + json.dumps(row.to_dict()))
                     new_bot = EBBOT(self)
                     new_bot.loadDBData(row)
                     print("hello????")
@@ -6327,7 +6342,7 @@ class MainWindow(QMainWindow):
             self.missions = []
             self.missionModel.clear()
             for row in db_data:
-                self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
+                self.showMsg("loading a mission: " + json.dumps(row.to_dict()))
                 new_mission = EBMISSION(self)
                 new_mission.loadDBData(row)
                 new_mission.setData(row)
@@ -6347,7 +6362,6 @@ class MainWindow(QMainWindow):
         a_mission.setApp(cuspas_parts[1])
         a_mission.setSite(self.translateShortSiteName(cuspas_parts[2]))
 
-
     # fetch all bots stored in the cloud.
     def getAllBotsFromCloud(self):
         # File actions
@@ -6355,9 +6369,10 @@ class MainWindow(QMainWindow):
         jresp = send_get_bots_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'])
         if "errorType" in jresp:
             screen_error = True
-            self.showMsg("Gat All Bots ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+            self.showMsg("Gat All Bots ERROR Type: " + json.dumps(jresp["errorType"]) + "ERROR Info: " + json.dumps(
+                jresp["errorInfo"]))
         else:
-            self.showMsg("resp body"+json.dumps(jresp["body"]))
+            self.showMsg("resp body" + json.dumps(jresp["body"]))
             #jbody = json.loads(jresp["body"])
             # now that fetch all bots from the cloud side is successfull, need to compare with local data and merge:
 
@@ -6454,8 +6469,6 @@ class MainWindow(QMainWindow):
 
             await asyncio.sleep(1)  # Short sleep to avoid busy-waiting
 
-
-
     # this is be run as an async task.
     async def runbotworks(self, gui_rpa_queue, gui_monitor_queue):
         # run all the work
@@ -6476,37 +6489,45 @@ class MainWindow(QMainWindow):
                 # and the rest will be taken care of by the work dispatcher...
                 self.arrangeContractWorks(contractWorks)
 
-                log3("real work starts here...."+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
+                log3("real work starts here...." + json.dumps([m.getFingerPrintProfile() for m in self.missions]),
+                     "runbotworks", self)
                 botTodos = None
                 if self.working_state == "running_idle":
                     log3("idle checking.....", "runbotworks", self)
                     if self.getNumUnassignedWork() > 0:
-                        self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                        self.showMsg(get_printable_datetime() + " - Found unassigned work: " + str(
+                            self.getNumUnassignedWork()) + "<>" + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                         self.assignWork()
 
-                    log3("check next to run"+str(len(self.todays_work["tbd"]))+" "+str(len(self.reactive_work["tbd"]))+" "+str(self.getNumUnassignedWork()), "runbotworks", self)
+                    log3("check next to run" + str(len(self.todays_work["tbd"])) + " " + str(
+                        len(self.reactive_work["tbd"])) + " " + str(self.getNumUnassignedWork()), "runbotworks", self)
                     botTodos, runType = self.checkNextToRun()
-                    log3("fp profiles of mission: "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
+                    log3("fp profiles of mission: " + json.dumps([m.getFingerPrintProfile() for m in self.missions]),
+                         "runbotworks", self)
                     if not (botTodos == None):
-                        log3("working on..... "+botTodos["name"], "runbotworks", self)
+                        log3("working on..... " + botTodos["name"], "runbotworks", self)
                         self.working_state = "running_working"
 
                         if botTodos["name"] == "automation":
                             # run 1 bot's work
-                            log3("running RPA.............."+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
+                            log3("running RPA.............." + json.dumps(
+                                [m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
                             if "Completed" not in botTodos["status"]:
-                                log3("time to run RPA........"+json.dumps(botTodos), "runbotworks", self)
-                                last_start = int(datetime.now().timestamp()*1)
+                                log3("time to run RPA........" + json.dumps(botTodos), "runbotworks", self)
+                                last_start = int(datetime.now().timestamp() * 1)
 
-                                current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_rpa_queue, gui_monitor_queue)
-                                last_end = int(datetime.now().timestamp()*1)
+                                current_bid, current_mid, run_result = await self.runRPA(botTodos, gui_rpa_queue,
+                                                                                         gui_monitor_queue)
+                                last_end = int(datetime.now().timestamp() * 1)
 
-                            # else:
+                                # else:
                                 # now need to chop off the 0th todo since that's done by now....
                                 #
-                                log3("total # of works:"+str(botTodos["current widx"])+":"+str(len(botTodos["works"])), "runbotworks", self)
+                                log3("total # of works:" + str(botTodos["current widx"]) + ":" + str(
+                                    len(botTodos["works"])), "runbotworks", self)
                                 if current_mid >= 0:
-                                    current_run_report = self.genRunReport(runType, last_start, last_end, current_mid, current_bid, run_result)
+                                    current_run_report = self.genRunReport(runType, last_start, last_end, current_mid,
+                                                                           current_bid, run_result)
 
                                 # if all tasks in the task group are done, we're done with this group.
                                 if botTodos["current widx"] >= len(botTodos["works"]):
@@ -6519,10 +6540,9 @@ class MainWindow(QMainWindow):
                                         self.todays_completed.append(just_finished)
 
                                         finished = self.todays_work["tbd"].pop(0)
-                                        log3("JUST FINISHED A WORK GROUP:"+json.dumps(finished), "runbotworks", self)
+                                        log3("JUST FINISHED A WORK GROUP:" + json.dumps(finished), "runbotworks", self)
                                     else:
                                         log3("empty first WORK GROUP", "runbotworks", self)
-
 
                                 if len(self.todays_work["tbd"]) == 0:
                                     if self.host_role == "Platoon":
@@ -6532,14 +6552,18 @@ class MainWindow(QMainWindow):
                                         # check whether we have collected all reports so far, there is 1 count difference between,
                                         # at this point the local report on this machine has not been added to toddaysReports yet.
                                         # this will be done in doneWithToday....
-                                        log3("n todaysPlatoonReports: "+str(len(self.todaysPlatoonReports))+" n todays_completed: "+str(len(self.todays_completed)), "runbotworks", self)
-                                        log3("todaysPlatoonReports"+json.dumps(self.todaysPlatoonReports), "runbotworks", self)
-                                        log3("todays_completed"+json.dumps(self.todays_completed), "runbotworks", self)
+                                        log3("n todaysPlatoonReports: " + str(
+                                            len(self.todaysPlatoonReports)) + " n todays_completed: " + str(
+                                            len(self.todays_completed)), "runbotworks", self)
+                                        log3("todaysPlatoonReports" + json.dumps(self.todaysPlatoonReports),
+                                             "runbotworks", self)
+                                        log3("todays_completed" + json.dumps(self.todays_completed), "runbotworks",
+                                             self)
                                         if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
                                             log3("Commander Done with today!!!!!!!!!", "runbotworks", self)
                                             self.doneWithToday()
                         else:
-                            log3("Unrecogizable todo...."+botTodos["name"], "runbotworks", self)
+                            log3("Unrecogizable todo...." + botTodos["name"], "runbotworks", self)
                             log3("POP a unrecognized task from queue", "runbotworks", self)
                             self.todays_work["tbd"].pop(0)
 
@@ -6606,7 +6630,8 @@ class MainWindow(QMainWindow):
 
                 print("repeat on date::", repeat_on_date)
                 # Combine the baseline date with the time slot
-                repeat_on_time = datetime.combine(repeat_on_date, datetime.min.time()).replace(hour=hours, minute=minutes)
+                repeat_on_time = datetime.combine(repeat_on_date, datetime.min.time()).replace(hour=hours,
+                                                                                               minute=minutes)
                 print("repeat on time::", repeat_on_date)
 
                 # Check for non-repeating missions
@@ -6635,13 +6660,14 @@ class MainWindow(QMainWindow):
 
                     # If the current time is past the supposed last run, schedule the mission
                     if current_time <= repeat_until:
-                        if repeat_last < (supposed_last_run - repeat_interval*0.5) or current_time >= next_scheduled_run:
+                        if repeat_last < (
+                                supposed_last_run - repeat_interval * 0.5) or current_time >= next_scheduled_run:
                             print("time to run now....")
                             missions_to_run.append(mission)
                         elif self.debug_mode:
                             if self.fetch_schedule_counter:
                                 missions_to_run.append(mission)
-                                self.fetch_schedule_counter = self.fetch_schedule_counter -1
+                                self.fetch_schedule_counter = self.fetch_schedule_counter - 1
 
 
         except Exception as e:
@@ -6706,7 +6732,8 @@ class MainWindow(QMainWindow):
             return updated_start_time
         except ValueError:
             # For invalid days (e.g., Feb 30), use the last day of the month
-            updated_start_time = start_time.replace(year=new_year, month=new_month, day=28) + timedelta(days=1) - timedelta(days=1)
+            updated_start_time = start_time.replace(year=new_year, month=new_month, day=28) + timedelta(
+                days=1) - timedelta(days=1)
             print("error month updated start time:", updated_start_time)
             return updated_start_time
 
@@ -6753,7 +6780,6 @@ class MainWindow(QMainWindow):
         print("intervals:", intervals)
         return intervals - 1  # Subtract 1 because the last addition exceeds current_time
 
-
     def _get_next_weekday_date(self, target_weekday):
         """
         Calculate the date of the next occurrence of the target weekday.
@@ -6778,14 +6804,11 @@ class MainWindow(QMainWindow):
         print("next week day:", next_week_day)
         return next_week_day
 
-
-
     async def runManagerMissions(self, missions, in_queue, out_team_queue, out_gui_queue):
         for mission in missions:
             #update the mission's last repeat time.
             mission.updateRepeatLast()
             await self.run1ManagerMission(mission, in_queue, out_team_queue, out_gui_queue)
-
 
     def genOneTimeMissionWithSkill(self, skid, mtype, botid):
         # simply search the past mission and check whether there are
@@ -6853,15 +6876,14 @@ class MainWindow(QMainWindow):
 
         return newMisssion
 
-
     # for now this is mainly used for after team run, a result to trigger some housekeeping work.
     # like process new orders, turn them into new missions, and so on....
     # the message will likely,
     async def processManagerNetMessage(self, msg, in_queue, out_team_queue, out_gui_queue):
         if msg["type"] in ManagerTriggerTable:
-            otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg["type"]][0], ManagerTriggerTable[msg["type"]][1], msg["bid"])
+            otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg["type"]][0],
+                                                  ManagerTriggerTable[msg["type"]][1], msg["bid"])
             result = await self.run1ManagerMission(otm, in_queue, out_team_queue, out_gui_queue)
-
 
     async def runmanagerworks(self, gui_manager_queue, manager_rpa_queue, gui_monitor_queue):
         # run all the work
@@ -6890,7 +6912,8 @@ class MainWindow(QMainWindow):
                     # Process all available messages in the queue
                     while not gui_manager_queue.empty():
                         net_message = await gui_manager_queue.get()
-                        await self.processManagerNetMessage(net_message, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
+                        await self.processManagerNetMessage(net_message, gui_manager_queue, manager_rpa_queue,
+                                                            gui_monitor_queue)
                 else:
                     print("manager msg queue empty...")
 
@@ -6905,7 +6928,6 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "Errorwanrunmanagerworks traceback information not available:" + str(e)
             log3(ex_stat, "runmanagerworks", self)
-
 
     #update a vehicle's missions status
     # rx_data is a list of mission status for each mission that belongs to the vehicle.
@@ -6936,16 +6958,16 @@ class MainWindow(QMainWindow):
             "status": "Completed",
             "error": "",
         },
-        {
-            "mid": 2,
-            "botid": 2,
-            "sst": "2023-10-22 12:11:12",
-            "sd": 600,
-            "ast": "2023-10-22 12:12:12",
-            "aet": "2023-10-22 12:22:12",
-            "status": "Running",
-            "error": "",
-        }])
+            {
+                "mid": 2,
+                "botid": 2,
+                "sst": "2023-10-22 12:11:12",
+                "sd": 600,
+                "ast": "2023-10-22 12:12:12",
+                "aet": "2023-10-22 12:22:12",
+                "status": "Running",
+                "error": "",
+            }])
         # self.parent.vehicles.append(newV)
         self.vehicles.append(newV)
 
@@ -6962,16 +6984,16 @@ class MainWindow(QMainWindow):
             "status": "scheduled",
             "error": "",
         },
-        {
-            "mid": 4,
-            "botid": 3,
-            "sst": "2023-10-22 12:11:12",
-            "sd": 600,
-            "ast": "2023-10-22 12:12:12",
-            "aet": "2023-10-22 12:22:12",
-            "status": "warned",
-            "error": "100: warning reason 1",
-        }])
+            {
+                "mid": 4,
+                "botid": 3,
+                "sst": "2023-10-22 12:11:12",
+                "sd": 600,
+                "ast": "2023-10-22 12:12:12",
+                "aet": "2023-10-22 12:22:12",
+                "status": "warned",
+                "error": "100: warning reason 1",
+            }])
         # self.parent.vehicles.append(newV)
         self.vehicles.append(newV)
 
@@ -6998,7 +7020,8 @@ class MainWindow(QMainWindow):
         try:
             global running_step_index, fieldLinks
             fl_ips = [x["ip"] for x in fieldLinks]
-            self.showMsg("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
+            self.showMsg(
+                "Platoon Msg Received:" + msgString + " from::" + ip + "  " + str(len(fieldLinks)) + json.dumps(fl_ips))
             print("msgString:", msgString)
             msg = json.loads(msgString)
 
@@ -7008,13 +7031,15 @@ class MainWindow(QMainWindow):
             # first, check ip and make sure this from a know vehicle.
             if msg["type"] == "intro" or msg["type"] == "pong":
                 if found:
-                    self.showMsg("recevied a vehicle introduction/pong:" + msg["content"]["name"] + ":" + msg["content"]["os"] + ":"+ msg["content"]["machine"])
+                    self.showMsg(
+                        "recevied a vehicle introduction/pong:" + msg["content"]["name"] + ":" + msg["content"][
+                            "os"] + ":" + msg["content"]["machine"])
 
                     if found_vehicle:
-                        print("found a vehicle to set.... "+found_vehicle.getOS())
+                        print("found a vehicle to set.... " + found_vehicle.getOS())
                         if "Windows" in msg["content"]["os"]:
                             found_vehicle.setOS("Windows")
-                            found_vehicle.setName(msg["content"]["name"]+":win")
+                            found_vehicle.setName(msg["content"]["name"] + ":win")
                         elif "Mac" in msg["content"]["os"]:
                             found_vehicle.setOS("Mac")
                             found_vehicle.setName(msg["content"]["name"] + ":mac")
@@ -7035,7 +7060,7 @@ class MainWindow(QMainWindow):
                 # update vehicle status display.
                 self.showMsg(msg["content"])
                 log3("msg type:" + "status", "servePlatoons", self)
-                self.showMsg("recevied a status update message:"+msg["content"])
+                self.showMsg("recevied a status update message:" + msg["content"])
                 if self.platoonWin:
                     self.showMsg("updating platoon WIN")
                     self.platoonWin.updatePlatoonStatAndShow(msg, fieldLinks)
@@ -7063,7 +7088,7 @@ class MainWindow(QMainWindow):
 
             elif msg["type"] == "report":
                 # collect report, the report should be already organized in json format and ready to submit to the network.
-                log3("msg type:"+"report", "servePlatoons", self)
+                log3("msg type:" + "report", "servePlatoons", self)
                 #msg should be in the following json format {"ip": self.ip, "type": "report", "content": []]}
                 self.todaysPlatoonReports.append(msg)
 
@@ -7078,15 +7103,17 @@ class MainWindow(QMainWindow):
                     task_idx = task_idx + 1
 
                 if found:
-                    self.showMsg("pop a finising a remotely executed task...."+str(task_idx))
+                    self.showMsg("pop a finising a remotely executed task...." + str(task_idx))
                     finished = self.todays_work["tbd"].pop(task_idx)
                     self.todays_completed.append(finished)
 
                     # Here need to update completed mission display subwindows.
                     self.updateCompletedMissions(finished)
 
-                self.showMsg("len todays's reports: "+str(len(self.todaysPlatoonReports))+" len todays's completed:"+str(len(self.todays_completed)))
-                self.showMsg("completd: "+json.dumps(self.todays_completed))
+                self.showMsg(
+                    "len todays's reports: " + str(len(self.todaysPlatoonReports)) + " len todays's completed:" + str(
+                        len(self.todays_completed)))
+                self.showMsg("completd: " + json.dumps(self.todays_completed))
 
                 # update vehicle status, now becomes idle again.
                 self.updateVehicleStatusToRunningIdle(msg["ip"])
@@ -7137,11 +7164,11 @@ class MainWindow(QMainWindow):
                     if found_vehicle.getStatus() != msg["content"]["vstatus"]:
                         found_vehicle.setStatus(msg["content"]["vstatus"])
 
-                log3("Heartbeat From Vehicle: "+msg["ip"], "servePlatoons", self)
+                log3("Heartbeat From Vehicle: " + msg["ip"], "servePlatoons", self)
 
             else:
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.showMsg("unknown type:"+msg["contents"])
+                self.showMsg("unknown type:" + msg["contents"])
 
         except Exception as e:
             # Get the traceback information
@@ -7162,12 +7189,11 @@ class MainWindow(QMainWindow):
 
         return alldone
 
-
     # what's received here is a ADS profile for one individual bot, for safety, save the existing
     # file to file.old so that we at least always have two copies and in case something is wrong
     # we can at least go back to the previous copy.
     def receivePlatoonBotsADSProfileUpdateMessage(self, pMsg):
-        file_name = self.my_ecb_data_homepath + pMsg["file_name"]           # msg["file_name"] should start with "/"
+        file_name = self.my_ecb_data_homepath + pMsg["file_name"]  # msg["file_name"] should start with "/"
         file_name_wo_extension = os.path.basename(file_name).split(".")[0]
         file_name_dir = os.path.dirname(file_name)
         new_filename = file_name_dir + "/" + file_name_wo_extension + "_old.txt"
@@ -7237,15 +7263,13 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorReceiveBatchFPProfiles: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
 
-
     def receivePlatoonMissionResultFilesMessage(self, pMsg):
-        file_name = pMsg["file_name"]           # msg["file_name"] should start with "/"
+        file_name = pMsg["file_name"]  # msg["file_name"] should start with "/"
 
         file_contents = pMsg["file_contents"].encode('latin1')  # Encode string to binary data
         with open(file_name, 'wb') as file:
             file.write(file_contents)
             file.close()
-
 
     def updateCompletedMissions(self, finished):
         finished_works = finished["works"]
@@ -7310,27 +7334,31 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 self.showMsg(f"Error moving mission from missionModel to completedMissionModel: {str(e)}")
 
-
     def genMissionStatusReport(self, mids, test_mode=True):
         # assumptions: mids should have already been error checked.
-        self.showMsg("mids: "+json.dumps(mids))
+        self.showMsg("mids: " + json.dumps(mids))
         results = []
         if test_mode:
             # just to tests commander GUI can handle the result
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Scheduled", "error": ""}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600",
+                      "aet": "2023-11-09 01:22:12", "status": "Scheduled", "error": ""}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Completed", "error": ""}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600",
+                      "aet": "2023-11-09 01:22:12", "status": "Completed", "error": ""}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600", "aet": "2023-11-09 01:22:12", "status": "Running", "error": ""}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "600",
+                      "aet": "2023-11-09 01:22:12", "status": "Running", "error": ""}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "500", "aet": "2023-11-09 01:22:12", "status": "Warned", "error": "505"}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "500",
+                      "aet": "2023-11-09 01:22:12", "status": "Warned", "error": "505"}
             results.append(result)
-            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "300", "aet": "2023-11-09 01:22:12", "status": "Aborted", "error": "5"}
+            result = {"mid": 1, "botid": 0, "sst": "2023-11-09 01:12:02", "ast": "2023-11-09 01:12:02", "sd": "300",
+                      "aet": "2023-11-09 01:22:12", "status": "Aborted", "error": "5"}
             results.append(result)
         else:
             for mid in mids:
                 if mid > 0 and mid < len(self.missions):
-                    self.showMsg("working on MID:"+str(mid))
+                    self.showMsg("working on MID:" + str(mid))
                     m_stat_parts = self.missions[mid].getStatus().split(":")
                     m_stat = m_stat_parts[0]
                     if len(m_stat_parts) > 1:
@@ -7349,8 +7377,7 @@ class MainWindow(QMainWindow):
                     }
                     results.append(result)
 
-
-        self.showMsg("mission status result:"+json.dumps(results))
+        self.showMsg("mission status result:" + json.dumps(results))
         return results
 
     async def serveCommander(self, msgQueue):
@@ -7362,13 +7389,13 @@ class MainWindow(QMainWindow):
                 if heartbeat > 255:
                     heartbeat = 0
 
-                if heartbeat%8 == 0:
+                if heartbeat % 8 == 0:
                     # sends a heart beat to commander
 
                     hbJson = {
                         "ip": self.ip,
                         "type": "heartbeat",
-                        "content" : {
+                        "content": {
                             "vstatus": self.working_state,
                             "running_mid": self.running_mission.getMid() if self.running_mission else 0,
                             "running_instruction": running_step_index
@@ -7391,7 +7418,7 @@ class MainWindow(QMainWindow):
             if not msgQueue.empty():
                 try:
                     net_message = await msgQueue.get()
-                    log3("From Commander, recevied queued net message: "+net_message, "serveCommander", self)
+                    log3("From Commander, recevied queued net message: " + net_message, "serveCommander", self)
                     self.processCommanderMsgs(net_message)
                     msgQueue.task_done()
                 except asyncio.QueueEmpty:
@@ -7401,8 +7428,8 @@ class MainWindow(QMainWindow):
                     # Catch any other issues while processing the message
                     traceback_info = traceback.extract_tb(e.__traceback__)
                     # Extract the file name and line number from the last entry in the traceback
-                    log3("Error processing commander msg:" + traceback.format_exc() + " " + str(e), "serveCommander", self)
-
+                    log3("Error processing commander msg:" + traceback.format_exc() + " " + str(e), "serveCommander",
+                         self)
 
             await asyncio.sleep(2)
             # log3("watching Commanders...", "serveCommander", self)
@@ -7412,7 +7439,7 @@ class MainWindow(QMainWindow):
     def processCommanderMsgs(self, msgString):
         try:
             print("rx from commander:", msgString)
-            log3("received from commander: "+msgString, "serveCommander", self)
+            log3("received from commander: " + msgString, "serveCommander", self)
             if "!connection!" in msgString:
                 msg = {"cmd": "connection"}
                 msg_parts = msgString.split("!")
@@ -7439,7 +7466,7 @@ class MainWindow(QMainWindow):
 
             elif msg["cmd"] == "reqSendFile":
                 # update vehicle status display.
-                log3("received a file: "+msg["file_name"], "serveCommander", self)
+                log3("received a file: " + msg["file_name"], "serveCommander", self)
                 file_name = self.ads_profile_dir + msg["file_name"]
                 file_type = msg["file_type"]
                 file_contents = msg["file_contents"].encode('latin1')  # Encode string to binary data
@@ -7462,13 +7489,17 @@ class MainWindow(QMainWindow):
                 # this is the time to rebuild skills to make them up to date....
                 self.dailySkillsetUpdate()
 
-                log3("received work request:"+json.dumps(localworks), "serveCommander", self)
+                log3("received work request:" + json.dumps(localworks), "serveCommander", self)
                 # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
-                self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-                log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
+                self.todays_work["tbd"].append(
+                    {"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0,
+                     "vname": self.machine_name + ":" + self.os_short, "completed": [], "aborted": []})
+                log3("after assigned work, " + str(
+                    len(self.todays_work["tbd"])) + " todos exists in the queue. " + json.dumps(
+                    self.todays_work["tbd"]), "serveCommander", self)
 
-                platform_os = self.platform            # win, mac or linux
+                platform_os = self.platform  # win, mac or linux
                 self.todays_scheduled_task_groups[platform_os] = localworks
                 vname = self.machine_name + ":" + self.os_short
                 self.unassigned_scheduled_task_groups[vname] = localworks
@@ -7485,13 +7516,17 @@ class MainWindow(QMainWindow):
                 localworks = msg["todos"]
                 self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
 
-                log3("received reactive work request:"+json.dumps(localworks), "serveCommander", self)
+                log3("received reactive work request:" + json.dumps(localworks), "serveCommander", self)
                 # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
-                self.reactive_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-                log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
+                self.reactive_work["tbd"].append(
+                    {"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0,
+                     "vname": self.machine_name + ":" + self.os_short, "completed": [], "aborted": []})
+                log3("after assigned work, " + str(
+                    len(self.todays_work["tbd"])) + " todos exists in the queue. " + json.dumps(
+                    self.todays_work["tbd"]), "serveCommander", self)
 
-                platform_os = self.platform            # win, mac or linux
+                platform_os = self.platform  # win, mac or linux
                 self.todays_scheduled_task_groups[platform_os] = localworks
                 vname = self.machine_name + ":" + self.os_short
                 self.unassigned_scheduled_task_groups[vname] = localworks
@@ -7537,9 +7572,9 @@ class MainWindow(QMainWindow):
             elif msg["cmd"] == "ping":
                 # respond to ping with pong
                 self_info = {"name": platform.node(), "os": platform.system(), "machine": platform.machine()}
-                resp = {"ip": self.ip, "type":"pong", "content": self_info}
+                resp = {"ip": self.ip, "type": "pong", "content": self_info}
                 # send to commander
-                log3("sending "+json.dumps(resp)+ " to commanderIP - " + self.commanderIP, "serveCommander", self)
+                log3("sending " + json.dumps(resp) + " to commanderIP - " + self.commanderIP, "serveCommander", self)
                 print(self.commanderXport)
                 msg = json.dumps(resp)
                 msg_with_delimiter = msg + "!ENDMSG!"
@@ -7564,7 +7599,8 @@ class MainWindow(QMainWindow):
 
     def sendCommanderMissionsStatMsg(self, mids):
         statusJson = self.genMissionStatusReport(mids, False)
-        msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"', '\\"') + "\"}"
+        msg = "{\"ip\": \"" + self.ip + "\", \"type\":\"status\", \"content\":\"" + json.dumps(statusJson).replace('"',
+                                                                                                                   '\\"') + "\"}"
 
         # Append the delimiter
         msg_with_delimiter = msg + "!ENDMSG!"
@@ -7573,7 +7609,6 @@ class MainWindow(QMainWindow):
 
     def sendRPAMessage(self, msg_data):
         asyncio.create_task(self.gui_rpa_msg_queue.put(msg_data))
-
 
     # a run report is just an array of the following object:
     # MissionStatus {
@@ -7597,12 +7632,14 @@ class MainWindow(QMainWindow):
 
         # self.showMsg("GEN REPORT FOR WORKS:"+json.dumps(works))
         if not self.host_role == "Commander Only":
-            mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
-            log3("mission_report:"+json.dumps(mission_report), "genRunReport", self)
+            mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end,
+                              "status": run_status}
+            log3("mission_report:" + json.dumps(mission_report), "genRunReport", self)
 
             if self.host_role != "Platoon":
                 # add generated report to report list....
-                log3("commander gen run report....."+str(len(self.todaysReport)) + str(len(works)), "genRunReport", self)
+                log3("commander gen run report....." + str(len(self.todaysReport)) + str(len(works)), "genRunReport",
+                     self)
                 self.todaysReport.append(mission_report)
                 # once all of today's task created a report, put the collection of reports into todaysPlatoonReports.
                 # on commander machine, todaysPlatoonReports contains a collection of reports from each host machine
@@ -7623,7 +7660,7 @@ class MainWindow(QMainWindow):
                     self.todaysPlatoonReports.append(rpt)
                     self.todaysReport = []
 
-        log3("GEN REPORT FOR WORKS..."+json.dumps(self.todaysReport), "genRunReport", self)
+        log3("GEN REPORT FOR WORKS..." + json.dumps(self.todaysReport), "genRunReport", self)
         return self.todaysReport
 
     def updateMissionsStatsFromReports(self, all_reports):
@@ -7657,14 +7694,14 @@ class MainWindow(QMainWindow):
                 if len(self.todaysPlatoonReports) > 0:
                     # flatten the report data structure...
                     allTodoReports = [item for pr in self.todaysPlatoonReports for item in pr["content"]]
-                    log3("ALLTODOREPORTS:"+json.dumps(allTodoReports), "doneWithToday", self)
+                    log3("ALLTODOREPORTS:" + json.dumps(allTodoReports), "doneWithToday", self)
                     # missionReports = [item for pr in allTodoReports for item in pr]
                 else:
                     allTodoReports = []
 
                 self.updateMissionsStatsFromReports(allTodoReports)
 
-                log3("TO be sent to cloud side::"+json.dumps(allTodoReports), "doneWithToday", self)
+                log3("TO be sent to cloud side::" + json.dumps(allTodoReports), "doneWithToday", self)
                 # if this is a commmander, then send report to cloud
                 # send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'])
                 eodReportMsg = {
@@ -7679,7 +7716,7 @@ class MainWindow(QMainWindow):
                     rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
                     # Append the delimiter
                     rpt_with_delimiter = json.dumps(rpt) + "!ENDMSG!"
-                    self.showMsg("Sending report to Commander::"+json.dumps(rpt))
+                    self.showMsg("Sending report to Commander::" + json.dumps(rpt))
                     # self.commanderXport.write(str.encode(rpt_with_delimiter))
                     self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
 
@@ -7700,7 +7737,7 @@ class MainWindow(QMainWindow):
                 self.mission_service.update_missions_by_id(self.missions)
 
             self.todays_completed = []
-            self.todaysReports = []                     # per vehicle/host
+            self.todaysReports = []  # per vehicle/host
             self.todaysPlatoonReports = []
 
     def sendFingerPrintProfilesToCommander(self, profiles):
@@ -7709,7 +7746,6 @@ class MainWindow(QMainWindow):
 
     def batchSendFingerPrintProfilesToCommander(self, profiles):
         self.batch_send_ads_profiles_to_commander(self.commanderXport, "txt", profiles)
-
 
     def obtainTZ(self):
         local_time = time.localtime()  # returns a `time.struct_time`
@@ -7736,18 +7772,17 @@ class MainWindow(QMainWindow):
 
     def gen_default_fetch(self):
         FETCH_ROUTINE = [{
-                    "mid": 0,
-                    "bid": 0,
-                    "name": "fetch schedules",
-                    "cuspas": "",
-                    "todos": None,
-                    "start_time": START_TIME,
-                    "end_time": "",
-                    "stat": "nys"
-                }]
+            "mid": 0,
+            "bid": 0,
+            "name": "fetch schedules",
+            "cuspas": "",
+            "todos": None,
+            "start_time": START_TIME,
+            "end_time": "",
+            "stat": "nys"
+        }]
 
         return FETCH_ROUTINE
-
 
     def closeEvent(self, event):
         self.showMsg('Main window close....')
@@ -7792,16 +7827,17 @@ class MainWindow(QMainWindow):
 
     def searchLocalMissions(self):
         self.showMsg("Searching local missions based on createdon date range and field parameters....")
-        data = self.mission_service.find_missions_by_search(self.mission_from_date_edit.text(), self.mission_to_date_edit.text(),self.mission_search_edit.text())
+        data = self.mission_service.find_missions_by_search(self.mission_from_date_edit.text(),
+                                                            self.mission_to_date_edit.text(),
+                                                            self.mission_search_edit.text())
         self.loadLocalMissions(data)
 
     def searchLocalBots(self):
         self.showMsg("Searching local bots based on createdon date range and field parameters....")
         data = self.bot_service.find_bots_by_search(self.bot_from_date_edit.text(),
-                                                          self.bot_to_date_edit.text(),
-                                                          self.bot_search_edit.text())
+                                                    self.bot_to_date_edit.text(),
+                                                    self.bot_search_edit.text())
         self.loadLocalBots(data)
-
 
     # build up a dictionary of bot - to be visited site list required by today's mission.
     # this list will be used to filter out cookies of unrelated site, otherwise the
@@ -7820,7 +7856,8 @@ class MainWindow(QMainWindow):
             self.bot_cookie_site_lists = {}
 
         for m in targetMissions:
-            log3("mission" + str(m.getMid()) + " created ON:" + m.getBD().split(" ")[0] + " today:" + formatted_today, "build_cookie_site_lists", self)
+            log3("mission" + str(m.getMid()) + " created ON:" + m.getBD().split(" ")[0] + " today:" + formatted_today,
+                 "build_cookie_site_lists", self)
 
         missions_today = list(filter(lambda m: formatted_today == m.getBD().split(" ")[0], targetMissions))
         # first ,clear today's bot cookie site list dictionary
@@ -7830,13 +7867,14 @@ class MainWindow(QMainWindow):
             if len(bots) > 0:
                 bot = bots[0]
                 if bot.getEmail() == "":
-                    log3("Error: Mission("+str(mission.getMid())+") Bot("+str(bot.getBid())+") running ADS without an Account!!!!!", "build_cookie_site_lists", self)
+                    log3("Error: Mission(" + str(mission.getMid()) + ") Bot(" + str(
+                        bot.getBid()) + ") running ADS without an Account!!!!!", "build_cookie_site_lists", self)
                 else:
                     if bot.getEmail():
                         user_prefix = bot.getEmail().split("@")[0]
                         mail_site_words = bot.getEmail().split("@")[1].split(".")
                         mail_site = mail_site_words[len(mail_site_words) - 2]
-                        bot_mission_ads_profile = user_prefix+"_m"+str(mission.getMid()) + ".txt"
+                        bot_mission_ads_profile = user_prefix + "_m" + str(mission.getMid()) + ".txt"
 
                         self.bot_cookie_site_lists[bot_mission_ads_profile] = [mail_site]
                         if mail_site == "gmail":
@@ -7851,8 +7889,7 @@ class MainWindow(QMainWindow):
                         else:
                             self.bot_cookie_site_lists[bot_mission_ads_profile].append(mission.getSite().lower())
 
-        log3("just build cookie site list:"+json.dumps(self.bot_cookie_site_lists), "build_cookie_site_lists", self)
-
+        log3("just build cookie site list:" + json.dumps(self.bot_cookie_site_lists), "build_cookie_site_lists", self)
 
     def setADSBatchSize(self, batch_size):
         self.ads_settings["batch_size"] = batch_size
@@ -7902,7 +7939,6 @@ class MainWindow(QMainWindow):
             # print("polling chat msg queue....")
             await asyncio.sleep(1)
 
-
     def getBotsOnThisVehicle(self):
         thisBots = [b for b in self.bots if self.machine_name in b.getVehicle()]
         return thisBots
@@ -7911,7 +7947,7 @@ class MainWindow(QMainWindow):
         thisBots = self.getBotsOnThisVehicle()
         thisBids = [b.getBid() for b in thisBots]
         thisBidsString = json.dumps(thisBids)
-        self.showMsg("bids on this vehicle:"+thisBidsString)
+        self.showMsg("bids on this vehicle:" + thisBidsString)
         return thisBidsString
 
     def prepFullVehicleReportData(self):
@@ -7939,7 +7975,7 @@ class MainWindow(QMainWindow):
             else:
                 vinfo = {
                     "vid": 0,
-                    "vname": self.machine_name+":"+self.os_short,
+                    "vname": self.machine_name + ":" + self.os_short,
                     "owner": self.user,
                     "status": self.working_state,
                     "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
@@ -7952,12 +7988,12 @@ class MainWindow(QMainWindow):
                 }
             report.append(vinfo)
         print("vnames:", [v["vname"] for v in report])
-        if (self.machine_name+":"+self.os_short) not in [v["vname"] for v in report]:
+        if (self.machine_name + ":" + self.os_short) not in [v["vname"] for v in report]:
             if "Only" not in self.host_role and "Staff" not in self.host_role:
                 # add myself as a vehicle resource too.
                 vinfo = {
                     "vid": 0,
-                    "vname": self.machine_name+":"+self.os_short,
+                    "vname": self.machine_name + ":" + self.os_short,
                     "owner": self.user,
                     "status": self.working_state,
                     "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
@@ -7972,7 +8008,6 @@ class MainWindow(QMainWindow):
                 report.append(vinfo)
 
         return report
-
 
     def prepVehicleReportData(self, v):
         report = []
@@ -7994,7 +8029,7 @@ class MainWindow(QMainWindow):
         else:
             vinfo = {
                 "vid": 0,
-                "vname": self.machine_name+":"+self.os_short,
+                "vname": self.machine_name + ":" + self.os_short,
                 "owner": self.user,
                 "status": self.working_state,
                 "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
@@ -8008,7 +8043,6 @@ class MainWindow(QMainWindow):
         report.append(vinfo)
 
         return report
-
 
     # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
     async def runRPAMonitor(self, monitor_msg_queue):
@@ -8037,7 +8071,8 @@ class MainWindow(QMainWindow):
 
                     # send vehicle status to cloud DB
                     vehicle_report = self.prepFullVehicleReportData()
-                    resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], vehicle_report)
+                    resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
+                                                         vehicle_report)
 
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
@@ -8051,7 +8086,6 @@ class MainWindow(QMainWindow):
 
             # print("polling chat msg queue....")
             await asyncio.sleep(1)
-
 
     def update_monitor_gui(self, in_message):
         try:
@@ -8099,7 +8133,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "Errorupdate_monitor_gui traceback information not available:" + str(e)
             print(ex_stat)
 
-
     def downloadForFullfillGenECBLabels(self, orders, worklink):
         try:
             for bi, batch in enumerate(orders):
@@ -8107,13 +8140,13 @@ class MainWindow(QMainWindow):
                     print("batch....", batch)
                     print("about to download....", batch['file'])
 
-                    local_file = download_file(self.session, self.my_ecb_data_homepath, batch['dir'] + "/" + batch['file'],
+                    local_file = download_file(self.session, self.my_ecb_data_homepath,
+                                               batch['dir'] + "/" + batch['file'],
                                                "",
                                                self.tokens['AuthenticationResult']['IdToken'], "general")
                     batch['dir'] = os.path.dirname(local_file)
                     orders[bi]['dir'] = os.path.dirname(local_file)
                     worklink['dir'] = os.path.dirname(local_file)
-
 
                     print("local file....", local_file)
                     print("local dir:", os.path.dirname(local_file))
@@ -8128,7 +8161,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorDownloadForFullfillGenECBLabels traceback information not available:" + str(e)
             print(ex_stat)
 
-
     # do any download if needed by the missions ONLY IF the mission will be run on this computer.
     # otherwise, don't do download and leave this to whichever computer that will run this mission.
     def prepareMissionRunAsServer(self, new_works):
@@ -8136,7 +8168,9 @@ class MainWindow(QMainWindow):
             if new_works['added_missions'][0]['type'] == "sellFullfill_genECBLabels":
                 first_v = next(iter(new_works['task_groups']))
                 if self.machine_name in first_v:
-                    self.downloadForFullfillGenECBLabels(new_works['added_missions'][0]['config'][1], new_works['task_groups'][first_v]['eastern'][0]['other_works'][0]['config'][1][0])
+                    self.downloadForFullfillGenECBLabels(new_works['added_missions'][0]['config'][1],
+                                                         new_works['task_groups'][first_v]['eastern'][0]['other_works'][
+                                                             0]['config'][1][0])
 
                 print("updated new work:", new_works)
 
@@ -8207,7 +8241,6 @@ class MainWindow(QMainWindow):
                 unfound_bid_string = ",".join(bids_on_this_vehicle)
                 self.showMsg(f"Error: Bot[{unfound_bid_string}] not found")
 
-
     # note recipient could be a group ID.
     def receiveBotChatMessage(self, msg_text):
         msg_parts = msg_text.split(">")
@@ -8240,20 +8273,20 @@ class MainWindow(QMainWindow):
         # deliver the message for the other bots. - allowed for inter-bot communication.
         self.chatWin.addNetChatHis(sender, receivers, msg_json["log_msg"])
 
-
     def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and platoon_link:
-            self.showMsg(f"Sending File [{file_name_full_path}] to platoon: "+platoon_link["ip"])
+            self.showMsg(f"Sending File [{file_name_full_path}] to platoon: " + platoon_link["ip"])
             with open(file_name_full_path, 'rb') as fileTBSent:
                 binary_data = fileTBSent.read()
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
 
                 # Embed in JSON
-                json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_type": file_type, "file_contents": encoded_data})
+                json_data = json.dumps({"cmd": "reqSendFile", "file_name": file_name_full_path, "file_type": file_type,
+                                        "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
-                self.showMsg(f"About to send file json with "+str(len(json_data.encode('utf-8')))+ " BYTES!")
-                platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
+                self.showMsg(f"About to send file json with " + str(len(json_data.encode('utf-8'))) + " BYTES!")
+                platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
                 # await xport.drain()
 
                 fileTBSent.close()
@@ -8263,37 +8296,19 @@ class MainWindow(QMainWindow):
             else:
                 self.showMsg(f"ErrorSendFileToPlatoon: TCP link doesn't exist")
 
-
     def send_json_to_platoon(self, platoon_link, json_data):
         if json_data and platoon_link:
-            self.showMsg(f"Sending JSON Data to platoon "+platoon_link["ip"] + "::" + json.dumps(json_data))
+            self.showMsg(f"Sending JSON Data to platoon " + platoon_link["ip"] + "::" + json.dumps(json_data))
             json_string = json.dumps(json_data)
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
-            platoon_link["transport"].write(length_prefix+encoded_json_string)
+            platoon_link["transport"].write(length_prefix + encoded_json_string)
         else:
             if json_data == None:
                 self.showMsg(f"ErrorSendJsonToPlatoon: JSON empty")
             else:
                 self.showMsg(f"ErrorSendJsonToPlatoon: TCP link doesn't exist")
-
-
-    def send_json_to_commander(self, commander_link, json_data):
-        if json_data and commander_link:
-            self.showMsg(f"Sending JSON Data to platoon ::" + json.dumps(json_data))
-            json_string = json.dumps(json_data)
-            encoded_json_string = json_string.encode('utf-8')
-            length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
-            # Send data
-            commander_link.write(length_prefix+encoded_json_string)
-        else:
-            if json_data == None:
-                self.showMsg(f"ErrorSendJsonToCommander: JSON empty")
-            else:
-                self.showMsg(f"ErrorSendJsonToCommander: TCP link doesn't exist")
-
-
 
     def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and commander_link:
@@ -8303,8 +8318,9 @@ class MainWindow(QMainWindow):
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
 
                 # Embed in JSON
-                json_data = json.dumps({"type": "botsADSProfilesUpdate", "file_name": file_name_full_path, "file_type": file_type,
-                                        "file_contents": encoded_data})
+                json_data = json.dumps(
+                    {"type": "botsADSProfilesUpdate", "file_name": file_name_full_path, "file_type": file_type,
+                     "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
                 commander_link.write(length_prefix + json_data.encode('utf-8'))
@@ -8351,7 +8367,7 @@ class MainWindow(QMainWindow):
                 "profiles": profiles
             })
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
-            print("About to return sync resp: "+json_data)
+            print("About to return sync resp: " + json_data)
             commander_link.write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
@@ -8362,7 +8378,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorSendingBatchProfilesToCommander:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorSendingBatchProfilesToCommander traceback information not available:" + str(e)
-
 
     def batch_send_ads_profiles_to_platoon(self, platoon_link, file_type, file_paths):
         try:
@@ -8416,8 +8431,6 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorSendingBatchProfilesToCommander traceback information not available:" + str(e)
 
-
-
     def send_mission_result_files_to_commander(self, commander_link, mid, file_type, file_name_full_paths):
         try:
             validFiles = [fn for fn in file_name_full_paths if os.path.exists(fn)]
@@ -8431,7 +8444,8 @@ class MainWindow(QMainWindow):
                         encoded_data = base64.b64encode(binary_data).decode('utf-8')
 
                         # Embed in JSON
-                        json_data = json.dumps({"type": "missionResultFile", "mid": mid, "nFiles": nFiles, "fidx": fidx, "file_name": file_name_full_path, "file_type": file_type,
+                        json_data = json.dumps({"type": "missionResultFile", "mid": mid, "nFiles": nFiles, "fidx": fidx,
+                                                "file_name": file_name_full_path, "file_type": file_type,
                                                 "file_contents": encoded_data})
                         length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                         # Send data
@@ -8455,11 +8469,9 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorSendMissionResultsFilesToCommander: traceback information not available:" + str(e)
             log3(ex_stat)
 
-
     def getEncryptKey(self):
         key, salt = derive_key(self.main_key)
         return key
-
 
     async def halt_action(self):
         print("escape hotkey pressed!")
@@ -8488,8 +8500,6 @@ class MainWindow(QMainWindow):
             rpa_ctl_msg = json.dumps(msg)
             asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
 
-
-
     # Coroutine to listen for hotkey and run the action
     async def listen_for_hotkey(self):
         loop = asyncio.get_running_loop()
@@ -8502,6 +8512,7 @@ class MainWindow(QMainWindow):
 
         def q_callback():
             asyncio.run_coroutine_threadsafe(self.quit_action(), loop)
+
         #
         # keyboard.add_hotkey('esc', esc_callback)
         # keyboard.add_hotkey('space', space_callback)
@@ -8573,7 +8584,6 @@ class MainWindow(QMainWindow):
 
         self.wan_sub_task = asyncio.create_task(wanSendMessage(ping_msg, self))
 
-
     async def wan_pong(self):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
@@ -8616,7 +8626,6 @@ class MainWindow(QMainWindow):
                 "parameters": json.dumps({})
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage8(req_msg, self))
-
 
     async def wan_request_log(self):
         if self.host_role == "Staff Officer":
@@ -8684,12 +8693,10 @@ class MainWindow(QMainWindow):
             # self.wan_sub_task = asyncio.create_task(wanSendMessage8(req_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
             await wanSendMessage8(req_msg, self)
 
-
     def send_heartbeat(self):
         if "Commander" in self.host_role:
             print("sending heartbeat")
             asyncio.ensure_future(self.wan_send_heartbeat())
-
 
     def wan_chat_test(self):
         if self.host_role == "Staff Officer":
@@ -8702,7 +8709,6 @@ class MainWindow(QMainWindow):
             # time.sleep(1)
             # asyncio.ensure_future(self.wan_self_ping())
             # self.think_about_a_reponse("[abc]'hello?'")
-
 
     async def wan_sa_send_chat(self, msg):
         if self.host_role == "Staff Officer":
@@ -8721,7 +8727,6 @@ class MainWindow(QMainWindow):
     def sa_send_chat(self, msg):
         asyncio.ensure_future(self.wan_sa_send_chat(msg))
 
-
     async def wan_c_send_chat(self, msg):
         if "Commander" in self.host_role:
             sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
@@ -8736,14 +8741,12 @@ class MainWindow(QMainWindow):
 
             self.wan_sub_task = asyncio.create_task(wanSendMessage(req_msg, self))
 
-
     def c_send_chat(self, msg):
         asyncio.ensure_future(self.wan_c_send_chat(msg))
 
         current_time = datetime.now(timezone.utc)
         # Convert to the required AWSDateTime format
         aws_datetime_string = current_time.isoformat()
-
 
     def think_about_a_reponse(self, thread):
         print("Thinking about response.")
@@ -8777,29 +8780,28 @@ class MainWindow(QMainWindow):
         found_vehicles = [v for v in self.vehicles if v.getIP() == ip]
         if found_vehicles:
             found_vehicle = found_vehicles[0]
-            found_vehicle.setStatus("running_idle")       # this vehicle is ready to take more work if needed.
+            found_vehicle.setStatus("running_idle")  # this vehicle is ready to take more work if needed.
             vehicle_report = self.prepVehicleReportData(found_vehicle)
-            log3("vehicle status report"+json.dumps(vehicle_report))
+            log3("vehicle status report" + json.dumps(vehicle_report))
             resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
                                                  vehicle_report)
             self.saveVehiclesJsonFile()
 
     def updateVehicles(self, vehicles):
-        vjs=[self.prepVehicleReportData(v) for v in vehicles]
+        vjs = [self.prepVehicleReportData(v) for v in vehicles]
 
         resp = send_update_vehicles_request_to_cloud(self.session, vjs, self.tokens['AuthenticationResult']['IdToken'])
         # for now simply update json file, can put in local db if needed in future.... sc-01/06/2025
         self.saveVehiclesJsonFile()
-
 
     # capture current state and send in heartbeat signal to the cloud
     def stateCapture(self):
         current_time = datetime.now()
         for v in self.vehicles:
             current_time = datetime.now()
-            if (current_time - v.getLastUpdateTime()).total_seconds() > 480:    # 8 minutes no contact is considered "offline"
+            if (
+                    current_time - v.getLastUpdateTime()).total_seconds() > 480:  # 8 minutes no contact is considered "offline"
                 v.setStatus("offline")
-
 
         stateInfo = {"vehiclesInfo": [{"vehicles_status": v.getStatus(), "vname": v.getName()} for v in self.vehicles]}
 
@@ -8807,7 +8809,6 @@ class MainWindow(QMainWindow):
         # all vehicle status running_idle/running_working/offline
         # all the mission running status.??? may be this is not the good place for that, we'd have to ping vehicles
         # plus, don't they update periodically already?
-
 
         return stateInfo
 
@@ -8835,9 +8836,11 @@ class MainWindow(QMainWindow):
 
                 # in case there is anything, go ahead and dequeue the cloud side.
                 print("all vehicles:", [v.getName() for v in self.vehicles])
-                idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle" and self.vRunnable(v)]
+                idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if
+                                 v.getStatus() == "running_idle" and self.vRunnable(v)]
                 print("running idel vehicles:", idle_vehicles)
-                resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], idle_vehicles)
+                resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
+                                                   idle_vehicles)
                 print("RESP:", resp)
                 if "body" in resp:
                     cloudQSize = resp['body']['remainingQSize']
@@ -8881,7 +8884,8 @@ class MainWindow(QMainWindow):
                 for vname in contractWorks["task_groups"]:
                     if vname in self.unassigned_reactive_task_groups:
                         if self.unassigned_reactive_task_groups[vname]:
-                            self.unassigned_reactive_task_groups[vname] = self.merge_dicts(self.unassigned_reactive_task_groups[vname], newTaskGroups[vname])
+                            self.unassigned_reactive_task_groups[vname] = self.merge_dicts(
+                                self.unassigned_reactive_task_groups[vname], newTaskGroups[vname])
                         else:
                             self.unassigned_reactive_task_groups[vname] = newTaskGroups[vname]
                     else:
@@ -8902,31 +8906,31 @@ class MainWindow(QMainWindow):
         contents_data = {
             "task_groups": {
                 "DESKTOP-DLLV0:win":
-                {
-                    "eastern": [],
-                    "central": [],
-                    "mountain": [],
-                    "pacific": [
-                        {
-                            "bid": 73,
-                            "cuspas": "win,ads,ebay",
-                            "tz": "pacific",
-                            "bw_works": [],
-                            "other_works": [{
-                                "name": "sellFullfill_routine",
-                                "mid": 697,
+                    {
+                        "eastern": [],
+                        "central": [],
+                        "mountain": [],
+                        "pacific": [
+                            {
+                                "bid": 73,
                                 "cuspas": "win,ads,ebay",
-                                "config": {
-                                    "estRunTime": 2,
-                                    "searches": []
-                                },
-                                "start_time": 30
-                            }]
-                        }
-                    ],
-                    "alaska": [],
-                    "hawaii": []
-                }
+                                "tz": "pacific",
+                                "bw_works": [],
+                                "other_works": [{
+                                    "name": "sellFullfill_routine",
+                                    "mid": 697,
+                                    "cuspas": "win,ads,ebay",
+                                    "config": {
+                                        "estRunTime": 2,
+                                        "searches": []
+                                    },
+                                    "start_time": 30
+                                }]
+                            }
+                        ],
+                        "alaska": [],
+                        "hawaii": []
+                    }
             },
             "added_missions": [
                 {
@@ -9033,8 +9037,6 @@ class MainWindow(QMainWindow):
         self.general_settings["last_bots_file_time"] = latest_time
         return not_yet_touched_files
 
-
-
     def checkNewMissionsFiles(self):
         mfiles = []
 
@@ -9118,7 +9120,7 @@ class MainWindow(QMainWindow):
         }
 
         # Load the Excel file
-        log3("working on new order xlsx file:"+file_path)
+        log3("working on new order xlsx file:" + file_path)
         df = pd.read_excel(file_path, header=2, dtype=str)  # Start reading from the 3rd row
 
         df.rename(columns=header_to_db_column, inplace=True)
@@ -9172,24 +9174,24 @@ class MainWindow(QMainWindow):
         hashed_bytes = hash_obj.digest()
         # Encode in base64 to make it URL-safe and take the desired length
         hashed = base64.urlsafe_b64encode(hashed_bytes).decode()[:length]
-        log3("hashed:"+hashed)
+        log3("hashed:" + hashed)
         return hashed
 
     def createNewMissionsFromOrdersXlsx(self):
         newMisionsFiles = self.checkNewMissionsFiles()
         if newMisionsFiles:
-            log3("last_order_file:"+self.general_settings["last_order_file"]+"..."+str(self.general_settings["last_order_file_time"]))
+            log3("last_order_file:" + self.general_settings["last_order_file"] + "..." + str(
+                self.general_settings["last_order_file_time"]))
             self.createMissionsFromFilesOrJsData(newMisionsFiles)
 
     def createNewBotsFromBotsXlsx(self):
         newBotsFiles = self.checkNewBotsFiles()
-        log3("newBotsFiles:"+json.dumps(newBotsFiles))
+        log3("newBotsFiles:" + json.dumps(newBotsFiles))
         if newBotsFiles:
             firstNewBid = self.createBotsFromFilesOrJsData(newBotsFiles)
 
     def isPlatoon(self):
         return (self.machine_role == "Platoon")
-
 
     def findManagerOfThisVehicle(self):
         # for bot in self.bots:
@@ -9202,8 +9204,8 @@ class MainWindow(QMainWindow):
         print("#manager::", len(managerBots))
         managerBids = [x.getBid() for x in managerBots]
         print("#managerBids::", managerBids)
-        managerMissions = [x for x in self.missions if x.getBid() in managerBids and ("completed" not in x.getStatus().lower())]
-
+        managerMissions = [x for x in self.missions if
+                           x.getBid() in managerBids and ("completed" not in x.getStatus().lower())]
 
         return managerMissions
 
@@ -9223,11 +9225,16 @@ class MainWindow(QMainWindow):
         # note the acctRows is in format of following....
         # just look at the ip, vccard, bot assignment
         allBotEmails = [b.getEmail() for b in all_bots]
-        botsNeedsUpdate = [b for b in all_bots if (not b.getEmail()) or (not b.getBackEm()) or (not self.isValidAddr(b.getAddr())) or (not self.isValidAddr(b.getShippingAddr())) or (not b.getVehicle()) or (not b.getOrg())]
+        botsNeedsUpdate = [b for b in all_bots if
+                           (not b.getEmail()) or (not b.getBackEm()) or (not self.isValidAddr(b.getAddr())) or (
+                               not self.isValidAddr(b.getShippingAddr())) or (not b.getVehicle()) or (not b.getOrg())]
 
         print('allBotEmails:', allBotEmails)
-        qualified = [row for row in acctRows if row["email"] and row["vcard_num"] and row["proxy_host"] and (not row["bot"]) and (row["email"] not in allBotEmails)]
-        rowsNeedsUpdate = [row for row in acctRows if row["email"] and row["proxy_host"] and (not row["bot"]) and (row["email"] in allBotEmails)]
+        qualified = [row for row in acctRows if
+                     row["email"] and row["vcard_num"] and row["proxy_host"] and (not row["bot"]) and (
+                                 row["email"] not in allBotEmails)]
+        rowsNeedsUpdate = [row for row in acctRows if
+                           row["email"] and row["proxy_host"] and (not row["bot"]) and (row["email"] in allBotEmails)]
         vehiclesNeedsUpdate = []
         # for rows missing bot id, fill it in.
         for row in rowsNeedsUpdate:
@@ -9252,11 +9259,13 @@ class MainWindow(QMainWindow):
 
                 if row["addr_street_line1"]:
                     print("set address....")
-                    bot.setAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"], row["addr_zip"])
+                    bot.setAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"],
+                                row["addr_zip"])
                     print("after set addr:", bot.getAddr())
 
                 if not self.isValidAddr(bot.getShippingAddr()) and row["addr_street_line1"]:
-                    bot.setShippingAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"], row["addr_zip"])
+                    bot.setShippingAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"],
+                                        row["addr_state"], row["addr_zip"])
 
             if not bot.getVehicle():
                 bv = self.genBotVehicle(bot)
@@ -9272,7 +9281,6 @@ class MainWindow(QMainWindow):
             if not bot.getOrg():
                 bot.setOrg("{}")
 
-
         print("bot ids for ones need update:", [b.getBid() for b in botsNeedsUpdate])
         return qualified, rowsNeedsUpdate, botsNeedsUpdate, vehiclesNeedsUpdate
 
@@ -9283,21 +9291,21 @@ class MainWindow(QMainWindow):
             # format conversion and some.
             newBotJS = {
                 "pubProfile": {
-                    "bid":0,
-                    "pseudo_nick_name":row["first_name"],
-                    "pseudo_name": self.genPseudoName(row["first_name"],row["last_name"]),
+                    "bid": 0,
+                    "pseudo_nick_name": row["first_name"],
+                    "pseudo_name": self.genPseudoName(row["first_name"], row["last_name"]),
                     "location": self.genBotLoc(row["addr_state"]),
                     "pubbirthday": self.genBotPubBirthday(),
                     "gender": self.getBotGender(),
-                    "interests":"Any,Any,Any,Any,Any",
+                    "interests": "Any,Any,Any,Any,Any",
                     "roles": "amz:buyer",
-                    "org":"{}",
+                    "org": "{}",
                     "levels": "amz:green:buyer",
                     "levelStart": "",
                     "vehicle": self.genBotVehicle("buyer").getName(),
                     "status": "Active"
                 },
-                "privateProfile":{
+                "privateProfile": {
                     "first_name": row["first_name"],
                     "last_name": row["last_name"],
                     "email": row["email"],
@@ -9320,10 +9328,10 @@ class MainWindow(QMainWindow):
                     "adsProfile": ""
                 },
                 "settings": {
-                    "platform":"win",
-                    "os":"win",
-                    "browser":"ads",
-                    "machine":""
+                    "platform": "win",
+                    "os": "win",
+                    "browser": "ads",
+                    "machine": ""
                 }
             }
             newBotsJs.append(newBotJS)
@@ -9337,18 +9345,17 @@ class MainWindow(QMainWindow):
                 row["bot"] = newBid
                 newBid = newBid + 1
 
-
     def genPseudoName(self, fn, ln):
         pfn = fn
         pln = ln
 
-        return pfn+" "+pln
+        return pfn + " " + pln
 
-
-    def genBotLoc(self,state):
-        LARGEST_CITY = { "CA": "Los Angeles", "NY": "New York", "IL": "Chicago", "D.C.": "Washington", "WA": "Seattle", "TX": "Dallas"}
+    def genBotLoc(self, state):
+        LARGEST_CITY = {"CA": "Los Angeles", "NY": "New York", "IL": "Chicago", "D.C.": "Washington", "WA": "Seattle",
+                        "TX": "Dallas"}
         # for simplicity, just use largest city of that state.
-        loc = LARGEST_CITY[state]+","+state
+        loc = LARGEST_CITY[state] + "," + state
         print("gen loc:", loc)
         return loc
 
@@ -9385,7 +9392,6 @@ class MainWindow(QMainWindow):
 
         return fit
 
-        
     def genBotVehicle(self, bot):
         # fill the least filled vehicle first.
         fitV = ""
@@ -9417,20 +9423,21 @@ class MainWindow(QMainWindow):
                 for vehicle in self.vehicles:
                     print("vehicle:", vehicle.getName(), vehicle.getStatus())
                     if vehicle.getFieldLink() and "running" in vehicle.getStatus():
-                        self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
-                            "ip"] + "]: " + json.dumps(reqMsg))
+                        self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" +
+                                     vehicle.getFieldLink()[
+                                         "ip"] + "]: " + json.dumps(reqMsg))
 
                         self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
                         self.expected_vehicle_responses[vehicle.getName()] = None
 
                 #now wait for the response to all come back. for each v, give it 10 seconds.
                 VTIMEOUT = 12
-                sync_time_out =  len(self.expected_vehicle_responses.keys())*VTIMEOUT
+                sync_time_out = len(self.expected_vehicle_responses.keys()) * VTIMEOUT
                 sync_time_out = VTIMEOUT
                 print("waiting for ", sync_time_out, "seconds....")
-                while not( sync_time_out == 0):
+                while not (sync_time_out == 0):
                     time.sleep(1)
-                    sync_time_out = sync_time_out-1
+                    sync_time_out = sync_time_out - 1
                     print("tick...", sync_time_out)
 
 
@@ -9443,7 +9450,6 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorSyncFingerPrintRequest: traceback information not available:" + str(e)
             log3(ex_stat)
-
 
     # this function updates latest finger prints on this vehicle.
     # 1) go to ads dir, look for all xlsx, gather unique emails from username column
@@ -9478,7 +9484,7 @@ class MainWindow(QMainWindow):
                     key=os.path.getmtime,
                     reverse=True,
                 )
-                log3("time sorted batch_files:"+json.dumps(batch_files), "gatherFingerPrints", self)
+                log3("time sorted batch_files:" + json.dumps(batch_files), "gatherFingerPrints", self)
 
                 # Track already updated usernames
                 updated_usernames = set()
@@ -9498,11 +9504,11 @@ class MainWindow(QMainWindow):
                     # print("usernames in this batch file:", batch_file, usernames)
                     # Exclude already updated usernames when processing this batch
                     remaining_usernames = usernames - updated_usernames
-                    log3("remaining_usernames"+json.dumps(remaining_usernames), "gatherFingerPrints", self)
+                    log3(f"remaining_usernames{remaining_usernames}", "gatherFingerPrints", self)
 
                     if remaining_usernames:
                         updateIndividualProfileFromBatchSavedTxt(self, batch_file,
-                                                                      excludeUsernames=list(updated_usernames))
+                                                                 excludeUsernames=list(updated_usernames))
                         # obtain batch file's time stamp
                         batch_file_timestamp = os.path.getmtime(batch_file)
 
@@ -9554,7 +9560,7 @@ class MainWindow(QMainWindow):
                     duplicate_file_date = os.path.basename(duplicate_file).split("_")[1:4]  # Extract yyyy, mm, dd
                     try:
                         duplicate_file_date = datetime.strptime("_".join(duplicate_file_date),
-                                                                         "%Y_%m_%d")
+                                                                "%Y_%m_%d")
                         if duplicate_file_date < two_weeks_ago:
                             os.remove(duplicate_file)
                             log3(f"Deleted old duplicate profile: {duplicate_file}", "gatherFingerPrints", self)
@@ -9584,7 +9590,7 @@ class MainWindow(QMainWindow):
         print([(b.getBid(), b.getVehicle(), b.getEmail()) for b in self.bots])
         print("all bids on vehicle:", len(vbs), allvbids)
         # gather all ads profiles fo the bots, and send over the files.
-        bot_profile_paths = [os.path.join(self.ads_profile_dir, b.getEmail().split("@")[0]+".txt") for b in vbs]
+        bot_profile_paths = [os.path.join(self.ads_profile_dir, b.getEmail().split("@")[0] + ".txt") for b in vbs]
         # bot_profile_paths = [b.getADSProfile() for b in vbs]
         print("all vb profiles:", bot_profile_paths)
         print("all fl names:", [fl["name"] for fl in fieldLinks])
@@ -9597,7 +9603,6 @@ class MainWindow(QMainWindow):
             self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)
         else:
             print("WARNING: vehicle not connected!")
-
 
     def setUpBotADSProfilesOnVehicles(self):
         print("send all ads profiles to all running vehicle")
