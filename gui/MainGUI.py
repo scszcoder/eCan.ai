@@ -4355,7 +4355,7 @@ class MainWindow(QMainWindow):
                 # self.skillModel.appendRow(self.newSkill)
 
 
-    def addVehicle(self, vname, vip):
+    def addConnectingVehicle(self, vname, vip):
         try:
             # ipfields = vinfo.peername[0].split(".")
 
@@ -4376,7 +4376,7 @@ class MainWindow(QMainWindow):
                 if found_fl:
                     print("found_fl IP:", found_fl["ip"])
                     newVehicle.setFieldLink(found_fl)
-                    newVehicle.setStatus("running_idle")
+                    newVehicle.setStatus("connecting")
                 self.saveVehicle(newVehicle)
                 self.vehicles.append(newVehicle)
                 self.runningVehicleModel.appendRow(newVehicle)
@@ -4388,7 +4388,7 @@ class MainWindow(QMainWindow):
                 self.showMsg("Reconnected: "+vip)
                 foundV = next((v for i, v in enumerate(self.vehicles) if vname in v.getName()), None)
                 foundV.setIP(vip)
-                foundV.setStatus("running_idle")
+                foundV.setStatus("connecting")
                 if found_fl:
                     print("found_fl IP:", found_fl["ip"])
                     foundV.setFieldLink(found_fl)
@@ -4400,12 +4400,12 @@ class MainWindow(QMainWindow):
             traceback_info = traceback.extract_tb(e.__traceback__)
             # Extract the file name and line number from the last entry in the traceback
             if traceback_info:
-                ex_stat = "ErrorAddVehicle:" + traceback.format_exc() + " " + str(e)
+                ex_stat = "ErrorAddConnectingVehicle:" + traceback.format_exc() + " " + str(e)
             else:
-                ex_stat = "ErrorAddVehicle: traceback information not available:" + str(e)
+                ex_stat = "ErrorAddConnectingVehicle: traceback information not available:" + str(e)
 
             self.showMsg(ex_stat)
-        print("added vehicle:", resultV.getName(), resultV.getStatus())
+        print("added connecting vehicle:", resultV.getName(), resultV.getStatus())
         return resultV
 
 
@@ -6442,11 +6442,11 @@ class MainWindow(QMainWindow):
                                 print("received connection message: " + msg_parts[0] + " " + msg_parts[2])
                                 if self.platoonWin is None:
                                     self.platoonWin = PlatoonWindow(self, "conn")
-                                addedV = self.addVehicle(msg_parts[2], msg_parts[0])
-                                await asyncio.sleep(8)
-                                if len(self.vehicles) > 0:
-                                    print("pinging platoon: " + str(len(self.vehicles) - 1))
-                                    self.sendToVehicleByVip(msg_parts[0])
+                                addedV = self.addConnectingVehicle(msg_parts[2], msg_parts[0])
+                                # await asyncio.sleep(8)
+                                # if len(self.vehicles) > 0:
+                                #     print("pinging platoon: " + str(len(self.vehicles) - 1) + msg_parts[0])
+                                #     self.sendToVehicleByVip(msg_parts[0])
                             elif msg_parts[1] == "net loss":
                                 print("received net loss")
                                 found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
@@ -6465,6 +6465,12 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     print(f"Error processing Commander message: {e}")
 
+            else:
+                # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
+                for v in self.vehicles:
+                    if "connecting" in v.getStatus():
+                        print("pinging platoon: " + v.getIP())
+                        self.sendToVehicleByVip(v.getIP())
             await asyncio.sleep(1)  # Short sleep to avoid busy-waiting
 
 
@@ -7025,6 +7031,9 @@ class MainWindow(QMainWindow):
 
                     if found_vehicle:
                         print("found a vehicle to set.... "+found_vehicle.getOS())
+                        if "connecting" in found_vehicle.getStatus():
+                            found_vehicle.setStatus("running_idle")
+
                         if "Windows" in msg["content"]["os"]:
                             found_vehicle.setOS("Windows")
                             found_vehicle.setName(msg["content"]["name"]+":win")
