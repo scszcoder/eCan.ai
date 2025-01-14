@@ -1771,7 +1771,7 @@ def genStubWinADSAMZWalkSkill(worksettings, stepN):
 
 def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
     try:
-        log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill======>")
+        log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill===101===>")
         psk_words = "{"
         site_url = "https://www.amazon.com/"
 
