@@ -1859,13 +1859,13 @@ class MainWindow(QMainWindow):
             yyyymmdd = today.strftime("%Y%m%d")
             sf_name = "schedule" + yyyymmdd+".json"
             schedule_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
-
+            todaysScheduleExists = os.path.exists(schedule_file)
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
             bodyobj = {}
             # next line commented out for testing purpose....
             if not self.debug_mode and self.schedule_mode == "auto":
                 log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
-                todaysScheduleExists = os.path.exists(schedule_file)
+
                 log3(f"schedule file {schedule_file} exists: {todaysScheduleExists}", "fetchSchedule", self)
                 if not todaysScheduleExists or forceful:
                     jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings)
@@ -1911,7 +1911,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                        file = 'C:/temp/scheduleResultTest9D.json'             # ads ebay amz etsy sell test.
+                        file = 'C:/temp/scheduleResultTest9S.json'             # ads ebay amz etsy sell test.
                         # file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
@@ -2010,7 +2010,7 @@ class MainWindow(QMainWindow):
             text_color = "color:#00ffff;"
             logger_helper.debug(msg)
 
-        msg_text = """
+        msg_text = """ 
             <div style="display: flex; padding: 5pt;">
                 <span  style=" font-size:12pt; font-weight:300; margin-right: 40pt;"> 
                     %s |
@@ -9602,3 +9602,66 @@ class MainWindow(QMainWindow):
         for v in self.vehicles:
             if "running" in v.getStatus():
                 self.vehicleSetupTeam(v)
+
+    # from task group extract the vehicle related work, and get bots, missions, skills
+    # all ready and send over to the vehicle to get the work started.
+    def vehicleSetupWorkSchedule(self, vehicle, p_task_groups, scheduled=True):
+        try:
+            vname = vehicle.getName()
+            if vehicle and "running" in vehicle.getStatus():
+                log3("working on remote task group vehicle : " + vname, "assignWork", self)
+                # flatten tasks and regroup them based on sites, and divide them into batches
+                # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
+                batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
+                print("add buy search", batched_tasks)
+                self.add_buy_searchs(batched_tasks)
+
+                print("ads_profiles:", ads_profiles)
+                # send fingerprint browser profiles to platoon/vehicle
+                # for profile in ads_profiles:
+                #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
+                self.vehicleSetupTeam(vehicle)
+
+                # now need to fetch this task associated bots, mission, skills
+                # get all bots IDs involved. get all mission IDs involved.
+                tg_botids, tg_mids, tg_skids = self.getAllBotidsMidsSkidsFromTaskGroup(p_task_groups)
+                vehicle.setBotIds(tg_botids)
+                vehicle.setMids(tg_botids)
+
+                self.showMsg("tg_skids:" + json.dumps(tg_skids))
+                # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
+                # execute
+                # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
+                resource_bots, resource_missions, resource_skills = self.formBotsMissionsSkillsJsonData(tg_botids, tg_mids,
+                                                                                                        tg_skids)
+                if scheduled:
+                    workCmd = "reqSetSchedule"
+                else:
+                    workCmd = "reqSetReactiveWorks"
+                schedule = {"cmd": workCmd, "todos": batched_tasks, "bots": resource_bots,
+                            "missions": resource_missions, "skills": resource_skills}
+
+                # send over scheduled tasks to platton.
+                if vehicle.getFieldLink():
+                    self.showMsg(get_printable_datetime() + "SENDING [" + vname + "]PLATOON[" + vehicle.getFieldLink()[
+                        "ip"] + "] SCHEDULE::: " + json.dumps(schedule))
+
+                    self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+
+                    # send over skills to platoon
+                    self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
+
+                else:
+                    log3(get_printable_datetime() + "scheduled vehicle " + vname + " is not FOUND on LAN.", "assignWork", self)
+            else:
+                log3("WARNING: scheduled vehicle not found on network at the moment: " + vname, "assignWork", self)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorVehicleSetupWorkSchedule:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorVehicleSetupWorkSchedule: traceback information not available:" + str(e)
+            log3(ex_stat, "assignWork", self)
