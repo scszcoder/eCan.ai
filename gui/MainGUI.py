@@ -4967,8 +4967,11 @@ class MainWindow(QMainWindow):
             self.popMenu.addAction(self.vehicleViewAction)
             self.vehicleSetUpTeamAction = self._createVehicleSetUpTeamAction()
             self.vehicleSetUpWorkScheduleAction = self._createVehicleSetUpWorkScheduleAction()
+            self.vehiclePingAction = self._createVehiclePingAction()
+
             self.popMenu.addAction(self.vehicleSetUpTeamAction)
             self.popMenu.addAction(self.vehicleSetUpWorkScheduleAction)
+            self.popMenu.addAction(self.vehiclePingAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -4982,9 +4985,12 @@ class MainWindow(QMainWindow):
                     print("vehicle setup team clicked....", self.selected_vehicle_item.getName())
                     self.vehicleSetupTeam(self.selected_vehicle_item)
 
-                if selected_act == self.vehicleSetUpWorkScheduleAction:
+                elif selected_act == self.vehicleSetUpWorkScheduleAction:
                     print("vehicle setup work schedule clicked....", self.selected_vehicle_item.getName())
                     self.vehicleSetupWorkSchedule(self.selected_vehicle_item, self.todays_scheduled_task_groups)
+                elif selected_act == self.vehiclePingAction:
+                    print("vehicle ping clicked....", self.selected_vehicle_item.getName())
+                    self.vehiclePing(self.selected_vehicle_item)
 
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
@@ -5315,6 +5321,11 @@ class MainWindow(QMainWindow):
     def _createVehicleSetUpWorkScheduleAction(self):
        new_action = QAction(self)
        new_action.setText(QApplication.translate("QAction", "&Set Up Work Schedule"))
+       return new_action
+
+    def _createVehiclePingAction(self):
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Ping"))
        return new_action
 
 
@@ -6430,7 +6441,7 @@ class MainWindow(QMainWindow):
                                 if self.platoonWin is None:
                                     self.platoonWin = PlatoonWindow(self, "conn")
                                 addedV = self.addVehicle(msg_parts[2], msg_parts[0])
-                                await asyncio.sleep(5)
+                                await asyncio.sleep(8)
                                 if len(self.vehicles) > 0:
                                     print("pinging platoon: " + str(len(self.vehicles) - 1))
                                     self.sendToVehicleByVip(msg_parts[0])
@@ -8403,7 +8414,7 @@ class MainWindow(QMainWindow):
             })
             print("about to sendout:", json_data)
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
-            platoon_link.write(length_prefix + json_data.encode('utf-8'))
+            platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
             # Get the traceback information
@@ -9628,7 +9639,7 @@ class MainWindow(QMainWindow):
                 vehicle.setBotIds(tg_botids)
                 vehicle.setMids(tg_botids)
 
-                self.showMsg("tg_skids:" + json.dumps(tg_skids))
+                log3("tg_skids:" + json.dumps(tg_skids), "assignWork", self)
                 # put togehter all bots, missions, needed skills infommation in one batch and put onto the vehicle to
                 # execute
                 # resource_string = self.formBotsMissionsSkillsString(tg_botids, tg_mids, tg_skids)
@@ -9643,8 +9654,8 @@ class MainWindow(QMainWindow):
 
                 # send over scheduled tasks to platton.
                 if vehicle.getFieldLink():
-                    self.showMsg(get_printable_datetime() + "SENDING [" + vname + "]PLATOON[" + vehicle.getFieldLink()[
-                        "ip"] + "] SCHEDULE::: " + json.dumps(schedule))
+                    log3(get_printable_datetime() + "SENDING [" + vname + "]PLATOON[" + vehicle.getFieldLink()[
+                        "ip"] + "] SCHEDULE::: " + json.dumps(schedule), "assignWork", self)
 
                     self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
 
@@ -9665,3 +9676,7 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorVehicleSetupWorkSchedule: traceback information not available:" + str(e)
             log3(ex_stat, "assignWork", self)
+
+
+    def vehiclePing(self, vehicle):
+        self.sendToVehicleByVip(vehicle.getIP())
