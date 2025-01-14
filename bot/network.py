@@ -182,7 +182,7 @@ class communicatorProtocol(asyncio.Protocol):
 
     def data_received(self, data):
         self.buffer.extend(data)
-        print(f"Received commander data: {len(data)} bytes, Buffer size: {len(self.buffer)}")
+        print(f"TCP Received commander data: {len(data)} bytes, Buffer size: {len(self.buffer)}")
 
         while self.buffer:
             if self.expected_length is None and len(self.buffer) >= 4:
@@ -383,10 +383,10 @@ class UDPServerProtocol:
         print("Listenting for Commander...")
 
     def datagram_received(self, data, addr):
-        print(f"Received data: {data.decode()} from {addr}")
+        print(f"Received UDP data: {data.decode()} from {addr}")
         global commanderXport
         message = data.decode("utf-8")
-        print(f"platoon received: {message}")
+        print(f"platoon UDP received: {message}")
 
         myBoss = self.topgui.getUser()
         print("my boss:", myBoss)
