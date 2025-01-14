@@ -7555,6 +7555,7 @@ class MainWindow(QMainWindow):
                 msg = json.dumps(resp)
                 msg_with_delimiter = msg + "!ENDMSG!"
                 self.commanderXport.write(msg_with_delimiter.encode('utf8'))
+                log3("pong sent!", "serveCommander", self)
 
             elif msg["cmd"] == "chat":
                 # update vehicle status display.
