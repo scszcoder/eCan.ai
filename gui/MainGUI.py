@@ -7390,8 +7390,9 @@ class MainWindow(QMainWindow):
                     msg = json.dumps(hbJson)
                     # send to commander
                     msg_with_delimiter = msg + "!ENDMSG!"
-                    log3("sending heartbeat", "serveCommander", self)
+
                     if self.commanderXport:
+                        log3("sending heartbeat", "serveCommander", self)
                         self.commanderXport.write(msg_with_delimiter.encode('utf8'))
             except (json.JSONDecodeError, AttributeError) as e:
                 # Handle JSON encoding or missing attributes issues
@@ -8699,7 +8700,7 @@ class MainWindow(QMainWindow):
 
     def send_heartbeat(self):
         if "Commander" in self.host_role:
-            print("sending heartbeat")
+            print("sending wan heartbeat")
             asyncio.ensure_future(self.wan_send_heartbeat())
 
 
