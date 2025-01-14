@@ -4318,11 +4318,13 @@ class MainWindow(QMainWindow):
         existinBids = [b.getBid() for b in self.bots]
         existinMids = [m.getMid() for m in self.missions]
         existinSkids = [sk.getSkid() for sk in self.skills]
+        print("existinBids:", existinBids)
+        print("botsJson:", botsJson)
         # self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
         # self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
         # self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
         for bjs in botsJson:
-            if int(bjs["bid"]) not in existinBids:
+            if int(bjs["pubProfile"]["bid"]) not in existinBids:
                 self.newBot = EBBOT(self)
                 self.newBot.loadJson(bjs)
                 self.newBot.updateIcon()
@@ -4335,7 +4337,7 @@ class MainWindow(QMainWindow):
                     self.todays_bot_profiles.append(bot_profile_name)
 
         for mjs in missionsJson:
-            if int(mjs["mid"]) not in existinMids:
+            if int(mjs["pubAttributes"]["missionId"]) not in existinMids:
                 self.newMission = EBMISSION(self)
                 self.newMission.loadJson(mjs)
                 self.newMission.updateIcon()
