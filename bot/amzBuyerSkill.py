@@ -2279,7 +2279,7 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     psk_words = psk_words + step_words
 
     # open the order page again.
-    # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "expr", "sk_work_settings['cargs']", 5, start_step)
+    # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "expr", "sk_work_settings['cargs']", "topWin", 5, "actionSuccess", start_step)
     # psk_words = psk_words + step_words
 
     # unit test browse details

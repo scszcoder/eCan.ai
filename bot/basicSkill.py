@@ -118,7 +118,7 @@ def genStepHeader(skillname, los, ver, author, skid, description, stepN):
 
 
 
-def genStepOpenApp(action, saverb, app_type, app_link, cargs_type, cargs, wait, stepN):
+def genStepOpenApp(action, saverb, app_type, app_link, cargs_type, cargs, win_info, wait, result, stepN):
     stepjson = {
         "type": "App Open",
         "action": action,
@@ -127,7 +127,9 @@ def genStepOpenApp(action, saverb, app_type, app_link, cargs_type, cargs, wait, 
         "app_link": app_link,
         "cargs_type": cargs_type,
         "cargs": cargs,
-        "wait":wait
+        "win_info": win_info,
+        "wait":wait,
+        "result": result
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -866,10 +868,11 @@ def genStepCheckAppRunning(appname, result, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def genStepBringAppToFront(win_title, result, stepN):
+def genStepBringAppToFront(win_title_kw, win_info, result, stepN):
     stepjson = {
         "type": "Bring App To Front",
-        "win_title": win_title,
+        "win_title_kw": win_title_kw,
+        "win_info": win_info,
         "result": result
     }
 
@@ -1247,7 +1250,7 @@ def get_top_visible_window(win_title_keyword):
                     win_title = effective_names[wi]
                     window_handle = win32gui.FindWindow(None, effective_names[wi])
                     win_rect = win32gui.GetWindowRect(window_handle)
-                    log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
+                    log3("FOUND TOP target window: " + win_title + " rect: " + json.dumps(win_rect))
                     found = True
                     break
 
@@ -2733,7 +2736,7 @@ def processOpenApp(step, i):
 
             if is_app_running(step["app_type"]):
                 #simply bring the process/window to the front.
-                switchToWindow(step["app_type"])
+                symTab[step["result"]], symTab[step["win_info"]] = switchToWindow(step["app_type"])
             else:
                 # start the app afresh
                 # exec("global oa_exe\noa_exe = "+step["app_type"])
@@ -2756,7 +2759,7 @@ def processOpenApp(step, i):
                     subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         time.sleep(step["wait"])
-
+        symTab[step["result"]] = True
 
     except Exception as e:
         # Get the traceback information
@@ -2767,6 +2770,8 @@ def processOpenApp(step, i):
         else:
             ex_stat = "ErrorOpenApp: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["result"]] = False
+        symTab[step["win_info"]] = None
 
     return (i + 1), ex_stat
 
@@ -4825,9 +4830,12 @@ def processCheckAppRunning(step, i):
 
     return (i + 1), ex_stat
 
-def switchToWindow(winTitle):
-    result = False
-
+def switchToWindow(winTitleKW):
+    successful = False
+    window_handle = None
+    win_title = ""
+    winInfo = None
+    win_rect = None
     if sys.platform == 'win32':
         names = []
 
@@ -4839,7 +4847,7 @@ def switchToWindow(winTitle):
                     names.append(n)
 
         win32gui.EnumWindows(winEnumHandler, None)
-        win_title_keyword = winTitle
+        win_title_keyword = winTitleKW
 
         effective_names = [nm for nm in names if "dummy" not in nm]
         window_handle = None
@@ -4856,20 +4864,47 @@ def switchToWindow(winTitle):
         if window_handle:
             win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)  # Restore window if minimized
             win32gui.SetForegroundWindow(window_handle)
-            result = True
+            successful = True
         else:
             log3(f"Error: Window with title '{win_title_keyword}' not found.")
 
-    return result
+        winInfo = { "title": win_title, "handle": window_handle, "rect": win_rect}
 
+    return successful, winInfo
+
+
+def getTopWindow():
+    winInfo = None
+    if sys.platform == 'win32':
+        names = []
+
+        def winEnumHandler(hwnd, ctx):
+            if win32gui.IsWindowVisible(hwnd):
+                n = win32gui.GetWindowText(hwnd)
+                # log3("windows: "+str(n))
+                if n:
+                    names.append(n)
+
+        win32gui.EnumWindows(winEnumHandler, None)
+
+        effective_names = [nm for nm in names if "dummy" not in nm]
+        winInfo = { "title": effective_names[0] }
+        top_win_title = effective_names[0]
+        window_handle = win32gui.FindWindow(None, top_win_title)
+        win_rect = win32gui.GetWindowRect(window_handle)
+        winInfo["handle": window_handle]
+        winInfo["rect": win_rect]
+
+
+    return winInfo
 
 def processBringAppToFront(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["result"]] = False
-    winTitle = step["win_title"]
+    winTitleKW = step["win_title_kw"]
 
     try:
-        symTab[step["result"]] = switchToWindow(winTitle)
+        symTab[step["result"]], symTab[step["win_handle"]], symTab[step["win_title"]] = switchToWindow(winTitleKW)
 
     except Exception as e:
         # Get the traceback information

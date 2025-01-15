@@ -881,8 +881,13 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCreateData("boolean", "actionSuccess", "NA", False, this_step)
+    psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "expr", "sk_work_settings['cargs']", 5, this_step)
+    this_step, step_words = genStepCreateData("obj", "topWin", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    # this_step, step_words = genStepOpenApp("cmd", True, "browser", site_url, "expr", "sk_work_settings['cargs']", "topWin", 5, "actionSuccess", this_step)
     # psk_words = psk_words + step_words
 
     this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -1771,7 +1776,15 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/browser_respond_messages", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepBringAppToFront("SunBrowser", "app_result", this_step)
+
+    this_step, step_words = genStepCreateData("boolean", "actionSuccess", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCreateData("obj", "topWin", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepBringAppToFront("SunBrowser", "topWin", "actionSuccess", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCheckCondition("not web_driver", "", "", this_step)
