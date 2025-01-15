@@ -2097,7 +2097,7 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern(
-            "global web_driver_path, ads_chrome_version, sk_work_settings\nweb_driver_path =  sk_work_settings['root_path'] + '/' + sk_work_settings['fp_browser_settings']['ads_chromedriver_lut'][ads_chrome_version]\nprint('web_driver_path:', web_driver_path)",
+            "global web_driver_path, ads_chrome_version, sk_work_settings\nweb_driver_path =  sk_work_settings['root_path'] + '/' + sk_work_settings['fp_browser_settings']['chromedriver_lut'][ads_chrome_version]\nprint('web_driver_path:', web_driver_path)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 

@@ -46,7 +46,13 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
         this_step, step_words = genStepCallExtern("global sk_work_settings\nprint('SK_WORK_SETTINGS:',sk_work_settings)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepOpenApp("run", True, "AdsPower", "sk_work_settings['app_exe']", "expr", "sk_work_settings['cargs']", 3, this_step)
+        this_step, step_words = genStepCreateData("boolean", "actionSuccess", "NA", False, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "topWin", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepOpenApp("run", True, "AdsPower", "sk_work_settings['app_exe']", "expr", "sk_work_settings['cargs']", "topWin", 3, "actionSuccess", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("expr", "ads_profile_fname", "NA", 'fin[0]', this_step)
