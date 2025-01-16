@@ -36,7 +36,8 @@ from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtm
     genStepCheckSublist, genStepCheckAlreadyProcessed, genStepPasteToData, genStepMouseMove, genStepGetWindowsInfo, \
     genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
     genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
-    genStepECBFetchDailySchedule, genStepECBDispatchTroops, genStepECBScreenBotCandidates, genStepECBCollectBotProfiles
+    genStepECBFetchDailySchedule, genStepECBDispatchTroops, genStepECBScreenBotCandidates, genStepECBCollectBotProfiles, \
+    genStepGetTopWindow, genStepGetWindows
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -150,6 +151,8 @@ PUBLIC = {
     "genStepCreateData": genStepCreateData,
     "genStepCheckAppRunning": genStepCheckAppRunning,
     "genStepBringAppToFront": genStepBringAppToFront,
+    "genStepGetTopWindow": genStepGetTopWindow,
+    "genStepGetWindows": genStepGetWindows,
     "genStepFillData": genStepFillData,
     "genStepThink": genStepThink,
     "genException": genException,
@@ -275,7 +278,8 @@ symTab["ecb_pub"] = PUBLIC
 
 ManagerTriggerTable = {
     "TEAM_REPORT": (110, "manage_AfterWork"),
-    "SCHEDULE_READY": (111, "manage_BeforeWork")
+    "SCHEDULE_READY": (111, "manage_BeforeWork"),
+    "NEW_BOTS_READY": (118, "hr_Recuit")
 }
 symTab["manager_trigger_table"] = ManagerTriggerTable
 

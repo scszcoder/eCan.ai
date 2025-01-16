@@ -33,7 +33,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processExternalHook, processCreateRequestsSession, processECBCreateBots, processECBUpdateBots, \
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
     processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates, \
-    processECBCollectBotProfiles
+    processECBCollectBotProfiles, processGetTopWindow, processGetWindows
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -252,6 +252,8 @@ RAIS = {
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
+    "Get Top Window Info": lambda x, y: processGetTopWindow(x, y),
+    "Get Windows Info": lambda x, y: processGetWindows(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
     "Check Sublist": lambda x, y: processCheckSublist(x, y),
@@ -413,6 +415,8 @@ ARAIS = {
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
     "Bring App To Front": lambda x, y: processBringAppToFront(x, y),
+    "Get Top Window Info": lambda x, y: processGetTopWindow(x, y),
+    "Get Windows Info": lambda x, y: processGetWindows(x, y),
     "Upload Files": lambda x, y, z: processUploadFiles(x, y, z),
     "Download Files": lambda x, y, z: processDownloadFiles(x, y, z),
     "Check Sublist": lambda x, y: processCheckSublist(x, y),
