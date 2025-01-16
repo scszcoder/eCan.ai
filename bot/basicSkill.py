@@ -879,6 +879,29 @@ def genStepBringAppToFront(win_title_kw, win_info, result, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepGetTopWindow(win_info, step_flag, stepN):
+    stepjson = {
+        "type": "Get Top Window Info",
+        "result": win_info,
+        "flag": step_flag
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepGetWindows(win_info, step_flag, stepN):
+    stepjson = {
+        "type": "Get Windows Info",
+        "result": win_info,
+        "flag": step_flag
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+
 #fill type: array fill, value fill, object fill?
 # src : src variable
 # sink : sink variable
@@ -4895,8 +4918,85 @@ def getTopWindow():
         winInfo["handle": window_handle]
         winInfo["rect": win_rect]
 
+    return winInfo
+
+
+
+def getWindows():
+    winInfo = []
+    if sys.platform == 'win32':
+        names = []
+
+        def winEnumHandler(hwnd, ctx):
+            if win32gui.IsWindowVisible(hwnd):
+                n = win32gui.GetWindowText(hwnd)
+                # log3("windows: "+str(n))
+                if n:
+                    names.append(n)
+
+        win32gui.EnumWindows(winEnumHandler, None)
+
+        effective_names = [nm for nm in names if "dummy" not in nm]
+
+        for wi, wn in enumerate(effective_names):
+            win_title = effective_names[wi]
+            window_handle = win32gui.FindWindow(None, effective_names[wi])
+            win_rect = win32gui.GetWindowRect(window_handle)
+
+            if window_handle:
+                 winInfo.append({"title": win_title, "handle": window_handle, "rect": win_rect})
 
     return winInfo
+
+
+
+
+def processGetTopWindow(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["flag"]] = True
+
+    try:
+        symTab[step["result"]]= getTopWindow()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGetTopWindow:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGetTopWindow: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+
+
+def processGetWindows(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    symTab[step["flag"]] = True
+
+    try:
+        symTab[step["result"]]= getWindows()
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGetWindows:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGetWindows: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+
+
+
 
 def processBringAppToFront(step, i):
     ex_stat = DEFAULT_RUN_STATUS
