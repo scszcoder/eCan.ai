@@ -1831,11 +1831,6 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCreateData("string", "win_title", "NA", "AdsPower Browser", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepSearchWordLine("screen_info", "win_title", "expr", "any", "ver_lines", "version_available", "ads", False, this_step)
-        psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("obj", "vers", "NA", [], this_step)
         psk_words = psk_words + step_words
