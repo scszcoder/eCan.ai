@@ -5813,13 +5813,10 @@ class MainWindow(QMainWindow):
 
         print("about to really add these missions to cloud and local DB...")
         if missions_from_file:
+            # during the process of this the cloud generated mid should be updated to JSON.
             self.addNewMissions(missions_from_file)
 
-        # now needs to update the original data with mid and ticket and status.
-        for i, mission in enumerate(missionsJson):
-            missionsJson[i]['mid'] = mission.getMid()
 
-            missionsJson[i]['mid'] = mission.getMid()
         return missionsJson
 
 

@@ -329,7 +329,7 @@ class M_Pub_Attributes():
         self.status = dj.get("status", "")
         self.search_kw =dj.get("phrase", "")
         self.search_cat = dj.get("category", "")
-        self.config = dj.get("config", "")
+        self.config = dj.get("config", "{}")
         self.esd = dj.get("esd", "")
         self.ecd = dj.get("ecd", "")
         self.asd = dj.get("asd", "")
@@ -362,7 +362,7 @@ class M_Pub_Attributes():
         self.status = dj.get("status", "")
         self.search_kw = dj.get("phrase", "")
         self.search_cat = dj.get("category", "")
-        self.config = dj.get("config", "")
+        self.config = dj.get("config", "{}")
         self.esd = dj.get("esd", "")
         self.ecd = dj.get("ecd", "")
         self.asd = dj.get("asd", "")
@@ -1271,7 +1271,7 @@ class EBMISSION(QStandardItem):
         # self.setPseudoBrand(self.main_win.generateShortHash(dj.get("pseudoBrand")))
         # self.setPseudoASIN(self.main_win.generateShortHash(dj.get("pseudoASIN")))
         self.setMtype(dj.get("type", ""))
-        self.setConfig(dj.get("config", ""))
+        self.setConfig(dj.get("config", "{}"))
         self.setSkills(dj.get("skills", ""))
         self.setASIN(dj.get("asin", ""))                #this will auto set psudo_asin
         self.setStore(dj.get("store", "NoneStore"))     #this will auto set psudo_store
