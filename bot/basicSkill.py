@@ -868,12 +868,12 @@ def genStepCheckAppRunning(appname, result, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def genStepBringAppToFront(win_title_kw, win_info, result, stepN):
+def genStepBringAppToFront(win_title_kw, win_info, flag, stepN):
     stepjson = {
         "type": "Bring App To Front",
         "win_title_kw": win_title_kw,
         "win_info": win_info,
-        "result": result
+        "flag": flag
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -5000,11 +5000,11 @@ def processGetWindows(step, i):
 
 def processBringAppToFront(step, i):
     ex_stat = DEFAULT_RUN_STATUS
-    symTab[step["result"]] = False
+    symTab[step["flag"]] = True
     winTitleKW = step["win_title_kw"]
 
     try:
-        symTab[step["result"]], symTab[step["win_handle"]], symTab[step["win_title"]] = switchToWindow(winTitleKW)
+        symTab[step["flag"]], symTab[step["win_info"]] = switchToWindow(winTitleKW)
 
     except Exception as e:
         # Get the traceback information
@@ -5015,6 +5015,8 @@ def processBringAppToFront(step, i):
         else:
             ex_stat = "ErrorBringAppToFront: traceback information not available:" + str(e)
         log3(ex_stat)
+        symTab[step["flag"]] = False
+        symTab[step["win_info"]] = None
 
     return (i + 1), ex_stat
 
