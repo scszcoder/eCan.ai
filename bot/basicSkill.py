@@ -890,9 +890,9 @@ def genStepGetTopWindow(win_info, step_flag, stepN):
 
 
 
-def genStepGetWindows(win_info, step_flag, stepN):
+def genStepGetAllWindowsInfo(win_info, step_flag, stepN):
     stepjson = {
-        "type": "Get Windows Info",
+        "type": "Get All Windows Info",
         "result": win_info,
         "flag": step_flag
     }
@@ -4974,7 +4974,7 @@ def processGetTopWindow(step, i):
 
 
 
-def processGetWindows(step, i):
+def processGetAllWindowsInfo(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     symTab[step["flag"]] = True
 
@@ -4986,9 +4986,9 @@ def processGetWindows(step, i):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorGetWindows:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorGetAllWindowsInfo:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorGetWindows: traceback information not available:" + str(e)
+            ex_stat = "ErrorGetAllWindowsInfo: traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
 
