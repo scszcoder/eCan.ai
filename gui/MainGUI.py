@@ -9517,7 +9517,7 @@ class MainWindow(QMainWindow):
                     # print("usernames in this batch file:", batch_file, usernames)
                     # Exclude already updated usernames when processing this batch
                     remaining_usernames = usernames - updated_usernames
-                    log3("remaining_usernames"+json.dumps(remaining_usernames), "gatherFingerPrints", self)
+                    log3(f"remaining_usernames: {remaining_usernames}", "gatherFingerPrints", self)
 
                     if remaining_usernames:
                         updateIndividualProfileFromBatchSavedTxt(self, batch_file,
