@@ -10,7 +10,7 @@ from difflib import SequenceMatcher
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
 from bot.adsAPISkill import processAPIADSStartProfile, processAPIADSRegroupProfiles, processAPIADSStopProfile, \
-    processAPIADSCreateProfile, processAPIADSDeleteProfile
+    processAPIADSCreateProfile, processAPIADSDeleteProfile, processAPIADSListProfiles
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
@@ -273,6 +273,7 @@ RAIS = {
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
     "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
+    "API ADS List Profiles": lambda x, y: processAPIADSListProfiles(x, y),
     "API ADS Regroup Profiles": lambda x, y: processAPIADSRegroupProfiles(x, y)
 }
 
@@ -436,6 +437,7 @@ ARAIS = {
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
     "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
+    "API ADS List Profiles": lambda x, y: processAPIADSListProfiles(x, y),
     "API ADS Regroup Profiles": lambda x, y: processAPIADSRegroupProfiles(x, y)
 }
 

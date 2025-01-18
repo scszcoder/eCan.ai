@@ -559,6 +559,7 @@ def processWebdriverStartExistingADS(step, i):
         symTab[step["flag_var"]] = True
         api_key = symTab[step["ads_api_key_var"]]
         profile_id = symTab[step["profile_id_var"]]
+        profile_id = "ksrh5oa"
         port = symTab[step["port_var"]]
         driver_path = symTab[step["driver_path_var"]]
         options = symTab[step["options_var"]]
@@ -567,6 +568,8 @@ def processWebdriverStartExistingADS(step, i):
 
         if not symTab[step["driver_var"]]:
             symTab[step["flag_var"]] = False
+        else:
+            symTab[step["result_var"]] = {"api_key": api_key, "port": port, "profile_id": profile_id}
 
     except Exception as e:
         # Get the traceback information
