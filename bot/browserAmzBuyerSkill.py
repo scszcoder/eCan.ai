@@ -29,6 +29,8 @@ from bot.Logger import log3
 from bot.amzBuyerSkill import genStepsAMZLoginIn
 from bot.adsPowerSkill import genStepsADSPowerExitProfile, genStepsADSPowerObtainLocalAPISettings, \
     genStepADSSaveAPISettings, genStepsADSBatchExportProfiles
+from bot.adsAPISkill import genStepAPIADSListProfiles
+
 import utils.logger_helper
 
 # the flow is adapted from the same routine in amzBuyerSkill
@@ -1804,6 +1806,7 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("string", "drive_result", "NA", "", this_step)
         psk_words = psk_words + step_words
 
+
         # first call subskill to open ADS Power App, and check whether the user profile is already loaded?
         # Note: this skill simply opens the profiles button, whether the target profile is loaded is yet to be determined.
         this_step, step_words = genStepUseSkill("open_profile", "public/win_ads_local_open", "open_profile_input", "ads_up", this_step)
@@ -1824,13 +1827,6 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("expr", "bpassword", "NA", "sk_work_settings['b_backup_email_pw']", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': bot_email, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0, 0, 1, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
-
-        # look at the profiles list and check whether the target profile is listed.
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "dyn_options")
-        psk_words = psk_words + step_words
-
 
         this_step, step_words = genStepCreateData("obj", "vers", "NA", [], this_step)
         psk_words = psk_words + step_words
@@ -1838,10 +1834,13 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("string", "ads_ver", "NA", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepGetWindowsInfo(0, "ads_win_info", "action_flag", this_step)
+        this_step, step_words = genStepBringAppToFront("AdsPower", "ads_win_info", "action_flag", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global ads_win_info, ads_ver\nver_parts=ads_win_info[0]['title'].split('|')\nads_ver=ver_parts[1].strip()+':'+ver_parts[2].strip()\nprint('ads_ver:', ads_ver)", "", "in_line", "", this_step)
+        # this_step, step_words = genStepGetWindowsInfo(0, "ads_win_info", "action_flag", this_step)
+        # psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global ads_win_info, ads_ver\nver_parts=ads_win_info['title'].split('|')\nads_ver=ver_parts[1].strip()+':'+ver_parts[2].strip()\nprint('ads_ver:', ads_ver)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern("global sk_work_settings, ads_ver\nsk_work_settings['fp_browser_settings']['ads_version'] = ads_ver", "", "in_line", "", this_step)
@@ -1853,8 +1852,6 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
 
         this_step, step_words = genStepCallExtern("global ads_main_ver_parts, ads_main_ver_num\nads_main_ver_num = int(ads_main_ver_parts[0])*10000+int(ads_main_ver_parts[1])*100+int(ads_main_ver_parts[2])*1\nprint('ads_main_ver_num: ', ads_main_ver_num)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
-
-
 
         # now simply try to open the bot's profile with profile id, if it failed, that means the current
         # batch doesn't contain the bot, so it's time to batch import the batch that contains the
@@ -2067,16 +2064,33 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("string", "web_driver_options", "NA", "", stepN)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("obj", "ads_config", "NA", {}, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "loaded_profiles", "NA", [], this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "action_flag", "NA", False, this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepCallExtern(
-            "global local_api_key, local_api_port, sk_work_settings\nlocal_api_port = sk_work_settings['fp_browser_settings']['ads_port']\nprint('local_api_port:', local_api_port)",
+            "global ads_config, local_api_key, local_api_port, sk_work_settings\nlocal_api_port = sk_work_settings['fp_browser_settings']['ads_port']\nlocal_api_key = sk_work_settings['fp_browser_settings']['ads_api_key']\nads_config['port']=local_api_port\nads_config['api_key']=local_api_key\nprint('local_api_port:', local_api_port)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepAPIADSListProfiles("ads_config", "loaded_profiles", "action_flag",  this_step)
+        psk_words = psk_words + step_words
+
+        # check whether the bot in this mission is loaded in ADS already
+        this_step, step_words = genStepCheckCondition("sk_work_settings['b_email'] in loaded_profiles", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # if already loaded, try to use web driver to open it and run with it.
         this_step, step_words = genStepCreateData("string", "ads_profile_id", "NA", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern(
-            "global ads_profile_id, sk_work_settings\nads_profile_id = sk_work_settings['ads_profile_id']\nprint('ads_profile_id:', ads_profile_id)",
+            "global ads_profile_id, sk_work_settings\nads_profile_id = sk_work_settings['b_email']\nprint('ads_profile_id:', ads_profile_id)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
@@ -2104,21 +2118,7 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepCheckCondition("not web_driver_successful", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCheckCondition("drive_result == 'user account does not exist'", "", "", this_step)
-        psk_words = psk_words + step_words
-
-        # in case connecting to ads failed due to account not currently loaded, now it's time to load in the correct batch of profiles.
-        # now exit current batch which will save the current batch, note this saving will penerate
-        # to update each individual bot's profile in this batch, as well as each bot's ads profile parameter.
-        # and the next profile batch xlxs file .
-        this_step, step_words = genStepsADSBatchExportProfiles(worksettings, theme, this_step)
-        psk_words = psk_words + step_words
-
-
-        this_step, step_words = genStepStub("else", "", "", this_step)
-        psk_words = psk_words + step_words
-
-        # this could be the case where the ads power's local api port and api key has changed, so re-gain it.
+        # this could be the case where the ads power's local api port and api key has changed, so try re-obtain it.
         this_step, step_words = genStepsADSPowerObtainLocalAPISettings(worksettings, this_step, theme)
         psk_words = psk_words + step_words
 
@@ -2128,27 +2128,25 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
                                                                  "drive_result", "web_driver_successful", this_step)
         psk_words = psk_words + step_words
 
-        # now with port corrected, if something failed again, it could only be the  web driver version, will take care of this later.....
-        this_step, step_words = genStepCheckCondition("(not web_driver_successful) and (drive_result == 'user account does not exist')", "", "", this_step)
-        psk_words = psk_words + step_words
-
-
-        # in case web driver is loaded successfully .
-        this_step, step_words = genStepsADSBatchExportProfiles(worksettings, theme, this_step)
-        psk_words = psk_words + step_words
-
-
-        # end condition for "not web_driver_successful"
-        this_step, step_words = genStepStub("end condition", "", "", this_step)
-        psk_words = psk_words + step_words
+        # no reason to fail again...
 
         # end condition for (drive_result == 'user account does not exist')
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # end condition  for "not web_driver_successful"
-        this_step, step_words = genStepStub("end condition", "", "", this_step)
+
+        # else - if bot email not in loaded_profiles , then need to save/export current batch,
+        # and then load the right batch.
+        this_step, step_words = genStepStub("else", "", "", this_step)
         psk_words = psk_words + step_words
+
+        # in case connecting to ads failed due to account not currently loaded, now it's time to load in the correct batch of profiles.
+        # now exit current batch which will save the current batch, note this saving will penerate
+        # to update each individual bot's profile in this batch, as well as each bot's ads profile parameter.
+        # and the next profile batch xlxs file .
+        this_step, step_words = genStepsADSBatchExportProfiles(worksettings, theme, this_step)
+        psk_words = psk_words + step_words
+
 
         # set up to import the right batch profile
         this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
@@ -2172,22 +2170,26 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepCallExtern("print('batch_import_input::', batch_import_input)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-
         this_step, step_words = genStepUseSkill("batch_import", "public/win_ads_local_load", "batch_import_input", "browser_up", this_step)
         psk_words = psk_words + step_words
 
         # after batch import, get the right profile id.
-        # in case web driver is loaded successfully .
-        this_step, step_words = genStepsADSBatchExportProfiles(worksettings, theme, this_step)
+        # use ads api to query loaded profiles, which returns a dictionary of profile id with email as key
+        this_step, step_words = genStepAPIADSListProfiles("ads_config", "loaded_profiles", "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+        # end condition  for "bot email not in loaded_profiles"
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
         # now update profile id, now we should have the correct profile id loaded into ADS.
         this_step, step_words = genStepCallExtern(
-            "global ads_profile_id, sk_work_settings\nads_profile_id = sk_work_settings['ads_profile_id']\nprint('ads_profile_id:', ads_profile_id)",
+            "global ads_profile_id, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]\nprint('ads_profile_id:', ads_profile_id)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("print('DONE Loading bot's correct profile.....')", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("print('DONE Loading bots correct profile.....')", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
     except Exception as e:

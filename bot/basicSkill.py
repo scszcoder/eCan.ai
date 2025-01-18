@@ -1465,7 +1465,7 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
     result = req_cloud_read_screen(settings["session"], request, settings["token"])
     # log3("result::: "+json.dumps(result))
     jresult = json.loads(result['body'])
-    log3("cloud result data: "+json.dumps(jresult["data"]))
+    # log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     if "errors" in jresult:
@@ -1593,7 +1593,7 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
 
     result = await req_cloud_read_screen8(session, request, token)
     jresult = json.loads(result['body'])
-    log3("cloud result data: "+json.dumps(jresult["data"]))
+    # log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     if "errors" in jresult:
@@ -1952,7 +1952,7 @@ async def processExtractInfo8(step, i, mission, skill):
         else:
             step_settings = step["settings"]
 
-        log3("STEP SETTINGS"+json.dumps(step_settings))
+        # log3("STEP SETTINGS"+json.dumps(step_settings))
         platform = step_settings["platform"]
         app = step_settings["app"]
         site = step_settings["site"]

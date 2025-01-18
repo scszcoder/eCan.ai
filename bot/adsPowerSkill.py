@@ -11,7 +11,7 @@ from bot.basicSkill import genStepStub, genStepCreateData, genStepCallExtern, ge
     genStepMouseScroll, genStepTextInput, genStepHeader, STEP_GAP, symTab, DEFAULT_RUN_STATUS, genStepSearchWordLine,  \
     genStepUseSkill, genStepPasteToData
 from bot.adsAPISkill import genStepAPIADSCreateProfile, genStepAPIADSStartProfile, genStepAPIADSStopProfile, \
-    genStepAPIADSCreateGroup, genStepAPIADSDeleteProfile, genStepAPIADSRegroupProfiles
+    genStepAPIADSCreateGroup, genStepAPIADSDeleteProfile, genStepAPIADSRegroupProfiles, genStepAPIADSListProfiles
 from pathlib import Path
 
 
@@ -923,16 +923,19 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # site is like amazon, ebay, etcs....
-        this_step, step_words = genStepCallExtern("global in_bot_email\nin_bot_email = fin[3]", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global in_bot_email\nin_bot_email = fin[3]\nprint('in_bot_email:', in_bot_email)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global in_bot_user_name\nin_bot_user_name = in_bot_email.split('@')[0]", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global in_bot_user_name\nin_bot_user_name = in_bot_email.split('@')[0]\nprint('in_bot_user_name:', in_bot_user_name)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern("global in_full_site\nin_full_site = fin[4]", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern("global in_os\nin_os = fin[5]", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepAPIADSListProfiles("ads_config", "loaded_profiles", "action_flag",  this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'NewProfile', 'Profiles', 'No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
@@ -978,7 +981,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCheckCondition("in_ads_ver < 60229", "", "", this_step)
+        this_step, step_words = genStepCheckCondition("ads_main_ver_num < 60229", "", "", this_step)
         psk_words = psk_words + step_words
 
 
@@ -1007,7 +1010,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCheckCondition("in_ads_ver < 60229", "", "", this_step)
+        this_step, step_words = genStepCheckCondition("ads_main_ver_num < 60229", "", "", this_step)
         psk_words = psk_words + step_words
 
         # for pre 6.2.29 version of ADS, the UI sequence is select broswer and OS first, then scroll down to

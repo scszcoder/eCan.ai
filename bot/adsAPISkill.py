@@ -4,7 +4,7 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
-from bot.basicSkill import DEFAULT_RUN_STATUS, STEP_GAP
+from bot.basicSkill import DEFAULT_RUN_STATUS, STEP_GAP, symTab
 import traceback
 from bot.Logger import log3
 import json
@@ -33,7 +33,7 @@ PORT = 50325
 
 def startAdspowerProfile(api_key, profile_id, port):
 
-    url = f'http://localhost:{port}/api/v1/browser/start?user_id={profile_id}'
+    url = f'http://local.adspower.net:{port}/api/v1/browser/start?user_id={profile_id}'
     print("URL:", url)
 
     headers = {
@@ -50,7 +50,7 @@ def startAdspowerProfile(api_key, profile_id, port):
 
 def stopAdspowerProfile(api_key, profile_id, port):
 
-    url = f'http://localhost:{port}/api/v1/browser/stop?user_id={profile_id}'
+    url = f'http://local.adspower.net:{port}/api/v1/browser/stop?user_id={profile_id}'
     print("URL:", url)
 
     headers = {
@@ -67,7 +67,7 @@ def stopAdspowerProfile(api_key, profile_id, port):
 
 def createAdspowerProfile(api_key, port, profile):
 
-    url = f'http://localhost:{port}/api/v1/user/create'
+    url = f'http://local.adspower.net:{port}/api/v1/user/create'
     print("URL:", url)
 
     payload = {
@@ -133,7 +133,7 @@ def createAdspowerProfile(api_key, port, profile):
 
 def createAdspowerGroup(api_key, port, group):
 
-    url = f'http://localhost:{port}/api/v1/group/create'
+    url = f'http://local.adspower.net:{port}/api/v1/group/create'
     print("URL:", url)
 
     payload = { "group_name": group }
@@ -175,6 +175,27 @@ def regroupAdspowerProfiles(api_key, group_id, uids, port):
     else:
         raise Exception('Failed to stop Adspower profile', response.text)
 
+def queryAdspowerProfile(api_key, port):
+    url = f'http://local.adspower.net:{port}/api/v1/user/list'
+    print("URL:", url)
+
+    headers = {
+        'Authorization': f'Bearer {api_key}'
+    }
+    payload = {}
+    headers = {}
+
+    # response = requests.get(url, headers=headers)
+    response = requests.request("GET", url, headers=headers, data=payload)
+    print("response:", response)
+    rj = response.json()
+    if rj['code'] == 0:
+        print("response:", rj)
+        data = rj['data']
+        print("data:", data)
+        return data["list"]
+    else:
+        raise Exception('Failed to query Adspower profile', rj['msg'])
 
 def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, options):
     # webdriver_info = startAdspowerProfile(API_KEY, PROFI LE_ID)
@@ -186,6 +207,7 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
     driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win32/v92.0.4515.107/chromedriver.exe'
     # driver_path = 'C:/Users/songc/PycharmProjects/ecbot' + '/chromedriver-win64/v128.0.6613.86/chromedriver.exe'
     driver_path = in_driver_path
+    driver_path = local_api_info["data"]["webdriver"]
     if "data" in local_api_info:
         selenium_address = local_api_info['data']['ws']['selenium']
         debug_port = local_api_info['data']['debug_port']
@@ -279,6 +301,19 @@ def genStepAPIADSDeleteProfile(ads_cfg_var, result_var, flag_var, stepN):
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepAPIADSListProfiles(ads_cfg_var, profiles_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS List Profiles",
+        "ads_cfg_var": ads_cfg_var,
+        "profiles_var": profiles_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 
 def genStepAPIADSRegroupProfiles(ads_cfg_var, group_id_var, uids_var, result_var, flag_var, stepN):
     stepjson = {
@@ -401,6 +436,35 @@ def processAPIADSDeleteProfile(step, i):
         ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
         print(f"Error APIADSCreateProfile: {ex_stat}")
         symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processAPIADSListProfiles(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        ads_cfg = symTab[step["ads_cfg_var"]]
+        print("ads_cfg:", ads_cfg)
+        # once works are dispatched, empty the report data for a fresh start.....
+        profiles = queryAdspowerProfile(ads_cfg["api_key"], ads_cfg["port"])
+        print(f"loaded profiles: {profiles}")
+        profile_jd = {}
+        for profile in profiles:
+            profile_jd[profile['username']] = profile['user_id']
+
+        print(f"loaded profiles: {profiles}")
+        symTab[step["profiles_var"]] = profile_jd
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCreateProfile: {ex_stat}")
+        symTab[step["flag"]] = False
+        symTab[step["profiles_var"]] = {}
 
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS

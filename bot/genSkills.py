@@ -11,7 +11,7 @@ from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWin
     genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings, \
     genStepADSUpdateProfileIds, genWinADSCreateProfileSkill
 from bot.adsAPISkill import genStepAPIADSStopProfile, genStepAPIADSRegroupProfiles, genStepAPIADSStartProfile, \
-    genStepAPIADSCreateProfile, genStepAPIADSDeleteProfile
+    genStepAPIADSCreateProfile, genStepAPIADSDeleteProfile, genStepAPIADSListProfiles
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
@@ -207,6 +207,7 @@ PUBLIC = {
     "genStepAPIADSStartProfile": genStepAPIADSStartProfile,
     "genStepAPIADSCreateProfile": genStepAPIADSCreateProfile,
     "genStepAPIADSDeleteProfile": genStepAPIADSDeleteProfile,
+    "genStepAPIADSListProfiles": genStepAPIADSListProfiles,
     "genWinChromeAMZWalkSkill": genWinChromeAMZWalkSkill,
     "genWinADSAMZWalkSkill": genWinADSAMZWalkSkill,
     "genAMZScrollProductListToBottom": genAMZScrollProductListToBottom,

@@ -222,7 +222,7 @@ class communicatorProtocol(asyncio.Protocol):
                             file.write(file_data)
                             print(f"File {new_fullname} saved, size: {len(file_data)} bytes")
                     else:
-                        print('Other data received:', self.peername[0], message.decode('utf-8'))
+                        # print('Other data received:', self.peername[0], message.decode('utf-8'))
                         asyncio.create_task(
                             self.msg_queue.put(self.peername[0] + "!net data!" + message.decode('utf-8')))
 

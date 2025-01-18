@@ -7411,7 +7411,7 @@ class MainWindow(QMainWindow):
             if not msgQueue.empty():
                 try:
                     net_message = await msgQueue.get()
-                    log3("From Commander, recevied queued net message: "+net_message, "serveCommander", self)
+                    # log3("From Commander, recevied queued net message: "+net_message, "serveCommander", self)
                     self.processCommanderMsgs(net_message)
                     msgQueue.task_done()
                 except asyncio.QueueEmpty:
@@ -7431,7 +7431,6 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         try:
-            print("rx from commander:", msgString)
             log3("received from commander: "+msgString, "serveCommander", self)
             if "!connection!" in msgString:
                 msg = {"cmd": "connection"}
@@ -7544,7 +7543,7 @@ class MainWindow(QMainWindow):
             elif msg["cmd"] == "reqSyncFingerPrintProfiles":
                 # update vehicle status display.
                 # print("profile syncing request received.....")
-                log3(json.dumps(msg["content"]), "serveCommander", self)
+                # log3(json.dumps(msg["content"]), "serveCommander", self)
                 # first gather all finger prints and update them to the latest
                 localFingerPrintProfiles = self.gatherFingerPrints()
                 self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
