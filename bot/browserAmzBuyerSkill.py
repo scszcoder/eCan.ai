@@ -3859,3 +3859,94 @@ def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN, theme):
         print(f"Error while generating genWinChromeAMZDailyHousekeepingSkill: {ex_stat}")
 
     return this_step, psk_words
+
+
+
+def genStepsWinADSAMZBuyPrimeMembership(worksettings, stepN, theme):
+
+    log3("GENERATING genStepsWinADSAMZBuyPrimeMembership======>")
+    this_step = stepN
+    psk_words = ""
+
+    try:
+
+        this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "action_result", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "action_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+                                                            'twotabsearchtextbox', False, "var", "search_box",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "search_phrase", "NA", "yoga ball", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global search_phrase, nthSearch, run_config\nsearch_phrase= run_config['searches'][nthSearch]['entry_paths']['words']",
+            "", "in_line", "",
+            this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverKeyIn("web_driver", "search_box", "search_phrase", "action_result",
+                                                      "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+                                                            'nav-search-submit-button', False, "var", "search_button",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "search_button", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("boolean", "profiles_updated", "NA", False, this_step)
+        psk_words = psk_words + step_words
+
+        # this_step, step_words = genStepCreateData("string", "file_path", "NA", "daily_prep_hook.py", this_step)
+        # psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "file_prefix", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'record_subscription_hook.py'", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login\nparams['test_mode']=True", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "hook_result", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+
+        # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
+        # 1) check whether an account has enough resource to do the job(funding)
+        # 2）for the ones qualified to run, fill in buy details.
+        this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "hook_result", "prep_success", this_step)
+        psk_words = psk_words + step_words
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinADSAMZBuyPrimeMembership: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinADSAMZBuyPrimeMembership: {ex_stat}")
+
+    return this_step, psk_words
