@@ -74,6 +74,8 @@ class M_Private_Attributes():
         self.fingerprint_profile = ""
         self.note = ""
         self.use_gift_card = True
+        self.gift_balance = 0.0
+        self.gift_card_number = ""
         self.ccard_numer = ""
 
 
@@ -1170,6 +1172,19 @@ class EBMISSION(QStandardItem):
 
     def getUseGiftCard(self):
         return self.privateAttributes.use_gift_card
+
+    def setGiftBalance(self, ugc):
+        self.privateAttributes.gift_balance = ugc
+
+    def getGiftBalance(self):
+        return self.privateAttributes.gift_balance
+
+
+    def setGiftCardNumber(self, ugc):
+        self.privateAttributes.gift_card_number = ugc
+
+    def getGiftCardNumber(self):
+        return self.privateAttributes.gift_card_number
 
     def setVCCardNumber(self, vcn):
         self.privateAttributes.ccard_numer = vcn
