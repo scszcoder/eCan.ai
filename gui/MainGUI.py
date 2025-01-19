@@ -418,7 +418,8 @@ class MainWindow(QMainWindow):
             with open(self.ads_settings_file, 'r') as ads_settings_f:
                 self.ads_settings = json.load(ads_settings_f)
                 if "ads_profile_dir" in self.ads_settings:
-                    self.ads_profile_dir = self.ads_settings["ads_profile_dir"]
+                    if self.ads_settings["ads_profile_dir"]:
+                        self.ads_profile_dir = self.ads_settings["ads_profile_dir"]
 
             ads_settings_f.close()
         self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
@@ -1845,6 +1846,45 @@ class MainWindow(QMainWindow):
             log3("WARN: empty obj", "fetchSchedule", self)
             self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
 
+    # this is more for the convinence of isolated testing ....
+    def reGenWorksForVehicle(self, vehicle):
+
+        if len(self.todaysSchedule) > 0:
+            log3("reGenWorksForVehicle...." + str(len(self.todaysSchedule)) + " " + str(type(self.todaysSchedule)),
+                 "fetchSchedule", self)
+            print("todaysSchedule:", self.todaysSchedule)
+
+            vname = vehicle.getName()
+            if vname in self.todaysSchedule["task_groups"]:
+                vbids = []
+                tzs = self.todaysSchedule["task_groups"][vname].keys()
+                for tz in tzs:
+                    vbids = vbids + [vw["bid"] for vw in self.todaysSchedule["task_groups"][vname][tz]]
+                vadded_ms = [m for m in self.todaysSchedule["added_missions"] if m["botid"] in vbids]
+                print("vbids:", vbids)
+                print("vadded mids:", [m["mid"] for m in vadded_ms])
+                vtg = {"task_groups": {vname: self.todaysSchedule["task_groups"][vname]},
+                       "added_missions": vadded_ms}
+
+                print("vtg:", vtg)
+
+            # now that todays' newly added missions are in place, generate the cookie site list for the run.
+            self.num_todays_task_groups = self.num_todays_task_groups + len(vtg["task_groups"])
+            print("num_todays_task_groups:", self.num_todays_task_groups)
+
+            self.todays_scheduled_task_groups = self.reGroupByBotVehicles(vtg["task_groups"])
+            self.unassigned_scheduled_task_groups = self.todays_scheduled_task_groups
+            print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
+            # assignWork() will take care of the rest, it will check any unassigned work and assign them.
+
+            log3("current unassigned scheduled task groups after assignwork:"+json.dumps(self.unassigned_scheduled_task_groups), "fetchSchedule", self)
+            log3("current work to do after assignwork:"+json.dumps(self.todays_work), "fetchSchedule", self)
+
+        else:
+            log3("WARN: empty obj", "fetchSchedule", self)
+            self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
+
+
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings, forceful=False):
         log3("start fetching schedule...", "fetchSchedule", self)
@@ -2472,6 +2512,7 @@ class MainWindow(QMainWindow):
                                     "follow_price": mission.getFollowPrice()
                                 }]
                     }
+                log3(f"added target buy: {target_buy}")
                 page["products"].append(target_buy)
 
         elif work["name"].split("_")[1] in ["pay", "checkShipping", "rate", "feedback", "checkFB"]:
@@ -2504,7 +2545,7 @@ class MainWindow(QMainWindow):
                             }
                         ]
                     }
-
+            log3(f"set up run time swap with buy related search to replace cloud search {first_page['products'][0]}")
         logger_helper.debug("Modified Buy Work:"+json.dumps(work))
 
 
@@ -2578,7 +2619,7 @@ class MainWindow(QMainWindow):
                 else:
                     later_buys.append(buy)
 
-        print(len(buys), len(initial_buys), len(later_buys))
+        print(f"# buys:{len(buys)}, {len(initial_buys)}, {len(later_buys)}")
         for buytask in buys:
             # make sure we do search before buy
             midx = next( (i for i, mission in enumerate(self.missions) if str(mission.getMid()) == str(buytask["mid"])), -1)
@@ -2603,8 +2644,9 @@ class MainWindow(QMainWindow):
 
                     self.gen_new_buy_search(buytask, task_mission)
                 else:
-                    self.showMsg("ERROR: could NOT find original buy mission!")
-
+                    log3("ERROR: could NOT find original buy mission!")
+            else:
+                log3(f"buy mission not found {midx} {buytask['mid']}")
     # 1) group vehicle based on OS
     # 2) matche unassigned task group to vehicle based on OS.
     # 3) generate ADS profile xls for bots on that vehicle.
@@ -7050,6 +7092,9 @@ class MainWindow(QMainWindow):
                                                              vehicle_report)
                         self.saveVehiclesJsonFile()
 
+                        # sync finger print profiles from that vehicle.
+                        self.syncFingerPrintOnConnectedVehicle(found_vehicle)
+
             elif msg["type"] == "status":
                 # update vehicle status display.
                 self.showMsg(msg["content"])
@@ -7123,11 +7168,14 @@ class MainWindow(QMainWindow):
             elif msg["type"] == "botsADSProfilesBatchUpdate":
                 log3("received botsADSProfilesBatchUpdate message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.receiveBotsADSProfilesBatchUpdateMessage(msg)
+                remote_outdated = self.receiveBotsADSProfilesBatchUpdateMessage(msg)
                 self.expected_vehicle_responses[found_vehicle.getName()] = "Yes"
                 if self.allResponded():
                     print("all ads profiles updated...")
                     self.botsFingerPrintsReady = True
+
+                if remote_outdated:
+                    self.batchSendFingerPrintProfilesToCommander(self, remote_outdated)
 
             elif msg["type"] == "missionResultFile":
                 self.showMsg("received missionResultFile message")
@@ -7135,12 +7183,13 @@ class MainWindow(QMainWindow):
                 self.receivePlatoonMissionResultFilesMessage(msg)
 
             elif msg["type"] == "reqResendWorkReq":
-                self.showMsg("received reqResendWorkReq message")
+                log3("received reqResendWorkReq message")
                 # get work for this vehicle and send setWork
-                self.vehicleSetupWorkSchedule(found_vehicle, self.todays_scheduled_task_groups)
+                self.reGenWorksForVehicle(found_vehicle)
+                # self.vehicleSetupWorkSchedule(found_vehicle, self.todays_scheduled_task_groups)
 
             elif msg["type"] == "chat":
-                self.showMsg("received chat message")
+                log3("received chat message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receiveBotChatMessage(msg["content"])
 
@@ -7210,6 +7259,7 @@ class MainWindow(QMainWindow):
                           - "file_contents": The base64-encoded content of the file
             """
         try:
+            remote_outdated = []
             profiles = pMsg.get("profiles", [])
             if not profiles:
                 log3("ErrorReceiveBatchProfiles: No profiles received.")
@@ -7236,6 +7286,8 @@ class MainWindow(QMainWindow):
                         log3(f"Updated profile: {incoming_file_name} (newer timestamp)")
                     else:
                         # Incoming file is older, skip saving
+                        if incoming_file_timestamp < existing_file_timestamp:
+                            remote_outdated.append(incoming_file_name)
                         log3(f"Skipped profile: {incoming_file_name} (existing file is newer or the same)")
                 else:
                     # File doesn't exist, save it
@@ -7246,6 +7298,7 @@ class MainWindow(QMainWindow):
                     log3(f"Saved new profile: {incoming_file_name}")
 
                 log3(f"Successfully updated profile: {incoming_file_name}")
+            return remote_outdated
 
         except Exception as e:
             # Handle and log errors
@@ -7551,7 +7604,8 @@ class MainWindow(QMainWindow):
             elif msg["cmd"] == "botsADSProfilesBatchUpdate":
                 log3("received commander botsADSProfilesBatchUpdate message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.receiveBotsADSProfilesBatchUpdateMessage(msg)
+                outdated = self.receiveBotsADSProfilesBatchUpdateMessage(msg)
+                print("any outdated remote:", outdated)
 
             elif msg["cmd"] == "ping":
                 # respond to ping with pong
@@ -9460,6 +9514,46 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorSyncFingerPrintRequest:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorSyncFingerPrintRequest: traceback information not available:" + str(e)
+            log3(ex_stat)
+
+
+    def syncFingerPrintOnConnectedVehicle(self, vehicle):
+        try:
+            self.botFingerPrintsReady = False
+            if self.machine_role == "Commander":
+                log3("syncing finger prints")
+
+                reqMsg = {"cmd": "reqSyncFingerPrintProfiles", "content": "now"}
+
+                # send over scheduled tasks to platton.
+                self.expected_vehicle_responses = {}
+
+                print("vehicle:", vehicle.getName(), vehicle.getStatus())
+                if vehicle.getFieldLink() and "running" in vehicle.getStatus():
+                    self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
+                        "ip"] + "]: " + json.dumps(reqMsg))
+
+                    self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
+                    self.expected_vehicle_responses[vehicle.getName()] = None
+
+                #now wait for the response to all come back. for each v, give it 10 seconds.
+                VTIMEOUT = 12
+                sync_time_out = VTIMEOUT
+                print("waiting for ", sync_time_out, "seconds....")
+                while not( sync_time_out == 0):
+                    time.sleep(1)
+                    sync_time_out = sync_time_out-1
+                    print("tick...", sync_time_out)
+
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorSyncFingerPrintOnConnectedVehicle:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorSyncFingerPrintOnConnectedVehicle: traceback information not available:" + str(e)
             log3(ex_stat)
 
 
