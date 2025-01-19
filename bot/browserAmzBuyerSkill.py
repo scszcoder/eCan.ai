@@ -1886,9 +1886,9 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         # psk_words = psk_words + step_words
 
         # now open the target amazon web site，(this step will internall check whether the tab is already open, if open, simply switch to it)
-        this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com", "site_result", "site_flag", this_step)
+        # this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com", "site_result", "site_flag", this_step)
         # this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com/iMBAPrice-Sealing-Tape-Shipping-Packaging/dp/B072MD8W9Q?th=1", "site_result", "site_flag", this_step)
-        psk_words = psk_words + step_words
+        # psk_words = psk_words + step_words
 
 
         this_step, step_words = genStepsAMZBrowserLoginIn(this_step, theme)
@@ -2089,6 +2089,9 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("string", "ads_profile_id", "NA", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("string", "ads_profile_remark", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepCallExtern(
             "global ads_profile_id, sk_work_settings\nads_profile_id = sk_work_settings['b_email']\nprint('ads_profile_id:', ads_profile_id)",
             "", "in_line", "", this_step)
@@ -2185,7 +2188,7 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
 
         # now update profile id, now we should have the correct profile id loaded into ADS.
         this_step, step_words = genStepCallExtern(
-            "global ads_profile_id, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]\nprint('ads_profile_id:', ads_profile_id)",
+            "global ads_profile_id, ads_profile_remark, loaded_profiles, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]['uid']\nads_profile_remark = loaded_profiles[sk_work_settings['b_email']]['remark']\nprint('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
@@ -3209,7 +3212,14 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         # is to check wither there is a valid IP address, there is IPV4 and IPV6, and/or the green dot around
         # the typical web site.
 
-        this_step, step_words = genStepWebdriverGoToTab("web_driver", "0", "https://www.amazon.com", "site_result", "site_flag", stepN)
+        this_step, step_words = genStepCreateData("string", "web_tab", "NA", "", stepN)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global web_tab, ads_profile_remark\nweb_tab = '-'+ads_profile_remark\nprint('web_tab:', web_tab)", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverGoToTab("web_driver", "web_tab", "", "site_result", "site_flag", this_step)
         psk_words = psk_words + step_words
 
         # Locate the element containing the IP address
@@ -3229,7 +3239,10 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         this_step, step_words = genStepCreateData("int", "num_tries", "NA", 0, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCreateData("string", "location_info", "NA", "", this_step)
+        this_step, step_words = genStepCreateData("string", "location_info1", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "location_info2", "NA", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("string", "email_filled", "NA", "", this_step)
@@ -3250,8 +3263,11 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         this_step, step_words = genStepCreateData("obj", "signin_button", "NA", None, this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
         # retry a few times
-        this_step, step_words = genStepLoop("'USA' not in location_info and num_tries > 5", "", "", "connProxy" + str(stepN), this_step)
+        this_step, step_words = genStepLoop("'USA' not in location_info1 and 'USA' not in location_info2 and num_tries < 5", "", "", "connProxy" + str(stepN), this_step)
         psk_words = psk_words + step_words
 
         # just keep on refreshing....
@@ -3264,8 +3280,37 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         this_step, step_words = genStepWait(0, 5, 8, this_step)
         psk_words = psk_words + step_words
 
-        # after page load, find the location info.
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR, "div._header__location_k1rq8_93", False, "var", "location_info", "element_present", this_step)
+
+        # after page load, find the location info. some times it's like this,
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, "div._header__location_k1rq8_93", False, "var", "location_info1", "element_present", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not location_info1", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global location_info1\nlocation_info1= ''", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # Locate the element containing the text, other times, it's like this,
+        # element = driver.find_element(By.CSS_SELECTOR, ".locales")
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, ".locales", False, "var", "location_info2", "element_present", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not location_info2", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global location_info2\nlocation_info2 = ''", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
         # update loop counter
@@ -3275,7 +3320,7 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         this_step, step_words = genStepStub("end loop", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCheckCondition("'USA' in location_info", "", "", this_step)
+        this_step, step_words = genStepCheckCondition("'USA' in location_info1 or 'USA' in location_info2", "", "", this_step)
         psk_words = psk_words + step_words
 
         # if internet is conencted, to amazon site
@@ -3285,7 +3330,11 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
         # psk_words = psk_words + step_words
 
-        this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com", "site_result", "site_flag", this_step)
+        this_step, step_words = genStepCallExtern("global web_tab, ads_profile_remark\nweb_tab = 'amazon'\nprint('web_tab:', web_tab)", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverGoToTab("web_driver", "web_tab", "https://www.amazon.com", "site_result", "site_flag", this_step)
         psk_words = psk_words + step_words
 
 
@@ -3315,6 +3364,9 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         #     print("You are not logged in.")
 
         this_step, step_words = genStepCheckCondition("not mission_failed", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'nav-link-accountList-nav-line-1', True, "var", "greeting_text", "extract_flag", this_step)
