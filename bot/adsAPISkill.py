@@ -454,7 +454,7 @@ def processAPIADSListProfiles(step, i):
         print(f"loaded profiles: {profiles}")
         profile_jd = {}
         for profile in profiles:
-            profile_jd[profile['username']] = profile['user_id']
+            profile_jd[profile['username']] = {"uid": profile['user_id'], "remark": profile['remark']}
 
         print(f"loaded profiles: {profiles}")
         symTab[step["profiles_var"]] = profile_jd

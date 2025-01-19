@@ -984,9 +984,12 @@ def processWebdriverGoToTab(step, i):
         found = False
 
         if not tab_title_txt.isdigit():
+            tab_title_txt = symTab[step["text_var"]]
+            print('tab_title_txt:', tab_title_txt)
             for handle in driver.window_handles:
                 driver.switch_to.window(handle)
-                if tab_title_txt in driver.current_url:
+                print("title, url:", driver.title, driver.current_url)
+                if tab_title_txt in driver.current_url or tab_title_txt in driver.title:
                     found = True
                     break
 
@@ -1004,7 +1007,12 @@ def processWebdriverGoToTab(step, i):
                     driver.get(url)
 
         else:
+            for handle in driver.window_handles:
+                driver.switch_to.window(handle)
+                print("win title:", driver.title)
+
             if int(tab_title_txt) < len(driver.window_handles):
+                print("switching to nth tab:", int(tab_title_txt))
                 driver.switch_to.window(driver.window_handles[int(tab_title_txt)])
 
     except Exception as e:
@@ -1253,7 +1261,7 @@ def processWebdriverExtractInfo(step, i, mission):
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         symTab[step["flag"]] = True
-
+        print("driver on tab:", driver.title)
         if type(step["wait"]) == int:
             wait_time = step["wait"]
         else:
