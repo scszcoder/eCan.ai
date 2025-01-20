@@ -615,12 +615,13 @@ def genStepDeleteFile(filename, nametype, result_var, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def genStepObtainReviews(product, instructions, review, result_var, stepN):
+def genStepObtainReviews(product, instructions, review_body, review_title, result_var, stepN):
     stepjson = {
         "type": "Obtain Reviews",
         "product": product,
         "instructions": instructions,
-        "review": review,
+        "review_body": review_body,
+        "review_title": review_title,
         "result": result_var
     }
 
@@ -3890,7 +3891,9 @@ def processObtainReviews(step, i, mission):
     try:
         settings = mission.main_win_settings
         resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"])
-        symTab[step["review"]] = json.loads(resp['body'])
+        netReview = json.loads(resp['body'])
+        symTab[step["review_body"]] = netReview["body"]
+        symTab[step["review_title"]] = netReview["title"]
 
     except Exception as e:
         # Get the traceback information

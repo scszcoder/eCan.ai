@@ -1280,42 +1280,32 @@ def genStepsWinChromeAMZBrowserBuy(settings_string, buyop_var_name, buy_result_n
     return this_step, psk_words
 
 
-def genStepsWinChromeAMZBuyAddCart(settings_string, buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+def genStepsWinChromeAMZBuyAddCart(stepN):
     try:
         psk_words = ""
+        this_step = stepN
 
         # check whether this is
-        this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "one_time_purchase", "buy_box_available", "pac_result", stepN)
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'add-to-cart-button', False, "var", "add_cart_button", "buy_box_available", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "buy_now", "buy_box_available", "pac_result", this_step)
-        psk_words = psk_words + step_words
+        # this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "buy-now-button", "buy_now_button", this_step)
+        # psk_words = psk_words + step_words
 
 
         this_step, step_words = genStepCheckCondition("buy_box_available", "", "", this_step)
         psk_words = psk_words + step_words
 
         # find add_to_cart button.
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'add-to-cart-button', False, "var", "add_to_cart_button", "extract_flag", this_step)
+        this_step, step_words = genStepWebdriverClick("web_driver", "add_cart_button", "action_result", "action_flag",
+                                                      this_step)
         psk_words = psk_words + step_words
 
-        # click on add_to_cart button.
-        this_step, step_words = genStepWebdriverClick("web_driver", "add_to_cart_button", "action_result", "action_flag", this_step)
-        psk_words = psk_words + step_words
-
-        # set a flag
-        this_step, step_words = genStepCreateData("string", "buy_status", "NA", "inCart", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepStub("else", "", "", this_step)
-        psk_words = psk_words + step_words
-
-        # set a flag
-        this_step, step_words = genStepCreateData("string", "buy_status", "NA", "noBuyBox", this_step)
-        psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
+
+        # output of this funciton is buy_box_available flag.
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -1351,66 +1341,37 @@ def genStepsWinChromeAMZBuyPay(settings_string,  buy_cmd_name, buy_result_name, 
 
         # target, flag, prev_result
 
-        # # find buy_now button.
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
-                                                            'turbo-checkout-iframe', False, "var", "buy_popup",
-                                                            "extract_flag", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
-                                                            'a-popover-5', False, "var", "buy_iframe",
-                                                            "extract_flag", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
-                                                            'turbo-checkout-pyo-button', False, "var", "place_order_button",
-                                                            "extract_flag", this_step)
-        psk_words = psk_words + step_words
-
-        # click on buy_now button.
-        this_step, step_words = genStepWebdriverClick("web_driver", "place_order_button", "action_result", "action_flag",
-                                                      this_step)
-        psk_words = psk_words + step_words
-
-
-        this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "proceed_to_checkout", "check_out_top", "cart_top", this_step)
-        psk_words = psk_words + step_words
-
-        # when will we see this page?
-        this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "continue_to_checkout", "in_cart_transition", "pac_result", this_step)
-        psk_words = psk_words + step_words
-
-        # there might be a page to to ask you to beceom prime member, need to click on "no thanks" if shows up....
-        this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "no_thanks", "sign_prime_page", "check_out_top", this_step)
-        psk_words = psk_words + step_words
-
-        # this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "place_your_order", "pay_page", "check_out_top", this_step)
-        # psk_words = psk_words + step_words
-
-
-
-        # this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "place_your_order", "pay_page", "pac_result", this_step)
-        # psk_words = psk_words + step_words
-
-        # this_step, step_words = genStepAMZPeekAndConfirm(settings_string, "order_placed", "pay_page", "pac_result", this_step)
-        # psk_words = psk_words + step_words
-
-        this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "review_recent_orders", "pay_page", "pac_result", this_step)
-        psk_words = psk_words + step_words
-
-        # set a flag
-        this_step, step_words = genStepCreateData("string", "buy_status", "NA", "inCart", this_step)
-        psk_words = psk_words + step_words
-
-        # this_step, step_words = genStepStub("else", "", "", this_step)
+        # # find buy_now button. don't go this route, always go the cart, make thing simpler?
+        # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+        #                                                     'turbo-checkout-iframe', False, "var", "buy_popup",
+        #                                                     "extract_flag", this_step)
         # psk_words = psk_words + step_words
         #
-        # # set a flag
-        # this_step, step_words = genStepCreateData("string", "buy_status", "NA", "noBuyBox", this_step)
+        # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+        #                                                     'a-popover-5', False, "var", "buy_iframe",
+        #                                                     "extract_flag", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+        #                                                     'turbo-checkout-pyo-button', False, "var", "place_order_button",
+        #                                                     "extract_flag", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # # click on buy_now button.
+        # this_step, step_words = genStepWebdriverClick("web_driver", "place_order_button", "action_result", "action_flag",
+        #                                               this_step)
         # psk_words = psk_words + step_words
 
-        # this_step, step_words = genStepStub("end condition", "", "", this_step)
+
+        # proceed to checkout
+        this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "sc-buy-box-ptc-button", "checkout_button", this_step)
+        psk_words = psk_words + step_words
+
+        # place the order.
+        # this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "placeOrder", "place_order_button", this_step)
         # psk_words = psk_words + step_words
+
+
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -1499,90 +1460,181 @@ def genStepsWinChromeAMZBuyFromCart(settings_string,  buy_cmd_name, buy_result_n
     return this_step, psk_words
 
 
+# try:
+#     # Extract all orders on the page
+#     order_cards = driver.find_elements(By.XPATH, '//div[contains(@class, "order-card")]')
+#
+#     for order_card in order_cards:
+#         # Extract order number
+#         order_number = order_card.find_element(By.XPATH, './/div[@class="yohtmlc-order-id"]/span[2]').text
+#         print(f"Order Number: {order_number}")
+#
+#         # Extract all products in the current order
+#         product_elements = order_card.find_elements(By.XPATH, './/div[contains(@class, "yohtmlc-product-title")]/a')
+#         products = [product.text for product in product_elements]
+#         print("Ordered Products:")
+#         for product in products:
+#             print(f"- {product}")
+#
+#         # Extract delivery status
+#         delivery_status_element = order_card.find_element(By.XPATH, './/div[contains(@class, "yohtmlc-shipment-status-primaryText")]/h3/span')
+#         delivery_status = delivery_status_element.text
+#         print(f"Delivery Status: {delivery_status}")
+#
+#         # Extract delivery or expected delivery date
+#         if "Delivered" in delivery_status:
+#             delivery_date = delivery_status.replace("Delivered", "").strip()
+#             print(f"Delivery Date: {delivery_date}")
+#         else:
+#             try:
+#                 expected_delivery_date_element = order_card.find_element(By.XPATH, './/div[contains(@class, "yohtmlc-shipment-status-secondaryText")]/span')
+#                 expected_delivery_date = expected_delivery_date_element.text
+#                 print(f"Expected Delivery Date: {expected_delivery_date}")
+#             except:
+#                 print("Expected delivery date not found.")
+#
+#         # Locate "Leave seller feedback" button and click it
+#         try:
+#             leave_feedback_button = order_card.find_element(By.XPATH, './/a[contains(text(), "Leave seller feedback")]')
+#             leave_feedback_button.click()
+#             print("Clicked 'Leave seller feedback' button")
+#         except:
+#             print("'Leave seller feedback' button not found.")
+#
+#         # Locate "Write a product review" button and click it
+#         try:
+#             write_review_button = order_card.find_element(By.XPATH, './/a[contains(text(), "Write a product review")]')
+#             write_review_button.click()
+#             print("Clicked 'Write a product review' button")
+#         except:
+#             print("'Write a product review' button not found.")
 
-def genStepsWinChromeAMZBuyCheckShipping(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+# input to this function is an order ID.
+def genStepsWinChromeAMZBuyCheckShipping(stepN):
     psk_words = ""
+    this_step = stepN
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless", "on_page_top", "", False, stepN)
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.ID,
+                                                        'nav-orders', False, "var", "returns_and_orders_link",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverClick("web_driver", "returns_and_orders_link", "action_result", "action_flag",
+                                                  this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.PATH,
+                                                        '//div[contains(@class, "order-card")]', True, "var", "order_cards",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("boolean", "order_found", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("boolean", "order_delivered", "NA", False, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "order_delivery_date", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("integer", "nthCard", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepLoop("not order_found and nthCard < len(order_cards)", "", "", "checkShipping" + str(stepN + 1), this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global order_card, order_cards, nthCard\norder_card=order_cards[nthCard]", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
     psk_words = psk_words + step_words
 
     # click on add_to_cart button, don't use "Cart" since it's not reliable and OCR gets confused by the cart icon.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "orders", "anchor text", "", [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
+    #         order_number = order_card.find_element(By.XPATH, './/div[@class="yohtmlc-order-id"]/span[2]').text
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_card", 0, "info_type", By.PATH,
+                                                        './/div[@class="yohtmlc-order-id"]/span[2]', False, "var", "order_id",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("order_id == check_shipping_order_id", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click on add_to_cart button, don't use "Cart" since it's not reliable and OCR gets confused by the cart icon.
+    this_step, step_words = genStepCallExtern("global order_found\norder_found=True", "", "in_line", "",
+                                              this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # with webdriver, no need to save html, simply use webdriver to feed data to BS4
+    this_step, step_words = genStepCallExtern("global nthCard\nnthCard= nthCard + 1", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
 
-    # this_step, step_words = genStepAmzScrapeBuyOrdersHtml(html_dir, dir_name_type, html_file, 0, outvar, statusvar, this_step)
-    # psk_words = psk_words + step_words
-    #
-    # # search the list against recalled order ID, once found, check deliver status. should make a step
-    # this_step, step_words = genStepAmzBuyCheckShipping(orderTBC, orderList, arrived_flag, status, this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # by now, the order_card is found, now extract the shipping info.
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "error_alert", 0, "info_type",
+                                                        By.PATH,
+                                                        './/div[contains(@class, "yohtmlc-shipment-status-primaryText")]/h3/span', False, "var", "delivery_status",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'Delivered' in delivery_status", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global order_delivered\norder_delivered= True", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global order_delivery_date\norder_delivery_date= delivery_status.replace('Delivered', '').strip()", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global order_delivered\norder_delivered= False", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
 
     return this_step, psk_words
 
-def genStepsWinChromeAMZBuyGiveProductRating(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+def genStepsWinChromeAMZBuyGiveProductRating(buy_cmd_name, stepN):
     psk_words = ""
+    this_step = stepN
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless",
-                                                    "on_page_top", "", False, stepN)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # click on add_to_cart button, don't use "Cart" since it's not reliable and OCR gets confused by the cart icon.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "orders", "anchor text", "",
-                                              [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "order_id", "NA", buy_cmd_name+"['order_id']", this_step)
-    psk_words = psk_words + step_words
-
-    # this_step, step_words = genScrollDownUntil("order_id", "text var", "my_orders", "top", this_step, settings_string, "amz")
-    # psk_words = psk_words + step_words
 
     # click on the product which will lead into the product page. click on "write a product review"
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "write_review", "pay_page", "pac_result", this_step)
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "write_review", "pay_page", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "all_star", "pay_page", "pac_result", this_step)
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.PATH, "all_star", "pay_page", this_step)
     psk_words = psk_words + step_words
+
 
     return this_step, psk_words
 
-def genStepsWinChromeAMZBuyGiveProductFeedback(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+def genStepsWinChromeAMZBuyGiveProductFeedback(stepN):
     psk_words = ""
-    # now we're in order page, search for the order placed,
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless",
-                                                    "on_page_top", "", False, stepN)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    # click on add_to_cart button, don't use "Cart" since it's not reliable and OCR gets confused by the cart icon.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "orders", "anchor text", "",
-                                              [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "write_review", "pay_page", "pac_result", this_step)
-    psk_words = psk_words + step_words
+    this_step = stepN
 
     #product, instructions, review, result_var, stepN
     # this_step, step_words = genStepObtainReviews("product", "instructions", "review", "review_obtained", this_step)
@@ -1615,31 +1667,19 @@ def genStepsWinChromeAMZBuyGiveSellerRating(settings_string,  buy_cmd_name, buy_
     psk_words = psk_words + step_words
 
 
-    # click on 5 star rating.
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH,
-                                                        "//input[@name='star-rating' and @value='5']", False, "var", "star_5 ",
-                                                        "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    # click on 5 star rating.
-    this_step, step_words = genStepWebdriverClick("web_driver", "star_5", "action_result", "action_flag",
-                                                  this_step)
+    # click on 5 star
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//input[@name='star-rating' and @value='5']",
+                                                               "star_5", this_step)
     psk_words = psk_words + step_words
 
 
-    # click on yes radio button
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH,
-                                                        "//div[@data-a-input-name='ItemAsDescribed']", False, "var", "item_as_described_yes",
-                                                        "extract_flag", this_step)
-    psk_words = psk_words + step_words
-
-    # click on item_as_described yes radio button.
-    this_step, step_words = genStepWebdriverClick("web_driver", "item_as_described_yes", "action_result", "action_flag",
-                                                  this_step)
+    # click on yes radio button for item as described,.
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//div[@data-a-input-name='ItemAsDescribed']",
+                                                               "item_as_described_yes", this_step)
     psk_words = psk_words + step_words
 
 
-    # click on yes radio button
+    # find review text box
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
                                                         "characters-remaining", False, "var", "review_text_box",
                                                         "extract_flag", this_step)
@@ -1669,11 +1709,7 @@ def genStepsWinChromeAMZBuyGiveSellerRating(settings_string,  buy_cmd_name, buy_
     # psk_words = psk_words + step_words
 
     # click on the product which will lead into the product page. click on "write a product review"
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "write_review", "pay_page", "pac_result", this_step)
-    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "all_star", "pay_page", "pac_result", this_step)
-    psk_words = psk_words + step_words
 
     return this_step, psk_words
 
@@ -1709,6 +1745,60 @@ def genStepsWinChromeAMZBuyGiveSellerFeedback(settings_string,  buy_cmd_name, bu
     return this_step, psk_words
 
 
+def genStepsWinChromeAMZFeedbackCheckAlert(stepN):
+    psk_words = ""
+    this_step = stepN
+
+    # # Locate the error alert box using its data-hook attribute
+    # error_alert = driver.find_element(By.CSS_SELECTOR, 'div[data-hook="ryp-icon-alert"]')
+    #
+    # # Extract the text of the error message
+    # error_message = error_alert.find_element(By.CSS_SELECTOR, 'span.a-color-error').text
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR,
+                                                        'div[data-hook="ryp-icon-alert"]', False, "var", "error_alert",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "error_alert", 0, "info_type", By.CSS_SELECTOR,
+                                                        'span.a-color-error', False, "var", "error_message",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'not met the minimum eligibility' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_eligible\nreview_eligible= False", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'this account will no longer' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_banned\nreview_banned= True", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
 
 def genStepsWinChromeAMZBuyGiveDirectReview(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
     psk_words = ""
@@ -1720,8 +1810,16 @@ def genStepsWinChromeAMZBuyGiveDirectReview(settings_string,  buy_cmd_name, buy_
     this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
     psk_words = psk_words + step_words
 
+    #     review_button = driver.find_element(By.XPATH, '//a[contains(@class, "a-button-text") and contains(text(), "Write a customer review")]')
+    #
+    #     # Scroll into view if necessary (optional)
+    #     ActionChains(driver).move_to_element(review_button).perform()
+    #
+    #     # Click the button
+    #     review_button.click()
+
     # click on write_direct_review button
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'a-autoid-29-announce', False, "var", "direct_review_button", "extract_flag", this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH, '//a[contains(@class, "a-button-text") and contains(text(), "Write a customer review")]', False, "var", "direct_review_button", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # click on write_direct_review button.
@@ -1729,9 +1827,6 @@ def genStepsWinChromeAMZBuyGiveDirectReview(settings_string,  buy_cmd_name, buy_
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "write_review", "pay_page", "pac_result", this_step)
     psk_words = psk_words + step_words
 
     #product, instructions, review, result_var, stepN
@@ -3695,14 +3790,14 @@ def genStepsWinChromeAMZBrowserCheckSellerFeedbacks(settings_string,  buy_cmd_na
     return this_step, psk_words
 
 
-def genStepsAMZBrowserPagePeekAndClick(settings_string, target, flag, prev_result, stepN):
+def genStepsAMZBrowserPagePeekAndClick(eleType, eleName, resultName, stepN):
     try:
         psk_words = ""
 
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "row", 0, "info_type", By.CSS_SELECTOR, "button[aria-label='Show more actions']", False, "var", "dropdown_button", "element_present", stepN)
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", eleType, eleName, False, "var", resultName, "element_present", stepN)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepWebdriverClick("web_driver", "dropdown_button", "click_result", "click_flag", this_step)
+        this_step, step_words = genStepWebdriverClick("web_driver", resultName, "action_result", "action_flag", this_step)
         psk_words = psk_words + step_words
 
     except Exception as e:
@@ -3869,7 +3964,6 @@ def genStepsWinADSAMZBuyPrimeMembership(worksettings, stepN, theme):
     psk_words = ""
 
     try:
-
         this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
         psk_words = psk_words + step_words
 
@@ -3907,16 +4001,33 @@ def genStepsWinADSAMZBuyPrimeMembership(worksettings, stepN, theme):
         this_step, step_words = genStepWait(1, 0, 0, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
-                                                            'nav-search-submit-button', False, "var", "search_button",
+        # button = driver.find_element(By.CSS_SELECTOR, "#prime-interstitial-accept-button .a-button-input")
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            '#prime-interstitial-accept-button .a-button-input', False, "var", "buy_prime_button",
                                                             "extract_flag", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepWebdriverClick("web_driver", "search_button", "action_result", "action_flag",
-                                                      this_step)
+        # click on buy prime membership only if there is a buy button, and there is enough money to do it.
+        # even thought 1st month is free, but do make sure we have $16 on the balance.
+        this_step, step_words = genStepCheckCondition("buy_prime_button", "", "", this_step)
         psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCreateData("boolean", "profiles_updated", "NA", False, this_step)
+        this_step, step_words = genStepCheckCondition("enough_fund", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # click on buy_prime_button button,
+        this_step, step_words = genStepWebdriverClick("web_driver", "buy_prime_button", "action_result", "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+
+        this_step, step_words = genStepCreateData("boolean", "profiles_updated", "NA", False, this_step)
         psk_words = psk_words + step_words
 
         # this_step, step_words = genStepCreateData("string", "file_path", "NA", "daily_prep_hook.py", this_step)
@@ -3938,9 +4049,8 @@ def genStepsWinADSAMZBuyPrimeMembership(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
 
-        # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
-        # 1) check whether an account has enough resource to do the job(funding)
-        # 2）for the ones qualified to run, fill in buy details.
+        # do some external work - record the prime membership subscription, so that later on we can
+        # check to make sure card has enough fund on this date every month.....
         this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "hook_result", "prep_success", this_step)
         psk_words = psk_words + step_words
 
@@ -3948,5 +4058,442 @@ def genStepsWinADSAMZBuyPrimeMembership(worksettings, stepN, theme):
         # Log and skip errors gracefully
         ex_stat = f"Error in genStepsWinADSAMZBuyPrimeMembership: {traceback.format_exc()} {str(e)}"
         print(f"Error while generating genStepsWinADSAMZBuyPrimeMembership: {ex_stat}")
+
+    return this_step, psk_words
+
+
+# this is for detecting offer to join prime at page header entering product details page.
+# this section is inside the buy box.
+def genStepsWinADSAMZDetectNonePrime(stepN):
+
+    log3("GENERATING genStepsWinADSAMZDetectNonePrime======>")
+    this_step = stepN
+    psk_words = ""
+
+    try:
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCreateData("obj", "buy_box_secondary_delivery_msg", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        # delivery_block = WebDriverWait(driver, 10).until(
+        #     EC.presence_of_element_located((By.ID, "mir-layout-DELIVERY_BLOCK-slot-SECONDARY_DELIVERY_MESSAGE_LARGE"))
+        # )
+        #
+        # # Extract delivery details
+        # delivery_date = delivery_block.find_element(By.CSS_SELECTOR, "span.a-text-bold").text
+        # order_cutoff = delivery_block.find_element(By.ID, "ftCountdown").text
+        # prime_info = delivery_block.find_element(By.CSS_SELECTOR, "span[style*='color:#0064F9']").text
+        #
+        # # Extract link for joining Prime
+        # join_prime_link = delivery_block.find_element(By.CSS_SELECTOR, "a.prime-signup-ingress").get_attribute("href")
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.ID,
+                                                            'mir-layout-DELIVERY_BLOCK-slot-SECONDARY_DELIVERY_MESSAGE_LARGE', False, "var", "buy_box_secondary_delivery_msg",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "join_prime_link", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "buy_box_secondary_delivery_msg", 0, "info_type", By.CSS_SELECTOR,
+                                                            'a.prime-signup-ingress', False, "var", "join_prime_link",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # the output if this function is the global var "join_prime_link" other code can
+        # check this object to know whether the user already has prime membership.
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinADSAMZDetectNonePrime: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinADSAMZDetectNonePrime: {ex_stat}")
+
+    return this_step, psk_words
+
+
+# this is for detecting offer to join prime after clicking on "proceed to checkout" button.
+def genStepsWinADSAMZDetectPrimeOffer(stepN):
+
+    log3("GENERATING genStepsWinADSAMZDetectPrimeOffer======>")
+    this_step = stepN
+    psk_words = ""
+
+    try:
+        this_step, step_words = genStepCreateData("obj", "savings_message", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "prime_offer_message", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "prime_offer", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        # # Locate and extract the "save $6.99" message
+        # savings_message = driver.find_element(By.CSS_SELECTOR, "p.headline-upsell-message").text
+        # print(f"Savings Message: {savings_message.strip()}")
+        #
+        # # Locate and extract the Prime membership offer message
+        # prime_offer_message = driver.find_element(By.CSS_SELECTOR, "p.a-spacing-top-small.a-joinPrime-msg b").text
+        # print(f"Prime Offer Message: {prime_offer_message.strip()}")
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR,
+                                                            'p.headline-upsell-message', False, "var", "savings_message",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR,
+                                                            'p.a-spacing-top-small.a-joinPrime-msg b', False, "var", "prime_offer_message",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+        # # Locate the main container with the class "a-column a-span6 prime-updp-mobile-table-column a-span-last"
+        # container = driver.find_element(By.CSS_SELECTOR, ".a-column.a-span6.prime-updp-mobile-table-column.a-span-last")
+        #
+        # # Extract individual rows containing the Prime benefits
+        # rows = container.find_elements(By.CSS_SELECTOR, ".prime-updp-mobile-table-prime-option-content .a-column.a-span11")
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            '.a-column.a-span6.prime-updp-mobile-table-column.a-span-last', False, "var", "prime_offer",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "prime_benefits", "NA", [], this_step)
+        psk_words = psk_words + step_words
+
+        # the characteristic output of this function is the presence of "prime_offer" web element,
+        # if it's present then, we know we need to buy prime membership, otherwise, already an member.
+
+        this_step, step_words = genStepCheckCondition("prime_offer", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # check the benefits bullet items.,
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "prime_offer", 0, "info_type",
+                                                            By.CSS_SELECTOR,
+                                                            '.prime-updp-mobile-table-prime-option-content .a-column.a-span11',
+                                                            False, "var", "prime_benefits",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinADSAMZDetectPrimeOffer: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinADSAMZDetectPrimeOffer: {ex_stat}")
+
+    return this_step, psk_words
+
+
+
+# this is gather all in-cart items, we might want to delete them
+def genStepsWinADSAMZExtractInCartItems(stepN):
+
+    log3("GENERATING genStepsWinADSAMZExtractInCartItems======>")
+    this_step = stepN
+    psk_words = ""
+
+    try:
+        this_step, step_words = genStepCreateData("obj", "cart_items", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "cart_form", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "select_all_checkbox", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        # select_all_checkbox = driver.find_element(By.CSS_SELECTOR,
+        #                                           "input[type='checkbox'][aria-label='Select all items']")
+
+        # WebDriverWait(driver, 10).until(
+        #     EC.presence_of_element_located((By.ID, "activeCartViewForm"))
+        # )
+
+        # make sure the form is loaded.
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+                                                            'activeCartViewForm', False, "var", "cart_form",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # extract the select all box, this will be used if we want to empty the cart quick.
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            "input[type='checkbox'][aria-label='Select all items']", False, "var", "select_all_checkbox",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            "div[data-name='Active Items'] .sc-list-item", False, "var", "cart_items",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # cart_items = driver.find_elements(By.CSS_SELECTOR, "[data-name='Active Items'] .sc-list-item")
+        # for index, item in enumerate(cart_items, start=1):
+        #     print(f"\nItem {index}:")
+        #
+        #     # Extract item checkbox
+        #     item_checkbox = item.find_element(By.CSS_SELECTOR, "input[type='checkbox']")
+        #
+        #     # Extract product name
+        #     product_name = item.find_element(By.CSS_SELECTOR, ".sc-product-title").text
+        #
+        #     # Extract quantity
+        #     quantity = item.find_element(By.CSS_SELECTOR, "[aria-label^='Quantity is']").get_attribute("aria-valuenow")
+        #
+        #     # Extract price
+        #     price = item.find_element(By.CSS_SELECTOR, ".sc-item-price-block .a-price .a-offscreen").text
+        #
+        #     # Extract delete button
+        #     delete_button = item.find_element(By.CSS_SELECTOR, "input[type='submit'][value='Delete']")
+
+        this_step, step_words = genStepCreateData("integer", "nthItem", "NA", 0, this_step)
+        psk_words = psk_words + step_words
+
+        his_step, step_words = genStepLoop("nthItem < len(cart_items)", "", "", "getCart" + str(stepN), this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global cart_item, nthItem, cart_items\ncart_item= cart_items[nthItem]", "", "in_line", "",
+            this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type", By.CSS_SELECTOR,
+                                                            "input[type='checkbox']", False, "var", "checkbox",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type", By.CSS_SELECTOR,
+                                                            ".sc-product-title", False, "var", "title",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type", By.CSS_SELECTOR,
+                                                            "[aria-label^='Quantity is']", False, "var", "quantity",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type", By.CSS_SELECTOR,
+                                                            ".sc-item-price-block .a-price .a-offscreen", False, "var", "price",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type", By.CSS_SELECTOR,
+                                                            "input[type='submit'][value='Delete']", False, "var", "del_button",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global nthItem\nnthItem = nthItem + 1\nprint('nthItem:', nthItem)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end loop", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinADSAMZExtractInCartItems: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinADSAMZExtractInCartItems: {ex_stat}")
+
+    return this_step, psk_words
+
+
+# this is for deleting items from cart, the input is a list of web elements in cart
+# the name of this web element should be "cartItems"
+# this function will click on each item's checkbox, and click on delete link .
+# the input should be a list of index from largest to smallest, i.e. we'll
+# delete from the tail of the list, because, each delete will refersh the list
+# on the page with the deleted item disappeared.
+#  while True:
+#         # Wait for the cart items to load
+#         WebDriverWait(driver, 10).until(
+#             EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".sc-list-item"))
+#         )
+#
+#         # Find all cart items
+#         cart_items = driver.find_elements(By.CSS_SELECTOR, ".sc-list-item")
+#         if not cart_items:
+#             print("All items have been deleted from the cart.")
+#             break
+#
+#         # Process the first item in the cart
+#         first_item = cart_items[0]
+#
+#         # Ensure the checkbox is selected (if present)
+#         try:
+#             checkbox = first_item.find_element(By.CSS_SELECTOR, ".sc-item-check-checkbox-selector input[type='checkbox']")
+#             if not checkbox.is_selected():
+#                 checkbox.click()
+#         except:
+#             print("No checkbox found for this item. Proceeding to delete.")
+#
+#         # Click the delete button
+#         delete_button = first_item.find_element(By.CSS_SELECTOR, "input[data-action='delete']")
+#         delete_button.click()
+#         print("Deleted one item from the cart.")
+#
+#         # Wait for the page to refresh after deletion
+#         time.sleep(2)
+
+# "del_indices" is the variable that contains the list of indeces, it could be string "All" which means to delete all.
+def genStepsWinADSAMZRemoveItemsFromCart(stepN):
+
+    log3("GENERATING genStepsWinADSAMZRemoveItemsFromCart======>")
+    this_step = stepN
+    psk_words = ""
+
+    try:
+        this_step, step_words = genStepCreateData("obj", "action_result", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "action_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            '.sc-list-item', False, "var", "cart_items",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not isinstance(del_indices, list)", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # indices_reversed = list(range(len(my_list) - 1, -1, -1))
+        this_step, step_words = genStepCallExtern("global del_indices\ndel_indices= list(range(len(cart_items) - 1, -1, -1))", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        his_step, step_words = genStepLoop("del_indices", "", "", "getCart" + str(stepN), this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCallExtern("global cart_item, cart_items, del_indices\ncart_item= cart_items[del_indices[0]]", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type", By.CSS_SELECTOR,
+                                                            ".sc-item-check-checkbox-selector input[type='checkbox']", False, "var", "item_checkbox",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not item_checkbox.is_selected()", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "item_checkbox", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type", By.CSS_SELECTOR,
+                                                            "input[data-action='delete']", False, "var", "item_delete",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "item_delete", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            '.sc-list-item', False, "var", "cart_items",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global del_indices\ndel_indices.pop(0)", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end loop", "", "", this_step)
+        psk_words = psk_words + step_words
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinADSAMZRemoveItemsFromCart: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinADSAMZRemoveItemsFromCart: {ex_stat}")
+
+    return this_step, psk_words
+
+
+
+# this function check whether the cart is empty or not...
+def genStepsWinADSAMZCheckEmptyCart(stepN):
+
+    log3("GENERATING genStepsWinADSAMZCheckEmptyCart======>")
+    this_step = stepN
+    psk_words = ""
+
+    try:
+        # subtotal_label = driver.find_element(By.ID, "sc-subtotal-label-activecart")
+        this_step, step_words = genStepCreateData("obj", "subtotal_label", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("integer", "nCartItems", "NA", 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+                                                            'sc-subtotal-label-activecart', False, "var", "subtotal_label",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # Example: "Subtotal (2 items):"
+        this_step, step_words = genStepCallExtern(
+            "global nCartItems, subtotal_label\nnCartItems= int(subtotal_label.split('(')[1].split(')')[0].split()[0].strip())",
+            "", "in_line", "",
+            this_step)
+        psk_words = psk_words + step_words
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinADSAMZCheckEmptyCart: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinADSAMZCheckEmptyCart: {ex_stat}")
 
     return this_step, psk_words
