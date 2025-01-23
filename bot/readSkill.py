@@ -33,7 +33,8 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processExternalHook, processCreateRequestsSession, processECBCreateBots, processECBUpdateBots, \
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
     processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates, \
-    processECBCollectBotProfiles, processGetTopWindow, processGetAllWindowsInfo, processScreenCapture
+    processECBCollectBotProfiles, processGetTopWindow, processGetAllWindowsInfo, processScreenCapture, \
+    processMouseDragDrop
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -127,6 +128,7 @@ RAIS = {
     "Screen Capture": lambda x,y: processScreenCapture(x, y),
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
+    "Mouse Drag Drop": lambda x,y,z: processMouseDragDrop(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
     "Get Windows Info": lambda x,y: processGetWindowsInfo(x, y),
@@ -292,6 +294,7 @@ ARAIS = {
     "Screen Capture": lambda x,y: processScreenCapture(x, y),
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
+    "Mouse Drag Drop": lambda x,y,z: processMouseDragDrop(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
     "Mouse Move": lambda x,y,z: processMouseMove(x, y, z),
     "Get Windows Info": lambda x, y: processGetWindowsInfo(x, y),

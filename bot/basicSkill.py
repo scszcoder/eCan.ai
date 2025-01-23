@@ -453,6 +453,19 @@ def genStepMouseClick(action, action_args, saverb, screen, target, target_type, 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepMouseDragDrop(route_var, speed_var, postwait, break_here, stepN):
+    stepjson = {
+        "type": "Mouse Drag Drop",
+        "route_var": route_var,
+        "speed_var": speed_var,
+        "breakpoint": break_here,
+        "postwait": postwait
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 # val: key action
 # wait_after: #  of seconds to waitafter the key action.
 def genStepKeyInput(action, saverb, val, loc, wait_after, stepN):
@@ -2655,6 +2668,116 @@ def processMouseClick(step, i, mission):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def processMouseDragDrop(step, i, mission):
+    global page_stack
+    global current_context
+    mainwin = mission.get_main_win()
+    log3("Mouse Drag Drop .....")
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        if step["target_type"] != "direct" and step["target_type"] != "expr":
+            if step["target_type"] == "var name":
+                target_name = symTab[step["target_name"]]
+            else:
+                target_name = step["target_name"]
+            sd = symTab[step["screen"]]
+
+            if step["text"] != "":
+                if step["text"] in symTab:
+                    step["text"] = symTab[step["text"]]
+            log3("finding: "+step["text"]+" target name: "+target_name+" text to be matched:["+step["text"]+"]")
+            # log3("from data: "+json.dumps(sd))
+            obj_box = find_clickable_object(sd, target_name, step["text"], step["target_type"], step["nth"])
+            log3("obj_box: "+json.dumps(obj_box))
+            if obj_box:
+                loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
+                post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
+                post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
+                log3("indirect calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset[0])+","+str(post_offset[1])+") post_loc:"+json.dumps(post_loc))
+            else:
+                loc = None
+        else:
+            # the location is already calculated directly and stored here.
+            if step["target_type"] == "direct":
+                log3("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
+                box = symTab[step["target_name"]]
+                loc = box_center(box)
+                post_offset_x = (box[2] - box[0]) * step["post_move"][0]
+                post_offset_y = (box[3] - box[1]) * step["post_move"][1]
+                post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y]
+            else:
+                log3("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]"+step["target_name"])
+                exec("global click_target\nclick_target = " + step["target_name"])
+                log3("box: "+step["target_name"]+" "+json.dumps(click_target))
+                # box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
+                box = [click_target[1], click_target[0], click_target[3], click_target[2]]
+                loc = box_center(box)
+                post_offset_y = (click_target[2] - click_target[0]) * step["post_move"][1]
+                post_offset_x = (click_target[3] - click_target[1]) * step["post_move"][0]
+                post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
+
+            log3("direct calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset_x)+","+str(post_offset_y)+")"+"post_loc:"+json.dumps(post_loc))
+
+        window_name, window_rect = get_top_visible_window("")
+        log3("top windows rect:"+json.dumps(window_rect))
+
+        if loc:
+            # loc[0] = int(loc[0]) + window_rect[0]
+            loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
+            log3("global loc@ "+str(loc[0])+" ,  "+str(loc[1]))
+
+            pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
+
+            time.sleep(step["move_pause"])
+
+            if step["action"] == "Single Click":
+                pyautogui.click()
+                # pyautogui.click()
+            elif step["action"] == "Double Click":
+                if is_float(step["action_args"]):
+                    pyautogui.click(clicks=2, interval=float(step["action_args"]))
+                else:
+                    pyautogui.click(clicks=2, interval=0.3)
+            elif step["action"] == "Triple Click":
+                if is_float(step["action_args"]):
+                    pyautogui.click(clicks=3, interval=float(step["action_args"]))
+                else:
+                    pyautogui.click(clicks=3, interval=0.3)
+            elif step["action"] == "Right CLick":
+                pyautogui.click(button='right')
+            elif step["action"] == "Drag Drop":
+                # code drop location is embedded in action_args, the code need to added later to process that....
+                pyautogui.dragTo(loc[0], loc[1], duration=2)
+
+            time.sleep(1)
+            log3("post click moveto :("+str(int(post_loc[0]) + window_rect[0])+","+str(int(post_loc[1]) + window_rect[1])+")")
+            pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
+            if step["post_wait"] > 0:
+                time.sleep(step["post_wait"]-1)
+
+            # now save for roll back if ever needed.
+            # first remove the previously save rollback point, but leave up to 3 rollback points
+            while len(page_stack) > 3:
+                page_stack.pop()
+            # now save the current juncture.
+            current_context = build_current_context()
+            page_stack.append({"pc": i, "context": current_context})
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorMouseDragDrop:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorMouseDragDrop: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
 
 # max 4 combo key stroke
 def processKeyInput(step, i, mission):
