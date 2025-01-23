@@ -37,7 +37,7 @@ from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtm
     genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
     genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
     genStepECBFetchDailySchedule, genStepECBDispatchTroops, genStepECBScreenBotCandidates, genStepECBCollectBotProfiles, \
-    genStepGetTopWindow, genStepGetAllWindowsInfo, genStepScreenCapture
+    genStepGetTopWindow, genStepGetAllWindowsInfo, genStepScreenCapture, genStepMouseDragDrop
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -92,6 +92,7 @@ PUBLIC = {
     "genStepSearchScroll": genStepSearchScroll,
     "genStepRecordTxtLineLocation": genStepRecordTxtLineLocation,
     "genStepMouseClick": genStepMouseClick,
+    "genStepMouseDragDrop": genStepMouseDragDrop,
     "genStepMouseScroll": genStepMouseScroll,
     "genStepMouseMove": genStepMouseMove,
     "genStepGetWindowsInfo": genStepGetWindowsInfo,
