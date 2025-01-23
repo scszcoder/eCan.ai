@@ -91,6 +91,7 @@ class BOT_PRIVATE_PROFILE():
         self.email_pw = ""
         self.phone = ""
         self.backup_email = ""
+        self.backup_email_pw = ""
         self.backup_email_site = ""
         self.acct_pw = ""
         self.file = ""
@@ -232,6 +233,9 @@ class BOT_PRIVATE_PROFILE():
     def setBackEmail(self, em):
         self.backup_email = em
 
+    def setBackEmailPW(self, em):
+        self.backup_email_pw = em
+
     def setEBPW(self, epw):
         self.acct_pw = epw
 
@@ -255,11 +259,12 @@ class BOT_PRIVATE_PROFILE():
     def setCreateOn(self, createon):
         self.createon = createon
 
-    def setAcct(self, email, epw, phone, back_email, acct_pw, back_email_site):
+    def setAcct(self, email, epw, phone, back_email, back_email_pw, acct_pw, back_email_site):
         self.email = email
         self.email_pw = epw
         self.phone = phone
         self.backup_email = back_email
+        self.backup_email_pw = back_email_pw
         self.backup_email_site = back_email_site
         self.acct_pw = acct_pw
 
@@ -271,6 +276,7 @@ class BOT_PRIVATE_PROFILE():
         self.email_pw = dj["email_pw"]
         self.phone = dj["phone"]
         self.backup_email = dj["backup_email"]
+        self.backup_email_pw = dj["backup_email_pw"]
         self.acct_pw = dj["acct_pw"]
         self.backup_email_site = dj["backup_email_site"]
         self.birthday = dj["birthday"]
@@ -295,6 +301,7 @@ class BOT_PRIVATE_PROFILE():
             "email_pw": self.email_pw,
             "phone": self.phone,
             "backup_email": self.backup_email,
+            "backup_email_pw": self.backup_email_pw,
             "backup_email_site": self.backup_email_site,
             "acct_pw": self.acct_pw,
             "birthday": self.birthday,
@@ -630,6 +637,9 @@ class EBBOT(QStandardItem):
     def setBackEmail(self, em):
         self.privateProfile.backup_email = em
 
+    def setBackEmailPW(self, em):
+        self.privateProfile.backup_email_pw = em
+
     def setEBPW(self, epw):
         self.privateProfile.acct_pw = epw
 
@@ -795,6 +805,9 @@ class EBBOT(QStandardItem):
     def getBackEm(self):
         return self.privateProfile.backup_email
 
+    def getBackEmPW(self):
+        return self.privateProfile.backup_email_pw
+
     def getAcctPw(self):
         return self.privateProfile.acct_pw
 
@@ -931,6 +944,7 @@ class EBBOT(QStandardItem):
         self.privateProfile.setEmail(dbd.email)
         self.privateProfile.setEPW(dbd.epw)
         self.privateProfile.setBackEmail(dbd.backemail)
+        self.privateProfile.setBackEmailPW(dbd.backemailpw)
         self.privateProfile.setEBPW(dbd.ebpw)
         self.privateProfile.setCreateOn(dbd.createon)
         self.privateProfile.setBackEmailSite(dbd.backemail_site)
@@ -959,6 +973,7 @@ class EBBOT(QStandardItem):
         self.privateProfile.setEmail(dj.get("Email", ""))
         self.privateProfile.setEPW(dj.get("PW", ""))
         self.privateProfile.setBackEmail(dj.get("Backup Email", ""))
+        self.privateProfile.setBackEmailPW(dj.get("Backup Email PW", ""))
         self.privateProfile.setEBPW(dj.get("Back PW", ""))
         self.privateProfile.setBackEmailSite(dj.get("BackEmailSite", ""))
         self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
