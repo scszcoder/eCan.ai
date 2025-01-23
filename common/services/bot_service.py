@@ -29,6 +29,7 @@ BOT_TABLE_DEF = [ {'name': 'botid', 'type': 'INTEGER', 'nullable': True, 'defaul
                       {'name': 'epw', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'backemail', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'ebpw', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                      {'name': 'backemailpw', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'backemail_site', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'createon', 'type': 'TEXT', 'nullable': True, 'default': ""},
                       {'name': 'vehicle', 'type': 'TEXT', 'nullable': True, 'default': ""},
@@ -104,6 +105,7 @@ class BotService:
                 result.email = api_bot["email"]
                 result.ebpw = api_bot["ebpw"]
                 result.backemail = api_bot["backemail"]
+                result.backemailpw = api_bot["backemailpw"]
                 result.backemail_site = api_bot["backemail_site"]
                 result.epw = api_bot["epw"]
                 # result.createon = api_bot["createon"]
@@ -135,6 +137,7 @@ class BotService:
             local_bot.email = api_bot["email"]
             local_bot.epw = api_bot["epw"]
             local_bot.backemail = api_bot["backemail"]
+            local_bot.backemailpw = api_bot["backemailpw"]
             local_bot.backemail_site = api_bot["backemail_site"]
             local_bot.ebpw = api_bot["ebpw"]
             local_bot.createon = api_bot["createon"]

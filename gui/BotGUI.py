@@ -491,6 +491,11 @@ class BotNewWin(QMainWindow):
                                    alignment=Qt.AlignLeft)
         self.backem_edit = QLineEdit()
         self.backem_edit.setPlaceholderText(QApplication.translate("QLineEdit", "(optional) back up email here"))
+        self.backempw_label = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Back Up Email Password:</b>"),
+                                   alignment=Qt.AlignLeft)
+        self.backempw_edit = QLineEdit()
+        self.backempw_edit.setPlaceholderText(QApplication.translate("QLineEdit", "(optional) back up email password here"))
+
         self.acctpw_label = QLabel(
             QApplication.translate("QLabel", "<b style='color:red;'>E-Business Account Password:</b>"),
             alignment=Qt.AlignLeft)
@@ -579,10 +584,14 @@ class BotNewWin(QMainWindow):
         self.prvpflLine4Layout = QHBoxLayout(self)
         self.prvpflLine4Layout.addWidget(self.backem_label)
         self.prvpflLine4Layout.addWidget(self.backem_edit)
-
-        self.prvpflLine4Layout.addWidget(self.acctpw_label)
-        self.prvpflLine4Layout.addWidget(self.acctpw_edit)
+        self.prvpflLine4Layout.addWidget(self.backempw_label)
+        self.prvpflLine4Layout.addWidget(self.backempw_edit)
         self.prvpflWidget_layout.addLayout(self.prvpflLine4Layout)
+
+        self.prvpflLine4ALayout = QHBoxLayout(self)
+        self.prvpflLine4ALayout.addWidget(self.acctpw_label)
+        self.prvpflLine4ALayout.addWidget(self.acctpw_edit)
+        self.prvpflWidget_layout.addLayout(self.prvpflLine4ALayout)
 
         self.prvpflLine5Layout = QHBoxLayout(self)
         self.prvpflLine5Layout.addWidget(self.backem_site_label)
@@ -776,6 +785,7 @@ class BotNewWin(QMainWindow):
         self.age_edit.setText(str(bot.getAge()))
         self.bd_edit.setText(bot.getPubBirthday())
         self.backem_edit.setText(bot.getBackEm())
+        self.backempw_edit.setText(bot.getBackEmPW())
         if bot.getLocation() == "":
             self.loccity_edit.setText("")
             self.locstate_edit.setText("")
@@ -785,6 +795,7 @@ class BotNewWin(QMainWindow):
         self.em_edit.setText(bot.getEmail())
         self.empw_edit.setText(bot.getEmPW())
         self.backem_edit.setText(bot.getBackEm())
+        self.backempw_edit.setText(bot.getBackEmPW())
         self.fn_edit.setText(bot.getFn())
         self.ln_edit.setText(bot.getLn())
         self.pln_edit.setText(bot.getPseudoLastName())
@@ -915,7 +926,7 @@ class BotNewWin(QMainWindow):
         self.newBot.pubProfile.setPseudoFirstLastName(self.pfn_edit.text(), self.pln_edit.text())
         self.newBot.privateProfile.setFirstLastName(self.fn_edit.text(), self.ln_edit.text())
         self.newBot.privateProfile.setAcct(self.em_edit.text(), self.empw_edit.text(), self.phone_edit.text(),
-                                           self.backem_edit.text(), self.acctpw_edit.text(), self.backem_edit.text())
+                                           self.backem_edit.text(), self.backempw_edit.text(), self.acctpw_edit.text(), self.backem_site_edit.text())
 
         self.newBot.pubProfile.setPubBirthday(self.bd_edit.text())
         self.newBot.pubProfile.setNickName(self.pnn_edit.text())
