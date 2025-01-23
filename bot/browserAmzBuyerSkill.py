@@ -1621,12 +1621,7 @@ def genStepsWinChromeAMZBuyGiveProductRating(buy_cmd_name, stepN):
     psk_words = ""
     this_step = stepN
 
-
-    # click on the product which will lead into the product page. click on "write a product review"
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "write_review", "pay_page", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.PATH, "all_star", "pay_page", this_step)
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.PATH, "(//button[@data-hook='ryp-star'])[5]", "five_star", this_step)
     psk_words = psk_words + step_words
 
 
@@ -1636,57 +1631,79 @@ def genStepsWinChromeAMZBuyGiveProductFeedback(stepN):
     psk_words = ""
     this_step = stepN
 
-    #product, instructions, review, result_var, stepN
-    # this_step, step_words = genStepObtainReviews("product", "instructions", "review", "review_obtained", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCreateData("string", "product", "NA", "", this_step)
+    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepTextInput("var", False, "review", "direct", 0.05, "enter", 1, this_step)
+    this_step, step_words = genStepCreateData("string", "instructions", "NA", "1", this_step)
+    psk_words = psk_words + step_words
+
+    #product, instructions, review, result_var, stepN
+    this_step, step_words = genStepObtainReviews("product", "instructions", "review_body", "review_title", "store_feedback", "review_obtained", this_step)
+    psk_words = psk_words + step_words
+
+    # find review text box
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.ID,
+                                                        "scarface-review-title-label", False, "var", "review_title_text_box",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # key in the review text.
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "review_title_text_box", "review_title", "action_result", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # find review text box
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.ID,
+                                                        "scarface-review-text-card-title", False, "var", "review_body_text_box",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # key in the review text.
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "review_body_text_box", "review_body", "action_result", "action_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.PATH, "//span[@data-hook='ryp-review-submit-button']//button", "review_submit_button", this_step)
     psk_words = psk_words + step_words
 
     return this_step, psk_words
 
 
 
-def genStepsWinChromeAMZBuyGiveSellerRating(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+def genStepsWinChromeAMZBuyGiveSellerRating(stepN):
     psk_words = ""
+    this_step = stepN
 
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless",
-                                                    "on_page_top", "", False, stepN)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("int", "scroll_adjustment", "NA", 0, this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
-    psk_words = psk_words + step_words
-
-
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME,
-                                                        "rating", False, "var", "rating_section ",
-                                                        "extract_flag", this_step)
-    psk_words = psk_words + step_words
+    # this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME,
+    #                                                     "rating", False, "var", "rating_section ",
+    #                                                     "extract_flag", this_step)
+    # psk_words = psk_words + step_words
 
 
     # click on 5 star
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//input[@name='star-rating' and @value='5']",
-                                                               "star_5", this_step)
+    # this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//input[@name='star-rating' and @value='5']",
+    #                                                            "star_5", this_step)
+    # psk_words = psk_words + step_words
+
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//label[@name='star5']", "star_5", this_step)
     psk_words = psk_words + step_words
 
 
     # click on yes radio button for item as described,.
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//div[@data-a-input-name='ItemAsDescribed']",
+    # this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//div[@data-a-input-name='ItemAsDescribed']",
+    #                                                            "item_as_described_yes", this_step)
+    # psk_words = psk_words + step_words
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//input[@name='ItemAsDescribed' and @value='1']",
                                                                "item_as_described_yes", this_step)
     psk_words = psk_words + step_words
 
-
     # find review text box
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
-                                                        "characters-remaining", False, "var", "review_text_box",
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.NAME,
+                                                        "feedback-text", False, "var", "review_text_box",
                                                         "extract_flag", this_step)
     psk_words = psk_words + step_words
 
     # key in the review text.
-    this_step, step_words = genStepWebdriverKeyIn("web_driver", "review_text_box", "search_phrase", "action_result", "action_flag", this_step)
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "review_text_box", "store_feed_back", "action_result", "action_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
@@ -1699,47 +1716,48 @@ def genStepsWinChromeAMZBuyGiveSellerRating(settings_string,  buy_cmd_name, buy_
                                                   this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("expr", "order_id", "NA", buy_cmd_name+"['order_id']", this_step)
-    psk_words = psk_words + step_words
-
-    # this_step, step_words = genScrollDownUntil("order_id", "text var", "my_orders", "top", this_step, settings_string, "amz")
-    # psk_words = psk_words + step_words
-
-    # click on the product which will lead into the product page. click on "write a product review"
-
 
     return this_step, psk_words
 
 
-def genStepsWinChromeAMZBuyGiveSellerFeedback(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+def genStepsWinChromeAMZBuyGiveSellerFeedback(stepN):
     psk_words = ""
-    # now we're in order page, search for the order placed,
-    this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless",
-                                                    "on_page_top", "", False, stepN)
+    this_step = stepN
+
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH,
+                                                               "//input[@name='ItemAsDescribed' and @value='1']",
+                                                               "item_as_described_yes", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
+    # find review text box
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.NAME,
+                                                        "feedback-text", False, "var", "review_text_box",
+                                                        "extract_flag", this_step)
     psk_words = psk_words + step_words
 
-    # click on add_to_cart button, don't use "Cart" since it's not reliable and OCR gets confused by the cart icon.
-    this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "orders", "anchor text", "",
-                                              [0, 0], "center", [0, 0], "box", 2, 0, [0, 0], this_step)
+    this_step, step_words = genStepCreateData("string", "product", "NA", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    this_step, step_words = genStepCreateData("string", "instructions", "NA", "2", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(settings_string, "write_review", "pay_page", "pac_result", this_step)
+    this_step, step_words = genStepObtainReviews("product", "instructions", "review_body", "review_title", "store_feedback", "review_obtained", this_step)
     psk_words = psk_words + step_words
 
-    #product, instructions, review, result_var, stepN
-    # this_step, step_words = genStepObtainReviews("product", "instructions", "review", "review_obtained", this_step)
-    # psk_words = psk_words + step_words
+    # key in the review text.
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "review_text_box", "store_feedback", "action_result",
+                                                  "action_flag", this_step)
+    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepTextInput("var", False, "review", "direct", 0.05, "enter", 1, this_step)
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID,
+                                                        "a-autoid-2-announce", False, "var", "feedback_submit_button",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # click on feedback_submit_button.
+    this_step, step_words = genStepWebdriverClick("web_driver", "feedback_submit_button", "action_result",
+                                                  "action_flag",
+                                                  this_step)
     psk_words = psk_words + step_words
 
     return this_step, psk_words
@@ -1818,22 +1836,65 @@ def genStepsWinChromeAMZBuyGiveDirectReview(settings_string,  buy_cmd_name, buy_
     #     # Click the button
     #     review_button.click()
 
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
     # click on write_direct_review button
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH, '//a[contains(@class, "a-button-text") and contains(text(), "Write a customer review")]', False, "var", "direct_review_button", "extract_flag", this_step)
     psk_words = psk_words + step_words
 
-    # click on write_direct_review button.
+    #
     this_step, step_words = genStepWebdriverClick("web_driver", "direct_review_button", "action_result", "action_flag", this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
+    # check to see if there is any error message warning this item is not direct reviewable...
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                        "div[data-hook='ryp-error-page-text']", False, "var",
+                                                        "direct_review_button", "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global direct_reviewable\ndirect_reviewable=False\nprint('direct_reviewable:', direct_reviewable)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global direct_reviewable\ndirect_reviewable=True\nprint('direct_reviewable:', direct_reviewable)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     #product, instructions, review, result_var, stepN
-    # this_step, step_words = genStepObtainReviews("product", "instructions", "review", "review_obtained", this_step)
-    # psk_words = psk_words + step_words
+    this_step, step_words = genStepCreateData("string", "product", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "instructions", "NA", "5", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepObtainReviews("product", "instructions", "review_body", "review_title", "store_feedback", "review_obtained", this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepTextInput("var", False, "review", "direct", 0.05, "enter", 1, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
     return this_step, psk_words

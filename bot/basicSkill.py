@@ -629,13 +629,14 @@ def genStepDeleteFile(filename, nametype, result_var, stepN):
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
-def genStepObtainReviews(product, instructions, review_body, review_title, result_var, stepN):
+def genStepObtainReviews(product, instructions, review_body, review_title, store_feedback, result_var, stepN):
     stepjson = {
         "type": "Obtain Reviews",
         "product": product,
         "instructions": instructions,
         "review_body": review_body,
         "review_title": review_title,
+        "store_feedback": store_feedback,
         "result": result_var
     }
 
@@ -3950,6 +3951,7 @@ def processObtainReviews(step, i, mission):
         netReview = json.loads(resp['body'])
         symTab[step["review_body"]] = netReview["body"]
         symTab[step["review_title"]] = netReview["title"]
+        symTab[step["store_feedback"]] = netReview["store_fb"]
 
     except Exception as e:
         # Get the traceback information
