@@ -3813,7 +3813,6 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
     log3("GENERATING genWinChromeAMZTeamPrepSkill======>")
     this_step = stepN
     psk_words = "{"
-    site_url = "https://www.amazon.com/"
 
     try:
         this_step, step_words = genStepHeader("win_chrome_amz_browse_search", "win", "1.0", "AIPPS LLC",

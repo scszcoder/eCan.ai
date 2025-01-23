@@ -205,6 +205,20 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepScreenCapture(area, fformat, img_var, img_file_var, flag, stepN):
+    stepjson = {
+        "type": "Screen Capture",
+        "area": area,
+        "format": fformat,
+        "img_var": img_var,
+        "img_file_var": img_file_var,
+        "flag": flag
+    }
+
+    return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 def genStepGetWindowsInfo(nth_var, results_var, flag_var, stepN):
     stepjson = {
         "type": "Get Windows Info",
@@ -1365,7 +1379,7 @@ def list_windows():
         return active_app_name, window_rect
 
 # win_title_keyword == "" means capture the entire screen
-def captureScreenToFile(win_title_keyword, sfile):
+def captureScreenToFile(win_title_keyword, sfile, subArea=None, fformat='png'):
     global screen_loc
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     if win_title_keyword:
@@ -1377,17 +1391,24 @@ def captureScreenToFile(win_title_keyword, sfile):
         window_name, window_rect = get_top_visible_window("")
         im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
 
-    if not os.path.exists(os.path.dirname(sfile)):
-        os.makedirs(os.path.dirname(sfile))
+    if subArea:
+        subimage = im0.crop(subArea)
+    else:
+        subimage = im0
 
-    im0.save(sfile)
+    if sfile:
+        if not os.path.exists(os.path.dirname(sfile)):
+            os.makedirs(os.path.dirname(sfile))
+
+        subimage.save(sfile)
+
     screen_loc = (window_rect[0], window_rect[1])
-    return window_rect
+    return subimage, window_rect
 
 def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
 
-    window_rect = captureScreenToFile(win_title_keyword, sfile)
+    screen_img, window_rect = captureScreenToFile(win_title_keyword, sfile)
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1494,7 +1515,7 @@ async def readRandomWindow8(win_title_keyword, log_user, session,  token):
     fdir = ecb_data_homepath + f"/{log_user}/runlogs/{log_user}/" + date_word + "/b0m0/any_any_any_any/skills/any/images"
     image_file = fdir + "scrn" + "_" + dt_string + ".png"
 
-    window_rect = captureScreenToFile(win_title_keyword, image_file)
+    screen_img, window_rect = captureScreenToFile(win_title_keyword, image_file)
     # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
     # shutil.copy(source_file, image_file)
     return await cloudAnalyzeRandomImage8(image_file, session, token)
@@ -1502,7 +1523,7 @@ async def readRandomWindow8(win_title_keyword, log_user, session,  token):
 async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
 
-    window_rect = captureScreenToFile(win_title_keyword, sfile)
+    screen_img, window_rect = captureScreenToFile(win_title_keyword, sfile)
 
     session = settings["session"]
     token = settings["token"]
@@ -1997,6 +2018,41 @@ async def processExtractInfo8(step, i, mission, skill):
 
     return (i+1), ex_stat
 
+
+# "type": "Screen Capture",
+# "area": area,
+# "format": fformat,
+# "img_var": img_var,
+# "img_file_var": img_file_var,
+# "flag": flag
+def processScreenCapture(step, i):
+    # mission_id, session, token, top_win, skill_name, uid
+    log3("Capturing Screen....")
+
+    global screen_error
+
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+
+        screen_img, window_rect = captureScreenToFile("", symTab[step["img_file_var"]], symTab[step["area"]], symTab[step["format"]])
+        if step["img_var"]:
+            symTab[step["img_var"]] = screen_img
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorScreenCapture:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorScreenCapture traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i+1), ex_stat
+
+
+
 def processUploadFiles(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
@@ -2029,9 +2085,9 @@ def processUploadFiles(step, i, mission):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorUploadFiles:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
+            ex_stat = "ErrorUploadFiles traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
 
@@ -2069,9 +2125,9 @@ def processDownloadFiles(step, i, mission):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorDownloadFiles:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
+            ex_stat = "ErrorDownloadFiles traceback information not available:" + str(e)
         log3(ex_stat)
         symTab[step["flag"]] = False
 
