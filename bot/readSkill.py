@@ -33,7 +33,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processExternalHook, processCreateRequestsSession, processECBCreateBots, processECBUpdateBots, \
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
     processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates, \
-    processECBCollectBotProfiles, processGetTopWindow, processGetAllWindowsInfo
+    processECBCollectBotProfiles, processGetTopWindow, processGetAllWindowsInfo, processScreenCapture
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -124,6 +124,7 @@ RAIS = {
     "Browse": lambda x,y: processBrowse(x, y),
     "Text To Number": lambda x,y: processTextToNumber(x, y),
     "Extract Info": lambda x,y,z,k: processExtractInfo(x, y, z, k),
+    "Screen Capture": lambda x,y: processScreenCapture(x, y),
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
@@ -288,6 +289,7 @@ ARAIS = {
     "Text To Number": lambda x,y: processTextToNumber(x, y),
     # "Extract Info": lambda x,y,z,k: processExtractInfo8(x, y, z, k),
     "Extract Info": processExtractInfo8,
+    "Screen Capture": lambda x,y: processScreenCapture(x, y),
     "Text Input": lambda x,y,z: processTextInput(x, y, z),
     "Mouse Click": lambda x,y,z: processMouseClick(x, y, z),
     "Mouse Scroll": lambda x,y,z: processMouseScroll(x, y, z),
