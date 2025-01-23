@@ -24,6 +24,7 @@ class BotModel(Base):
     email = Column(Text)
     ebpw = Column(Text)
     backemail = Column(Text)
+    backemailpw = Column(Text)
     backemail_site = Column(Text)
     epw = Column(Text)
     createon = Column(Text)
@@ -51,6 +52,7 @@ class BotModel(Base):
             "email": self.email,
             "ebpw": self.ebpw,
             "backemail": self.backemail,
+            "backemailpw": self.backemailpw,
             "backemail_site": self.backemail_site,
             "epw": self.epw,
             "createon": self.createon,
