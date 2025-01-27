@@ -34,7 +34,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
     processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates, \
     processECBCollectBotProfiles, processGetTopWindow, processGetAllWindowsInfo, processScreenCapture, \
-    processMouseDragDrop
+    processMouseDragDrop, captureScreenToFile
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -566,6 +566,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     stepKeys = list(steps.keys())
     rd_screen_count = 0
     running= True
+    mission.recordStartTime()
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
     log3("====================================="+str(len(stepKeys)))
@@ -649,9 +650,16 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
     if step_stat != DEFAULT_RUN_STATUS:
         log3("RUN Error!")
-        run_result = "Incomplete:"+step_stat+":"+str(last_step)
+        run_result = "Incomplete:Error:"+step_stat+":"+str(last_step)
         # should close the current app here, make room for the next retry, and other tasks...
+        stepKeys = list(steps.keys())
+        step = steps[stepKeys[next_step_index]]
+        mainwin = mission.get_main_win()
+        last_screen_shot_file = mainwin.my_ecb_data_homepath+"/runlogs/last_screen.png"
+        captureScreenToFile("", last_screen_shot_file)
+        mission.recordFailureContext(next_step_index, step, run_stack, step_stat, last_screen_shot_file)
 
+    mission.recordEndTime()
     return run_result
 
 

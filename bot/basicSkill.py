@@ -953,13 +953,14 @@ def genStepFillData(fill_type, src, sink, result, stepN):
 # action: ["return_and_refund", "full refund", "partial refund %", "full resend", "partial resend"]
 # action target would include: product id, product name, variations, quantity, weight,
 # reponse_text would be the message to send back to customer.....
-def genStepThink(goals_var, options_var, products_var, msgs_and_orders_var, msg_responses_var, flag_var, stepN):
+def genStepThink(goals_var, options_var, products_var, sys_prompt_var, user_prompt_var, msg_responses_var, flag_var, stepN):
     stepjson = {
         "type": "Think",
         "goals": goals_var,
         "options": options_var,
         "products": products_var,
-        "msgs_and_orders": msgs_and_orders_var,
+        "sys_prompt": sys_prompt_var,
+        "user_prompt": user_prompt_var,
         "msg_responses": msg_responses_var,
         "flag": flag_var
     }
@@ -2670,6 +2671,32 @@ def processMouseClick(step, i, mission):
     return (i + 1), ex_stat
 
 
+def DragDrop(route, speed):
+    """
+    Perform a drag-and-drop mouse action along a series of points with varying speeds.
+
+    :param route: List of (x, y) tuples representing the path to follow.
+    :param speed: List of integers representing milliseconds to move between consecutive points.
+    """
+    if len(route) < 2:
+        raise ValueError("Route must contain at least two points.")
+    if len(speed) != len(route) - 1:
+        raise ValueError("Speed list must have exactly N-1 elements, where N is the number of route points.")
+
+    # Move to the starting point
+    start_point = route[0]
+    pyautogui.moveTo(start_point[0], start_point[1])
+    pyautogui.mouseDown()  # Simulate mouse press
+
+    # Drag through the route
+    for i in range(1, len(route)):
+        x, y = route[i]
+        duration = speed[i - 1] / 1000.0  # Convert speed to seconds
+        pyautogui.moveTo(x, y, duration=duration)
+
+    pyautogui.mouseUp()  # Release the mouse button at the end
+
+
 def processMouseDragDrop(step, i, mission):
     global page_stack
     global current_context
@@ -2677,93 +2704,19 @@ def processMouseDragDrop(step, i, mission):
     log3("Mouse Drag Drop .....")
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        if step["target_type"] != "direct" and step["target_type"] != "expr":
-            if step["target_type"] == "var name":
-                target_name = symTab[step["target_name"]]
-            else:
-                target_name = step["target_name"]
-            sd = symTab[step["screen"]]
 
-            if step["text"] != "":
-                if step["text"] in symTab:
-                    step["text"] = symTab[step["text"]]
-            log3("finding: "+step["text"]+" target name: "+target_name+" text to be matched:["+step["text"]+"]")
-            # log3("from data: "+json.dumps(sd))
-            obj_box = find_clickable_object(sd, target_name, step["text"], step["target_type"], step["nth"])
-            log3("obj_box: "+json.dumps(obj_box))
-            if obj_box:
-                loc = get_clickable_loc(obj_box, step["offset_from"], step["offset"], step["offset_unit"])
-                post_offset = get_post_move_offset(obj_box, step["post_move"], step["offset_unit"])
-                post_loc = [loc[0] + post_offset[0], loc[1] + post_offset[1]]
-                log3("indirect calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset[0])+","+str(post_offset[1])+") post_loc:"+json.dumps(post_loc))
-            else:
-                loc = None
-        else:
-            # the location is already calculated directly and stored here.
-            if step["target_type"] == "direct":
-                log3("obtain directly..... from a variable which is a box type i.e. [l, t, r, b]")
-                box = symTab[step["target_name"]]
-                loc = box_center(box)
-                post_offset_x = (box[2] - box[0]) * step["post_move"][0]
-                post_offset_y = (box[3] - box[1]) * step["post_move"][1]
-                post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y]
-            else:
-                log3("obtain thru expression..... which after evaluate this expression, it should return a box i.e. [l, t, r, b]"+step["target_name"])
-                exec("global click_target\nclick_target = " + step["target_name"])
-                log3("box: "+step["target_name"]+" "+json.dumps(click_target))
-                # box = [symTab["target_name"][1], symTab["target_name"][0], symTab["target_name"][3], symTab["target_name"][2]]
-                box = [click_target[1], click_target[0], click_target[3], click_target[2]]
-                loc = box_center(box)
-                post_offset_y = (click_target[2] - click_target[0]) * step["post_move"][1]
-                post_offset_x = (click_target[3] - click_target[1]) * step["post_move"][0]
-                post_loc = [loc[0] + post_offset_x, loc[1] + post_offset_y ]
+        DragDrop(symTab[step["route_var"]], symTab[step["speed_var"]])
 
-            log3("direct calculated locations:"+json.dumps(loc)+"post_offset:("+str(post_offset_x)+","+str(post_offset_y)+")"+"post_loc:"+json.dumps(post_loc))
+        if step["post_wait"] > 0:
+            time.sleep(step["post_wait"]-1)
 
-        window_name, window_rect = get_top_visible_window("")
-        log3("top windows rect:"+json.dumps(window_rect))
-
-        if loc:
-            # loc[0] = int(loc[0]) + window_rect[0]
-            loc = (int(loc[0]) + window_rect[0], int(loc[1]) + window_rect[1])
-            log3("global loc@ "+str(loc[0])+" ,  "+str(loc[1]))
-
-            pyautogui.moveTo(loc[0], loc[1])          # move mouse to this location 0th position is X, 1st position is Y
-
-            time.sleep(step["move_pause"])
-
-            if step["action"] == "Single Click":
-                pyautogui.click()
-                # pyautogui.click()
-            elif step["action"] == "Double Click":
-                if is_float(step["action_args"]):
-                    pyautogui.click(clicks=2, interval=float(step["action_args"]))
-                else:
-                    pyautogui.click(clicks=2, interval=0.3)
-            elif step["action"] == "Triple Click":
-                if is_float(step["action_args"]):
-                    pyautogui.click(clicks=3, interval=float(step["action_args"]))
-                else:
-                    pyautogui.click(clicks=3, interval=0.3)
-            elif step["action"] == "Right CLick":
-                pyautogui.click(button='right')
-            elif step["action"] == "Drag Drop":
-                # code drop location is embedded in action_args, the code need to added later to process that....
-                pyautogui.dragTo(loc[0], loc[1], duration=2)
-
-            time.sleep(1)
-            log3("post click moveto :("+str(int(post_loc[0]) + window_rect[0])+","+str(int(post_loc[1]) + window_rect[1])+")")
-            pyautogui.moveTo(int(post_loc[0]) + window_rect[0], int(post_loc[1]) + window_rect[1])
-            if step["post_wait"] > 0:
-                time.sleep(step["post_wait"]-1)
-
-            # now save for roll back if ever needed.
-            # first remove the previously save rollback point, but leave up to 3 rollback points
-            while len(page_stack) > 3:
-                page_stack.pop()
-            # now save the current juncture.
-            current_context = build_current_context()
-            page_stack.append({"pc": i, "context": current_context})
+        # now save for roll back if ever needed.
+        # first remove the previously save rollback point, but leave up to 3 rollback points
+        while len(page_stack) > 3:
+            page_stack.pop()
+        # now save the current juncture.
+        current_context = build_current_context()
+        page_stack.append({"pc": i, "context": current_context})
 
 
     except Exception as e:
@@ -5226,7 +5179,9 @@ def processThink(step, i, mission):
         # background could the thread up to the latest message, msg is the latest message
         # background is also a json converted string. in terms of chat or messaging, the json is of the following format:
         # {"orderID": "", "thread": [{"time stamp": yyyy-mm-dd hh:mm:ss, "from": "", "msg txt": "", "attachments": ["",...], }....]}
+
         user = "m"+str(mission.getMid())+"b"+str(mission.getBid())
+
         qs = [{
             "msgID": "1",
             "user": user,
@@ -5234,8 +5189,8 @@ def processThink(step, i, mission):
             "products": json.dumps(symTab[step["products"]]).replace('"', '\\"'),
             "goals": step["goals"],
             "options": json.dumps(symTab[step["options"]]).replace('"', '\\"'),
-            "background": json.dumps(symTab[step["msgs_and_orders"]]).replace('"', '\\"'),
-            "msg": "provide answer"
+            "background": json.dumps(symTab[step["sys_prompt"]]).replace('"', '\\"'),
+            "msg": symTab[step["user_prompt"]]
         }]
         settings = mission.main_win_settings
         symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
