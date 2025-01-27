@@ -382,33 +382,19 @@ class MainWindow(QMainWindow):
         if os.path.exists(self.general_settings_file):
             with open(self.general_settings_file, 'r', encoding='utf-8') as gen_settings_f:
                 self.general_settings = json.load(gen_settings_f)
-                if "debug_mode" in self.general_settings:
-                    self.debug_mode = self.general_settings["debug_mode"]
-                if "schedule_mode" in self.general_settings:
-                    self.schedule_mode = self.general_settings["schedule_mode"]
 
-                if "default_wifi" in self.general_settings:
-                    self.default_wifi = self.general_settings["default_wifi"]
+                self.debug_mode = self.general_settings.get("debug_mode", False)
+                self.schedule_mode = self.general_settings.get("schedule_mode", "auto")
+                self.default_wifi = self.general_settings.get("default_wifi", "")
+                self.default_printer = self.general_settings.get("default_printer", "")
+                self.display_resolution = self.general_settings.get("display_resolution", "")
+                self.default_webdriver = self.general_settings.get("default_webdriver", "")
+                self.new_orders_dir = self.general_settings.get("new_orders_dir", "c:/ding_dan/")
+                self.local_user_db_server = self.general_settings.get("localUserDB_host", "127.0.0.1")
+                self.local_user_db_port = self.general_settings.get("localUserDB_port", "5080")
+                self.local_agent_db_server = self.general_settings.get("localAgentDB_host", "192.168.0.16")
+                self.local_agent_db_port = self.general_settings.get("localAgentDB_port", "6668")
 
-                if "default_printer" in self.general_settings:
-                    self.default_printer = self.general_settings["default_printer"]
-
-                if "display_resolution" in self.general_settings:
-                    self.display_resolution = self.general_settings["display_resolution"]
-
-                if "default_webdriver" in self.general_settings:
-                    if self.general_settings["default_webdriver"]:
-                        self.default_webdriver = self.general_settings["default_webdriver"]
-
-                if "new_orders_dir" in self.general_settings:
-                    self.new_orders_dir = self.general_settings["new_orders_dir"]
-                else:
-                    self.new_orders_dir = "c:/ding_dan/"
-
-                if "local_db_server" in self.general_settings:
-                    self.local_db_server = self.general_settings["local_db_server"]
-                else:
-                    self.local_db_server = "http://192.168.0.18:5000/api"
 
 
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
@@ -3392,12 +3378,17 @@ class MainWindow(QMainWindow):
             if foundMission:
                 foundMission.setStatus= mstat.get("status", foundMission.getStatus())
                 if "ast" in mstat:
-                    foundMission.setActualStartTime = mstat.get("ast", foundMission.getActualStartTime())
-                    foundMission.setAsd = mstat.get("ast", foundMission.getAsd())
+                    mStartTime = mstat.get("ast", foundMission.getActualStartTime())
+                    mStartDate = mstat.get("ast", foundMission.getAsd())
+                    foundMission.setActualStartTime = mStartTime
+                    foundMission.setAsd = mStartDate
 
                 if "aet" in mstat:
-                    foundMission.setActualEndTime = mstat.get("aet", foundMission.getActualEndTime())
-                    foundMission.setAcd = mstat.get("act", foundMission.getAcd())
+                    mEndTime = mstat.get("aet", foundMission.getActualEndTime())
+                    mEndDate = mstat.get("act", foundMission.getAcd())
+
+                    foundMission.setActualEndTime = mEndTime
+                    foundMission.setAcd = mEndDate
 
                 foundMission.setError = mstat.get("error", foundMission.getError())
                 foundMissions.append(foundMission)
@@ -9783,3 +9774,89 @@ class MainWindow(QMainWindow):
 
     def vehiclePing(self, vehicle):
         self.sendToVehicleByVip(vehicle.getIP())
+
+    def genFeedbacks(self, mids):
+        #assumption: all mids corresponds to the same product, there is only 1 product invovled here
+        fbs = {}
+        dtnow = datetime.now()
+        date_word = dtnow.isoformat()
+        foundM = next((x for x in self.missions if x.getMid() == mids[0]), None)
+
+        if foundM:
+            products = foundM.getTitle()
+            qs = [{
+                "msgID": "1",
+                "user": "000",
+                "timeStamp": date_word,
+                "products": "",
+                "goals": "",
+                "options": json.dumps({}).replace('"', '\\"'),
+                "background": "assume you are happy customers, and would like to write good reviews for both the seller and the product",
+                "msg": f"please help generate {len(mids)} review for both seller and the product ({product}), each review should have a title and a review body, \n" +
+                       f"the titles should satisfy the following criteria: 1) concise, no more than 6 words long, 2) non repeating 3) title contents should match the body contents.\n"+
+                       f"the body of the seller reivew should satisfy the following criteria: 1) concise, no more 2 sentences long, each sentence should have no more than 8 words, 2) non repeating 3) for seller usually, the good review is about a combinartion of good products, fast deliver, prompt communication, fiendly support etc.\n" +
+                       f"the body of the product reivew  the following criteria: 1) no more 5 sentences long, best to be less than 3 sentences long, each sentence should contain no more than 12 words. 2) non repeating 3) try comment on product's quality, price, or particular attributes or good for certain occassions (for example, a gift to a closed friend or relative). 4) avoid exaggerating wording, it's perferrable to sound cliche \n" +
+                       f"the return reponse should be json structure data, it should a list of json dicts with seller_fb_title, sell_fb_body, product_fb_title, product_fb_body as the key, and the corresponding text as the value.\n"
+            }]
+            response = send_query_chat_request_to_cloud(self.session, self.tokens, qs)
+            for midx, mid in enumerate(mids):
+                fbs[str(mid)] = response[midx]
+
+        return fbs
+
+    def getRPAReports(self, start_date, end_date):
+        base_dir = self.log_settings[""]
+        """
+        Get report files from start_date (non-inclusive) to end_date (inclusive),
+        clean up the files, and return a dictionary with report data.
+
+        :param base_dir: The base directory containing year-named folders.
+        :param start_date: Start date in YYYYMMDD format (non-inclusive).
+        :param end_date: End date in YYYYMMDD format (inclusive).
+        :return: A dictionary with keys as report dates (YYYYMMDD) and values as JSON data.
+        """
+        reports = {}
+
+        # Convert start_date and end_date to datetime objects
+        start_date = datetime.strptime(start_date, "%Y%m%d")
+        end_date = datetime.strptime(end_date, "%Y%m%d")
+
+        # Ensure the base directory exists
+        if not os.path.exists(base_dir):
+            print(f"Base directory does not exist: {base_dir}")
+            return reports
+
+        # Iterate over year-named folders
+        for year_folder in sorted(os.listdir(base_dir)):
+            year_path = os.path.join(base_dir, year_folder)
+
+            # Skip non-directory or invalid year folders
+            if not os.path.isdir(year_path) or not year_folder.isdigit() or len(year_folder) != 4:
+                continue
+
+            # Iterate over files in the year folder
+            for file_name in sorted(os.listdir(year_path)):
+                # Check if the file matches the report naming convention
+                if re.match(r"reports\d{8}", file_name):
+                    report_date_str = file_name[7:15]
+                    report_date = datetime.strptime(report_date_str, "%Y%m%d")
+
+                    # Include only files within the date range
+                    if start_date < report_date <= end_date:
+                        file_path = os.path.join(year_path, file_name)
+                        try:
+                            # Read and clean the file content
+                            with open(file_path, "r") as f:
+                                cleaned_content = []
+                                for line in f:
+                                    if not re.match(r"^========+", line):
+                                        cleaned_content.append(line.strip())
+                                cleaned_json = "\n".join(cleaned_content)
+
+                            # Load cleaned content as JSON and add to reports
+                            report_data = json.loads(cleaned_json)
+                            reports[report_date_str] = report_data
+                        except Exception as e:
+                            print(f"Error processing file {file_path}: {e}")
+
+        return reports

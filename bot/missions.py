@@ -524,6 +524,8 @@ class EBMISSION(QStandardItem):
         self.setIcon(self.icon)
         self.setFont(main_win.std_item_font)
         # self.destroyed.connect(lambda: print(f"{self} is being destroyed"))
+        self.retry_records=[]
+        self.failure_context = {}
 
     def __del__(self):
         print(f"EBMISSION {self.getMid()} is being deleted")
@@ -1192,6 +1194,37 @@ class EBMISSION(QStandardItem):
     def getVCCardNumber(self):
         return self.privateAttributes.ccard_numer
 
+    def getLastActionLink(self):
+        return self.lastActionLink
+
+    def setLastActionLink(self, link):
+        self.lastActionLink = link
+
+    def recordStartTime(self):
+        st = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")
+        self.setActualStartTime(st)
+
+    def recordEndTime(self):
+        et = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")
+        if "Completed" in self.getStatus():
+            self.setActualEndTime(et)
+        else:
+            self.retry_records.append({"ast": self.getActualStartTime(), "aet": et, "status": self.getStatus()})
+
+    def getRetryRecords(self):
+        return self.retry_records
+
+    def recordFailureContext(self, next_step_index, step, run_stack, step_stat, last_screen_shot_file):
+        self.failure_context = {
+            "step": step,
+            "next_step_index": next_step_index,
+            "run_stack": run_stack,
+            "run_stat": step_stat,
+            "last_screen_shot_file": last_screen_shot_file
+        }
+
+    def getFailureContext(self):
+        return self.failure_context
 
     # self.
     def setJsonData(self, ppJson):
@@ -1370,7 +1403,20 @@ class EBMISSION(QStandardItem):
         self.pubAttributes.loadJson(jd["pubAttributes"])
         self.privateAttributes.loadJson(jd["privateAttributes"])
 
-
+    def genSummeryJson(self):
+        jsd = {
+            "mid": self.getMid(),
+            "botid": self.getBid(),
+            "type": self.getMtype(),
+            "est_start_time": self.getEstimatedStartTime(),
+            "est_run_time": self.getEstimatedRunTime(),
+            "actual_start_time": self.getActualStartTime(),
+            "actual_end_time": self.getActualEndTime(),
+            "status": self.getStatus(),
+            "retries": self.retry_records,
+            "cause": self.failure_context
+        }
+        return jsd
 
     async def run(self):
         run_result = None
