@@ -1193,7 +1193,7 @@ def genStepsWinChromeAMZBrowserBuy(settings_string, buyop_var_name, buy_result_n
         this_step, step_words = genStepCheckCondition("buy_cmd == 'addCart'", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepsWinChromeAMZBuyAddCart(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step)
+        this_step, step_words = genStepsWinChromeAMZBuyAddCart(this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("else", "", "", this_step)
@@ -1211,7 +1211,7 @@ def genStepsWinChromeAMZBrowserBuy(settings_string, buyop_var_name, buy_result_n
         this_step, step_words = genStepCheckCondition("buy_cmd == 'checkShipping'", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepsWinChromeAMZBuyCheckShipping(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step)
+        this_step, step_words = genStepsWinChromeAMZBuyCheckShipping(this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("else", "", "", this_step)
@@ -1220,7 +1220,7 @@ def genStepsWinChromeAMZBrowserBuy(settings_string, buyop_var_name, buy_result_n
         this_step, step_words = genStepCheckCondition("buy_cmd == 'rate'", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepsWinChromeAMZBuyGiveProductRating(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step)
+        this_step, step_words = genStepsWinChromeAMZBuyGiveProductRating(this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("else", "", "", this_step)
@@ -1229,7 +1229,7 @@ def genStepsWinChromeAMZBrowserBuy(settings_string, buyop_var_name, buy_result_n
         this_step, step_words = genStepCheckCondition("buy_cmd == 'feedback'", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # this_step, step_words = genStepsWinChromeAMZBuyGiveProductFeedback(settings_string, "buy_cmd", buy_result_name, buy_flag_name, this_step)
+        # this_step, step_words = genStepsWinChromeAMZBuyGiveProductFeedback(this_step)
         # psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("else", "", "", this_step)
@@ -1527,7 +1527,7 @@ def genStepsWinChromeAMZBuyCheckShipping(stepN):
                                                   this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.PATH,
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
                                                         '//div[contains(@class, "order-card")]', True, "var", "order_cards",
                                                         "extract_flag", this_step)
     psk_words = psk_words + step_words
@@ -1558,7 +1558,7 @@ def genStepsWinChromeAMZBuyCheckShipping(stepN):
 
     # click on add_to_cart button, don't use "Cart" since it's not reliable and OCR gets confused by the cart icon.
     #         order_number = order_card.find_element(By.XPATH, './/div[@class="yohtmlc-order-id"]/span[2]').text
-    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_card", 0, "info_type", By.PATH,
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "order_card", 0, "info_type", By.XPATH,
                                                         './/div[@class="yohtmlc-order-id"]/span[2]', False, "var", "order_id",
                                                         "extract_flag", this_step)
     psk_words = psk_words + step_words
@@ -1587,7 +1587,7 @@ def genStepsWinChromeAMZBuyCheckShipping(stepN):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "error_alert", 0, "info_type",
-                                                        By.PATH,
+                                                        By.XPATH,
                                                         './/div[contains(@class, "yohtmlc-shipment-status-primaryText")]/h3/span', False, "var", "delivery_status",
                                                         "extract_flag", this_step)
     psk_words = psk_words + step_words
@@ -1617,11 +1617,11 @@ def genStepsWinChromeAMZBuyCheckShipping(stepN):
 
     return this_step, psk_words
 
-def genStepsWinChromeAMZBuyGiveProductRating(buy_cmd_name, stepN):
+def genStepsWinChromeAMZBuyGiveProductRating(stepN):
     psk_words = ""
     this_step = stepN
 
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.PATH, "(//button[@data-hook='ryp-star'])[5]", "five_star", this_step)
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "(//button[@data-hook='ryp-star'])[5]", "five_star", this_step)
     psk_words = psk_words + step_words
 
 
@@ -1662,7 +1662,7 @@ def genStepsWinChromeAMZBuyGiveProductFeedback(stepN):
     psk_words = psk_words + step_words
 
 
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.PATH, "//span[@data-hook='ryp-review-submit-button']//button", "review_submit_button", this_step)
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.XPATH, "//span[@data-hook='ryp-review-submit-button']//button", "review_submit_button", this_step)
     psk_words = psk_words + step_words
 
     return this_step, psk_words
@@ -1818,7 +1818,7 @@ def genStepsWinChromeAMZFeedbackCheckAlert(stepN):
 
 
 
-def genStepsWinChromeAMZBuyGiveDirectReview(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+def genStepsWinChromeAMZBuyGiveDirectReview(stepN):
     psk_words = ""
     # now we're in order page, search for the order placed,
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless",
@@ -1903,7 +1903,7 @@ def genStepsWinChromeAMZBuyGiveDirectReview(settings_string,  buy_cmd_name, buy_
 
 
 
-def genStubWinADSAMZWalkSkill(worksettings, stepN):
+def genStubWinADSAMZWalkSkill(stepN):
     log3("GENERATING WinADSAMZWalkSkill======>")
 
     psk_words = "{"

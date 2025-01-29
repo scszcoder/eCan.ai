@@ -77,7 +77,8 @@ class M_Private_Attributes():
         self.gift_balance = 0.0
         self.gift_card_number = ""
         self.ccard_numer = ""
-
+        self.seller_feedback_title = ""
+        self.seller_feedback_text = ""
 
 
     def setItem(self, inum, seller, title, imglink, rank, feedbacks, price):
@@ -894,6 +895,24 @@ class EBMISSION(QStandardItem):
 
     def getFeedbackTitle(self):
         return self.privateAttributes.feedback_title
+
+    def setFeedbackText(self, bf):
+        self.privateAttributes.feedback_text = bf
+
+    def setFeedbackTitle(self, tf):
+        self.privateAttributes.feedback_title = tf
+
+    def getSellerFeedbackText(self):
+        return self.privateAttributes.seller_feedback_text
+
+    def getSellerFeedbackTitle(self):
+        return self.privateAttributes.seller_feedback_title
+
+    def setSellerFeedbackText(self, bf):
+        self.privateAttributes.seller_feedback_text = bf
+
+    def setSellerFeedbackTitle(self, tf):
+        self.privateAttributes.seller_feedback_title = tf
 
     def getFeedbackRating(self):
         return self.privateAttributes.feedback_rating

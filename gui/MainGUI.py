@@ -598,6 +598,8 @@ class MainWindow(QMainWindow):
         self.toolsStopWaitUntilTestAction = self._createToolsStopWaitUntilTestAction()
         self.toolsSimWanRequestAction = self._createToolsSimWanRequestAction()
         self.toolsSyncFingerPrintRequestAction = self._createToolsSyncFingerPrintRequestAction()
+        self.toolsDailyHousekeepingAction = self._createToolsDailyHousekeepingAction()
+        self.toolsDailyTeamPrepAction = self._createToolsDailyTeamPrepAction()
         self.toolsGatherFingerPrintsRequestAction = self._createToolsGatherFingerPrintsRequestAction()
 
         self.helpUGAction = self._createHelpUGAction()
@@ -1336,6 +1338,8 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.toolsStopWaitUntilTestAction)
         tools_menu.addAction(self.toolsSimWanRequestAction)
         tools_menu.addAction(self.toolsSyncFingerPrintRequestAction)
+        tools_menu.addAction(self.toolsDailyHousekeepingAction)
+        tools_menu.addAction(self.toolsDailyTeamPrepAction)
         tools_menu.addAction(self.toolsGatherFingerPrintsRequestAction)
 
         menu_bar.addMenu(tools_menu)
@@ -1676,6 +1680,20 @@ class MainWindow(QMainWindow):
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Sync Finger Print Request(Manager Only)"))
         new_action.triggered.connect(self.syncFingerPrintRequest)
+        return new_action
+
+    def _createToolsDailyHousekeepingAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Daily Housekeeping(Manager Only)"))
+        new_action.triggered.connect(self.dailyHousekeeping)
+        return new_action
+
+    def _createToolsDailyTeamPrepAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Daily Team Prep(Manager Only)"))
+        new_action.triggered.connect(self.dailyTeamPrep)
         return new_action
 
     def _createToolsGatherFingerPrintsRequestAction(self):
@@ -5501,23 +5519,8 @@ class MainWindow(QMainWindow):
 
     def runGetBotAccountsHook(self):
         try:
-            global symTab
-            acctRows = []
-            symTab["hook_flag"] = False
-            symTab["hook_result"] = None
-            symTab["hook_params"] = {"all": True}
-            hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
-            hook_file = "hr_recruit_get_candidates_hook.py"
-            stepjson = {
-                "type": "External Hook",
-                "file_name_type": "direct",
-                "file_path": hook_path,
-                "file_name": hook_file,
-                "params": "hook_params",  # Optional dictionary of parameters for the external script
-                "result": "hook_result",
-                "flag": "hook_flag"
-            }
-            i, runStat = processExternalHook(stepjson, 1)
+            params = {"all": True}
+            runStat = self.runExternalHook("hr_recruit_get_candidates_hook", params)
             print("runStat:", runStat)
             if "Complete" in runStat:
                 acctRows = symTab["hook_result"]["candidates"]
@@ -5531,22 +5534,8 @@ class MainWindow(QMainWindow):
 
     def runUpdateBotAccountsHook(self, rows):
         try:
-            global symTab
-            symTab["hook_flag"] = False
-            symTab["hook_result"] = None
-            symTab["hook_params"] = {"rows": rows}
-            hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
-            hook_file = "updateAccountsHook.py"
-            stepjson = {
-                "type": "External Hook",
-                "file_name_type": "direct",
-                "file_path": hook_path,
-                "file_name": hook_file,
-                "params": "hook_params",  # Optional dictionary of parameters for the external script
-                "result": "hook_result",
-                "flag": "hook_flag"
-            }
-            i, runStat = processExternalHook(stepjson, 1)
+            params = {"rows": rows}
+            runStat = self.runExternalHook("updateAccountsHook", params)
 
         except Exception as e:
             # Log and skip errors gracefully
@@ -9860,3 +9849,43 @@ class MainWindow(QMainWindow):
                             print(f"Error processing file {file_path}: {e}")
 
         return reports
+
+    def dailyHousekeeping(self):
+        global symTab
+        params = {
+            "symTab": symTab,
+            "login": self.loginout_gui
+        }
+        runStat = self.runExternalHook("daily_housekeeping_hook", params)
+
+
+    def dailyTeamPrep(self):
+        global symTab
+        params = {
+            "symTab": symTab,
+            "login": self.loginout_gui,
+            "test_mode": False,
+            "daily_schedule": {}
+        }
+        runStat = self.runExternalHook("team_prep_hook", params)
+
+    def runExternalHook(self, hook, params):
+        global symTab
+        symTab["hook_flag"] = False
+        symTab["hook_result"] = None
+        symTab["hook_params"] = params
+        hook_path = self.my_ecb_data_homepath + '/my_skills/hooks'
+        hook_file = hook+".py"
+        stepjson = {
+            "type": "External Hook",
+            "file_name_type": "direct",
+            "file_path": hook_path,
+            "file_name": hook_file,
+            "params": "hook_params",  # Optional dictionary of parameters for the external script
+            "result": "hook_result",
+            "flag": "hook_flag"
+        }
+        i, runStat = processExternalHook(stepjson, 1)
+        print("hook result:", symTab["hook_result"])
+        return runStat
+

@@ -2181,7 +2181,7 @@ def genWinADSAmzHandleMsgsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     #
-    # this_step, step_words = genStepThink("end skill", "public/win_ads_amz_orders/handle_returns", "", this_step)
+    # this_step, step_words = genStepThink("think_goal", "think_options", "think_products", "system_prompt", "user_prompt", "response", "think_done", this_step)
     # psk_words = psk_words + step_words
 
     this_step, step_words = genStepTextInput("var", False, "blurl", "direct", 1, "", 2, this_step)
@@ -2497,7 +2497,7 @@ def genWinADSAmzRespondMessagesSkill(worksettings, stepN, theme):
     this_step, step_words = genStepEbayScrapeMsgList("hf_path", "var", "hf_name", "currentPage", "pageOfMessages", "scrape_stat", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepThink("openai", "chatgpt4o", parameters, products, setup, query, response, result, this_step)
+    this_step, step_words = genStepThink("think_goal", "think_options", "think_products", "system_prompt", "user_prompt", "response", "think_done", this_step)
     psk_words = psk_words + step_words
 
 
@@ -2704,9 +2704,9 @@ def genWinADSAmzBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     # now that all the messages are fetch. go analyze them using LLM
-    # genStepThink(goals_var, options_var, products_var, msgs_and_orders_var, msg_responses_var, flag_var, stepN):
+    # this_step, step_words = genStepThink("think_goal", "think_options", "think_products", "system_prompt", "user_prompt", "response", "think_done", this_step)
     # maybe product book should be in RAGS
-    this_step, step_words = genStepThink("respond messages", "", "related_products_book", "msgs_and_orders", "msg_responses", "think_flag", this_step)
+    this_step, step_words = genStepThink("think_goal", "think_options", "think_products", "system_prompt", "user_prompt", "response", "think_done", this_step)
     psk_words = psk_words + step_words
 
     # now respond to each unread messages
