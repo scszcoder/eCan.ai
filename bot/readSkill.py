@@ -34,7 +34,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processECBDeleteBots, processECBCreateMissions, processECBUpdateMissions, processECBDeleteMissions, \
     processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates, \
     processECBCollectBotProfiles, processGetTopWindow, processGetAllWindowsInfo, processScreenCapture, \
-    processMouseDragDrop, captureScreenToFile
+    processMouseDragDrop, captureScreenToFile, processExternalHook8
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -323,10 +323,10 @@ ARAIS = {
     "Exception Handler": lambda x,y,z,w: processExceptionHandler(x, y, z, w),
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
-    "External Hook": lambda x,y: processExternalHook(x, y),
+    "External Hook": processExternalHook8,
     "Create Requests Session": lambda x,y: processCreateRequestsSession(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
-    "Think": lambda x, y, z: processThink8(x, y, z),
+    "Think": processThink8,
     "FillRecipients": lambda x,y: processFillRecipients(x, y),
     "Search Scroll": lambda x,y: processSearchScroll(x, y),
     "Scroll To Location": lambda x,y: processScrollToLocation(x, y),
@@ -830,6 +830,7 @@ async def run1step8(steps, si, mission, skill, stack):
         # Log and skip errors gracefully
         ex_stat = f"Error in run1step8: {traceback.format_exc()} {str(e)}"
         print(f"Error while executing hook: {ex_stat}")
+        isat = ex_stat
 
     return si, isat
 

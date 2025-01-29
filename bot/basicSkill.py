@@ -6318,6 +6318,69 @@ def processExternalHook(step, i):
     return (i + 1), DEFAULT_RUN_STATUS
 
 
+async def processExternalHook8(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        script_prefix = "none"
+        script_file = "none"
+
+        # Determine the script file name
+        if step["file_name_type"] == "direct":
+            script_file = step["file_name"]
+            script_prefix = step["file_path"]
+        elif step["file_name_type"] == "var":
+            script_file = symTab[step["file_name"]]
+            script_prefix = symTab[step["file_path"]]
+        elif step["file_name_type"] == "expr":
+            exec("global script_path\nscript_file = " + step["file_name"])
+            exec("global script_prefix\nscript_prefix = " + step["file_path"])
+
+        print("script file prefix:", script_prefix, script_file)
+        script_path = f"{script_prefix}/{script_file}"
+        print(f"Attempting to execute external script: {script_path}")
+
+        # Check if the file exists asynchronously
+        file_exists = await asyncio.to_thread(os.path.exists, script_path)
+        if not file_exists:
+            print(f"Script file not found: {script_path}. Skipping...")
+            symTab[step["result"]] = "Script file not found!"
+            symTab[step["flag"]] = False
+            return (i + 1), ex_stat  # Skip gracefully
+
+        # Load and execute the script dynamically
+        spec = importlib.util.spec_from_file_location("external_hook", script_path)
+        external_module = importlib.util.module_from_spec(spec)
+        await asyncio.to_thread(spec.loader.exec_module, external_module)  # Run module import in a thread
+
+        # Call the `run` function inside the external script
+        if hasattr(external_module, "run"):
+            params = symTab[step["params"]]
+
+            if asyncio.iscoroutinefunction(external_module.run):
+                hook_out = await external_module.run(params)  # Await if async
+            else:
+                hook_out = await asyncio.to_thread(external_module.run, params)  # Run sync function in a thread
+
+            symTab[step["result"]] = hook_out
+            symTab[step["flag"]] = True
+            print(f"Hook result: {hook_out}")
+        else:
+            print(f"Script {script_path} does not have a 'run' function. Skipping...")
+            symTab[step["result"]] = "No run function found"
+            symTab[step["flag"]] = False
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in Hook: {traceback.format_exc()} {str(e)}"
+        print(f"Error while executing hook: {ex_stat}")
+        symTab[step["result"]] = ex_stat
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
 
 def processCreateRequestsSession(step, i):
     ex_stat = DEFAULT_RUN_STATUS

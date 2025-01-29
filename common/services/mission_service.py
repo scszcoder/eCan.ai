@@ -63,8 +63,8 @@ class MissionService:
 
     def find_missions_by_createon(self):
         current_time = datetime.now()
-        three_days_ago = current_time - timedelta(days=7)
-        missions = self.session.query(MissionModel).filter(MissionModel.createon >= three_days_ago).all()
+        some_days_ago = current_time - timedelta(days=7)
+        missions = self.session.query(MissionModel).filter(MissionModel.createon >= some_days_ago).all()
         return missions
 
     def find_missions_by_mids(self, mids) -> [MissionModel]:
