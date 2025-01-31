@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
         self.todays_bot_profiles = []
         # self.readBotJsonFile()
         self.vehicles = []                              # computers on LAN that can carry out bots's tasks.， basically tcp transports
-        self.vehicleMonitor = None
+
         self.bots = []
         self.missions = []                              # mission 0 will always default to be the fetch schedule mission
         self.trMission = self.createTrialRunMission()
@@ -823,6 +823,7 @@ class MainWindow(QMainWindow):
         self.wan_msg_subscribed = False
         self.websocket = None
         self.setWindowTitle("Main Bot&Mission Scheduler")
+        self.vehicleMonitor = VehicleMonitorWin(self)
         self.showMsg("================= DONE with GUI Setup ==============================")
 
 
@@ -891,7 +892,7 @@ class MainWindow(QMainWindow):
             self.dailySkillsetUpdate()
             log3("skills loaded")
 
-            self.createNewMissionsFromOrdersXlsx()
+            # self.createNewMissionsFromOrdersXlsx()
 
         # Done with all UI stuff, now do the instruction set extension work.
         self.showMsg("set up rais extensions ")
@@ -965,6 +966,7 @@ class MainWindow(QMainWindow):
                 self.peer_task = asyncio.create_task(self.servePlatoons(self.gui_net_msg_queue))
             else:
                 self.peer_task = asyncio.create_task(self.wait_forever())
+                # self.peer_task = asyncio.create_task(self.monitorTroop(self.gui_net_msg_queue))
             self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
             # self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self))
             self.showMsg("spawned wan chat task")
@@ -5051,7 +5053,8 @@ class MainWindow(QMainWindow):
                     print("vehicle ping clicked....", self.selected_vehicle_item.getName())
                     self.vehiclePing(self.selected_vehicle_item)
                 elif selected_act == self.vehicleMonitorAction:
-                    print("vehicle ping clicked....", self.selected_vehicle_item.getName())
+                    if self.selected_vehicle_item:
+                        print("vehicle ping clicked....", self.selected_vehicle_item.getName())
                     self.vehicleShowMonitor(self.selected_vehicle_item)
 
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
@@ -8123,8 +8126,10 @@ class MainWindow(QMainWindow):
             if not monitor_msg_queue.empty():
                 message = await monitor_msg_queue.get()
                 self.showMsg(f"RPA Monitor message: {message}")
-                if type(message) == str:
+                if type(message) != str:
                     print("wanlog message....", message)
+                    if self.vehicleMonitor:
+                        self.vehicleMonitor.log_received.emit(json.dumps(message))
                 else:
                     self.update_monitor_gui(message)
 
@@ -9806,10 +9811,10 @@ class MainWindow(QMainWindow):
 
     def vehicleShowMonitor(self, vehicle):
         if self.vehicleMonitor:
-            self.vehicleMonitor.setVehicle(vehicle)
             self.vehicleMonitor.show()
         else:
             self.vehicleMonitor = VehicleMonitorWin(self, vehicle)
+            self.vehicleMonitor.show()
 
     def genFeedbacks(self, mids):
         #assumption: all mids corresponds to the same product, there is only 1 product invovled here
