@@ -147,6 +147,9 @@ def getLogUser():
     return login.getCurrentUser().split(".")[0].replace("@", "_")
 # log messages into console, file, and GUI
 
+def formatLogMessage(msg):
+    return f'<span style="color: blue;">{msg}</span>'
+
 
 def log2File(gui_main, msg):
     ecb_data_homepath = getECBotDataHome()
@@ -218,7 +221,7 @@ def log3(msg, mask='all', gui_main=None):
             print(msg)
 
         if win_console_log_enabled and gui_main:
-            gui_main.appendNetLogs([msg])
+            gui_main.appendNetLogs([formatLogMessage(msg)])
 
         if wan_enabled:
             gui_main.wan_send_log((":<mlog>"+msg+"</mlog>"))
