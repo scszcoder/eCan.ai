@@ -54,6 +54,7 @@ from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
 from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManagerWindow
 from gui.TrainGUI import TrainNewWin, ReminderWin
+from gui.VehicleMonitorGUI import VehicleMonitorWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
 from bot.basicSkill import symTab, STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
@@ -287,6 +288,7 @@ class MainWindow(QMainWindow):
         self.todays_bot_profiles = []
         # self.readBotJsonFile()
         self.vehicles = []                              # computers on LAN that can carry out bots's tasks.， basically tcp transports
+        self.vehicleMonitor = None
         self.bots = []
         self.missions = []                              # mission 0 will always default to be the fetch schedule mission
         self.trMission = self.createTrialRunMission()
@@ -2048,7 +2050,7 @@ class MainWindow(QMainWindow):
             text_color = "color:#ff8000;"
             logger_helper.warning(msg)
         elif level == "info":
-            text_color = "color:#00ff00;"
+            text_color = "color:#004800;"
             logger_helper.info(msg)
         elif level == "debug":
             text_color = "color:#00ffff;"
@@ -2056,14 +2058,14 @@ class MainWindow(QMainWindow):
 
         msg_text = """ 
             <div style="display: flex; padding: 5pt;">
-                <span  style=" font-size:12pt; font-weight:300; margin-right: 40pt;"> 
+                <span  style=" font-size:12pt; font-weight:450; margin-right: 40pt;"> 
                     %s |
                 </span>
-                <span style=" font-size:12pt; font-weight:300; %s">
+                <span style=" font-size:12pt; font-weight:450; %s">
                     %s
                 </span>
                 |
-                <span style=" font-size:12pt; font-weight:300; %s;">
+                <span style=" font-size:12pt; font-weight:450; %s;">
                     found %s
                 </span>
             </div>""" % (logTime, text_color, level, text_color, msg)
@@ -5021,10 +5023,12 @@ class MainWindow(QMainWindow):
             self.vehicleSetUpTeamAction = self._createVehicleSetUpTeamAction()
             self.vehicleSetUpWorkScheduleAction = self._createVehicleSetUpWorkScheduleAction()
             self.vehiclePingAction = self._createVehiclePingAction()
+            self.vehicleMonitorAction = self._createVehicleMonitorAction()
 
             self.popMenu.addAction(self.vehicleSetUpTeamAction)
             self.popMenu.addAction(self.vehicleSetUpWorkScheduleAction)
             self.popMenu.addAction(self.vehiclePingAction)
+            self.popMenu.addAction(self.vehicleMonitorAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -5044,6 +5048,9 @@ class MainWindow(QMainWindow):
                 elif selected_act == self.vehiclePingAction:
                     print("vehicle ping clicked....", self.selected_vehicle_item.getName())
                     self.vehiclePing(self.selected_vehicle_item)
+                elif selected_act == self.vehicleMonitorAction:
+                    print("vehicle ping clicked....", self.selected_vehicle_item.getName())
+                    self.vehicleShowMonitor(self.selected_vehicle_item)
 
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
@@ -5379,6 +5386,11 @@ class MainWindow(QMainWindow):
     def _createVehiclePingAction(self):
        new_action = QAction(self)
        new_action.setText(QApplication.translate("QAction", "&Ping"))
+       return new_action
+
+    def _createVehicleMonitorAction(self):
+       new_action = QAction(self)
+       new_action.setText(QApplication.translate("QAction", "&Monitor"))
        return new_action
 
 
@@ -9763,6 +9775,13 @@ class MainWindow(QMainWindow):
 
     def vehiclePing(self, vehicle):
         self.sendToVehicleByVip(vehicle.getIP())
+
+    def vehicleShowMonitor(self, vehicle):
+        if self.vehicleMonitor:
+            self.vehicleMonitor.setVehicle(vehicle)
+            self.vehicleMonitor.show()
+        else:
+            self.vehicleMonitor = VehicleMonitorWin(self, vehicle)
 
     def genFeedbacks(self, mids):
         #assumption: all mids corresponds to the same product, there is only 1 product invovled here
