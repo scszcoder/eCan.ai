@@ -71,15 +71,7 @@
                         "anchor_type"  : "icon",
                         "template"     : "checkbox0.png",
                         "ref_method"   : "0",
-                        "ref_location" : [
-                            {
-                                "ref": "all_groups",
-                                "side": "bottom",
-                                "dir": ">",
-                                "offset": "1",
-                                "offset_unit": "box"
-                            }
-                        ]
+                        "ref_location" : []
                     },
                     {
                         "anchor_name"  : "checked",
