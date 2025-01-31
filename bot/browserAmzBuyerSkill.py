@@ -3998,6 +3998,9 @@ def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login\nparams['test_mode']=False", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "daily_report_data", "prep_success", this_step)
         psk_words = psk_words + step_words
 
