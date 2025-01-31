@@ -1617,7 +1617,7 @@ def genStepsWinChromeAMZBuyCheckShipping(stepN):
 
     return this_step, psk_words
 
-def genStepsWinChromeAMZBuyGiveProductRating(buy_cmd_name, stepN):
+def genStepsWinChromeAMZBuyGiveProductRating(stepN):
     psk_words = ""
     this_step = stepN
 
@@ -1818,7 +1818,7 @@ def genStepsWinChromeAMZFeedbackCheckAlert(stepN):
 
 
 
-def genStepsWinChromeAMZBuyGiveDirectReview(settings_string,  buy_cmd_name, buy_result_name, buy_flag_name, stepN):
+def genStepsWinChromeAMZBuyGiveDirectReview(stepN):
     psk_words = ""
     # now we're in order page, search for the order placed,
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "orders", "direct", "anchor text", "any", "useless",
