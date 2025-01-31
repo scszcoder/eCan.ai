@@ -154,7 +154,7 @@ async def wanSendMessage8(msg_req, mainwin):
             'Authorization': token,
             'cache-control': "no-cache",
         }
-        log3("about to send wan msg: "+json.dumps(variables)+" "+query_string+" "+json.dumps(headers), "wanSendMessage", mainwin)
+        log3("about to send wan msg: "+json.dumps(variables), "wanSendMessage", mainwin)
         # log3("++++++++++++++++++++++++++++++++++++++++++++++++++++", "wanSendMessage", mainwin)
         async with aiohttp.ClientSession() as session8:
             async with session8.post(
