@@ -36,6 +36,9 @@ class StaticResource:
                              'Wechat', 'Tiktok', 'QQ', 'Custom']
         self.BUY_TYPES = ['buy', 'goodFB', 'badFB', 'goodRating', 'badRating', 'storeFB', 'storeRating', 'directFB']
         self.SUB_BUY_TYPES = ['addCart', 'pay', 'addCartPay', "checkShipping", 'rate', 'feedback', "checkFB"]
+        self.MANAGE_TYPES = ['manage']
+        self.SUB_MANAGE_TYPES = ["dailyHouseKeeping", "teamPrep"]
+
         self.SELL_TYPES = ['sellFullfill', 'sellRespond', 'sellPromote']
         self.SUB_SELL_TYPES = []
         self.OP_TYPES = ['procure', 'outsource', 'manufacture']

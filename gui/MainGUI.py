@@ -1818,16 +1818,18 @@ class MainWindow(QMainWindow):
     # 2) group them by vehicle
     # 3) assign them. (move the troop to the vehicle(host computer where they belong， Bots, Missions, Skills, ADS related data and files.)
     def handleCloudScheduledWorks(self, bodyobj):
-        log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+str(type(bodyobj)), "fetchSchedule", self)
-        print("bodyobj:", bodyobj)
-        for nm in bodyobj["added_missions"]:
-            today = datetime.today()
-            formatted_today = today.strftime('%Y-%m-%d')
-            bd_parts = nm["createon"].split()
-            nm["createon"] = formatted_today + " " + bd_parts[1]
+        if bodyobj:
+            log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+str(type(bodyobj)), "fetchSchedule", self)
+            print("bodyobj:", bodyobj)
+            for nm in bodyobj["added_missions"]:
+                today = datetime.today()
+                formatted_today = today.strftime('%Y-%m-%d')
+                bd_parts = nm["createon"].split()
+                nm["createon"] = formatted_today + " " + bd_parts[1]
 
-        log3("cloud schedule works:" + json.dumps(bodyobj), "fetchSchedule", self)
-        if len(bodyobj) > 0:
+            log3("cloud schedule works:" + json.dumps(bodyobj), "fetchSchedule", self)
+
+
             log3("BEGIN ASSIGN INCOMING MISSION....", "fetchSchedule", self)
             self.build_cookie_site_lists()
             # convert new added mission json to MISSIONs object
@@ -3359,7 +3361,7 @@ class MainWindow(QMainWindow):
             log3(ex_stat, "run1managerMission", self)
             runResult = "Incomplete: ERRORRunRPA:-1"
 
-        log3("manager mission run result:"+json.dums(runResult), "runRPA", self)
+        log3("manager mission run result:"+json.dumps(runResult), "runRPA", self)
         return runResult
 
 
@@ -6514,7 +6516,7 @@ class MainWindow(QMainWindow):
             wan_pre_time = datetime.now()
             lan_pre_time = datetime.now()
             while running:
-                log3("runbotwork.....", "runbotworks", self)
+                log3("runbotwork Task.....", "runbotworks", self)
                 print("runbotworks................")
                 current_time = datetime.now()
 
@@ -6907,9 +6909,9 @@ class MainWindow(QMainWindow):
     # for now this is mainly used for after team run, a result to trigger some housekeeping work.
     # like process new orders, turn them into new missions, and so on....
     # the message will likely,
-    async def processManagerNetMessage(self, msg, in_queue, out_team_queue, out_gui_queue):
+    async def processManagerNetMessage(self, msg, managers, in_queue, out_team_queue, out_gui_queue):
         if msg["type"] in ManagerTriggerTable:
-            otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg["type"]][0], ManagerTriggerTable[msg["type"]][1], msg["bid"])
+            otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg["type"]][0], ManagerTriggerTable[msg["type"]][1], managers[0].getBid())
             result = await self.run1ManagerMission(otm, in_queue, out_team_queue, out_gui_queue)
 
 
@@ -6918,7 +6920,7 @@ class MainWindow(QMainWindow):
         try:
             running = True
             while running:
-                log3("runmanagerwork.....", "runmanagerworks", self)
+                log3("runmanagerwork Task.....", "runmanagerworks", self)
                 current_time = datetime.now()
 
                 # check mission queue, how to make this flexible? (just run the mission)
@@ -6928,7 +6930,7 @@ class MainWindow(QMainWindow):
                 #                       it. and the skill can be overwritten with custom skill).
                 # check time. @certain time, time based, read out all manager missions, user can
                 #                  create missions and let them use certain skill and run at certain time.
-                managerMissions = self.findManagerMissionsOfThisVehicle()
+                managerBots, managerMissions = self.findManagerMissionsOfThisVehicle()
                 print("# manager missions:", len(managerMissions))
                 managerToRun = self.checkManagerToRuns(managerMissions)
 
@@ -6940,7 +6942,7 @@ class MainWindow(QMainWindow):
                     # Process all available messages in the queue
                     while not gui_manager_queue.empty():
                         net_message = await gui_manager_queue.get()
-                        await self.processManagerNetMessage(net_message, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
+                        await self.processManagerNetMessage(net_message, managerBots, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
                 else:
                     print("manager msg queue empty...")
 
@@ -7965,7 +7967,7 @@ class MainWindow(QMainWindow):
                     self.c_send_chat(response)
                 chat_msg_queue.task_done()
 
-            # print("polling chat msg queue....")
+            print("chat Task ticking....")
             await asyncio.sleep(1)
 
 
@@ -7981,61 +7983,74 @@ class MainWindow(QMainWindow):
         return thisBidsString
 
     def prepFullVehicleReportData(self):
+        print("prepFullVehicleReportData...")
         report = []
-        for v in self.vehicles:
-            if v.getStatus() == "":
-                vstat = "offline"
-            else:
-                vstat = v.getStatus()
+        try:
+            for v in self.vehicles:
+                if v.getStatus() == "":
+                    vstat = "offline"
+                else:
+                    vstat = v.getStatus()
 
-            if self.machine_name not in v.getName():
-                vinfo = {
-                    "vid": v.getVid(),
-                    "vname": v.getName(),
-                    "owner": self.user,
-                    "status": vstat,
-                    "lastseen": v.getLastUpdateTime().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
-                    "functions": v.getFunctions(),
-                    "bids": ",".join(v.getBotIds()),
-                    "hardware": v.getArch(),
-                    "software": v.getOS(),
-                    "ip": v.getIP(),
-                    "created_at": ""
-                }
-            else:
-                vinfo = {
-                    "vid": 0,
-                    "vname": self.machine_name+":"+self.os_short,
-                    "owner": self.user,
-                    "status": self.working_state,
-                    "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
-                    "functions": self.functions,
-                    "bids": self.getBidsOnThisVehicle(),
-                    "hardware": self.processor,
-                    "software": self.platform,
-                    "ip": self.ip,
-                    "created_at": ""
-                }
-            report.append(vinfo)
-        print("vnames:", [v["vname"] for v in report])
-        if (self.machine_name+":"+self.os_short) not in [v["vname"] for v in report]:
-            if "Only" not in self.host_role and "Staff" not in self.host_role:
-                # add myself as a vehicle resource too.
-                vinfo = {
-                    "vid": 0,
-                    "vname": self.machine_name+":"+self.os_short,
-                    "owner": self.user,
-                    "status": self.working_state,
-                    "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
-                    "functions": self.functions,
-                    "bids": self.getBidsOnThisVehicle(),
-                    "hardware": self.processor,
-                    "software": self.platform,
-                    "ip": self.ip,
-                    "created_at": ""
-                }
-
+                if self.machine_name not in v.getName():
+                    vinfo = {
+                        "vid": v.getVid(),
+                        "vname": v.getName(),
+                        "owner": self.user,
+                        "status": vstat,
+                        "lastseen": v.getLastUpdateTime().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                        "functions": v.getFunctions(),
+                        "bids": ",".join(str(v.getBotIds())),
+                        "hardware": v.getArch(),
+                        "software": v.getOS(),
+                        "ip": v.getIP(),
+                        "created_at": ""
+                    }
+                else:
+                    vinfo = {
+                        "vid": 0,
+                        "vname": self.machine_name+":"+self.os_short,
+                        "owner": self.user,
+                        "status": self.working_state,
+                        "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                        "functions": self.functions,
+                        "bids": self.getBidsOnThisVehicle(),
+                        "hardware": self.processor,
+                        "software": self.platform,
+                        "ip": self.ip,
+                        "created_at": ""
+                    }
                 report.append(vinfo)
+            print("vnames:", [v["vname"] for v in report])
+            if (self.machine_name+":"+self.os_short) not in [v["vname"] for v in report]:
+                if "Only" not in self.host_role and "Staff" not in self.host_role:
+                    # add myself as a vehicle resource too.
+                    vinfo = {
+                        "vid": 0,
+                        "vname": self.machine_name+":"+self.os_short,
+                        "owner": self.user,
+                        "status": self.working_state,
+                        "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
+                        "functions": self.functions,
+                        "bids": self.getBidsOnThisVehicle(),
+                        "hardware": self.processor,
+                        "software": self.platform,
+                        "ip": self.ip,
+                        "created_at": ""
+                    }
+
+                    report.append(vinfo)
+                    print("report:", report)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorPrepFullVReport:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorPrepFullVReport traceback information not available:" + str(e)
+            print(ex_stat)
 
         return report
 
@@ -8089,7 +8104,7 @@ class MainWindow(QMainWindow):
             if ticks % 8 == 0:
                 self.showMsg(f"Access Internet Here with Websocket...")
 
-            if ticks % 180 == 0:
+            if ticks % 15 == 0:
                 self.showMsg(f"report vehicle status")
 
                 # update vehicles status to local disk, this is done either on platoon or commander
@@ -8115,8 +8130,9 @@ class MainWindow(QMainWindow):
 
                 monitor_msg_queue.task_done()
 
-            # print("polling chat msg queue....")
+            print("running monitoring Task....", ticks)
             await asyncio.sleep(1)
+        print("RPA monitor ended!!!")
 
 
     def update_monitor_gui(self, in_message):
@@ -8608,7 +8624,7 @@ class MainWindow(QMainWindow):
 
     async def wan_ping(self):
         if self.host_role == "Staff Officer":
-            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            commander_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
             ping_msg = {
                 "chatID": commander_chat_id,
                 "sender": self.chat_id,
@@ -8622,9 +8638,9 @@ class MainWindow(QMainWindow):
 
     async def wan_self_ping(self):
         if self.host_role == "Staff Officer":
-            self_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            self_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
         else:
-            self_chat_id = self.user.split("@")[0] + "_Commander"
+            self_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
         print("Self:", self_chat_id)
         ping_msg = {
             "chatID": self_chat_id,
@@ -8640,7 +8656,7 @@ class MainWindow(QMainWindow):
 
     async def wan_pong(self):
         if "Commander" in self.host_role:
-            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            sa_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
             pong_msg = {
                 # "chatID": sa_chat_id,
                 "chatID": self.chat_id,
@@ -8654,7 +8670,7 @@ class MainWindow(QMainWindow):
 
     def wan_send_log(self, logmsg):
         if self.host_role != "Staff Officer":
-            so_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            so_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
             contents = {"msg": logmsg}
             parameters = {}
             req_msg = {
@@ -8670,7 +8686,7 @@ class MainWindow(QMainWindow):
 
     async def wan_send_log8(self, logmsg):
         if self.host_role != "Staff Officer":
-            so_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            so_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
             req_msg = {
                 "chatID": so_chat_id,
                 "sender": "commander",
@@ -8684,7 +8700,7 @@ class MainWindow(QMainWindow):
 
     async def wan_request_log(self):
         if self.host_role == "Staff Officer":
-            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            commander_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
             req_msg = {
                 "chatID": self.chat_id,
                 "sender": "",
@@ -8697,7 +8713,7 @@ class MainWindow(QMainWindow):
 
     def wan_stop_log(self):
         if "Commander" in self.host_role:
-            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            sa_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
             log_msg = {
                 "chatID": sa_chat_id,
                 "sender": self.chat_id,
@@ -8710,7 +8726,7 @@ class MainWindow(QMainWindow):
 
     async def wan_stop_log(self):
         if self.host_role == "Staff Officer":
-            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            commander_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
             req_msg = {
                 "chatID": commander_chat_id,
                 "sender": "",
@@ -8723,7 +8739,7 @@ class MainWindow(QMainWindow):
 
     def wan_rpa_ctrl(self, token):
         if self.host_role == "Staff Officer":
-            commander_chat_id = self.user.split("@")[0] + "_Commander"
+            commander_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
             req_msg = {
                 "chatID": self.chat_id,
                 "sender": "",
@@ -8736,10 +8752,10 @@ class MainWindow(QMainWindow):
 
     async def wan_send_heartbeat(self, heartbeatInfo):
         if "Commander" in self.host_role:
-            sa_chat_id = self.user.split("@")[0] + "_StaffOfficer"
+            sa_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
             req_msg = {
                 "chatID": sa_chat_id,
-                "sender": self.user.split("@")[0] + "_Commander",
+                "sender": self.user.replace("@", "_").replace(".", "_") + "_Commander",
                 "receiver": sa_chat_id,
                 "type": "heartbeat",
                 "contents": json.dumps(heartbeatInfo).replace('"', '\\"'),
@@ -8769,18 +8785,30 @@ class MainWindow(QMainWindow):
 
 
     async def wan_sa_send_chat(self, msg):
-        if self.host_role == "Staff Officer":
-            commander_chat_id = self.user.split("@")[0] + "_Commander"
-            req_msg = {
-                "chatID": commander_chat_id,
-                "sender": self.chat_id,
-                "receiver": commander_chat_id,
-                "type": "chat",
-                "contents": msg,
-                "parameters": json.dumps({})
-            }
+        try:
+            if self.host_role == "Staff Officer":
+                commander_chat_id = self.user.split("@")[0] + "_Commander"
+                req_msg = {
+                    "chatID": commander_chat_id,
+                    "sender": self.chat_id,
+                    "receiver": commander_chat_id,
+                    "type": "chat",
+                    "contents": msg,
+                    "parameters": json.dumps({})
+                }
 
-            self.wan_sub_task = asyncio.create_task(wanSendMessage8(req_msg, self))
+                self.wan_sub_task = asyncio.create_task(wanSendMessage8(req_msg, self))
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorWanSaSendChat:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorWanSaSendChat: traceback information not available:" + str(e)
+            log3(ex_stat)
+
 
     def sa_send_chat(self, msg):
         asyncio.ensure_future(self.wan_sa_send_chat(msg))
@@ -9269,7 +9297,7 @@ class MainWindow(QMainWindow):
         managerMissions = [x for x in self.missions if x.getBid() in managerBids and ("completed" not in x.getStatus().lower())]
 
 
-        return managerMissions
+        return managerBots, managerMissions
 
     def getDailyFailedBots(self):
         failed = [b for b in self.bots if b.getStatus().lower() == "failed"]
@@ -9870,23 +9898,18 @@ class MainWindow(QMainWindow):
         return reports
 
     def dailyHousekeeping(self):
-        global symTab
-        params = {
-            "symTab": symTab,
-            "login": self.loginout_gui
-        }
-        runStat = self.runExternalHook("daily_housekeeping_hook", params)
+        # send a message to manager task to trigger the daily housekeeping task
+        in_message = {"type": "ALL_WORK_DONE"}
+        print("sending manager msg:", in_message)
+        asyncio.ensure_future((self.gui_manager_msg_queue.put(in_message)))
 
 
     def dailyTeamPrep(self):
-        global symTab
-        params = {
-            "symTab": symTab,
-            "login": self.loginout_gui,
-            "test_mode": False,
-            "daily_schedule": {}
-        }
-        runStat = self.runExternalHook("team_prep_hook", params)
+        # send a message to manager task to trigger the daily team prep task
+        in_message = {"type": "SCHEDULE_READY"}
+        print("sending manager msg:", in_message)
+        asyncio.ensure_future((self.gui_manager_msg_queue.put(in_message)))
+
 
     def runExternalHook(self, hook, params):
         global symTab

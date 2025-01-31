@@ -130,10 +130,11 @@ def wanSendMessage(msg_req, mainwin):
 
 
 async def wanSendMessage8(msg_req, mainwin):
-    APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmntsymTab["result"]6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
-    token = mainwin.tokens["AuthenticationResult"]["IdToken"]
     try:
+        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+        WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql'
+        token = mainwin.tokens["AuthenticationResult"]["IdToken"]
+
         variables = {
             "input": {
                 "chatID": msg_req["chatID"],
@@ -177,7 +178,8 @@ async def wanSendMessage8(msg_req, mainwin):
             ex_stat = "ErrorwanSendMessage8:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorwanSendMessage8 traceback information not available:" + str(e)
-        log3(ex_stat, "wanSendMessage", mainwin)
+        log3(ex_stat, "wanSendMessage", ex_stat)
+        print("trouble maker:", msg_req)
 
 async def wanHandleRxMessage(mainwin):
     print("START WAN RX TASK")
