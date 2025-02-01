@@ -1853,9 +1853,13 @@ def convertTxtProfiles2DefaultXlsxProfiles(fnames):
 
 # create bot ads profiles in batches. each batch can have at most batch_size number of profiles.
 # assume each bot already has a txt version of the profile there.
+# group by minimize # of batches or maximize # of batches.
+# in case of "min batches" will fill a batch to its max capacity first before filling the next batch.
+# in case of "max batches" will fill as many batches as possible, this is more for testing purpose.
 def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
     log3("host ads batch size:"+str(thisHost.getADSBatchSize()), "genAdsProfileBatchs", thisHost)
     ads_profile_dir = thisHost.getADSProfileDir()
+    method = thisHost.getADSBatchMethod()
     # ads_profile_dir = "C:/AmazonSeller/SelfSwipe/ADSProfiles"
     log3("time_ordered_works:"+json.dumps(task_groups), "genAdsProfileBatchs", thisHost)
     pfJsons_batches = []
@@ -1917,23 +1921,32 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
                 # if not thisHost.isPlatoon():
                 found_bot.setADSProfile(bot_pfJsons)
 
-                if w_idx >= thisHost.getADSBatchSize()-1:
-                    # if not thisHost.isPlatoon():
-                    genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
+                if method == "min batches":
+                    if w_idx >= thisHost.getADSBatchSize()-1:
+                        # if not thisHost.isPlatoon():
+                        genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
+                        v_ads_profile_batch_xlsxs.append(batch_file)
+                        w_idx = 0
+                        bot_pfJsons = []
+                        batch_bot_mids = []
+                        batch_bot_profiles_read = []
+                        batch_idx = batch_idx + 1
+                        batch_file = "Host" + target_vehicle_ip + "B" + str(batch_idx) + "profile.xlsx"
+                        batch_file = ads_profile_dir + "/" + batch_file
+                        log3("batch_file:" + batch_file, "genAdsProfileBatchs", thisHost)
+                    else:
+                        w_idx = w_idx + 1
+
+                elif method == "max batches":
+                    # Every bot gets its own batch (or as many batches as possible)
+                    genProfileXlsx([newly_read], batch_file, [bot_mid_key], thisHost.getCookieSiteLists(), thisHost)
                     v_ads_profile_batch_xlsxs.append(batch_file)
-                    w_idx = 0
-                    bot_pfJsons = []
-                    batch_bot_mids = []
-                    batch_bot_profiles_read = []
-                    batch_idx = batch_idx + 1
-                    batch_file = "Host" + target_vehicle_ip + "B" + str(batch_idx) + "profile.xlsx"
-                    batch_file = ads_profile_dir + "/" + batch_file
-                    log3("batch_file:" + batch_file, "genAdsProfileBatchs", thisHost)
-                else:
-                    w_idx = w_idx + 1
+                    batch_idx += 1
+                    batch_file = f"{ads_profile_dir}/Host{target_vehicle_ip}B{batch_idx}profile.xlsx"
 
     # take care of the last batch.
-    if len(bot_pfJsons) > 0:
+    if method == "min batches" and bot_pfJsons:
+    # if len(bot_pfJsons) > 0:
         # if not thisHost.isPlatoon():
         genProfileXlsx(bot_pfJsons, batch_file, batch_bot_mids, thisHost.getCookieSiteLists(), thisHost)
         v_ads_profile_batch_xlsxs.append(batch_file)

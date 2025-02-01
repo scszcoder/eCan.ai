@@ -283,7 +283,7 @@ class MainWindow(QMainWindow):
             os.makedirs(self.ads_profile_dir)
 
         self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
-        self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "ads_port": 0, "ads_api_key": ""}
+        self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "batch_method": "min batches", "ads_port": 0, "ads_api_key": ""}
         self.bot_states = ["active", "disabled", "banned", "deleted"]
         self.todays_bot_profiles = []
         # self.readBotJsonFile()
@@ -7930,12 +7930,14 @@ class MainWindow(QMainWindow):
 
         log3("just build cookie site list:"+json.dumps(self.bot_cookie_site_lists), "build_cookie_site_lists", self)
 
-
     def setADSBatchSize(self, batch_size):
         self.ads_settings["batch_size"] = batch_size
 
     def getADSBatchSize(self):
-        return self.ads_settings["batch_size"]
+        return self.ads_settings.get("batch_size", 10)
+
+    def getADSBatchMethod(self):
+        return self.ads_settings.get("batch_method", "min batches")
 
     def getADSSettings(self):
         return self.ads_settings
@@ -7953,6 +7955,7 @@ class MainWindow(QMainWindow):
 
     def getADSProfileDir(self):
         return self.ads_profile_dir
+
 
     def send_chat_to_local_bot(self, chat_msg):
         # """ Directly enqueue a message to the asyncio task when the button is clicked. """
