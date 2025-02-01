@@ -2053,13 +2053,13 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCheckCondition("not_logged_in == False", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        this_step, step_words = genStepWait(3, 0, 0, this_step)
         psk_words = psk_words + step_words
 
         #now call the amz chrome browse sub-skill to go thru the walk process.
-        this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+        # this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
         # this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
-        psk_words = psk_words + step_words
+        # psk_words = psk_words + step_words
 
         # end condition for "not_logged_in == False"
         this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -2202,7 +2202,6 @@ def genStubWinChromeAMZBrowserWalk(settings_var, stepN):
         # https://www.amazon.com/iMBAPrice-Sealing-Tape-Shipping-Packaging/dp/B072MD8W9Q?th=1
         this_step, step_words = genAMZBrowserBrowseDetails("det_lvl", "pur", this_step, settings_var)
         psk_words = psk_words + step_words
-
 
     except Exception as e:
         # Log and skip errors gracefully
