@@ -2702,7 +2702,7 @@ class MainWindow(QMainWindow):
                             # SC - at this point, p_task_groups should already be a flattened list of tasks
                             batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                             # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
-                            self.showMsg("arranged for today on this machine...."+vname, "assignWork", self)
+                            log3("arranged for today on this machine...."+vname, "assignWork", self)
 
                             # handle any buy-side tasks.
                             self.add_buy_searchs(batched_tasks)
@@ -2721,6 +2721,7 @@ class MainWindow(QMainWindow):
                         print("assign for other machine...", vname, vehicle.getVid(), vehicle.getStatus())
 
                         if not vehicle.getTestDisabled():
+                            print("set up schedule for vehicle", vname)
                             self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
                             if "running" in vehicle.getStatus():
                                 self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
@@ -6536,7 +6537,7 @@ class MainWindow(QMainWindow):
                 if self.working_state == "running_idle":
                     log3("idle checking.....", "runbotworks", self)
                     if self.getNumUnassignedWork() > 0:
-                        self.showMsg(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                        log3(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "runbotworks", self)
                         self.assignWork()
 
                     log3("check next to run"+str(len(self.todays_work["tbd"]))+" "+str(len(self.reactive_work["tbd"]))+" "+str(self.getNumUnassignedWork()), "runbotworks", self)
@@ -8353,7 +8354,7 @@ class MainWindow(QMainWindow):
 
     def send_json_to_platoon(self, platoon_link, json_data):
         if json_data and platoon_link:
-            self.showMsg(f"Sending JSON Data to platoon "+platoon_link["ip"] + "::" + json.dumps(json_data))
+            log3(f"Sending JSON Data to platoon "+platoon_link["ip"] + "::" + json.dumps(json_data), "sendLAN", self)
             json_string = json.dumps(json_data)
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
@@ -8361,14 +8362,14 @@ class MainWindow(QMainWindow):
             platoon_link["transport"].write(length_prefix+encoded_json_string)
         else:
             if json_data == None:
-                self.showMsg(f"ErrorSendJsonToPlatoon: JSON empty")
+                log3(f"ErrorSendJsonToPlatoon: JSON empty", "sendLAN", self)
             else:
-                self.showMsg(f"ErrorSendJsonToPlatoon: TCP link doesn't exist")
+                log3(f"ErrorSendJsonToPlatoon: TCP link doesn't exist", "sendLAN", self)
 
 
     def send_json_to_commander(self, commander_link, json_data):
         if json_data and commander_link:
-            self.showMsg(f"Sending JSON Data to platoon ::" + json.dumps(json_data))
+            log3(f"Sending JSON Data to platoon ::" + json.dumps(json_data), "sendLAN", self)
             json_string = json.dumps(json_data)
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
@@ -8376,13 +8377,13 @@ class MainWindow(QMainWindow):
             commander_link.write(length_prefix+encoded_json_string)
         else:
             if json_data == None:
-                self.showMsg(f"ErrorSendJsonToCommander: JSON empty")
+                log3(f"ErrorSendJsonToCommander: JSON empty", "sendLAN", self)
             else:
-                self.showMsg(f"ErrorSendJsonToCommander: TCP link doesn't exist")
+                log3(f"ErrorSendJsonToCommander: TCP link doesn't exist", "sendLAN", self)
 
     def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and commander_link:
-            self.showMsg(f"Sending File [{file_name_full_path}] to commander: " + self.commanderIP)
+            log3(f"Sending File [{file_name_full_path}] to commander: " + self.commanderIP, "sendLAN", self)
             with open(file_name_full_path, 'rb') as fileTBSent:
                 binary_data = fileTBSent.read()
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
@@ -8405,13 +8406,13 @@ class MainWindow(QMainWindow):
     def batch_send_ads_profiles_to_commander(self, commander_link, file_type, file_paths):
         try:
             if not commander_link:
-                self.showMsg("ErrorSendFilesToCommander: TCP link doesn't exist")
+                log3("ErrorSendFilesToCommander: TCP link doesn't exist", "sendLAN", self)
                 return
 
             profiles = []
             for file_name_full_path in file_paths:
                 if os.path.exists(file_name_full_path):
-                    self.showMsg(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}")
+                    log3(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}", "sendLAN", self)
                     with open(file_name_full_path, 'rb') as fileTBSent:
                         binary_data = fileTBSent.read()
                         encoded_data = base64.b64encode(binary_data).decode('utf-8')
@@ -8452,7 +8453,7 @@ class MainWindow(QMainWindow):
     def batch_send_ads_profiles_to_platoon(self, platoon_link, file_type, file_paths):
         try:
             if not platoon_link:
-                log3("ErrorSendFilesToCommander: TCP link doesn't exist", "gatherFingerPrints", self)
+                log3("ErrorSendFilesToCommander: TCP link doesn't exist", "sendLAN", self)
                 return
 
             print("# files", len(file_paths))
@@ -8478,7 +8479,7 @@ class MainWindow(QMainWindow):
                         })
 
                 else:
-                    log3(f"Warning: ADS Profile [{file_name_full_path}] not found", "gatherFingerPrints", self)
+                    log3(f"Warning: ADS Profile [{file_name_full_path}] not found", "sendLAN", self)
                     print(f"Warning: ADS Profile [{file_name_full_path}] not found")
 
             # Send data
