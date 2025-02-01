@@ -400,7 +400,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # use saved text to update individial bot profile cookie file
-        this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, "saved_batch", this_step)
+        this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "sk_work_settings", 1, "saved_batch", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
@@ -590,7 +590,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         psk_words = psk_words + step_words
 
         # use saved text to update individial bot profile cookie file
-        this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "update_done", 1, "saved_batch", this_step)
+        this_step, step_words = genStepUpdateBotADSProfileFromSavedBatchTxt("ads_file_path", "sk_work_settings", 1, "saved_batch", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)

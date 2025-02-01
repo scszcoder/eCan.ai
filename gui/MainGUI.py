@@ -6569,7 +6569,7 @@ class MainWindow(QMainWindow):
                                     log3("POP a finished task from queue after runRPA", "runbotworks", self)
                                     # update GUI display to move missions in this task group to the completed missions list.
                                     if self.todays_work["tbd"][0]:
-                                        log3("None empt yfirst WORK GROUP", "runbotworks", self)
+                                        log3("None empt first WORK GROUP", "runbotworks", self)
                                         just_finished = copy.deepcopy(self.todays_work["tbd"][0])
                                         self.updateCompletedMissions(just_finished)
                                         self.todays_completed.append(just_finished)
@@ -7669,7 +7669,12 @@ class MainWindow(QMainWindow):
 
         # self.showMsg("GEN REPORT FOR WORKS:"+json.dumps(works))
         if not self.host_role == "Commander Only":
-            mission_report = {"mid": current_mid, "bid": current_bid, "starttime": last_start, "endtime": last_end, "status": run_status}
+            current_mission = next((m for m in self.missions if m.getMid() == current_mid), None)
+            if current_mission:
+                mission_report = current_mission.genSummeryJson()
+            else:
+                mission_report = {}
+
             log3("mission_report:"+json.dumps(mission_report), "genRunReport", self)
 
             if self.host_role != "Platoon":
@@ -7691,9 +7696,9 @@ class MainWindow(QMainWindow):
                 # on platoon machine, todaysPlatoonReports contains a collection of individual task reports on this machine.
                 if len(self.todaysReport) == len(works):
                     log3("time to pack today's platoon report", "genRunReport", self)
-                    rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
-                    self.todaysPlatoonReports.append(rpt)
-                    self.todaysReport = []
+                    # rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
+                    # self.todaysPlatoonReports.append(rpt)
+                    # self.todaysReport.append(rpt)
 
         log3("GEN REPORT FOR WORKS..."+json.dumps(self.todaysReport), "genRunReport", self)
         return self.todaysReport
@@ -7747,11 +7752,11 @@ class MainWindow(QMainWindow):
                 self.gui_manager_msg_queue.put(eodReportMsg)
             else:
                 # if this is a platoon, send report to commander today's report is just an list mission status....
-                if len(self.todaysReports) > 0:
-                    rpt = {"ip": self.ip, "type": "report", "content": self.todaysReports}
+                if len(self.todaysReport) > 0:
+                    rpt = {"ip": self.ip, "type": "report", "content": self.todaysReport}
                     # Append the delimiter
                     rpt_with_delimiter = json.dumps(rpt) + "!ENDMSG!"
-                    self.showMsg("Sending report to Commander::"+json.dumps(rpt))
+                    log3("Sending report to Commander::"+json.dumps(rpt), "doneWithToday", self)
                     # self.commanderXport.write(str.encode(rpt_with_delimiter))
                     self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
 
