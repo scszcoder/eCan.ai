@@ -5537,8 +5537,9 @@ class MainWindow(QMainWindow):
 
     def runGetBotAccountsHook(self):
         try:
-            params = {"all": True}
+            params = {"all": True}      # this will get all rows in accounts table.
             runStat = self.runExternalHook("hr_recruit_get_candidates_hook", params)
+            # runStat = self.runExternalHook("get_accounts_hook", params)
             print("runStat:", runStat)
             if "Complete" in runStat:
                 acctRows = symTab["hook_result"]["candidates"]
@@ -5553,7 +5554,7 @@ class MainWindow(QMainWindow):
     def runUpdateBotAccountsHook(self, rows):
         try:
             params = {"rows": rows}
-            runStat = self.runExternalHook("updateAccountsHook", params)
+            runStat = self.runExternalHook("update_accounts_hook", params)
 
         except Exception as e:
             # Log and skip errors gracefully

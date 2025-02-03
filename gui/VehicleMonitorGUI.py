@@ -122,8 +122,9 @@ class VehicleMonitorWin(QMainWindow):
     def appendLog(self, msg):
         """Append log messages to the log console."""
         print(f"DEBUG: Received log in GUI: {msg}")  # ✅ Debug print
-
-        self.log_console.append(msg)
+        msgJS = json.loads(msg)
+        displayable = self.formDisplayable(msgJS)
+        self.log_console.append(displayable)
         self.log_console.moveCursor(QTextCursor.MoveOperation.End)
 
     def sendCommand(self):
@@ -142,3 +143,43 @@ class VehicleMonitorWin(QMainWindow):
         self.vehicle_list.clear()  # ✅ Clear existing items
         for vehicle in self.parent.vehicles:
             self.vehicle_list.addItem(vehicle.getName())  # ✅ Add each vehicle to the list
+
+
+    # "chatID": so_chat_id,
+    # "sender": "commander",
+    # "receiver": self.user,
+    # "type": "logs",
+    # "contents": logmsg.replace('"', '\\"'),
+    # # "contents": json.dumps({"msg": logmsg}).replace('"', '\\"'),
+    #  "parameters": json.dumps(parameters)
+
+    # contents will be in form of:
+    # {"v": vehicle, "b":bid, "m":mid, "vstate": "running_idle/running_rpa/done/error",
+    #   "step": step, "progress": 0.1, }
+    def formDisplayable(self, msgJS):
+        htmlMsg = ""
+
+        logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        text_color = ""
+        if "error" in msgJS["contents"]:
+            text_color = "color:#ff0000;"
+        elif "warn" in msgJS["contents"]:
+            text_color = "color:#ff8000;"
+        elif "info" in msgJS["contents"]:
+            text_color = "color:#004800;"
+        elif "debug" in msgJS["contents"]:
+            text_color = "color:#00ffff;"
+
+        mc = msgJS['contents']
+        mc = msgJS['contents']
+        contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
+        msg_text = """ 
+            <div style="display: flex; padding: 5pt;">
+                <span  style=" font-size:12pt; font-weight:450; margin-right: 40pt;"> 
+                    %s |
+                </span>
+                <span style=" font-size:12pt; font-weight:450; %s;">
+                    found %s
+                </span>
+            </div>""" % (logTime, text_color, contents)
+        return htmlMsg
