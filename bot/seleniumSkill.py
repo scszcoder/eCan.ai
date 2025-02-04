@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 import traceback
 import os
 from bot.adsAPISkill import startADSWebDriver
-from bot.Logger import log3, log4
+from bot.Logger import log3, log6
 from bot.basicSkill import *
 from config.app_info import app_info
 from bot.seleniumScrapeAmzShop import search_phrase
@@ -438,9 +438,9 @@ def processWebdriverClick(step, i, mission):
         if symTab[step["clickable"]]:
             symTab[step["clickable"]].click()
 
-            log3("WebdriverClick:["+step["clickable"]+"] clicked", "processWebdriverClick", mainwin)
+            log6("WebdriverClick:["+step["clickable"]+"] clicked", "wan_log", mainwin, mission, i)
         else:
-            log3("WebdriverClick:[" + step["clickable"] + "] not found", "processWebdriverClick", mainwin)
+            log6("WebdriverClick:[" + step["clickable"] + "] Error: target not found", "wan_log", mainwin, mission, i)
 
     except Exception as e:
         # Get the traceback information
@@ -450,7 +450,7 @@ def processWebdriverClick(step, i, mission):
             ex_stat = "ErrorWebdriverClick:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverClick: traceback information not available:" + str(e)
-        log3(ex_stat, "processWebdriverClick", mainwin)
+        log6(ex_stat, "wan_log", mainwin, mission, i)
 
     return (i+1), ex_stat
 
@@ -698,13 +698,13 @@ def processWebdriverScrollTo(step, i, mission):
                 WebDriverWait(driver, 2).until(
                     EC.visibility_of(target_element)
                 )
-                log3("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
+                log6("WebdriverScrollTo:[" + step["target_var"] + "]", "wan_log", mainwin, mission, i)
             else:
-                log3("No Action - WebdriverScrollTo:[" + step["target_var"] + "] already visible!",
-                     "processWebdriverScrollTo", mainwin)
+                log6("Warning No Action - WebdriverScrollTo:[" + step["target_var"] + "] already visible!",
+                     "wan_log", mainwin, mission, i)
 
         else:
-            log3("WARNING: WebdriverScrollTo:[" + step["target_var"] + "] NOT FOUND ON PAGE!", "processWebdriverScrollTo", mainwin)
+            log6("WARNING: WebdriverScrollTo:[" + step["target_var"] + "] NOT FOUND ON PAGE!", "wan_log", mainwin, mission, i)
 
     except Exception as e:
         # Get the traceback information
@@ -714,7 +714,7 @@ def processWebdriverScrollTo(step, i, mission):
             ex_stat = "ErrorWebdriverScrollTo:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverScrollTo: traceback information not available:" + str(e)
-        log3(ex_stat, "processWebdriverScrollTo", mainwin)
+        log6(ex_stat, "wan_log", mainwin, mission, i)
 
     return (i + 1), ex_stat
 
@@ -769,7 +769,7 @@ async def processWebdriverScrollTo8(step, i, mission):
         WebDriverWait(driver, 2).until(
             EC.visibility_of(target_element)
         )
-        await log4("WebdriverScrollTo:[" + step["target_var"] + "]", "processWebdriverScrollTo", mainwin)
+        await log6("WebdriverScrollTo:[" + step["target_var"] + "]", "wan_log", mainwin, mission, i)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -803,7 +803,7 @@ def processWebdriverKeyIn(step, i, mission):
 
         target.send_keys(text_tbki)
 
-        log3("WebdriverKeyIn:["+step["target_var"]+"]'"+text_tbki+"'", "processWebdriverKeyIn", mainwin)
+        log6("WebdriverKeyIn:["+step["target_var"]+"]'"+text_tbki+"'", "wan_log", mainwin, mission, i)
 
     except Exception as e:
         # Get the traceback information
@@ -813,7 +813,7 @@ def processWebdriverKeyIn(step, i, mission):
             ex_stat = "ErrorWebdriverKeyIn:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverKeyIn: traceback information not available:" + str(e)
-        log3(ex_stat, "processWebdriverKeyIn", mainwin)
+        log6(ex_stat, "wan_log", mainwin, mission, i)
 
     return (i + 1), ex_stat
 
@@ -826,7 +826,7 @@ def processWebdriverComboKeys(step, i, mission):
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
         keys_list = symTab[step["kl_var"]]
-        log3("WebdriverComboKeys:["+step["target_var"]+"]", "processWebdriverComboKeys", mainwin)
+        log6("WebdriverComboKeys:["+step["target_var"]+"]"+",".join(keys_list), "wan_log", mainwin, mission, i)
         wait = WebDriverWait(driver, 10)
 
         wait.until(EC.presence_of_element_located(target))
@@ -847,7 +847,7 @@ def processWebdriverComboKeys(step, i, mission):
             ex_stat = "ErrorWebdriverComboKeys:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverComboKeys: traceback information not available:" + str(e)
-        log3(ex_stat, "processWebdriverComboKeys", mainwin)
+        log6(ex_stat, "wan_log", mainwin, mission, i)
 
     return (i + 1), ex_stat
 
@@ -867,7 +867,7 @@ def processWebdriverSelectDropDown(step, i, mission):
         # dropdown = wait.until(EC.presence_of_element_located((target_type, target)))
         select_menu = Select(dropdown)
         selected = select_menu.first_selected_option.text
-        log3("WebdriverSelectDropDown:[" + step["target_var"] + "]<"+text+">", "processWebdriverSelectDropDown", mainwin)
+        log6("WebdriverSelectDropDown:[" + step["target_var"] + "]<"+text+">", "wan_log", mainwin, mission, i)
         if selected != text:
             select_menu.select_by_visible_text(text)
 
@@ -879,7 +879,7 @@ def processWebdriverSelectDropDown(step, i, mission):
             ex_stat = "ErrorWebdriverSelectDropDown:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverSelectDropDown: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log6(ex_stat, "wan_log", mainwin, mission, i)
 
     return (i + 1), ex_stat
 
@@ -1125,8 +1125,6 @@ def processWebdriverHoverTo(step, i, mission):
         ex_stat = DEFAULT_RUN_STATUS
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
-        log3("refresh")
-
         # element_to_hover_over = driver.find_element_by_xpath(target)  # Replace with the actual XPath
 
         # Create an instance of ActionChains
@@ -1134,6 +1132,7 @@ def processWebdriverHoverTo(step, i, mission):
 
         # Perform the hover action
         actions.move_to_element(target).perform()
+        log6("WebdriverHoverTo:["+step["target_var"]+"] moved to", "wan_log", mainwin, mission, i)
 
     except Exception as e:
         # Get the traceback information
@@ -1143,7 +1142,7 @@ def processWebdriverHoverTo(step, i, mission):
             ex_stat = "ErrorWebdriverHoverTo:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorWebdriverHoverTo: traceback information not available:" + str(e)
-        log3(ex_stat)
+        log6(ex_stat, "wan_log", mainwin, mission, i)
 
     return (i + 1), ex_stat
 
@@ -1227,7 +1226,7 @@ def processWebdriverExecuteJs(step, i, mission):
             target = None
         # script_input = symTab[step["script_var"]]
         # script_output = symTab[step["script_var"]]
-        log3("executing js")
+        log6("WebdriverExecuteJs:[" + step["target_var"] + "]{"+step["script_var"]+"}", "wan_log", mainwin, mission, i)
 
         # js_script = "return arguments[0] + arguments[1];"
         # param1 = 10
@@ -1247,7 +1246,7 @@ def processWebdriverExecuteJs(step, i, mission):
         else:
             ex_stat = "ErrorWebdriverExJs: traceback information not available:" + str(e)
 
-        log3(ex_stat)
+        log6(ex_stat, "wan_log", mainwin, mission, i)
         regSteps(step["type"], "", start, False, mainwin)
 
     return (i + 1), ex_stat

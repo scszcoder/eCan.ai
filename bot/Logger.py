@@ -223,8 +223,8 @@ def log3(msg, mask='all', gui_main=None):
         if win_console_log_enabled and gui_main:
             gui_main.appendNetLogs([formatLogMessage(msg)])
 
-        if wan_enabled:
-            gui_main.wan_send_log((":<mlog>"+msg+"</mlog>"))
+        # if wan_enabled:
+        #     gui_main.wan_send_log((":<mlog>"+msg+"</mlog>"))
 
     except Exception as e:
         # Get the traceback information
@@ -236,9 +236,10 @@ def log3(msg, mask='all', gui_main=None):
             ex_stat = "ErrorLog3: traceback information not available:" + str(e)
         log2File(gui_main, ex_stat)
 
-async def log4(msg, mask='all', log_user='anonymous', gui_main=None, range='lan'):
+# this is super log with local log + 2 types remote log method, it will send message thru LAN(commander) and WAN(staff officer).
+async def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Action"):
     log_enabled = False
-    wan_enabled = False
+    wan_enabled = True
     if mask in LOG_SWITCH_BOARD:
         if LOG_SWITCH_BOARD[mask]["log"]:
             log_enabled = True
@@ -272,13 +273,31 @@ async def log4(msg, mask='all', log_user='anonymous', gui_main=None, range='lan'
 
         # read details from the page.
         print(msg)
-
+        # forming a "|"separated string for remote monitoring...
         if gui_main:
             gui_main.appendNetLogs([msg])
+            if mission:
+                mid = mission.getMid()
+                bid = mission.getBid()
+            else:
+                mid = 0
+                bid = 0
+            wanMsg = gui_main.machine_name + ":" + gui_main.os_short + "|" + gui_main.log_user + "|"
+            wanMsg = wanMsg + "M" + str(mid) + "|" + "B" + str(bid) + "|"
+            wanMsg = wanMsg + "S-" + str(stepIdx) + "-" + gui_main.working_state + "|" + msgType + "|"
 
-        if wan_enabled:
-            loop = asyncio.get_event_loop()
-            await gui_main.wan_send_log8((":<mlog>"+msg+"</mlog>"))
+
+            if wan_enabled:
+                loop = asyncio.get_event_loop()
+                #
+                ek = gui_main.generate_key_from_string(gui_main.main_key)
+                encryptedWanMsg = gui_main.encrypt_string(gui_main.main_key, wanMsg)
+                gui_main.wan_send_log((encryptedWanMsg))
+
+            # send to commander as well
+            runlog = {"type": "runLog", "ip": gui_main.ip, "content": wanMsg}
+            gui_main.send_json_to_commander(gui_main.commanderXport, runlog)
+
         #     # loop.run_until_complete(gui_main.gui_monitor_msg_queue.put((":<wanlog>"+msg+"</wanlog>")))
         #     # asyncio.ensure_future(gui_main.wan_send_log((":<mlog>"+msg+"</mlog>")))
 

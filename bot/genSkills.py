@@ -5,7 +5,7 @@ from datetime import datetime
 from idlelib.autocomplete import TRIGGERS
 
 from bot.basicSkill import genStepCreateRequestsSession
-from bot.Logger import log3
+from bot.Logger import log3, log6
 from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWinADSRemoveProfileSkill, \
     genWinADSBatchImportSkill, genADSLoadAmzHomePage, genADSPowerConnectProxy, genStepsADSPowerExitProfile, \
     genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings, \
@@ -37,7 +37,7 @@ from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtm
     genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
     genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
     genStepECBFetchDailySchedule, genStepECBDispatchTroops, genStepECBScreenBotCandidates, genStepECBCollectBotProfiles, \
-    genStepGetTopWindow, genStepGetAllWindowsInfo, genStepScreenCapture, genStepMouseDragDrop
+    genStepGetTopWindow, genStepGetAllWindowsInfo, genStepScreenCapture, genStepMouseDragDrop, genStepLogCrossNetwork
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -157,6 +157,7 @@ PUBLIC = {
     "genStepGetAllWindowsInfo": genStepGetAllWindowsInfo,
     "genStepFillData": genStepFillData,
     "genStepThink": genStepThink,
+    "genStepLogCrossNetwork": genStepLogCrossNetwork,
     "genException": genException,
     "genStepUploadFiles": genStepUploadFiles,
     "genStepDownloadFiles": genStepDownloadFiles,
@@ -251,6 +252,7 @@ PUBLIC = {
     "genStepPasteToData": genStepPasteToData,
 
     "log3": log3,
+    "log6": log6,
     "genStepReadFile": genStepReadFile,
     "genStepWriteFile": genStepWriteFile,
     "genStepDeleteFile": genStepDeleteFile,
