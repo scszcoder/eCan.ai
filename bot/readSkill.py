@@ -326,7 +326,7 @@ ARAIS = {
     "End Exception": lambda x,y,z,w: processEndException(x, y, z, w),
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "External Hook": processExternalHook8,
-    "Log Cross Network": processLogCrossNetwork8,
+    "Log Cross Network": lambda x, y, z: processLogCrossNetwork(x, y, z),
     "Create Requests Session": lambda x,y: processCreateRequestsSession(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
     "Think": processThink8,

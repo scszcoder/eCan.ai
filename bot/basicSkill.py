@@ -27,7 +27,7 @@ from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_clou
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
     download_file, download_file8, send_file_op_request_to_cloud, \
     send_update_missions_ex_status_to_cloud, send_reg_steps_to_cloud
-from bot.Logger import log3
+from bot.Logger import log3, log6, log68
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bot.missions import EBMISSION
@@ -1271,9 +1271,11 @@ def genStepECBCollectBotProfiles(result_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepLogCrossNetwork(result_var, flag_var, stepN):
+def genStepLogCrossNetwork(var_type, msg, result_var, flag_var, stepN):
     stepjson = {
         "type": "Log Cross Network",
+        "var_type": var_type,
+        "msg": msg,
         "result_var": result_var,
         "flag": flag_var
     }
@@ -6647,14 +6649,17 @@ def processECBCollectBotProfiles(step, i):
 
 
 
-def processLogCrossNetwork(step, i):
+def processLogCrossNetwork(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
     mainWin = utils.logger_helper.login.get_mainwin()
 
     try:
         symTab[step["flag"]] = True
-        mainWin.syncFingerPrintRequest()
+        if step["var_type"] == "direct":
+            log6(step["msg"], "wan_log", mainWin, mission, i)
+        else:
+            log6(symTab[step["msg"]], "wan_log", mainWin, mission, i)
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -6667,19 +6672,23 @@ def processLogCrossNetwork(step, i):
     return (i + 1), DEFAULT_RUN_STATUS
 
 
-async def processLogCrossNetwork8(step, i):
+async def processLogCrossNetwork8(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
     mainWin = utils.logger_helper.login.get_mainwin()
 
     try:
         symTab[step["flag"]] = True
-        mainWin.syncFingerPrintRequest()
+        symTab[step["result_var"]] = None
+        if step["var_type"] == "direct":
+            await log68(step["msg"], "wan_log", mainWin, mission, i)
+        else:
+            await log68(symTab[step["msg"]], "wan_log", mainWin, mission, i)
 
     except Exception as e:
         # Log and skip errors gracefully
-        ex_stat = f"Error in Log Cross Network: {traceback.format_exc()} {str(e)}"
-        print(f"Error while Log Cross Network: {ex_stat}")
+        ex_stat = f"Error in Log Cross Network8: {traceback.format_exc()} {str(e)}"
+        print(f"Error while Log Cross Network8: {ex_stat}")
         symTab[step["result_var"]] = None
         symTab[step["flag"]] = False
 
