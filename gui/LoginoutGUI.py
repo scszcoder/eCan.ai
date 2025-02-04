@@ -625,8 +625,8 @@ class Login(QDialog):
             else:
                 # global commanderXport
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
-                self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip, self.textName.text(),
-                                           ecbhomepath,
+                self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip,
+                                           self.textName.text(), ecbhomepath,
                                            self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
                 print("Running as a platoon...", self.xport)
                 self.main_win.setOwner(self.textName.text())
@@ -730,9 +730,11 @@ class Login(QDialog):
                                             'RetryAttempts': 0}}
 
         print(self.tokens)
+        main_key = ""
+        self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip,
+                                   self.textName.text(),  ecbhomepath,
+                                   self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
 
-        self.main_win = MainWindow(self, self.tokens, self.mainLoop, self.ip, self.textName.text(), ecbhomepath,
-                                   self.machine_role, self.schedule_mode, self.lang)
         print("faker...")
         self.main_win.setOwner("Nobody")
         self.main_win.show()

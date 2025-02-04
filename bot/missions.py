@@ -554,6 +554,7 @@ class EBMISSION(QStandardItem):
 
     def get_main_win(self):
         return self.main_win
+
     def setMid(self, mid):
         self.pubAttributes.missionId = mid
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)

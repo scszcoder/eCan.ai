@@ -24,9 +24,9 @@ class VehicleMonitorWin(QMainWindow):
         self.setWindowTitle("Vehicle Monitor")
         self.setGeometry(100, 100, 800, 500)
 
-        self.parent = main_win
+        self.mainwin = main_win
         self.vehicle = vehicle
-        self.vehicles = self.parent.vehicles  # List of VEHICLE objects
+        self.vehicles = self.mainwin.vehicles  # List of VEHICLE objects
 
         self.initUI()
         self.log_received.connect(self.appendLog)
@@ -59,7 +59,7 @@ class VehicleMonitorWin(QMainWindow):
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.bot_icon = QLabel()
-        self.bot_icon.setPixmap(QIcon(self.parent.file_resource.bot_icon_path).pixmap(32, 32))  # Static icon
+        self.bot_icon.setPixmap(QIcon(self.mainwin.file_resource.bot_icon_path).pixmap(32, 32))  # Static icon
         right_layout.addWidget(QLabel("Progress:"))
         right_layout.addWidget(self.bot_icon)
         right_layout.addWidget(self.progress_bar)
@@ -117,7 +117,7 @@ class VehicleMonitorWin(QMainWindow):
             self.progress_bar.setValue(value + 5)
         else:
             self.progress_timer.stop()
-            self.bot_icon.setPixmap(QIcon(self.parent.file_resource.bot_icon_path).pixmap(32, 32))
+            self.bot_icon.setPixmap(QIcon(self.mainwin.file_resource.bot_icon_path).pixmap(32, 32))
 
     def appendLog(self, msg):
         """Append log messages to the log console."""
@@ -139,9 +139,9 @@ class VehicleMonitorWin(QMainWindow):
             # TODO: Implement actual command sending logic
 
     def addVehicles(self):
-        """Populate the left-side vehicle list with vehicles from self.parent.vehicles."""
+        """Populate the left-side vehicle list with vehicles from self.mainwin.vehicles."""
         self.vehicle_list.clear()  # ✅ Clear existing items
-        for vehicle in self.parent.vehicles:
+        for vehicle in self.mainwin.vehicles:
             self.vehicle_list.addItem(vehicle.getName())  # ✅ Add each vehicle to the list
 
 
@@ -155,7 +155,7 @@ class VehicleMonitorWin(QMainWindow):
 
     # contents will be in form of:
     # {"v": vehicle, "b":bid, "m":mid, "vstate": "running_idle/running_rpa/done/error",
-    #   "step": step, "progress": 0.1, }
+    #   "step": step }
     def formDisplayable(self, msgJS):
         htmlMsg = ""
 
@@ -172,7 +172,11 @@ class VehicleMonitorWin(QMainWindow):
 
         mc = msgJS['contents']
         mc = msgJS['contents']
-        contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
+        # contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
+
+        ek = self.mainwin.generate_key_from_string(self.mainwin.main_key)
+        decryptedWanMsgRaw = self.mainwin.decrypt_string(ek, mc)
+
         msg_text = """ 
             <div style="display: flex; padding: 5pt;">
                 <span  style=" font-size:12pt; font-weight:450; margin-right: 40pt;"> 
@@ -181,5 +185,5 @@ class VehicleMonitorWin(QMainWindow):
                 <span style=" font-size:12pt; font-weight:450; %s;">
                     found %s
                 </span>
-            </div>""" % (logTime, text_color, contents)
+            </div>""" % (logTime, text_color, decryptedWanMsgRaw)
         return htmlMsg
