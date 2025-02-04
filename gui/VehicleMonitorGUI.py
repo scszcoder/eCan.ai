@@ -170,8 +170,7 @@ class VehicleMonitorWin(QMainWindow):
         elif "debug" in msgJS["contents"]:
             text_color = "color:#00ffff;"
 
-        mc = msgJS['contents']
-        mc = msgJS['contents']
+        mc = msgJS['contents'].replace('\\"', '"')      # invers operation to recover the raw message
         # contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
 
         ek = self.mainwin.generate_key_from_string(self.mainwin.main_key)
