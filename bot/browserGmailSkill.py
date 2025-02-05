@@ -34,10 +34,15 @@ def genWinADSGmailBrowserRefreshSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-
-    this_step, step_words = genStepsChromeRefreshGMailSkill(worksettings, this_step, theme)
+    this_step, step_words = genStepCallExtern("print('Start Refresh Gmail.....', gmail_acct, gmail_pw)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+    # first try to sign in
+    # this_step, step_words = genStepsChromeRefreshGMailSkill(worksettings, this_step, theme)
+    this_step, step_words = genStepsWinChromeGmailBrowserSignIn(this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepsWinChromeGmailBrowserRefresh(this_step)
+    psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
     psk_words = psk_words + step_words
@@ -308,3 +313,245 @@ def genStepsFetchUnreadInbox():
     #     print("An error occurred:", e)
     # finally:
     #     driver.quit()
+
+def genStepsWinChromeGmailBrowserSignIn(stepN):
+    try:
+        psk_words = ""
+
+
+        this_step, step_words = genStepWait(1, 0, 0, stepN)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "action_result", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "action_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "signed_out_text", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "signed_out", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "run_stat", "NA", "Completed:0", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "enter_key", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global enter_key\nenter_key=Keys.RETURN", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        # search first...check whether we have been signed out
+        # # Wait for the element with the "Signed out" text to be present
+        #     signed_out_element = WebDriverWait(driver, 10).until(
+        #         EC.presence_of_element_located((By.CLASS_NAME, "lrLKwc"))
+        #     )
+        #
+        #     # Check if the text is "Signed out"
+        #     if signed_out_element.text.strip().lower() == "signed out":
+        #         print("User is signed out. Clicking on it...")
+        #         signed_out_element.click()
+        #     else:
+        #         print("User is signed in.")
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME,
+                                                            "lrLKwc", False, "var", "signed_out",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("signed_out", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global signed_out, signed_out_text\nsigned_out_text=signed_out.text.strip().lower()", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("signed_out_text == 'signed out'", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # try to sign back in.
+
+        # click on signed out. which will bring us to sign in again to input password.
+        this_step, step_words = genStepWebdriverClick("web_driver", "signed_out", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+
+        # hopefully no need to input user name which should have been memorized by browser already:
+        # # Wait for the password field to appear
+        #     password_field = WebDriverWait(driver, 10).until(
+        #         EC.presence_of_element_located((By.NAME, "Passwd"))
+        #     )
+        #
+        #     # Enter the password
+        #     password_field.send_keys("your_password_here")
+        #
+        #     # Press Enter to submit
+        #     password_field.send_keys(Keys.RETURN)
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.NAME,
+                                                            "Passwd", False, "var", "pw_input_box",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverKeyIn("web_driver", "pw_input_box", "gmail_pw", "action_result",
+                                                      "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # hit enter, which should initiate sign in process.
+        this_step, step_words = genStepWebdriverKeyIn("web_driver", "pw_input_box", "enter_key", "action_result",
+                                                      "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # double check for the sign of gmail home page:
+        #
+        # # Extract email elements
+        # emails = driver.find_elements(By.CSS_SELECTOR, "tr.zA")  # Rows of emails
+        #
+        # print("\nExtracted Emails:\n")
+        # for email in emails:
+        #     try:
+        #         sender = email.find_element(By.CSS_SELECTOR, "span.yP").text  # Sender
+        #         subject = email.find_element(By.CSS_SELECTOR, "span.bqe").text  # Subject
+        #         date = email.find_element(By.CSS_SELECTOR, "td.xW span").text  # Date
+        #         print(f"Sender: {sender}\nSubject: {subject}\nDate: {date}\n")
+        #     except Exception as e:
+        #         print(f"Error extracting email: {e}")
+
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+
+
+        this_step, step_words = genStepWait(6, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # now there is possibility of being asked to complete backup info, try to detect and skip it.
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            "tr.zA", True, "var",
+                                                            "emails", "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not emails", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # set error flag somehow.
+        this_step, step_words = genStepCallExtern("global run_stat\nrun_stat = 'Error: Unable to Sign into Gmail.'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinChromeGmailBrowserSignIn: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinChromeGmailBrowserSignIn: {ex_stat}")
+
+    return this_step, psk_words
+
+
+# once signed in, simply click on "Sent" box and click back on "Inbox",
+# that's simplest refresh activity.
+def genStepsWinChromeGmailBrowserRefresh(stepN):
+    try:
+        psk_words = ""
+        this_step = stepN
+
+        this_step, step_words = genStepCheckCondition("not emails", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "action_result", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "action_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        # Find the "Sent" link
+        # sent_element = driver.find_element(By.XPATH, "//span[@class='nU ']/a")
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH,
+                                                            "//span[@class='nU ']/a", False, "var", "sent_box",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "sent_box", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(6, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+
+        # now find inbox again and click on inbox.
+        # inbox_element = WebDriverWait(driver, 10).until(
+        #     EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '#inbox')]"))
+        # )
+        # or alternatively, we can use this:
+        # inbox_element = WebDriverWait(driver, 10).until(
+        #     EC.presence_of_element_located((By.CLASS_NAME, "bsU"))  # Unread email count
+        # )
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.XPATH,
+                                                            "//a[contains(@href, '#inbox')]", False, "var", "in_box",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverKeyIn("web_driver", "in_box", "search_phrase", "action_result",
+                                                      "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(3, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+
+
+        # can fetch all emails if we like:
+        # emails = driver.find_elements(By.CSS_SELECTOR, "tr.zA")  # Rows of emails
+        #
+        # print("\nExtracted Emails:\n")
+        # for email in emails:
+        #     try:
+        #         sender = email.find_element(By.CSS_SELECTOR, "span.yP").text  # Sender
+        #         subject = email.find_element(By.CSS_SELECTOR, "span.bqe").text  # Subject
+        #         date = email.find_element(By.CSS_SELECTOR, "td.xW span").text  # Date
+        #         print(f"Sender: {sender}\nSubject: {subject}\nDate: {date}\n")
+        #     except Exception as e:
+        #         print(f"Error extracting email: {e}")
+
+        # button = driver.find_element(By.XPATH, "//div[contains(@class, 'T-I') and contains(@aria-label, 'Back to Inbox')]")
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinChromeGmailBrowserRefresh: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinChromeGmailBrowserRefresh: {ex_stat}")
+
+    return this_step, psk_words

@@ -2871,9 +2871,14 @@ class MainWindow(QMainWindow):
                     current_work_idx = self.todays_work["tbd"][0]["current widx"]
 
                     # if time is up to run the next work group,
-                    if self.ts2time(int(self.todays_work["tbd"][0]["works"][current_work_idx]["start_time"]/3)) < pt:
-                        log3("next run is now set up......", "checkNextToRun", self)
-                        nextrun = self.todays_work["tbd"][0]
+                    if self.todays_work["tbd"][0]["works"]:
+                        if self.ts2time(int(self.todays_work["tbd"][0]["works"][current_work_idx]["start_time"]/3)) < pt:
+                            log3("next run is now set up......", "checkNextToRun", self)
+                            nextrun = self.todays_work["tbd"][0]
+                        else:
+                            nextrun = {}
+                    else:
+                        nextrun = {}
                 log3("nextRUN>>>>>: "+json.dumps(nextrun), "checkNextToRun", self)
             else:
                 log3("now today's schedule work are all finished, only serve the reactive work...", "checkNextToRun", self)
