@@ -1966,7 +1966,7 @@ class MainWindow(QMainWindow):
                         # file = 'C:/software/scheduleResultTest7.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                        file = 'C:/temp/scheduleResultTest9S.json'             # ads ebay amz etsy sell test.
+                        file = 'C:/temp/scheduleResultTest10_9_3.json'             # ads ebay amz etsy sell test.
                         # file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
@@ -2198,7 +2198,8 @@ class MainWindow(QMainWindow):
                 existingMission.loadNetRespJson(m)
                 newAdded.append(existingMission)
 
-        self.addMissionsToLocalDB(true_newly_added)
+        if not self.debug_mode:
+            self.addMissionsToLocalDB(true_newly_added)
 
         return(newAdded)
 
@@ -4074,7 +4075,8 @@ class MainWindow(QMainWindow):
             self.selected_bot_row = self.botModel.rowCount() - 1
             self.selected_bot_item = self.botModel.item(self.selected_bot_row)
             # now add bots to local DB.
-            self.bot_service.insert_bots_batch(jbody, api_bots)
+            if not self.debug_mode:
+                self.bot_service.insert_bots_batch(jbody, api_bots)
 
     def updateBots(self, bots, localOnly=False):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.
@@ -4310,7 +4312,8 @@ class MainWindow(QMainWindow):
                 new_mission.setEsd(jbody[i]["esd"])
                 self.missions.append(new_mission)
                 self.missionModel.appendRow(new_mission)
-            self.mission_service.insert_missions_batch(jbody, api_missions)
+            if not self.debug_mode:
+                self.mission_service.insert_missions_batch(jbody, api_missions)
 
             mid_list = [mission.getMid() for mission in new_missions]
             self.mission_service.find_missions_by_mids(mid_list)
@@ -5808,7 +5811,8 @@ class MainWindow(QMainWindow):
                                     self.missionModel.appendRow(new_mission)
                                     new_missions.append(new_mission)
 
-                                self.addMissionsToLocalDB(new_missions)
+                                if not self.debug_mode:
+                                    self.addMissionsToLocalDB(new_missions)
 
                         else:
                             self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
@@ -5976,7 +5980,8 @@ class MainWindow(QMainWindow):
                     new_buy_missions.setMid(jbody[i]["mid"])
 
                 #now add to local DB.
-                self.addMissionsToLocalDB(new_buy_missions)
+                if not self.debug_mode:
+                    self.addMissionsToLocalDB(new_buy_missions)
 
                 #add to local data structure
                 self.missions = self.missions + new_buy_missions
@@ -7065,8 +7070,11 @@ class MainWindow(QMainWindow):
         try:
             global running_step_index, fieldLinks
             fl_ips = [x["ip"] for x in fieldLinks]
-            self.showMsg("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
-            print("msgString:", msgString)
+            if len(msgString) < 128:
+                log3("Platoon Msg Received:"+msgString+" from::"+ip+"  "+str(len(fieldLinks)) + json.dumps(fl_ips))
+            else:
+                log3("Platoon Msg Received: ..." + msgString[-127:0] + " from::" + ip + "  " + str(len(fieldLinks)) + json.dumps(
+                    fl_ips))
             msg = json.loads(msgString)
 
             found = next((x for x in fieldLinks if x["ip"] == ip), None)
@@ -7184,7 +7192,7 @@ class MainWindow(QMainWindow):
                     self.botsFingerPrintsReady = True
 
                 if remote_outdated:
-                    self.batchSendFingerPrintProfilesToCommander(self, remote_outdated)
+                    self.batchSendFingerPrintProfilesToCommander(remote_outdated)
 
             elif msg["type"] == "missionResultFile":
                 self.showMsg("received missionResultFile message")
@@ -8373,8 +8381,13 @@ class MainWindow(QMainWindow):
 
     def send_json_to_platoon(self, platoon_link, json_data):
         if json_data and platoon_link:
-            log3(f"Sending JSON Data to platoon "+platoon_link["ip"] + "::" + json.dumps(json_data), "sendLAN", self)
             json_string = json.dumps(json_data)
+            if len(json_string) < 128:
+                log3(f"Sending JSON Data to platoon " + platoon_link["ip"] + "::" + json_string, "sendLAN",
+                     self)
+            else:
+                log3(f"Sending JSON Data to platoon " + platoon_link["ip"] + ":: ..." + json_string[-127:], "sendLAN",
+                     self)
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
@@ -8388,8 +8401,12 @@ class MainWindow(QMainWindow):
 
     def send_json_to_commander(self, commander_link, json_data):
         if json_data and commander_link:
-            log3(f"Sending JSON Data to platoon ::" + json.dumps(json_data), "sendLAN", self)
             json_string = json.dumps(json_data)
+            if len(json_string) < 128:
+                log3(f"Sending JSON Data to commander ::" + json.dumps(json_data), "sendLAN", self)
+            else:
+                log3(f"Sending JSON Data to commander " + platoon_link["ip"] + ":: ..." + json_string[-127:], "sendLAN",
+                     self)
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
@@ -8456,7 +8473,11 @@ class MainWindow(QMainWindow):
                 "profiles": profiles
             })
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
-            print("About to return sync resp: "+json_data)
+            if len(json_data) < 128:
+                print("About to send botsADSProfilesBatchUpdate to commander: "+json_data)
+            else:
+                print("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
+
             commander_link.write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
@@ -8508,7 +8529,13 @@ class MainWindow(QMainWindow):
                 "ip": self.ip,
                 "profiles": profiles
             })
-            print("about to sendout:", json_data)
+
+            if len(json_data) < 128:
+                print("About to send botsADSProfilesBatchUpdate to platoon: " + json_data)
+            else:
+                print("About to send botsADSProfilesBatchUpdate to platoon: ..." + json_data[-127:])
+
+
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
             platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
             # await commander_link.drain()  # Uncomment if using asyncio
@@ -9541,14 +9568,15 @@ class MainWindow(QMainWindow):
                         self.expected_vehicle_responses[vehicle.getName()] = None
 
                 #now wait for the response to all come back. for each v, give it 10 seconds.
-                VTIMEOUT = 12
+                VTIMEOUT = 2
                 sync_time_out =  len(self.expected_vehicle_responses.keys())*VTIMEOUT
                 sync_time_out = VTIMEOUT
                 print("waiting for ", sync_time_out, "seconds....")
-                while not( sync_time_out == 0):
-                    time.sleep(1)
-                    sync_time_out = sync_time_out-1
-                    print("tick...", sync_time_out)
+                time.sleep(8)
+                # while not( sync_time_out == 0):
+                #     time.sleep(2)
+                #     sync_time_out = sync_time_out-1
+                #     print("tick...", sync_time_out)
 
 
         except Exception as e:
