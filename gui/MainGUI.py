@@ -8640,6 +8640,7 @@ class MainWindow(QMainWindow):
         # keyboard.add_hotkey('q', q_callback)
 
         # Keep the coroutine running to listen for the hotkey indefinitely
+
         while True:
             await asyncio.sleep(1)
 
