@@ -182,7 +182,7 @@ class communicatorProtocol(asyncio.Protocol):
 
     def data_received(self, data):
         self.buffer.extend(data)
-        print(f"TCP Received commander data: {len(data)} bytes, Buffer size: {len(self.buffer)}")
+        print(f"Platoon TCP Received commander data: {len(data)} bytes, expected_length: {self.expected_length}, Buffer size: {len(self.buffer)}")
 
         while self.buffer:
             if self.expected_length is None and len(self.buffer) >= 4:
@@ -222,9 +222,13 @@ class communicatorProtocol(asyncio.Protocol):
                             file.write(file_data)
                             print(f"File {new_fullname} saved, size: {len(file_data)} bytes")
                     else:
-                        # print('Other data received:', self.peername[0], message.decode('utf-8'))
+                        decodedMsg = self.peername[0], message.decode('utf-8')
+                        if len(decodedMsg) < 128:
+                            print('Other data received: ...', decodedMsg)
+                        else:
+                            print('Other data received: ...', decodedMsg[-127:])
                         asyncio.create_task(
-                            self.msg_queue.put(self.peername[0] + "!net data!" + message.decode('utf-8')))
+                            self.msg_queue.put(self.peername[0] + "!net data!" + decodedMsg))
 
                 except json.JSONDecodeError as e:
                     print("JSON decode error:", e)

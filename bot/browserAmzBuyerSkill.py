@@ -19,7 +19,7 @@ from bot.seleniumScrapeAmz import *
 from bot.ordersData import Shipping
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
-from bot.etsySellerSkill import genStepEtsyFindScreenOrder
+from bot.browserGmailSkill import genWinADSGmailBrowserRefreshSkill
 import math
 import itertools
 import json
@@ -1987,6 +1987,12 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("obj", "vers", "NA", [], this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("string", "gmail_refresh_stat", "NA", "Completed:0", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "gmail_input", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepCreateData("string", "ads_ver", "NA", "", this_step)
         psk_words = psk_words + step_words
 
@@ -2046,6 +2052,22 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         # this_step, step_words = genStepWebdriverGoToTab("web_driver", "amazon", "https://www.amazon.com/iMBAPrice-Sealing-Tape-Shipping-Packaging/dp/B072MD8W9Q?th=1", "site_result", "site_flag", this_step)
         # psk_words = psk_words + step_words
 
+        # #####################Before doing anything on Amazon, first refresh gmail.#######################
+        this_step, step_words = genStepCreateData("expr", "bot_email", "NA", "sk_work_settings['b_email']", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("expr", "bot_email_pw", "NA", "sk_work_settings['b_email_pw']", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global gmail_input, bot_email, bot_email_pw\ngmail_input=[bot_email, bot_email_pw]\nprint('gmail_input:', gmail_input)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepUseSkill("browser_refresh", "public/win_ads_gmail_home", "gmail_input", "gmail_refresh_stat", this_step)
+        psk_words = psk_words + step_words
+
+        #################### done refresh gamil ###############################
 
         this_step, step_words = genStepsAMZBrowserLoginIn(this_step, theme)
         psk_words = psk_words + step_words
