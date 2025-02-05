@@ -70,7 +70,10 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
             # Process each complete message in the buffer
             while "!ENDMSG!" in self.buffer:
                 message, self.buffer = self.buffer.split("!ENDMSG!", 1)
-                print("TCP received message (raw):", message)
+                if len(message) < 128:
+                    print("TCP received message (raw):", message)
+                else:
+                    print("TCP received message (raw): ...", message[-127:])
 
                 # Find the first '{' to clean up any junk before the JSON
                 start_index = message.find('{')

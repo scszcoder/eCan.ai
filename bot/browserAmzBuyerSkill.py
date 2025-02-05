@@ -4040,7 +4040,8 @@ def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN, theme):
     return this_step, psk_words
 
 
-
+# after hit the buy button, will check whether need to buy prime membership
+#if there is such option, then buy it.
 def genStepsWinADSAMZBuyPrimeMembership(worksettings, stepN, theme):
 
     log3("GENERATING genStepsWinADSAMZBuyPrimeMembership======>")

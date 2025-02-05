@@ -333,6 +333,7 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         break
                     except json.JSONDecodeError as e:
                         print(f"Failed to decode JSON: {e}")
+                        mainwin.set_wan_connected(False)
                         break
 
                 while True:
@@ -368,8 +369,11 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                         traceback_info = traceback.extract_tb(e.__traceback__)
                         ex_stat = "ErrorsubscribeReceive:" + traceback.format_exc() + " " + str(e)
                         log3(ex_stat)
+                        mainwin.set_wan_connected(False)
                         break
 
+                if not mainwin.get_wan_connected():
+                    raise Exception("Keep Alive Timeout")
     except Exception as e:
         print(f"Websocket Connection error: {e}. Retrying in 5 seconds...")
         traceback_info = traceback.extract_tb(e.__traceback__)
