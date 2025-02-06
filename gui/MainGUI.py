@@ -1087,13 +1087,13 @@ class MainWindow(QMainWindow):
         for ski, sk in enumerate(self.skills):
             # next_step is not used,
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
-            self.showMsg("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name)
+            log3("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name, "fetchSchedule", self)
             if sk.getPrivacy() == "public":
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
             else:
                 self.showMsg("GEN PRIVATE SKILL PSK::::::" + sk_full_name)
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.my_ecb_data_homepath, first_step, "light")
-            self.showMsg("PSK FILE:::::::::::::::::::::::::"+psk_file)
+            log3("PSK FILE:::::::::::::::::::::::::"+psk_file, "fetchSchedule", self)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
@@ -6108,9 +6108,9 @@ class MainWindow(QMainWindow):
         # "skill_path": "public/win_chrome_etsy_orders",
         # "skill_args": "gs_input",
         # "output": "total_label_cost"
-        self.showMsg("TRYING...."+main_file)
+        log3("TRYING...."+main_file, "fetchSchedule", self)
         if os.path.exists(main_file):
-            self.showMsg("OPENING...."+main_file)
+            log3("OPENING...."+main_file, "fetchSchedule", self)
             with open(main_file, 'r') as psk_file:
                 code_jsons = json.load(psk_file)
 
@@ -7480,6 +7480,8 @@ class MainWindow(QMainWindow):
                     if self.commanderXport:
                         log3("sending heartbeat", "serveCommander", self)
                         self.commanderXport.write(msg_with_delimiter.encode('utf8'))
+                        self.commanderXport.get_loop().call_soon(lambda: print("HB MSG SENT2COMMANDER..."))
+
             except (json.JSONDecodeError, AttributeError) as e:
                 # Handle JSON encoding or missing attributes issues
                 log3(f"Error encoding heartbeat JSON or missing attribute: {e}", "serveCommander", self)
@@ -7644,6 +7646,8 @@ class MainWindow(QMainWindow):
                 msg = json.dumps(resp)
                 msg_with_delimiter = msg + "!ENDMSG!"
                 self.commanderXport.write(msg_with_delimiter.encode('utf8'))
+                self.commanderXport.get_loop().call_soon(lambda: print("PONG MSG SENT2COMMANDER..."))
+
                 log3("pong sent!", "serveCommander", self)
 
             elif msg["cmd"] == "chat":
@@ -7671,6 +7675,7 @@ class MainWindow(QMainWindow):
         msg_with_delimiter = msg + "!ENDMSG!"
         # send to commander
         self.commanderXport.write(msg_with_delimiter.encode('utf8'))
+        self.commanderXport.get_loop().call_soon(lambda: print("MSTAT MSG SENT2COMMANDER..."))
 
     def sendRPAMessage(self, msg_data):
         asyncio.create_task(self.gui_rpa_msg_queue.put(msg_data))
@@ -7788,6 +7793,8 @@ class MainWindow(QMainWindow):
                     log3("Sending report to Commander::"+json.dumps(rpt), "doneWithToday", self)
                     # self.commanderXport.write(str.encode(rpt_with_delimiter))
                     self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
+                    self.commanderXport.get_loop().call_soon(lambda: print("DONE MSG SENT2..."))
+
 
                 # also send updated bot ADS profiles to the commander for backup purose.
                 # for bot_profile in self.todays_bot_profiles:
@@ -8304,6 +8311,7 @@ class MainWindow(QMainWindow):
                     cmd = {"cmd": "chat", "message": full_txt.decode('latin1')}
                     cmd_str = json.dumps(cmd)
                     v.getFieldLink()["transport"].write(cmd_str.encode('utf8'))
+                    v.getFieldLink()["transport"].get_loop().call_soon(lambda: print("CHAT MSG SENT2..."))
 
                     # Remove the intersection from the recipients.
                     receivers.difference_update(intersection)
@@ -8379,6 +8387,7 @@ class MainWindow(QMainWindow):
                 # Send data
                 self.showMsg(f"About to send file json with "+str(len(json_data.encode('utf-8')))+ " BYTES!")
                 platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
+                platoon_link["transport"].get_loop().call_soon(lambda: print("FILE MSG SENT2PLATOON..."))
                 # await xport.drain()
 
                 fileTBSent.close()
@@ -8402,6 +8411,8 @@ class MainWindow(QMainWindow):
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
             platoon_link["transport"].write(length_prefix+encoded_json_string)
+            platoon_link["transport"].get_loop().call_soon(lambda: print("JSON MSG SENT2PLATOON..."))
+
         else:
             if json_data == None:
                 log3(f"ErrorSendJsonToPlatoon: JSON empty", "sendLAN", self)
@@ -8421,6 +8432,8 @@ class MainWindow(QMainWindow):
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
             commander_link.write(length_prefix+encoded_json_string)
+            commander_link.get_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
+
         else:
             if json_data == None:
                 log3(f"ErrorSendJsonToCommander: JSON empty", "sendLAN", self)
@@ -8440,6 +8453,8 @@ class MainWindow(QMainWindow):
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
                 commander_link.write(length_prefix + json_data.encode('utf-8'))
+                commander_link.get_loop().call_soon(lambda: print("FILE SENT2COMMANDER..."))
+
                 # await xport.drain()
 
                 fileTBSent.close()
@@ -8489,6 +8504,8 @@ class MainWindow(QMainWindow):
                 print("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
 
             commander_link.write(length_prefix + json_data.encode('utf-8'))
+            commander_link.get_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
+
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
             # Get the traceback information
@@ -8548,6 +8565,8 @@ class MainWindow(QMainWindow):
 
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
             platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
+            platoon_link["transport"].get_loop().call_soon(lambda: print("ADS FILES SENT2PLATOON..."))
+
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
             # Get the traceback information
@@ -8578,6 +8597,7 @@ class MainWindow(QMainWindow):
                         length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                         # Send data
                         commander_link.write(length_prefix + json_data.encode('utf-8'))
+                        commander_link.get_loop().call_soon(lambda: print("RESULT FILES SENT2COMMANDER..."))
                         # await xport.drain()
 
                         fileTBSent.close()
