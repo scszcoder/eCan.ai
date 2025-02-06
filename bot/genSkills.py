@@ -64,7 +64,7 @@ from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEt
     genWinChromeEtsyUpdateShipmentTrackingSkill, genWinEtsyHandleReturnSkill, combine_duplicates, createLabelOrderFile, \
     genWinChromeEtsyFullfillOrdersSkill, genWinChromeEtsyHandleMessagesSkill, genWinADSEtsyFullfillOrdersSkill, \
     genWinADSEtsyCollectOrderListSkill, genWinADSEtsyUpdateShipmentTrackingSkill
-
+from bot.browserGmailSkill import genWinADSGmailBrowserRefreshSkill
 from bot.fileSkill import genWinFileLocalOpenSaveSkill
 from bot.printLabel import genStepPrintLabels, genWinPrinterLocalReformatPrintSkill
 from bot.rarSkill import genWinRARLocalUnzipSkill
@@ -337,6 +337,7 @@ SkillGeneratorTable = {
     "win_ads_etsy_orders_fullfill_orders": lambda x, y, z: genWinADSEtsyFullfillOrdersSkill(x, y, z),
     "win_ads_etsy_orders_collect_orders": lambda x, y, z: genWinADSEtsyCollectOrderListSkill(x, y, z),
     "win_ads_etsy_orders_update_tracking": lambda x, y, z: genWinADSEtsyUpdateShipmentTrackingSkill(x, y, z),
+    "win_ads_gmail_home_browser_refresh": lambda x, y, z: genWinADSGmailBrowserRefreshSkill(x, y, z),
     "win_file_local_op_open_save_as": lambda x,y,z: genWinFileLocalOpenSaveSkill(x, y, z),
     "win_printer_local_print_reformat_print": lambda x,y,z: genWinPrinterLocalReformatPrintSkill(x, y, z),
     "win_rar_local_unzip_unzip_archive": lambda x,y,z: genWinRARLocalUnzipSkill(x, y, z),

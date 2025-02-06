@@ -1900,6 +1900,15 @@ class MainWindow(QMainWindow):
             self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
 
 
+    def addTestMissions(self, bodyobj):
+        for m in bodyobj["added_missions"]:
+            new_mission = EBMISSION(self)
+            self.fill_mission(new_mission, m, bodyobj["task_groups"])
+            self.setPrivateAttributesBasedOnPast(new_mission)
+            new_mission.updateDisplay()
+            self.missions.append(new_mission)
+            self.missionModel.appendRow(new_mission)
+
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings, forceful=False):
         log3("start fetching schedule...", "fetchSchedule", self)
@@ -1972,6 +1981,7 @@ class MainWindow(QMainWindow):
                         if exists(file):
                             with open(file) as test_schedule_file:
                                 bodyobj = json.load(test_schedule_file)
+                                self.addTestMissions(bodyobj)
 
                     # self.handleCloudScheduledWorks(bodyobj)
                 else:
