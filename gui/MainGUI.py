@@ -1533,7 +1533,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Run Local Work"))
-        new_action.triggered.connect(self.runTodaysLocalWork)
+        new_action.triggered.connect(lambda: asyncio.create_task(self.runTodaysLocalWork()))
         return new_action
 
     def _createRunTestAllAction(self):
@@ -7514,7 +7514,10 @@ class MainWindow(QMainWindow):
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
         try:
-            log3("received from commander: "+msgString, "serveCommander", self)
+            if len(msgString) > 256:
+                log3("received from commander: " + msgString[:255] + "...", "serveCommander", self)
+            else:
+                log3("received from commander: "+msgString, "serveCommander", self)
             if "!connection!" in msgString:
                 msg = {"cmd": "connection"}
                 msg_parts = msgString.split("!")
@@ -8440,8 +8443,8 @@ class MainWindow(QMainWindow):
             # Send data
             if commander_link and not commander_link.is_closing():
                 commander_link.write(length_prefix+encoded_json_string)
-                await commander_link.drain()
-            # asyncio.get_running_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
+                # await commander_link.drain()
+                asyncio.get_running_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
 
         else:
             if json_data == None:

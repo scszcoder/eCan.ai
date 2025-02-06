@@ -257,9 +257,9 @@ class CommunicatorProtocol(asyncio.Protocol):
                     else:
                         decodedMsg = message.decode('utf-8')
                         if len(decodedMsg) < 128:
-                            print('Other data received: ...', decodedMsg)
+                            print('none file data received:' +json_data['cmd'] + " ..." + decodedMsg)
                         else:
-                            print('Other data received: ...', decodedMsg[-127:])
+                            print('none file data received:' +json_data['cmd'] + " ..." + decodedMsg[-127:])
                         asyncio.create_task(
                             self.msg_queue.put(self.peername[0] + "!net data!" + decodedMsg))
 
