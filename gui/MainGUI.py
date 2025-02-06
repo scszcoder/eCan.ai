@@ -2738,7 +2738,7 @@ class MainWindow(QMainWindow):
 
                         if not vehicle.getTestDisabled():
                             print("set up schedule for vehicle", vname)
-                            self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
+                            await self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
                             if "running" in vehicle.getStatus():
                                 self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
             if tbd_unassigned:
@@ -2784,7 +2784,7 @@ class MainWindow(QMainWindow):
                         vehicle = self.getVehicleByName(vname)
                         log3("assign reactive work for vehicle:"+vname, "assignWork", self)
                         if not vehicle.getTestDisabled():
-                            self.vehicleSetupWorkSchedule(vehicle, p_task_groups, False)
+                            await self.vehicleSetupWorkSchedule(vehicle, p_task_groups, False)
                             if "running" in vehicle.getStatus():
                                 self.updateUnassigned("reactive", vname, p_task_groups, tbd_unassigned)
 
@@ -5068,11 +5068,11 @@ class MainWindow(QMainWindow):
 
                 if selected_act == self.vehicleSetUpTeamAction:
                     print("vehicle setup team clicked....", self.selected_vehicle_item.getName())
-                    self.vehicleSetupTeam(self.selected_vehicle_item)
+                    asyncio.run(self.vehicleSetupTeam(self.selected_vehicle_item))
 
                 elif selected_act == self.vehicleSetUpWorkScheduleAction:
                     print("vehicle setup work schedule clicked....", self.selected_vehicle_item.getName())
-                    self.vehicleSetupWorkSchedule(self.selected_vehicle_item, self.todays_scheduled_task_groups)
+                    asyncio.run(self.vehicleSetupWorkSchedule(self.selected_vehicle_item, self.todays_scheduled_task_groups))
                 elif selected_act == self.vehiclePingAction:
                     print("vehicle ping clicked....", self.selected_vehicle_item.getName())
                     self.vehiclePing(self.selected_vehicle_item)
@@ -9807,7 +9807,7 @@ class MainWindow(QMainWindow):
             log3(ex_stat)
             return []
 
-    def vehicleSetupTeam(self, vehicle):
+    async def vehicleSetupTeam(self, vehicle):
         vname = vehicle.getName()
         print("send all ads profiles to the vehicle", vname)
 
@@ -9827,20 +9827,20 @@ class MainWindow(QMainWindow):
         # if not self.tcpServer == None:
         if vlink:
             print("sending all bot profiles to platoon...")
-            self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)
+            await self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)
         else:
             print("WARNING: vehicle not connected!")
 
 
-    def setUpBotADSProfilesOnVehicles(self):
+    async def setUpBotADSProfilesOnVehicles(self):
         print("send all ads profiles to all running vehicle")
         for v in self.vehicles:
             if "running" in v.getStatus():
-                self.vehicleSetupTeam(v)
+                await self.vehicleSetupTeam(v)
 
     # from task group extract the vehicle related work, and get bots, missions, skills
     # all ready and send over to the vehicle to get the work started.
-    def vehicleSetupWorkSchedule(self, vehicle, p_task_groups, scheduled=True):
+    async def vehicleSetupWorkSchedule(self, vehicle, p_task_groups, scheduled=True):
         try:
             vname = vehicle.getName()
             if vehicle and "running" in vehicle.getStatus():
@@ -9855,7 +9855,7 @@ class MainWindow(QMainWindow):
                 # send fingerprint browser profiles to platoon/vehicle
                 # for profile in ads_profiles:
                 #     self.send_file_to_platoon(vehicle.getFieldLink(), "ads profile", profile)
-                self.vehicleSetupTeam(vehicle)
+                await self.vehicleSetupTeam(vehicle)
 
                 # now need to fetch this task associated bots, mission, skills
                 # get all bots IDs involved. get all mission IDs involved.
@@ -9881,10 +9881,10 @@ class MainWindow(QMainWindow):
                     log3(get_printable_datetime() + "SENDING [" + vname + "]PLATOON[" + vehicle.getFieldLink()[
                         "ip"] + "] SCHEDULE::: " + json.dumps(schedule), "assignWork", self)
 
-                    self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+                    await self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
 
                     # send over skills to platoon
-                    self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
+                    await self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
 
                 else:
                     log3(get_printable_datetime() + "scheduled vehicle " + vname + " is not FOUND on LAN.", "assignWork", self)
