@@ -195,7 +195,7 @@ class CommunicatorProtocol(asyncio.Protocol):
             hostname = ""  # If no reverse DNS is available
         print(f'IP Address: {ip_address}, Hostname: {hostname}')
 
-        # asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))
+        asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))
 
     def send_data(self, data):
         """ Safe transport write function """
