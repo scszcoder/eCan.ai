@@ -11,6 +11,7 @@ import base64
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
 import utils.logger_helper
+import traceback
 
 UDP_IP = "127.0.0.1"
 
@@ -159,7 +160,7 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
             self.on_con_lost.set_result(True)
 
 # main platoon side communication protocol
-class communicatorProtocol(asyncio.Protocol):
+class CommunicatorProtocol(asyncio.Protocol):
     def __init__(self, topgui, message, on_con_lost):
         self.buffer = bytearray()
         self.expected_length = None
@@ -182,6 +183,9 @@ class communicatorProtocol(asyncio.Protocol):
         self.transport = transport
         asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))
 
+    def set_transport(self, transport):
+        """ Manually assign transport (needed for asyncio.open_connection) """
+        self.transport = transport
 
     def data_received(self, data):
         self.buffer.extend(data)
@@ -225,7 +229,7 @@ class communicatorProtocol(asyncio.Protocol):
                             file.write(file_data)
                             print(f"File {new_fullname} saved, size: {len(file_data)} bytes")
                     else:
-                        decodedMsg = self.peername[0], message.decode('utf-8')
+                        decodedMsg = message.decode('utf-8')
                         if len(decodedMsg) < 128:
                             print('Other data received: ...', decodedMsg)
                         else:
@@ -400,17 +404,15 @@ class UDPServerProtocol:
         if "Commander" in message and  myBoss in message and commanderXport is None:
             rxmsg_parts = message.split(":")
             commanderIP = rxmsg_parts[1]
-            print(f"received: {commanderIP}")
+            print(f"received commander IP: {commanderIP}")
 
             if not self.commander_connect_attempted:
                 print("create task to start tcp conn to commander....")
                 self.loop.create_task(self.reconnect_to_commander(commanderIP))
                 self.commander_connect_attempted = True
 
-
     async def reconnect_to_commander(self, commanderIP):
         global commanderXport
-        print(f"Attempting to connect to Commander at IP: {commanderIP}, PORT: {TCP_PORT}")
 
         reconnect_attempts = 0
         max_retries = 17280    # 17280 x 5 = 86400 which is 24hrs. if net is lost for 24hrs, we really should restart the whole program......
@@ -419,20 +421,17 @@ class UDPServerProtocol:
             try:
                 loop = asyncio.get_running_loop()
                 on_con_lost = loop.create_future()
-
+                print(f"Attempting to connect to Commander at IP: {commanderIP}, PORT: {TCP_PORT}")
                 commanderXport, platoonProtocol = await loop.create_connection(
-                    lambda: communicatorProtocol(self.topgui, '', on_con_lost),
+                    lambda: CommunicatorProtocol(self.topgui, '', on_con_lost),
                     commanderIP, TCP_PORT)
 
-                # # Use the socket directly in the create_connection call (without specifying host/port)
-                # commanderXport, platoonProtocol = await self.loop.create_connection(
-                #     lambda: CommunicatorProtocol(self.topgui, '', self.on_con_lost),
-                #     sock=sock)
                 hostname = socket.gethostname()
                 myips = socket.gethostbyname_ex(hostname)[-1]
                 self.topgui.setCommanderXPort(commanderXport)
                 self.topgui.setIP(myips[-1])
                 print(f"commanderXport created: {commanderXport}")
+
 
                 # Wait for the connection to be lost
                 await on_con_lost
@@ -440,6 +439,15 @@ class UDPServerProtocol:
 
             except Exception as e:
                 print(f"Failed to connect to commander: {e}")
+                # Get the traceback information
+                traceback_info = traceback.extract_tb(e.__traceback__)
+
+                # Extract the file name and line number from the last entry in the traceback
+                if traceback_info:
+                    ex_stat = "ErrorReconnectToCommander:" + traceback.format_exc() + " " + str(e)
+                else:
+                    ex_stat = "ErrorReconnectToCommander traceback information not available"
+
                 reconnect_attempts += 1
                 # Optionally add a delay between reconnection attempts
                 await asyncio.sleep(5)
