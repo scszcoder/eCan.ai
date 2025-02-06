@@ -7646,7 +7646,7 @@ class MainWindow(QMainWindow):
                 msg = json.dumps(resp)
                 msg_with_delimiter = msg + "!ENDMSG!"
                 self.commanderXport.write(msg_with_delimiter.encode('utf8'))
-                self.commanderXport.get_loop().call_soon(lambda: print("PONG MSG SENT2COMMANDER..."))
+                asyncio.get_running_loop().call_soon(lambda: print("PONG MSG SENT2COMMANDER..."))
 
                 log3("pong sent!", "serveCommander", self)
 
@@ -7675,7 +7675,7 @@ class MainWindow(QMainWindow):
         msg_with_delimiter = msg + "!ENDMSG!"
         # send to commander
         self.commanderXport.write(msg_with_delimiter.encode('utf8'))
-        self.commanderXport.get_loop().call_soon(lambda: print("MSTAT MSG SENT2COMMANDER..."))
+        asyncio.get_running_loop().call_soon(lambda: print("MSTAT MSG SENT2COMMANDER..."))
 
     def sendRPAMessage(self, msg_data):
         asyncio.create_task(self.gui_rpa_msg_queue.put(msg_data))
@@ -7793,7 +7793,7 @@ class MainWindow(QMainWindow):
                     log3("Sending report to Commander::"+json.dumps(rpt), "doneWithToday", self)
                     # self.commanderXport.write(str.encode(rpt_with_delimiter))
                     self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
-                    self.commanderXport.get_loop().call_soon(lambda: print("DONE MSG SENT2..."))
+                    asyncio.get_running_loop().call_soon(lambda: print("DONE MSG SENT2..."))
 
 
                 # also send updated bot ADS profiles to the commander for backup purose.
@@ -8432,7 +8432,7 @@ class MainWindow(QMainWindow):
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
             commander_link.write(length_prefix+encoded_json_string)
-            commander_link.get_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
+            asyncio.get_running_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
 
         else:
             if json_data == None:
@@ -8453,7 +8453,7 @@ class MainWindow(QMainWindow):
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
                 commander_link.write(length_prefix + json_data.encode('utf-8'))
-                commander_link.get_loop().call_soon(lambda: print("FILE SENT2COMMANDER..."))
+                asyncio.get_running_loop().call_soon(lambda: print("FILE SENT2COMMANDER..."))
 
                 # await xport.drain()
 
@@ -8504,7 +8504,7 @@ class MainWindow(QMainWindow):
                 print("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
 
             commander_link.write(length_prefix + json_data.encode('utf-8'))
-            commander_link.get_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
+            asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
 
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
@@ -8597,7 +8597,7 @@ class MainWindow(QMainWindow):
                         length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                         # Send data
                         commander_link.write(length_prefix + json_data.encode('utf-8'))
-                        commander_link.get_loop().call_soon(lambda: print("RESULT FILES SENT2COMMANDER..."))
+                        asyncio.get_running_loop().call_soon(lambda: print("RESULT FILES SENT2COMMANDER..."))
                         # await xport.drain()
 
                         fileTBSent.close()
