@@ -6621,7 +6621,6 @@ def processECBDispatchTroops(step, i):
         # Log and skip errors gracefully
         ex_stat = f"Error in ECB Dispatch Troops: {traceback.format_exc()} {str(e)}"
         print(f"Error while ECB dispatch troops: {ex_stat}")
-        symTab[step["session_var"]] = None
         symTab[step["flag"]] = False
 
     # Always proceed to the next instruction
