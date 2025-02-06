@@ -42,12 +42,14 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         self.on_con_lost = on_con_lost
         self.msg_queue = topgui.getGuiMsgQueue()
         self.buffer = ""
+        self.transport = None
         print("tcp server protocol initialized....")
 
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
         print('Connection from Platoon {}'.format(self.peername))
         ip_address = self.peername[0]
+        self.transport = transport
         try:
             hostname = socket.gethostbyaddr(ip_address)[0]
         except socket.herror:
@@ -59,6 +61,17 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         fieldLinks.append(new_link)
         print(f"now we have {len(fieldLinks)} field links")
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!connection!"+hostname))
+
+    def send_data(self, data):
+        """ Safe transport write function """
+        if self.transport is None or self.transport.is_closing():
+            print("Transport is unavailable or closing. Cannot send data.")
+            return
+
+        try:
+            self.transport.write(data)
+        except Exception as e:
+            print(f"Error writing to transport: {e}")
 
     def data_received(self, data):
         try:
@@ -168,20 +181,32 @@ class CommunicatorProtocol(asyncio.Protocol):
         self.on_con_lost = on_con_lost
         self.topgui = topgui
         self.msg_queue = topgui.getGuiMsgQueue()
+        self.transport = None
         print("comm protocol initialized.....")
 
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
         print('Connection from commander {}'.format(self.peername))
         ip_address = self.peername[0]
+        self.transport = transport
         try:
             hostname = socket.gethostbyaddr(ip_address)[0]
         except socket.herror:
             hostname = ""  # If no reverse DNS is available
         print(f'IP Address: {ip_address}, Hostname: {hostname}')
 
-        self.transport = transport
-        asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))
+        # asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))
+
+    def send_data(self, data):
+        """ Safe transport write function """
+        if self.transport is None or self.transport.is_closing():
+            print("Transport is unavailable or closing. Cannot send data.")
+            return
+
+        try:
+            self.transport.write(data)
+        except Exception as e:
+            print(f"Error writing to transport: {e}")
 
     def set_transport(self, transport):
         """ Manually assign transport (needed for asyncio.open_connection) """
@@ -388,6 +413,7 @@ class UDPServerProtocol:
         self.topgui = topgui
         self.on_con_lost = loop.create_future()
         self.commander_connect_attempted = False
+        self.active_reconnect_task = None
 
     def connection_made(self, transport):
         self.transport = transport
@@ -408,8 +434,10 @@ class UDPServerProtocol:
 
             if not self.commander_connect_attempted:
                 print("create task to start tcp conn to commander....")
-                self.loop.create_task(self.reconnect_to_commander(commanderIP))
+                # self.loop.create_task(self.reconnect_to_commander(commanderIP))
                 self.commander_connect_attempted = True
+                if self.active_reconnect_task is None or self.active_reconnect_task.done():
+                    self.active_reconnect_task = self.loop.create_task(self.reconnect_to_commander(commanderIP))
 
     async def reconnect_to_commander(self, commanderIP):
         global commanderXport
@@ -417,11 +445,25 @@ class UDPServerProtocol:
         reconnect_attempts = 0
         max_retries = 17280    # 17280 x 5 = 86400 which is 24hrs. if net is lost for 24hrs, we really should restart the whole program......
 
+        if commanderXport is not None and not commanderXport.is_closing():
+            print("Already connected to Commander. Skipping reconnection.")
+            return
+
         while reconnect_attempts < max_retries:
             try:
+                if commanderXport is not None and not commanderXport.is_closing():
+                    print("Transport is still active. Skipping reconnection.")
+                    return  # Avoid reconnecting if transport is still alive
+
                 loop = asyncio.get_running_loop()
                 on_con_lost = loop.create_future()
                 print(f"Attempting to connect to Commander at IP: {commanderIP}, PORT: {TCP_PORT}")
+
+                # Ensure previous transport is closed before reconnecting
+                if commanderXport:
+                    commanderXport.close()
+                    commanderXport = None
+
                 commanderXport, platoonProtocol = await loop.create_connection(
                     lambda: CommunicatorProtocol(self.topgui, '', on_con_lost),
                     commanderIP, TCP_PORT)
