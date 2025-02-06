@@ -7479,8 +7479,8 @@ class MainWindow(QMainWindow):
 
                     if self.commanderXport:
                         log3("sending heartbeat", "serveCommander", self)
-                        self.commanderXport.write(msg_with_delimiter.encode('utf8'))
-                        self.commanderXport.get_loop().call_soon(lambda: print("HB MSG SENT2COMMANDER..."))
+                        self.commanderXport.send_data(msg_with_delimiter.encode('utf8'))
+                        # self.commanderXport.get_loop().call_soon(lambda: print("HB MSG SENT2COMMANDER..."))
 
             except (json.JSONDecodeError, AttributeError) as e:
                 # Handle JSON encoding or missing attributes issues
@@ -7645,8 +7645,8 @@ class MainWindow(QMainWindow):
                 print(self.commanderXport)
                 msg = json.dumps(resp)
                 msg_with_delimiter = msg + "!ENDMSG!"
-                self.commanderXport.write(msg_with_delimiter.encode('utf8'))
-                asyncio.get_running_loop().call_soon(lambda: print("PONG MSG SENT2COMMANDER..."))
+                self.commanderXport.send_data(msg_with_delimiter.encode('utf8'))
+                # asyncio.get_running_loop().call_soon(lambda: print("PONG MSG SENT2COMMANDER..."))
 
                 log3("pong sent!", "serveCommander", self)
 
@@ -7674,8 +7674,8 @@ class MainWindow(QMainWindow):
         # Append the delimiter
         msg_with_delimiter = msg + "!ENDMSG!"
         # send to commander
-        self.commanderXport.write(msg_with_delimiter.encode('utf8'))
-        asyncio.get_running_loop().call_soon(lambda: print("MSTAT MSG SENT2COMMANDER..."))
+        self.commanderXport.send_data(msg_with_delimiter.encode('utf8'))
+        # asyncio.get_running_loop().call_soon(lambda: print("MSTAT MSG SENT2COMMANDER..."))
 
     def sendRPAMessage(self, msg_data):
         asyncio.create_task(self.gui_rpa_msg_queue.put(msg_data))
@@ -7792,8 +7792,8 @@ class MainWindow(QMainWindow):
                     rpt_with_delimiter = json.dumps(rpt) + "!ENDMSG!"
                     log3("Sending report to Commander::"+json.dumps(rpt), "doneWithToday", self)
                     # self.commanderXport.write(str.encode(rpt_with_delimiter))
-                    self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
-                    asyncio.get_running_loop().call_soon(lambda: print("DONE MSG SENT2..."))
+                    self.commanderXport.send_data(rpt_with_delimiter.encode('utf-8'))
+                    # asyncio.get_running_loop().call_soon(lambda: print("DONE MSG SENT2..."))
 
 
                 # also send updated bot ADS profiles to the commander for backup purose.
@@ -8310,8 +8310,8 @@ class MainWindow(QMainWindow):
                     full_txt = date_word + ">" + str(sender) + ">" + bids_on_this_vehicle_string + ">" + text
                     cmd = {"cmd": "chat", "message": full_txt.decode('latin1')}
                     cmd_str = json.dumps(cmd)
-                    v.getFieldLink()["transport"].write(cmd_str.encode('utf8'))
-                    v.getFieldLink()["transport"].get_loop().call_soon(lambda: print("CHAT MSG SENT2..."))
+                    v.getFieldLink()["transport"].send_data(cmd_str.encode('utf8'))
+                    # v.getFieldLink()["transport"].get_loop().call_soon(lambda: print("CHAT MSG SENT2..."))
 
                     # Remove the intersection from the recipients.
                     receivers.difference_update(intersection)
@@ -8386,8 +8386,8 @@ class MainWindow(QMainWindow):
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
                 self.showMsg(f"About to send file json with "+str(len(json_data.encode('utf-8')))+ " BYTES!")
-                platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
-                platoon_link["transport"].get_loop().call_soon(lambda: print("FILE MSG SENT2PLATOON..."))
+                platoon_link["transport"].send_data(length_prefix+json_data.encode('utf-8'))
+                # asyncio.get_running_loop().call_soon(lambda: print("FILE MSG SENT2PLATOON..."))
                 # await xport.drain()
 
                 fileTBSent.close()
@@ -8410,8 +8410,7 @@ class MainWindow(QMainWindow):
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
-            platoon_link["transport"].write(length_prefix+encoded_json_string)
-            platoon_link["transport"].get_loop().call_soon(lambda: print("JSON MSG SENT2PLATOON..."))
+            platoon_link["transport"].send_data(length_prefix+encoded_json_string)
 
         else:
             if json_data == None:
@@ -8431,8 +8430,8 @@ class MainWindow(QMainWindow):
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
-            commander_link.write(length_prefix+encoded_json_string)
-            asyncio.get_running_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
+            commander_link.send_data(length_prefix+encoded_json_string)
+            # asyncio.get_running_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
 
         else:
             if json_data == None:
@@ -8452,8 +8451,8 @@ class MainWindow(QMainWindow):
                                         "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
-                commander_link.write(length_prefix + json_data.encode('utf-8'))
-                asyncio.get_running_loop().call_soon(lambda: print("FILE SENT2COMMANDER..."))
+                commander_link.send_data(length_prefix + json_data.encode('utf-8'))
+                # asyncio.get_running_loop().call_soon(lambda: print("FILE SENT2COMMANDER..."))
 
                 # await xport.drain()
 
@@ -8503,8 +8502,8 @@ class MainWindow(QMainWindow):
             else:
                 print("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
 
-            commander_link.write(length_prefix + json_data.encode('utf-8'))
-            asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
+            commander_link.send_data(length_prefix + json_data.encode('utf-8'))
+            # asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
 
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
@@ -8564,8 +8563,8 @@ class MainWindow(QMainWindow):
 
 
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
-            platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
-            platoon_link["transport"].get_loop().call_soon(lambda: print("ADS FILES SENT2PLATOON..."))
+            platoon_link["transport"].send_data(length_prefix + json_data.encode('utf-8'))
+            # asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2PLATOON..."))
 
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
@@ -8596,8 +8595,8 @@ class MainWindow(QMainWindow):
                                                 "file_contents": encoded_data})
                         length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                         # Send data
-                        commander_link.write(length_prefix + json_data.encode('utf-8'))
-                        asyncio.get_running_loop().call_soon(lambda: print("RESULT FILES SENT2COMMANDER..."))
+                        commander_link.send_data(length_prefix + json_data.encode('utf-8'))
+                        # asyncio.get_running_loop().call_soon(lambda: print("RESULT FILES SENT2COMMANDER..."))
                         # await xport.drain()
 
                         fileTBSent.close()
