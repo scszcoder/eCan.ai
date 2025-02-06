@@ -204,6 +204,7 @@ class CommunicatorProtocol(asyncio.Protocol):
             return
 
         try:
+            print("write transport....")
             self.transport.write(data)
         except Exception as e:
             print(f"Error writing to transport: {e}")

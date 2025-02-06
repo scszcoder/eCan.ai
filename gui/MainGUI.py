@@ -7479,7 +7479,8 @@ class MainWindow(QMainWindow):
 
                     if self.commanderXport:
                         log3("sending heartbeat", "serveCommander", self)
-                        self.commanderXport.send_data(msg_with_delimiter.encode('utf8'))
+                        if self.commanderXport and not self.commanderXport.is_closing():
+                            self.commanderXport.write(msg_with_delimiter.encode('utf8'))
                         # self.commanderXport.get_loop().call_soon(lambda: print("HB MSG SENT2COMMANDER..."))
 
             except (json.JSONDecodeError, AttributeError) as e:
@@ -7645,7 +7646,8 @@ class MainWindow(QMainWindow):
                 print(self.commanderXport)
                 msg = json.dumps(resp)
                 msg_with_delimiter = msg + "!ENDMSG!"
-                self.commanderXport.send_data(msg_with_delimiter.encode('utf8'))
+                if self.commanderXport and not self.commanderXport.is_closing():
+                    self.commanderXport.write(msg_with_delimiter.encode('utf8'))
                 # asyncio.get_running_loop().call_soon(lambda: print("PONG MSG SENT2COMMANDER..."))
 
                 log3("pong sent!", "serveCommander", self)
@@ -7674,7 +7676,8 @@ class MainWindow(QMainWindow):
         # Append the delimiter
         msg_with_delimiter = msg + "!ENDMSG!"
         # send to commander
-        self.commanderXport.send_data(msg_with_delimiter.encode('utf8'))
+        if self.commanderXport and not self.commanderXport.is_closing():
+            self.commanderXport.write(msg_with_delimiter.encode('utf8'))
         # asyncio.get_running_loop().call_soon(lambda: print("MSTAT MSG SENT2COMMANDER..."))
 
     def sendRPAMessage(self, msg_data):
@@ -7792,7 +7795,8 @@ class MainWindow(QMainWindow):
                     rpt_with_delimiter = json.dumps(rpt) + "!ENDMSG!"
                     log3("Sending report to Commander::"+json.dumps(rpt), "doneWithToday", self)
                     # self.commanderXport.write(str.encode(rpt_with_delimiter))
-                    self.commanderXport.send_data(rpt_with_delimiter.encode('utf-8'))
+                    if self.commanderXport and not self.commanderXport.is_closing():
+                        self.commanderXport.write(rpt_with_delimiter.encode('utf-8'))
                     # asyncio.get_running_loop().call_soon(lambda: print("DONE MSG SENT2..."))
 
 
@@ -8430,7 +8434,8 @@ class MainWindow(QMainWindow):
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
-            commander_link.send_data(length_prefix+encoded_json_string)
+            if commander_link and not commander_link.is_closing():
+                commander_link.write(length_prefix+encoded_json_string)
             # asyncio.get_running_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
 
         else:
@@ -8451,7 +8456,8 @@ class MainWindow(QMainWindow):
                                         "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
-                commander_link.send_data(length_prefix + json_data.encode('utf-8'))
+                if commander_link and not commander_link.is_closing():
+                    commander_link.write(length_prefix + json_data.encode('utf-8'))
                 # asyncio.get_running_loop().call_soon(lambda: print("FILE SENT2COMMANDER..."))
 
                 # await xport.drain()
