@@ -1376,9 +1376,8 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
 def genWinADSEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     psk_words = "{"
 
-
-    this_step, step_words = genStepHeader("win_ads_ebay_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY001",
-                                          "in Browser Ebay Fullfill New Orders On Windows.", stepN)
+    this_step, step_words = genStepHeader("win_ads_ebay_orders_browser_update_tracking", "win", "1.0", "AIPPS LLC", "PUBWINADSEBAY001",
+                                          "in Browser Ebay update tracking On Windows.", stepN)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepStub("start skill", "public/win_ads_ebay_orders/browser_update_tracking", "", this_step)
@@ -1404,7 +1403,7 @@ def genWinADSEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
 
 def genWinChromeEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     psk_words = "{"
-
+    # this_step = stepN
 
     this_step, step_words = genStepHeader("win_chrome_ebay_fullfill_orders", "win", "1.0", "AIPPS LLC", "PUBWINCHROMEEBAY001",
                                           "in Browser Ebay Fullfill New Orders On Windows.", stepN)
