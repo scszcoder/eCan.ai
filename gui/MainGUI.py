@@ -9597,7 +9597,7 @@ class MainWindow(QMainWindow):
         try:
             self.botFingerPrintsReady = False
             if self.machine_role == "Commander":
-                log3("syncing finger prints")
+                log3("syncing finger prints...")
 
                 reqMsg = {"cmd": "reqSyncFingerPrintProfiles", "content": "now"}
 
