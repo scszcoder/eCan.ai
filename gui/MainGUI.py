@@ -1006,8 +1006,8 @@ class MainWindow(QMainWindow):
 
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
 
-        print("vehicles after init:", [v.getName() for v in self.vehicles])
         self.saveSettings()
+        print("vehicles after init:", [v.getName() for v in self.vehicles])
 
 
     # SC note - really need to have
@@ -1816,10 +1816,10 @@ class MainWindow(QMainWindow):
 
         # testWebdriverADSAndChromeConnection(self, filename)
 
-    def runTodaysLocalWork(self):
+    async def runTodaysLocalWork(self):
         # send a request to commander for today's scheduled work.
         workReq = {"type": "reqResendWorkReq", "ip": self.ip, "content": "now"}
-        self.send_json_to_commander(self.commanderXport, workReq)
+        await self.send_json_to_commander(self.commanderXport, workReq)
 
     # 1) prepre ads profile cookies
     # 2) group them by vehicle
@@ -2684,7 +2684,7 @@ class MainWindow(QMainWindow):
     # maintained in constant. when work group is scheduled. we will regroups bots' vehicle, and then generated associated
     # ads profiles, bots, missions, tasks, skills file.....
     # otherwise, send works to platoons to execute.
-    def assignWork(self):
+    async def assignWork(self):
         # tasks should already be sorted by botid,
         try:
             nsites = 0
@@ -2809,7 +2809,7 @@ class MainWindow(QMainWindow):
         return found_vehicle
 
 
-    def empower_platoon_with_skills(self, platoon_link, skill_ids):
+    async def empower_platoon_with_skills(self, platoon_link, skill_ids):
         # at this point skilll PSK files should be ready to use, send these files to the platton so that can use them.
         for skid in skill_ids:
             found_skill = next((sk for i, sk in enumerate(self.skills) if sk.getSkid() == skid), None)
@@ -2819,7 +2819,7 @@ class MainWindow(QMainWindow):
                 else:
                     psk_file = self.my_ecb_data_homepath + found_skill.getPskFileName()
                 log3("Empowering platoon with skill PSK"+psk_file, "empower_platoon_with_skills", self)
-                self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
+                await self.send_file_to_platoon(platoon_link, "skill psk", psk_file)
             else:
                 log3("ERROR: skid NOT FOUND [" + str(skid) + "]", "empower_platoon_with_skills", self)
 
@@ -4593,15 +4593,15 @@ class MainWindow(QMainWindow):
         self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
 
-    def cancelVehicleMission(self, rows):
+    async def cancelVehicleMission(self, rows):
         # cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
         cmd = {"cmd": "reqCancelMission", "missions": "all"}
         effective_rows = list(filter(lambda r: r >= 0, rows))
         if len(effective_rows) > 0:
-            self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
+            await self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
     # this function sends commands to platoon(s)
-    def sendToPlatoonsByRowIdxs(self, idxs, cmd={"cmd": "ping"}):
+    async def sendToPlatoonsByRowIdxs(self, idxs, cmd={"cmd": "ping"}):
         # this shall bring up a windows, but for now, simply send something to a platoon for network testing purpose...
         #if self.platoonWin == None:
         #    self.platoonWin = PlatoonWindow(self)
@@ -4618,13 +4618,13 @@ class MainWindow(QMainWindow):
             self.showMsg("Currently, there are ("+str(len(fieldLinks))+") connection to this server.....")
             for i in range(len(fieldLinks)):
                 if i in idxs:
-                    self.send_json_to_platoon(fieldLinks[i], cmd)
+                    await self.send_json_to_platoon(fieldLinks[i], cmd)
                     self.showMsg("cmd sent on link:"+str(i)+":"+json.dumps(cmd))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
 
     # this function sends commands to platoon(s)
-    def sendToVehicleByVip(self, vip, cmd={"cmd": "ping"}):
+    async def sendToVehicleByVip(self, vip, cmd={"cmd": "ping"}):
         self.showMsg("sending commands to vehicle by vip.....")
         self.showMsg("tcp connections....." + vip + " " + json.dumps([flk["ip"] for flk in fieldLinks]))
 
@@ -4632,7 +4632,7 @@ class MainWindow(QMainWindow):
 
         # if not self.tcpServer == None:
         if link:
-            self.send_json_to_platoon(link, cmd)
+            await self.send_json_to_platoon(link, cmd)
             self.showMsg("cmd sent on link:" + str(vip) + ":" + json.dumps(cmd))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
@@ -6500,7 +6500,7 @@ class MainWindow(QMainWindow):
                         msg_parts = net_message.split("!")
                         if len(msg_parts) >= 3:  # Check for valid message structure
                             if msg_parts[1] == "net data":
-                                self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+                                await self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
                             elif msg_parts[1] == "connection":
                                 print("received connection message: " + msg_parts[0] + " " + msg_parts[2])
                                 if self.platoonWin is None:
@@ -6564,7 +6564,7 @@ class MainWindow(QMainWindow):
                     log3("idle checking.....", "runbotworks", self)
                     if self.getNumUnassignedWork() > 0:
                         log3(get_printable_datetime() + " - Found unassigned work: "+str(self.getNumUnassignedWork())+"<>"+datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "runbotworks", self)
-                        self.assignWork()
+                        await self.assignWork()
 
                     log3("check next to run"+str(len(self.todays_work["tbd"]))+" "+str(len(self.reactive_work["tbd"]))+" "+str(self.getNumUnassignedWork()), "runbotworks", self)
                     botTodos, runType = self.checkNextToRun()
@@ -6609,7 +6609,7 @@ class MainWindow(QMainWindow):
                                 if len(self.todays_work["tbd"]) == 0:
                                     if self.host_role == "Platoon":
                                         log3("Platoon Done with today!!!!!!!!!", "runbotworks", self)
-                                        self.doneWithToday()
+                                        await self.doneWithToday()
                                     else:
                                         # check whether we have collected all reports so far, there is 1 count difference between,
                                         # at this point the local report on this machine has not been added to toddaysReports yet.
@@ -6619,7 +6619,7 @@ class MainWindow(QMainWindow):
                                         log3("todays_completed"+json.dumps(self.todays_completed), "runbotworks", self)
                                         if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
                                             log3("Commander Done with today!!!!!!!!!", "runbotworks", self)
-                                            self.doneWithToday()
+                                            await self.doneWithToday()
                         else:
                             log3("Unrecogizable todo...."+botTodos["name"], "runbotworks", self)
                             log3("POP a unrecognized task from queue", "runbotworks", self)
@@ -6630,7 +6630,7 @@ class MainWindow(QMainWindow):
                         # if my own works are done and all platoon's reports are collected.
                         if self.host_role == "Platoon":
                             if len(self.todays_work["tbd"]) == 0:
-                                self.doneWithToday()
+                                await self.doneWithToday()
 
                 if self.working_state != "running_idle":
                     # clear to make next round ready to work
@@ -7076,7 +7076,7 @@ class MainWindow(QMainWindow):
     # msg in json format
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
     # content format varies according to type.
-    def processPlatoonMsgs(self, msgString, ip):
+    async def processPlatoonMsgs(self, msgString, ip):
         try:
             global running_step_index, fieldLinks
             fl_ips = [x["ip"] for x in fieldLinks]
@@ -7186,7 +7186,7 @@ class MainWindow(QMainWindow):
                 if len(self.todaysPlatoonReports) == self.num_todays_task_groups:
                     # check = all(item in List1 for item in List2)
                     # this means all reports are collected, this is the last missing piece, ready to send to cloud.
-                    self.doneWithToday()
+                    await self.doneWithToday()
                     self.num_todays_task_groups = 0
             elif msg["type"] == "botsADSProfilesUpdate":
                 self.showMsg("received botsADSProfilesUpdate message")
@@ -7753,7 +7753,7 @@ class MainWindow(QMainWindow):
     # 2) save report to local logs,
     # 3) clear today's work data structures.
     #
-    def doneWithToday(self):
+    async def doneWithToday(self):
         global commanderXport
         # call reportStatus API to send today's report to API
         log3("Done with today!", "doneWithToday", self)
@@ -7804,7 +7804,7 @@ class MainWindow(QMainWindow):
                 # for bot_profile in self.todays_bot_profiles:
                 #     self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
                 localFingerPrintProfiles = self.gatherFingerPrints()
-                self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
+                await self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
 
             # 2) log reports on local drive.
             self.saveDailyRunReport(self.todaysPlatoonReports)
@@ -7820,9 +7820,9 @@ class MainWindow(QMainWindow):
             self.todaysReports = []                     # per vehicle/host
             self.todaysPlatoonReports = []
 
-    def sendFingerPrintProfilesToCommander(self, profiles):
+    async def sendFingerPrintProfilesToCommander(self, profiles):
         for bot_profile in profiles:
-            self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
+            await self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
 
     def batchSendFingerPrintProfilesToCommander(self, profiles):
         self.batch_send_ads_profiles_to_commander(self.commanderXport, "txt", profiles)
@@ -8314,7 +8314,8 @@ class MainWindow(QMainWindow):
                     full_txt = date_word + ">" + str(sender) + ">" + bids_on_this_vehicle_string + ">" + text
                     cmd = {"cmd": "chat", "message": full_txt.decode('latin1')}
                     cmd_str = json.dumps(cmd)
-                    v.getFieldLink()["transport"].send_data(cmd_str.encode('utf8'))
+                    if v.getFieldLink()["transport"] and not v.getFieldLink()["transport"].is_closing():
+                        v.getFieldLink()["transport"].write(cmd_str.encode('utf8'))
                     # v.getFieldLink()["transport"].get_loop().call_soon(lambda: print("CHAT MSG SENT2..."))
 
                     # Remove the intersection from the recipients.
@@ -8378,7 +8379,7 @@ class MainWindow(QMainWindow):
         self.chatWin.addNetChatHis(sender, receivers, msg_json["log_msg"])
 
 
-    def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
+    async def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and platoon_link:
             self.showMsg(f"Sending File [{file_name_full_path}] to platoon: "+platoon_link["ip"])
             with open(file_name_full_path, 'rb') as fileTBSent:
@@ -8390,7 +8391,9 @@ class MainWindow(QMainWindow):
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
                 self.showMsg(f"About to send file json with "+str(len(json_data.encode('utf-8')))+ " BYTES!")
-                platoon_link["transport"].send_data(length_prefix+json_data.encode('utf-8'))
+                if platoon_link["transport"] and not platoon_link["transport"].is_closing():
+                    platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
+                    await platoon_link["transport"].drain()
                 # asyncio.get_running_loop().call_soon(lambda: print("FILE MSG SENT2PLATOON..."))
                 # await xport.drain()
 
@@ -8402,7 +8405,7 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"ErrorSendFileToPlatoon: TCP link doesn't exist")
 
 
-    def send_json_to_platoon(self, platoon_link, json_data):
+    async def send_json_to_platoon(self, platoon_link, json_data):
         if json_data and platoon_link:
             json_string = json.dumps(json_data)
             if len(json_string) < 128:
@@ -8414,8 +8417,9 @@ class MainWindow(QMainWindow):
             encoded_json_string = json_string.encode('utf-8')
             length_prefix = len(encoded_json_string).to_bytes(4, byteorder='big')
             # Send data
-            platoon_link["transport"].send_data(length_prefix+encoded_json_string)
-
+            if platoon_link["transport"] and not platoon_link["transport"].is_closing():
+                platoon_link["transport"].write(length_prefix+encoded_json_string)
+                await platoon_link["transport"].drain()
         else:
             if json_data == None:
                 log3(f"ErrorSendJsonToPlatoon: JSON empty", "sendLAN", self)
@@ -8423,7 +8427,7 @@ class MainWindow(QMainWindow):
                 log3(f"ErrorSendJsonToPlatoon: TCP link doesn't exist", "sendLAN", self)
 
 
-    def send_json_to_commander(self, commander_link, json_data):
+    async def send_json_to_commander(self, commander_link, json_data):
         if json_data and commander_link:
             json_string = json.dumps(json_data)
             if len(json_string) < 128:
@@ -8436,6 +8440,7 @@ class MainWindow(QMainWindow):
             # Send data
             if commander_link and not commander_link.is_closing():
                 commander_link.write(length_prefix+encoded_json_string)
+                await commander_link.drain()
             # asyncio.get_running_loop().call_soon(lambda: print("JSON MSG SENT2COMMANDER..."))
 
         else:
@@ -8444,7 +8449,7 @@ class MainWindow(QMainWindow):
             else:
                 log3(f"ErrorSendJsonToCommander: TCP link doesn't exist", "sendLAN", self)
 
-    def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
+    async def send_ads_profile_to_commander(self, commander_link, file_type, file_name_full_path):
         if os.path.exists(file_name_full_path) and commander_link:
             log3(f"Sending File [{file_name_full_path}] to commander: " + self.commanderIP, "sendLAN", self)
             with open(file_name_full_path, 'rb') as fileTBSent:
@@ -8458,6 +8463,7 @@ class MainWindow(QMainWindow):
                 # Send data
                 if commander_link and not commander_link.is_closing():
                     commander_link.write(length_prefix + json_data.encode('utf-8'))
+                    await commander_link.drain()
                 # asyncio.get_running_loop().call_soon(lambda: print("FILE SENT2COMMANDER..."))
 
                 # await xport.drain()
@@ -8508,7 +8514,8 @@ class MainWindow(QMainWindow):
             else:
                 print("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
 
-            commander_link.send_data(length_prefix + json_data.encode('utf-8'))
+            if commander_link and not commander_link.is_closing():
+                commander_link.write(length_prefix + json_data.encode('utf-8'))
             # asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
 
             # await commander_link.drain()  # Uncomment if using asyncio
@@ -8569,7 +8576,8 @@ class MainWindow(QMainWindow):
 
 
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
-            platoon_link["transport"].send_data(length_prefix + json_data.encode('utf-8'))
+            if platoon_link["transport"] and not platoon_link["transport"].is_closing():
+                platoon_link["transport"].write(length_prefix + json_data.encode('utf-8'))
             # asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2PLATOON..."))
 
             # await commander_link.drain()  # Uncomment if using asyncio
@@ -8601,7 +8609,8 @@ class MainWindow(QMainWindow):
                                                 "file_contents": encoded_data})
                         length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                         # Send data
-                        commander_link.send_data(length_prefix + json_data.encode('utf-8'))
+                        if commander_link and not commander_link.is_closing():
+                            commander_link.write(length_prefix + json_data.encode('utf-8'))
                         # asyncio.get_running_loop().call_soon(lambda: print("RESULT FILES SENT2COMMANDER..."))
                         # await xport.drain()
 
@@ -9584,7 +9593,7 @@ class MainWindow(QMainWindow):
     # all the latest finger print profiles of the troop members on that team.
     # we will store them onto the local dir, if there is existing ones, compare the time stamp of incoming file and existing file,
     # if the incoming file has a later time stamp, then overwrite the existing one.
-    def syncFingerPrintRequest(self):
+    async def syncFingerPrintRequest(self):
         try:
             self.botFingerPrintsReady = False
             if self.machine_role == "Commander":
@@ -9600,7 +9609,7 @@ class MainWindow(QMainWindow):
                         self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
                             "ip"] + "]: " + json.dumps(reqMsg))
 
-                        self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
+                        await self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
                         self.expected_vehicle_responses[vehicle.getName()] = None
 
                 #now wait for the response to all come back. for each v, give it 10 seconds.
