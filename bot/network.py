@@ -193,6 +193,7 @@ class CommunicatorProtocol(asyncio.Protocol):
             hostname = socket.gethostbyaddr(ip_address)[0]
         except socket.herror:
             hostname = ""  # If no reverse DNS is available
+        self.topgui.setCommanderName(hostname)
         print(f'IP Address: {ip_address}, Hostname: {hostname}')
 
         asyncio.create_task(self.msg_queue.put(ip_address + "!connection!" + hostname))

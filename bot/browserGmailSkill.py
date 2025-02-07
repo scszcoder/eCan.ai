@@ -24,6 +24,10 @@ def genWinADSGmailBrowserRefreshSkill(worksettings, stepN, theme):
     this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
     psk_words = psk_words + step_words
 
+    # now open gmail tab if not already，(this step will internall check whether the tab is already open, if open, simply switch to it)
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "gmail", "https://www.gmail.com", "site_result", "site_flag", this_step)
+    psk_words = psk_words + step_words
+
     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
     psk_words = psk_words + step_words
 
@@ -347,7 +351,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepCreateData("obj", "enter_key", "NA", None, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global enter_key\nenter_key=Keys.RETURN", "", "in_line", "",
+        this_step, step_words = genStepCallExtern("from selenium.webdriver.common.keys import Keys\nglobal enter_key\nenter_key=Keys.RETURN", "", "in_line", "",
                                                   this_step)
         psk_words = psk_words + step_words
 
@@ -522,12 +526,12 @@ def genStepsWinChromeGmailBrowserRefresh(stepN):
         psk_words = psk_words + step_words
 
 
-        this_step, step_words = genStepWebdriverKeyIn("web_driver", "in_box", "search_phrase", "action_result",
-                                                      "action_flag", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepWait(3, 0, 0, this_step)
-        psk_words = psk_words + step_words
+        # this_step, step_words = genStepWebdriverKeyIn("web_driver", "in_box", "search_phrase", "action_result",
+        #                                               "action_flag", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepWait(3, 0, 0, this_step)
+        # psk_words = psk_words + step_words
 
 
 
