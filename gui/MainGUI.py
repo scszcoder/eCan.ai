@@ -4593,15 +4593,15 @@ class MainWindow(QMainWindow):
         self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
 
-    async def cancelVehicleMission(self, rows):
+    def cancelVehicleMission(self, rows):
         # cmd = '{\"cmd\":\"reqCancelMission\", \"missions\":\"all\"}'
         cmd = {"cmd": "reqCancelMission", "missions": "all"}
         effective_rows = list(filter(lambda r: r >= 0, rows))
         if len(effective_rows) > 0:
-            await self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
+            self.sendToPlatoonsByRowIdxs(effective_rows, cmd)
 
     # this function sends commands to platoon(s)
-    async def sendToPlatoonsByRowIdxs(self, idxs, cmd={"cmd": "ping"}):
+    def sendToPlatoonsByRowIdxs(self, idxs, cmd={"cmd": "ping"}):
         # this shall bring up a windows, but for now, simply send something to a platoon for network testing purpose...
         #if self.platoonWin == None:
         #    self.platoonWin = PlatoonWindow(self)
@@ -4618,13 +4618,13 @@ class MainWindow(QMainWindow):
             self.showMsg("Currently, there are ("+str(len(fieldLinks))+") connection to this server.....")
             for i in range(len(fieldLinks)):
                 if i in idxs:
-                    await self.send_json_to_platoon(fieldLinks[i], cmd)
+                    self.send_json_to_platoon(fieldLinks[i], cmd)
                     self.showMsg("cmd sent on link:"+str(i)+":"+json.dumps(cmd))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
 
     # this function sends commands to platoon(s)
-    async def sendToVehicleByVip(self, vip, cmd={"cmd": "ping"}):
+    def sendToVehicleByVip(self, vip, cmd={"cmd": "ping"}):
         self.showMsg("sending commands to vehicle by vip.....")
         self.showMsg("tcp connections....." + vip + " " + json.dumps([flk["ip"] for flk in fieldLinks]))
 
@@ -4632,7 +4632,7 @@ class MainWindow(QMainWindow):
 
         # if not self.tcpServer == None:
         if link:
-            await self.send_json_to_platoon(link, cmd)
+            self.send_json_to_platoon(link, cmd)
             self.showMsg("cmd sent on link:" + str(vip) + ":" + json.dumps(cmd))
         else:
             self.showMsg("Warning..... TCP server not up and running yet...")
@@ -7807,7 +7807,7 @@ class MainWindow(QMainWindow):
                 # for bot_profile in self.todays_bot_profiles:
                 #     self.send_ads_profile_to_commander(self.commanderXport, "txt", bot_profile)
                 localFingerPrintProfiles = self.gatherFingerPrints()
-                await self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
+                self.batchSendFingerPrintProfilesToCommander(localFingerPrintProfiles)
 
             # 2) log reports on local drive.
             self.saveDailyRunReport(self.todaysPlatoonReports)
@@ -8408,7 +8408,7 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"ErrorSendFileToPlatoon: TCP link doesn't exist")
 
 
-    async def send_json_to_platoon(self, platoon_link, json_data):
+    def send_json_to_platoon(self, platoon_link, json_data):
         if json_data and platoon_link:
             json_string = json.dumps(json_data)
             if len(json_string) < 128:
@@ -8422,7 +8422,7 @@ class MainWindow(QMainWindow):
             # Send data
             if platoon_link["transport"] and not platoon_link["transport"].is_closing():
                 platoon_link["transport"].write(length_prefix+encoded_json_string)
-                await platoon_link["transport"].drain()
+                # await platoon_link["transport"].drain()
         else:
             if json_data == None:
                 log3(f"ErrorSendJsonToPlatoon: JSON empty", "sendLAN", self)
@@ -8519,7 +8519,7 @@ class MainWindow(QMainWindow):
 
             if commander_link and not commander_link.is_closing():
                 commander_link.write(length_prefix + json_data.encode('utf-8'))
-            # asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
+                asyncio.get_running_loop().call_soon(lambda: print("ADS FILES SENT2COMMANDER..."))
 
             # await commander_link.drain()  # Uncomment if using asyncio
         except Exception as e:
@@ -9596,7 +9596,7 @@ class MainWindow(QMainWindow):
     # all the latest finger print profiles of the troop members on that team.
     # we will store them onto the local dir, if there is existing ones, compare the time stamp of incoming file and existing file,
     # if the incoming file has a later time stamp, then overwrite the existing one.
-    async def syncFingerPrintRequest(self):
+    def syncFingerPrintRequest(self):
         try:
             self.botFingerPrintsReady = False
             if self.machine_role == "Commander":
@@ -9612,7 +9612,7 @@ class MainWindow(QMainWindow):
                         self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
                             "ip"] + "]: " + json.dumps(reqMsg))
 
-                        await self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
+                        self.send_json_to_platoon(vehicle.getFieldLink(), reqMsg)
                         self.expected_vehicle_responses[vehicle.getName()] = None
 
                 #now wait for the response to all come back. for each v, give it 10 seconds.
@@ -9827,7 +9827,7 @@ class MainWindow(QMainWindow):
         # if not self.tcpServer == None:
         if vlink:
             print("sending all bot profiles to platoon...")
-            await self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)
+            self.batch_send_ads_profiles_to_platoon(vlink, "text", bot_profile_paths)
         else:
             print("WARNING: vehicle not connected!")
 
@@ -9881,7 +9881,7 @@ class MainWindow(QMainWindow):
                     log3(get_printable_datetime() + "SENDING [" + vname + "]PLATOON[" + vehicle.getFieldLink()[
                         "ip"] + "] SCHEDULE::: " + json.dumps(schedule), "assignWork", self)
 
-                    await self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
+                    self.send_json_to_platoon(vehicle.getFieldLink(), schedule)
 
                     # send over skills to platoon
                     await self.empower_platoon_with_skills(vehicle.getFieldLink(), tg_skids)
