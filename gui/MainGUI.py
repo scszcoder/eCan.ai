@@ -9627,7 +9627,7 @@ class MainWindow(QMainWindow):
                 VTIMEOUT = 2
                 sync_time_out =  len(self.expected_vehicle_responses.keys())*VTIMEOUT
                 sync_time_out = VTIMEOUT
-                print("waiting for ", sync_time_out, "seconds....")
+                print("waiting for ", sync_time_out, "seconds...")
                 time.sleep(8)
                 # while not( sync_time_out == 0):
                 #     time.sleep(2)
