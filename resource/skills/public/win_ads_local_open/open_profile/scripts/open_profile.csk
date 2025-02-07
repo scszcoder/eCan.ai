@@ -46,11 +46,26 @@
                         "ref_location" : []
                     },
                     {
+                        "anchor_name"  : "proxies",
+                        "anchor_type"  : "text",
+                        "template"     : "Proxies",
+                        "ref_method"   : "0",
+                        "ref_location" : []
+                    },
+                    {
                         "anchor_name"  : "profiles",
                         "anchor_type"  : "text",
                         "template"     : "Profiles",
-                        "ref_method"   : "0",
-                        "ref_location" : []
+                        "ref_method"   : "1",
+                        "ref_location" : [
+                            {
+                                "ref": "proxies",
+                                "side": "top",
+                                "dir": ">",
+                                "offset": "1",
+                                "offset_unit": "box"
+                            }
+                        ]
                     },
                     {
                         "anchor_name"  : "chrome_kernel",
