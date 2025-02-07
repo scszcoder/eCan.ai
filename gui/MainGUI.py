@@ -8404,8 +8404,8 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"About to send file json with "+str(len(json_data.encode('utf-8')))+ " BYTES!")
                 if platoon_link["transport"] and not platoon_link["transport"].is_closing():
                     platoon_link["transport"].write(length_prefix+json_data.encode('utf-8'))
-                    await platoon_link["transport"].drain()
-                # asyncio.get_running_loop().call_soon(lambda: print("FILE MSG SENT2PLATOON..."))
+                    # await platoon_link["transport"].drain()
+                    asyncio.get_running_loop().call_soon(lambda: print("FILE MSG SENT2PLATOON..."))
                 # await xport.drain()
 
                 fileTBSent.close()
