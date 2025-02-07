@@ -338,6 +338,7 @@ class MainWindow(QMainWindow):
 
         self.netLogWin = CommanderLogWin(self)
         self.machine_name = myname
+        self.commander_name = ""
         self.system = platform.system()
         if self.system == "Windows":
             self.os_short = "win"
@@ -368,6 +369,7 @@ class MainWindow(QMainWindow):
         if "Commander" in self.machine_role:
             self.tcpServer = None
             self.commanderXport = None
+            self.commander_name = self.machine_name
         elif self.machine_role == "Platoon":
             self.showMsg("This is a platoon...")
             self.commanderXport = None
@@ -1171,6 +1173,12 @@ class MainWindow(QMainWindow):
 
     def setCogClient(self, client):
         self.cog_client = client
+
+    def setCommanderName(self, cn):
+        self.commander_name = cn
+
+    def getCommanderName(self):
+        return self.commander_name
 
     def on_tg_pressed(self):
         checked = self.toggle_button.isChecked()

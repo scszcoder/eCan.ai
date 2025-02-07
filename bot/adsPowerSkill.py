@@ -138,7 +138,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
 
 
         # click on profiles to view the default profiles loaded.
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  1, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
         psk_words = psk_words + step_words
 
         # this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 0.5],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
@@ -455,6 +455,9 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         psk_words = psk_words + step_words
 
         # now read screen, if there is log in, then click on log in.
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 1],'attention_targets':['No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
         psk_words = psk_words + step_words
 
@@ -1637,6 +1640,7 @@ def formADSProfileBatchesFor1Vehicle(vTasks, vehicle, commander):
         else:
             ex_stat = "ErrorFormADSProfileBatchesFor1Vehicle: traceback information not available:" + str(e)
         log3(ex_stat)
+        ads_profile_batches_fnames=[]
 
     # sorted_all_ads_batches = sorted(all_ads_batches, key=lambda x: x["start_time"], reverse=False)
     # flattened_ads_tasks = [item for one_ads_batch in all_ads_batches for item in one_ads_batch]
@@ -1823,7 +1827,8 @@ def genProfileTxt(pfJsons, fname):
 # filtered to contain only sites that a mission needs.
 def genProfileXlsxs(pfJsons, fnames, site_lists, thisHost):
     for pfJson, fname in zip(pfJsons, fnames):
-        genProfileXlsx(pfJson, fname, site_lists, thisHost)
+        # pfJsons, fname, batch_bot_mid_keys, site_lists, thisHost
+        genProfileXlsx(pfJson, fname, site_lists.keys(), site_lists, thisHost)
 
 
 # this function takes a pfJson and writes back to a xlsx file so that ADS power can import it.
@@ -1939,7 +1944,7 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 
                 elif method == "max batches":
                     # Every bot gets its own batch (or as many batches as possible)
-                    genProfileXlsx([newly_read], batch_file, [bot_mid_key], thisHost.getCookieSiteLists(), thisHost)
+                    genProfileXlsx(newly_read, batch_file, [bot_mid_key], thisHost.getCookieSiteLists(), thisHost)
                     v_ads_profile_batch_xlsxs.append(batch_file)
                     batch_idx += 1
                     batch_file = f"{ads_profile_dir}/Host{target_vehicle_ip}B{batch_idx}profile.xlsx"

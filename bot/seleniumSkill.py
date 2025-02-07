@@ -984,7 +984,7 @@ def processWebdriverGoToTab(step, i):
         found = False
 
         if not tab_title_txt.isdigit():
-            tab_title_txt = symTab[step["text_var"]]
+            # tab_title_txt = symTab[step["text_var"]]
             print('tab_title_txt:', tab_title_txt)
             for handle in driver.window_handles:
                 driver.switch_to.window(handle)
