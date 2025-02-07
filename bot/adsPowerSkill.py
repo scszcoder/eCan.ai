@@ -458,7 +458,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 1],'attention_targets':['No Data']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any",
