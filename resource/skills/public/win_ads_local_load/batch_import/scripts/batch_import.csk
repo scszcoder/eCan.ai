@@ -52,7 +52,7 @@
                         "ref_method"   : "0",
                         "ref_location" : []
                     },
- {
+                    {
                         "anchor_name"  : "proxies",
                         "anchor_type"  : "text",
                         "template"     : "Proxies",
@@ -673,7 +673,7 @@
                     {
                         "info_name"  : "ads_version",
                         "info_type"  : "lines 1",
-                        "template"     : "\b\d+\.\d+\.\d+\s.\s\d+\.\d+\.\d+\.\d+\b",
+                        "template": "\\b\\d+\\.\\d+\\.\\d+\\s.\\s\\d+\\.\\d+\\.\\d+\\.\\d+\\b",
                         "ref_method"   : "2",
                         "refs" : [
                             {
