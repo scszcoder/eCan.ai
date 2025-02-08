@@ -182,11 +182,11 @@ def queryAdspowerProfile(api_key, port):
     headers = {
         'Authorization': f'Bearer {api_key}'
     }
-    payload = {}
+    payload = {"page_size": 50}
     headers = {}
 
     # response = requests.get(url, headers=headers)
-    response = requests.request("GET", url, headers=headers, data=payload)
+    response = requests.request("GET", url, headers=headers, params =payload)
     print("response:", response)
     rj = response.json()
     if rj['code'] == 0:

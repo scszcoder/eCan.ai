@@ -2268,9 +2268,14 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
 
         this_step, step_words = genStepCreateData("string", "ads_profile_remark", "NA", "", this_step)
         psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepCallExtern(
+        #     "global ads_profile_id, sk_work_settings\nads_profile_id = sk_work_settings['b_email']\nprint('ads_profile_id:', ads_profile_id)",
+        #     "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern(
-            "global ads_profile_id, sk_work_settings\nads_profile_id = sk_work_settings['b_email']\nprint('ads_profile_id:', ads_profile_id)",
+            "global ads_profile_id, ads_profile_remark, loaded_profiles, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]['uid']\nads_profile_remark = loaded_profiles[sk_work_settings['b_email']]['remark']\nprint('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
@@ -2368,6 +2373,12 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
             "global ads_profile_id, ads_profile_remark, loaded_profiles, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]['uid']\nads_profile_remark = loaded_profiles[sk_work_settings['b_email']]['remark']\nprint('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "local_api_key", "ads_profile_id",
+                                                                 "local_api_port", "web_driver_path", "web_driver_options",
+                                                                 "drive_result", "web_driver_successful", this_step)
+        psk_words = psk_words + step_words
+
 
         this_step, step_words = genStepCallExtern("print('DONE Loading bots correct profile.....')", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
