@@ -3224,7 +3224,7 @@ def evalCondition(condition):
     condition = prefix + condition + ")"
     log3("TBE: " + condition)
     exec(condition)
-    log3("TBE result: "+json.dumps(cmp_result))
+    log3("TBE result: "+str(cmp_result))
 
     return cmp_result
 
