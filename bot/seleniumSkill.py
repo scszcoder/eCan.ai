@@ -559,7 +559,6 @@ def processWebdriverStartExistingADS(step, i):
         symTab[step["flag_var"]] = True
         api_key = symTab[step["ads_api_key_var"]]
         profile_id = symTab[step["profile_id_var"]]
-        profile_id = "ksrh5oa"
         port = symTab[step["port_var"]]
         driver_path = symTab[step["driver_path_var"]]
         options = symTab[step["options_var"]]
