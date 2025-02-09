@@ -407,6 +407,13 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
                                                             "extract_flag", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepWebdriverClick("web_driver", "pw_input_box", "action_result", "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # wait - sort of equivalent to screen read time
+        this_step, step_words = genStepWait(0, 3, 5, this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepWebdriverKeyIn("web_driver", "pw_input_box", "gmail_pw", "action_result",
                                                       "action_flag", this_step)
         psk_words = psk_words + step_words
