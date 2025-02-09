@@ -2374,6 +2374,12 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCallExtern(
+            "global web_driver_path, ads_chrome_version, sk_work_settings\nweb_driver_path =  sk_work_settings['root_path'] + '/' + sk_work_settings['fp_browser_settings']['chromedriver_lut'][ads_chrome_version]\nprint('web_driver_path:', web_driver_path)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+
         this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "local_api_key", "ads_profile_id",
                                                                  "local_api_port", "web_driver_path", "web_driver_options",
                                                                  "drive_result", "web_driver_successful", this_step)
