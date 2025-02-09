@@ -323,7 +323,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         psk_words = ""
 
 
-        this_step, step_words = genStepWait(1, 0, 0, stepN)
+        this_step, step_words = genStepWait(5, 0, 0, stepN)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("obj", "action_result", "NA", None, this_step)
@@ -373,10 +373,10 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
                                                             "extract_flag", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCheckCondition("signed_out", "", "", this_step)
+        this_step, step_words = genStepCheckCondition("signed_out != None", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global signed_out, signed_out_text\nsigned_out_text=signed_out.text.strip().lower()", "", "in_line", "",
+        this_step, step_words = genStepCallExtern("global signed_out, signed_out_text\nsigned_out_text=signed_out.text.strip().lower()\nprint('signed_out_text:',signed_out_text)", "", "in_line", "",
                                                   this_step)
         psk_words = psk_words + step_words
 
