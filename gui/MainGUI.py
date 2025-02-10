@@ -1799,14 +1799,16 @@ class MainWindow(QMainWindow):
 
         new_mission = EBMISSION(self)
         # test_request_skill_run(new_mission)
+        asyncio.ensure_future(testLocalImageAPI(self))
 
         # test_report_skill_run_result(new_mission)
-        msg = "vVABC|M123|B21|S-running_idle|Error: Exception hello world"
-        ek = self.getEncryptKey()
-        ek = self.generate_key_from_string(self.main_key)
-        em = self.encrypt_string(ek, msg)
-        print("key:", self.main_key, ek, em)
-        print("recovered:", self.decrypt_string(ek, em))
+        # msg = "vVABC|M123|B21|S-running_idle|Error: Exception hello world"
+        # ek = self.getEncryptKey()
+        # ek = self.generate_key_from_string(self.main_key)
+        # em = self.encrypt_string(ek, msg)
+        # print("key:", self.main_key, ek, em)
+        # print("recovered:", self.decrypt_string(ek, em))
+        #
         # test_presigned_updownload(new_mission)
         # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
         # test_handle_extern_skill_run_report(self.session, self.tokens['AuthenticationResult']['IdToken'])
