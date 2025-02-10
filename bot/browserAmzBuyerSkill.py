@@ -4063,6 +4063,57 @@ def genWinChromeAMZDailyHousekeepingSkill(worksettings, stepN, theme):
 
     return this_step, psk_words
 
+def genStepsWinADSAMZDetectRiskFlagged(worksettings, stepN, theme):
+
+    log3("GENERATING genStepsWinADSAMZDetectRiskFlagged======>")
+    this_step = stepN
+    psk_words = ""
+
+    try:
+        this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "action_result", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "action_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("boolean", "extract_flag", "NA", True, this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        # check key words like "locked", "misuse"
+        # button = driver.find_element(By.CSS_SELECTOR, "#prime-interstitial-accept-button .a-button-input")
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            '#prime-interstitial-accept-button .a-button-input', False, "var", "buy_prime_button",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # click on buy prime membership only if there is a buy button, and there is enough money to do it.
+        # even thought 1st month is free, but do make sure we have $16 on the balance.
+        this_step, step_words = genStepCheckCondition("buy_prime_button", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # click on buy_prime_button button,
+        this_step, step_words = genStepWebdriverClick("web_driver", "buy_prime_button", "action_result", "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in genStepsWinADSAMZDetectRiskFlagged: {traceback.format_exc()} {str(e)}"
+        print(f"Error while generating genStepsWinADSAMZDetectRiskFlagged: {ex_stat}")
+
+    return this_step, psk_words
+
 
 # after hit the buy button, will check whether need to buy prime membership
 #if there is such option, then buy it.
