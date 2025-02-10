@@ -41,6 +41,7 @@ import shutil
 import pyautogui
 import base64
 import threading
+import aiohttp
 
 def test_eb_orders_scraper():
     orders = []
@@ -1750,24 +1751,49 @@ def testWebdriverADSAndChromeConnection(mwin, browser_setup_file):
     nexti, xstat = processWebdriverNewTab(test_step, 1)
 
 
-async def testLocalImageAPI(parent, session, token):
+async def testLocalImageAPI(parent):
     print("TESTING LOCAL IMG API....")
-    endpoint = "http://.local:8848/graphql/reqScreenTxtRead"
+    endpoint = "http://DESKTOP-DLLV0.local:8848/graphql/reqScreenTxtRead"
+    ecb_home = os.getenv("ECB_HOME")
+
+    img_file_name = ecb_home +"/runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png"
     request = [{
         "id": 702,
         "bid": 85,
         "os": "win",
-        "app": "ads",
+        "app": "file",
         "domain": "local",
-        "page": "ads_power",
+        "page": "op",
         "layout": "",
-        "skill_name": "batch_import",
-        "csk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
+        "skill_name": "open_save_as",
+        "csk": ecb_home +"/resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk",
+        "psk": ecb_home +"/resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk",
         "lastMove": "top",
-        "options": "{\\\"anchors\\\": [{\\\"anchor_name\\\": \\\"bot_user\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"TeluguOttoYuGh\\\", \\\"ref_method\\\": \\\"0\\\", \\\"ref_location\\\": []}, {\\\"anchor_name\\\": \\\"bot_open\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"Open\\\", \\\"ref_method\\\": \\\"1\\\", \\\"ref_location\\\": [{\\\"ref\\\": \\\"bot_user\\\", \\\"side\\\": \\\"right\\\", \\\"dir\\\": \\\">\\\", \\\"offset\\\": \\\"1\\\", \\\"offset_unit\\\": \\\"box\\\"}]} ]}",
+        # 'attention_area': [0, 0, 0.85, 0.66], 'attention_targets': ['Wait', 'Close']
+        "options": "{\\\"attention_area\\\": [0, 0, 1, 1], \\\"attention_targets\\\": [\\\"@all\\\"]}}",
         "theme": "light",
-        "imageFile": "C:\\\\Users\\\\songc\\\\PycharmProjects\\\\ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
+        "imageFile": img_file_name,
         "factor": "{}"
     }]
-    result = await req_lan_read_screen8(session, request, token, endpoint)
-    print("result", result)
+
+    data = {
+        "inScrn": request,
+        "requester": "songc@yahoo.com",
+        "host": "DESKTOP-DLLV0",
+        "type": "reqScreenTxtRead",
+        "query_type": "Query"
+    }
+    # Open file asynchronously
+    async with aiohttp.ClientSession() as session:
+        form_data = aiohttp.FormData()
+
+        # Convert dictionary to JSON string to match AWS format
+        form_data.add_field("data", json.dumps(data), content_type="application/json")
+
+        with open(img_file_name, "rb") as img_file:
+            form_data.add_field("file", img_file, filename="scrnsongc_yahoo_1717735671.png", content_type="image/png")
+
+            # Send the request
+            async with session.post(url, data=form_data) as response:
+                response_json = await response.json()
+                print(response_json)
