@@ -7,6 +7,11 @@ from datetime import datetime, timezone
 import win32print
 import win32api
 import pytz
+import socket
+from io import BytesIO
+import io
+import httpx
+import traceback
 
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
     req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud, \
@@ -1751,12 +1756,22 @@ def testWebdriverADSAndChromeConnection(mwin, browser_setup_file):
     nexti, xstat = processWebdriverNewTab(test_step, 1)
 
 
+# this doesn't work somehow, API2 works.
 async def testLocalImageAPI(parent):
     print("TESTING LOCAL IMG API....")
-    endpoint = "http://DESKTOP-DLLV0.local:8848/graphql/reqScreenTxtRead"
-    ecb_home = os.getenv("ECB_HOME")
 
-    img_file_name = ecb_home +"/runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png"
+    # Ensure ECB_HOME is set
+    ecb_home = os.getenv("ECB_HOME")
+    if not ecb_home:
+        raise ValueError("Environment variable ECB_HOME is not set!")
+
+    print(f"ecb_home: {ecb_home}")  # Debugging print
+
+    # Construct file path
+    img_file_name = os.path.join(ecb_home,
+                                 "runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png")
+
+    # Construct request payload
     request = [{
         "id": 702,
         "bid": 85,
@@ -1766,11 +1781,10 @@ async def testLocalImageAPI(parent):
         "page": "op",
         "layout": "",
         "skill_name": "open_save_as",
-        "csk": ecb_home +"/resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk",
-        "psk": ecb_home +"/resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk",
+        "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
+        "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
-        # 'attention_area': [0, 0, 0.85, 0.66], 'attention_targets': ['Wait', 'Close']
-        "options": "{\\\"attention_area\\\": [0, 0, 1, 1], \\\"attention_targets\\\": [\\\"@all\\\"]}}",
+        "options": json.dumps({"attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),  # Use valid JSON string
         "theme": "light",
         "imageFile": img_file_name,
         "factor": "{}"
@@ -1783,17 +1797,217 @@ async def testLocalImageAPI(parent):
         "type": "reqScreenTxtRead",
         "query_type": "Query"
     }
-    # Open file asynchronously
+
+    # Use local IP instead of .local hostname
+    host_ip = "192.168.0.16"
+    endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead"
+
+    print("endpoint:", endpoint)
+
     async with aiohttp.ClientSession() as session:
-        form_data = aiohttp.FormData()
+        try:
+            print("Reading file bytes...")
+            with open(img_file_name, "rb") as img_file:
+                form_data = aiohttp.FormData()
+                # Add JSON data as a form field
+                form_data.add_field("data", json.dumps(data), content_type="application/json")
 
-        # Convert dictionary to JSON string to match AWS format
-        form_data.add_field("data", json.dumps(data), content_type="application/json")
+                # Add the image file
+                form_data.add_field("file", img_file, filename=os.path.basename(img_file_name), content_type="image/png")
 
+                print("Sending HTTP request...")
+
+                # Send the request (FormData will NOT be reused)
+                async with session.post(endpoint, data=form_data, timeout=60) as response:
+                    response_json = await response.json()
+                    print("Response:", response_json)
+
+            #
+            # # Open the file inside the FormData block
+            # with open(img_file_name, "rb") as img_file:
+            #     mp_writer = aiohttp.MultipartWriter()
+            #
+            #     # Add JSON data as a part
+            #     json_part = mp_writer.append(json.dumps(data))
+            #     json_part.headers["Content-Disposition"] = 'form-data; name="data"'
+            #     json_part.headers["Content-Type"] = "application/json"
+            #
+            #     # Add the image file as a part
+            #     file_part = mp_writer.append(img_file)
+            #     file_part.headers[
+            #         "Content-Disposition"] = f'form-data; name="file"; filename="{os.path.basename(img_file_name)}"'
+            #     file_part.headers["Content-Type"] = "image/png"
+            #
+            #     print("Sending HTTP request...")
+            #
+            #     # Force HTTP (disable SSL)
+            #     async with session.post(endpoint, data=mp_writer, timeout=60, ssl=False) as response:
+            #         response_json = await response.json()
+            #         print("Response:", response_json)
+
+        except FileNotFoundError as e:
+            print(f"Error: {e}")
+        except aiohttp.ClientError as e:
+            print(f"Client Error: {e}")
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+
+
+def testSyncLocalImageAPI(parent):
+
+    print("TESTING LOCAL IMG API....")
+
+    # Ensure ECB_HOME is set
+    ecb_home = os.getenv("ECB_HOME")
+    if not ecb_home:
+        raise ValueError("Environment variable ECB_HOME is not set!")
+
+    print(f"ecb_home: {ecb_home}")  # Debugging print
+
+    # Construct file path
+    img_file_name = os.path.join(ecb_home,
+                                 "runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png")
+
+    # Construct request payload
+    request = [{
+        "id": 702,
+        "bid": 85,
+        "os": "win",
+        "app": "file",
+        "domain": "local",
+        "page": "op",
+        "layout": "",
+        "skill_name": "open_save_as",
+        "csk": os.path.join(ecb_home,
+                            "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
+        "psk": os.path.join(ecb_home,
+                            "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
+        "lastMove": "top",
+        "options": json.dumps({"attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),
+        # Use valid JSON string
+        "theme": "light",
+        "imageFile": img_file_name,
+        "factor": "{}"
+    }]
+
+    data = {
+        "inScrn": request,
+        "requester": "songc@yahoo.com",
+        "host": "DESKTOP-DLLV0",
+        "type": "reqScreenTxtRead",
+        "query_type": "Query"
+    }
+
+    # Use local IP instead of .local hostname
+    host_ip = "192.168.0.16"
+    endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead"
+
+    print("endpoint:", endpoint)
+
+    # Ensure file exists before sending
+    if not os.path.exists(img_file_name):
+        print(f"Error: File not found: {img_file_name}")
+        return
+
+    try:
+        print("Reading file bytes...")
+
+        # Prepare the multipart request
         with open(img_file_name, "rb") as img_file:
-            form_data.add_field("file", img_file, filename="scrnsongc_yahoo_1717735671.png", content_type="image/png")
+            files = {
+                "file": (os.path.basename(img_file_name), img_file, "image/png"),
+            }
+            payload = {
+                "data": json.dumps(data)  # Send JSON as a string
+            }
 
-            # Send the request
-            async with session.post(url, data=form_data) as response:
-                response_json = await response.json()
-                print(response_json)
+            print("Sending HTTP request...")
+
+            # Send the POST request
+            response = requests.post(endpoint, files=files, data=payload, timeout=60)
+
+            # Print response
+            print("Response:", response.status_code, response.text)
+
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+
+async def testLocalImageAPI2(parent):
+    print("TESTING LOCAL IMG API2....")
+    # Ensure ECB_HOME is set
+    ecb_home = os.getenv("ECB_HOME")
+    if not ecb_home:
+        raise ValueError("Environment variable ECB_HOME is not set!")
+
+    print(f"ecb_home: {ecb_home}")  # Debugging print
+
+    # Construct file path
+    img_file_name = os.path.join(ecb_home, "runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png")
+
+    # Construct request payload
+    request = [{
+        "id": 702,
+        "bid": 85,
+        "os": "win",
+        "app": "file",
+        "domain": "local",
+        "page": "op",
+        "layout": "",
+        "skill_name": "open_save_as",
+        "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
+        "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
+        "lastMove": "top",
+        "options": json.dumps({"attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),
+        "theme": "light",
+        "imageFile": img_file_name,
+        "factor": "{}"
+    }]
+
+    data = {
+        "inScrn": request,
+        "requester": "songc@yahoo.com",
+        "host": "DESKTOP-DLLV0",
+        "type": "reqScreenTxtRead",
+        "query_type": "Query"
+    }
+
+    # Use local IP instead of .local hostname
+    host_ip = "192.168.0.16"
+    endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead/"
+
+    print("endpoint:", endpoint)
+
+    # Ensure file exists before sending
+    if not os.path.exists(img_file_name):
+        print(f"Error: File not found: {img_file_name}")
+        return
+
+    headers = {"Content-Type": "multipart/form-data"}
+    timeout = httpx.Timeout(connect=10.0, read=100.0, write=30.0, pool=10.0)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            print("Reading file bytes...")
+
+            # # Open the file in binary mode
+            with open(img_file_name, "rb") as img_file:
+                # Prepare the multipart form-data request
+                files = {"file": (os.path.basename(img_file_name), img_file, "image/png")}
+                payload = {"data": json.dumps(data)}
+
+                print("Sending HTTP request...")
+
+                # Send the async request
+                response = await client.post(endpoint, files=files, data=payload)
+
+                # Print response
+                print("Response:", response.status_code, response.text)
+
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorHttpxClient:" + traceback.format_exc() + " " + str(e)
+                print(ex_stat)
