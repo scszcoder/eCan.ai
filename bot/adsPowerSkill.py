@@ -953,13 +953,11 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepWait(1, 0, 0, this_step)
         psk_words = psk_words + step_words
 
-
         this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_data", "direct", "anchor text", "any", "useless", "no_profiles", "ads", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("not no_profiles", "", "", this_step)
         psk_words = psk_words + step_words
-
 
         # here should delete existing loaded profiles first.
         # first click on select All.

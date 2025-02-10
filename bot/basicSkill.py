@@ -27,6 +27,7 @@ from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_clou
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
     download_file, download_file8, send_file_op_request_to_cloud, \
     send_update_missions_ex_status_to_cloud, send_reg_steps_to_cloud
+from bot.lanAPI import req_lan_read_screen8, req_lan_read_screen
 from bot.Logger import log3, log6, log68
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -1432,6 +1433,7 @@ def captureScreenToFile(win_title_keyword, sfile, subArea=None, fformat='png'):
 
 def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
+    mainwin = mission.get_main_win()
 
     screen_img, window_rect = captureScreenToFile(win_title_keyword, sfile)
 
@@ -1547,7 +1549,7 @@ async def readRandomWindow8(win_title_keyword, log_user, session,  token):
 
 async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
-
+    mainwin = mission.get_main_win()
     screen_img, window_rect = captureScreenToFile(win_title_keyword, sfile)
 
     session = settings["session"]
@@ -1555,7 +1557,9 @@ async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layou
     mid = mission.getMid()
     bid = mission.getBid()
     image_file = sfile
-    result = await cloudAnalyzeImage8(image_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token)
+    img_engine = mainwin.getImageEngine()
+    loan_img_endpoint = mainwin.getLanImageEndpoint()
+    result = await cloudAnalyzeImage8(image_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, img_engine, loan_img_endpoint)
     return result
 
 
@@ -1571,7 +1575,7 @@ async def cloudAnalyzeRandomImage8(image_file, session, token):
     }
     return await cloudAnalyzeImage8(image_file, "any", "any", "", "", 0, 0, sk_settings, "", "{}", session, token)
 
-async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token):
+async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, img_engine="aws", lan_img_endpoint=""):
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1638,7 +1642,7 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
-    result = await req_cloud_read_screen8(session, request, token)
+    result = await req_read_screen8(session, request, token, img_engine, lan_img_endpoint)
     jresult = json.loads(result['body'])
     # log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
@@ -1659,6 +1663,11 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
             return []
 
 
+async def req_read_screen8(session, request, token, engine, lan_img_endpoint):
+    if engine == "aws":
+        return await req_cloud_read_screen8(session, request, token)
+    elif engine == "lan":
+        return await req_lan_read_screen8(session, request, token, lan_img_endpoint)
 
 # actual processing skill routines =========================================================>
 def build_current_context():
