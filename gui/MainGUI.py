@@ -1799,7 +1799,10 @@ class MainWindow(QMainWindow):
 
         new_mission = EBMISSION(self)
         # test_request_skill_run(new_mission)
-        asyncio.ensure_future(testLocalImageAPI(self))
+
+        # asyncio.create_task(testLocalImageAPI2(self))
+        asyncio.ensure_future(testLocalImageAPI2(self))
+        # testSyncLocalImageAPI(self)
 
         # test_report_skill_run_result(new_mission)
         # msg = "vVABC|M123|B21|S-running_idle|Error: Exception hello world"
