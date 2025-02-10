@@ -11,6 +11,7 @@ import pytz
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
     req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud, \
     send_update_missions_ex_status_to_cloud
+from bot.lanAPI import req_lan_read_screen8
 from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, convertTxtProfiles2XlsxProfiles, \
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
 from bot.amzBuyerSkill import processAMZScrapePLHtml
@@ -1749,3 +1750,24 @@ def testWebdriverADSAndChromeConnection(mwin, browser_setup_file):
     nexti, xstat = processWebdriverNewTab(test_step, 1)
 
 
+async def testLocalImageAPI(parent, session, token):
+    print("TESTING LOCAL IMG API....")
+    endpoint = "http://.local:8848/graphql/reqScreenTxtRead"
+    request = [{
+        "id": 702,
+        "bid": 85,
+        "os": "win",
+        "app": "ads",
+        "domain": "local",
+        "page": "ads_power",
+        "layout": "",
+        "skill_name": "batch_import",
+        "csk": "C:/Users/songc/PycharmProjects/ecbot/resource/skills/public/win_ads_local_load/batch_import.csk",
+        "lastMove": "top",
+        "options": "{\\\"anchors\\\": [{\\\"anchor_name\\\": \\\"bot_user\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"TeluguOttoYuGh\\\", \\\"ref_method\\\": \\\"0\\\", \\\"ref_location\\\": []}, {\\\"anchor_name\\\": \\\"bot_open\\\", \\\"anchor_type\\\": \\\"text\\\", \\\"template\\\": \\\"Open\\\", \\\"ref_method\\\": \\\"1\\\", \\\"ref_location\\\": [{\\\"ref\\\": \\\"bot_user\\\", \\\"side\\\": \\\"right\\\", \\\"dir\\\": \\\">\\\", \\\"offset\\\": \\\"1\\\", \\\"offset_unit\\\": \\\"box\\\"}]} ]}",
+        "theme": "light",
+        "imageFile": "C:\\\\Users\\\\songc\\\\PycharmProjects\\\\ecbot/runlogs/20240329/b85m702/win_ads_local_load/skills/batch_import/images/scrnsongc_yahoo_1711760595.png",
+        "factor": "{}"
+    }]
+    result = await req_lan_read_screen8(session, request, token, endpoint)
+    print("result", result)

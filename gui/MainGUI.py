@@ -398,6 +398,8 @@ class MainWindow(QMainWindow):
                 self.local_user_db_port = self.general_settings.get("localUserDB_port", "5080")
                 self.local_agent_db_server = self.general_settings.get("localAgentDB_host", "192.168.0.16")
                 self.local_agent_db_port = self.general_settings.get("localAgentDB_port", "6668")
+                self.lan_img_endpoint = self.general_settings.get("lan_img_endpoint", "")
+                self.img_engine = self.general_settings.get("img_engine", "local")
 
 
 
@@ -1391,6 +1393,11 @@ class MainWindow(QMainWindow):
     def getUser(self):
         return self.user
 
+    def getImageEngine(self):
+        return self.general_settings["img_engine"]
+
+    def getLanImageEndpoint(self):
+        return self.general_settings["lan_img_endpoint"]
 
     def _syncBotAccountsAction(self):
         # File actions
