@@ -1947,14 +1947,14 @@ async def testLocalImageAPI2(parent):
 
     # Construct request payload
     request = [{
-        "id": 702,
+        "mid": 702,
         "bid": 85,
         "os": "win",
         "app": "file",
         "domain": "local",
         "page": "op",
         "layout": "",
-        "skill_name": "open_save_as",
+        "skill": "open_save_as",
         "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
         "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
