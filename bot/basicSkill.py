@@ -1551,7 +1551,7 @@ async def readRandomWindow8(mission, win_title_keyword, log_user, session,  toke
     screen_img, img_bytes, window_rect = captureScreenToFile(win_title_keyword, image_file)
     # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
     # shutil.copy(source_file, image_file)
-    return await cloudAnalyzeRandomImage8(mission, image_file, screen_img, session, token)
+    return await cloudAnalyzeRandomImage8(mission, screen_img, image_file, screen_img, session, token)
 
 async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
@@ -1564,13 +1564,13 @@ async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layou
     bid = mission.getBid()
     image_file = sfile
 
-    result = await cloudAnalyzeImage8(image_file, img_bytes, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, mission)
+    result = await cloudAnalyzeImage8(image_file, screen_img, img_bytes, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, mission)
     return result
 
 
 #image_file *.png must be put in the following diretory
 # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
-async def cloudAnalyzeRandomImage8(mission, image_file, image_bytes, session, token):
+async def cloudAnalyzeRandomImage8(mission, screen_image, image_file, image_bytes, session, token):
     sk_settings = {
         "platform": "any",
         "app": "any",
@@ -1578,17 +1578,23 @@ async def cloudAnalyzeRandomImage8(mission, image_file, image_bytes, session, to
         "skname": "any",
         "skfname": "resource/skills/public/any_any_any_any/any.psk"
     }
-    return await cloudAnalyzeImage8(image_file, image_bytes,"any", "any", "", "", 0, 0, sk_settings, "", "{}", session, token, mission)
+    return await cloudAnalyzeImage8(image_file, screen_image, image_bytes,"any", "any", "", "", 0, 0, sk_settings, "", "{}", session, token, mission)
 
-async def cloudAnalyzeImage8(img_file, image_bytes, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, mission):
+async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, mission):
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     mwin = mission.get_main_win()
+    img_engine = mwin.getImageEngine()
+    if img_engine == "lan":
+        img_endpoint = mwin.getLanImageEndpoint()
+    else:
+        img_endpoint = mwin.getWanImageEndpoint()
+
     #upload screen to S3
-    await upload_file8(session, img_file, token, mwin.getWanApiEndpoint(),"screen")
-    with Image.open(img_file) as img:
-        # Get width and height
-        full_width, full_height = img.size
+    if img_engine == "wan":
+        await upload_file8(session, img_file, token, mwin.getWanApiEndpoint(),"screen")
+
+    full_width, full_height = screen_image.size
 
     m_skill_names = [sk_settings["skname"]]
     m_psk_names = [sk_settings["skfname"]]
@@ -1646,17 +1652,12 @@ async def cloudAnalyzeImage8(img_file, image_bytes, site_page, page_sect, page_t
         request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
-    mainwin = mission.get_main_win()
-    img_engine = mainwin.getImageEngine()
-    if mainwin.getImageEngine() == "lan":
-        img_endpoint = mainwin.getLanImageEndpoint()
-    else:
-        img_endpoint = mainwin.getWanImageEndpoint()
+
 
     local_info = {
-        "user": mainwin.getUser(),
-        "host_name": mainwin.getHostName(),
-        "ip": mainwin.getIP()
+        "user": mwin.getUser(),
+        "host_name": mwin.getHostName(),
+        "ip": mwin.getIP()
     }
 
     imgs = [
