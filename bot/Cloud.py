@@ -324,14 +324,14 @@ def gen_screen_read_request_string(query):
     rec_string = ""
     for i in range(len(query)):
         #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ mid: " + str(int(query[i]["id"])) + ", "
+        rec_string = rec_string + "{ mid: " + str(int(query[i]["mid"])) + ", "
         rec_string = rec_string + "bid: " + str(int(query[i]["bid"])) + ", "
         rec_string = rec_string + "os: \"" + query[i]["os"] + "\", "
         rec_string = rec_string + "app: \"" + query[i]["app"] + "\", "
         rec_string = rec_string + "domain: \"" + query[i]["domain"] + "\", "
         rec_string = rec_string + "page: \"" + query[i]["page"] + "\", "
         rec_string = rec_string + "layout: \"" + query[i]["layout"] + "\", "
-        rec_string = rec_string + "skill: \"" + query[i]["skill_name"] + "\", "
+        rec_string = rec_string + "skill: \"" + query[i]["skill"] + "\", "
         rec_string = rec_string + "psk: \"" + query[i]["psk"] + "\", "
         rec_string = rec_string + "csk: \"" + query[i]["csk"] + "\", "
         rec_string = rec_string + "lastMove: \"" + query[i]["lastMove"] + "\", "
@@ -1266,11 +1266,11 @@ async def set_up_cloud8():
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings):
+def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings, endpoint):
 
     mutation = gen_schedule_request_string(ts_name, schedule_settings)
 
-    jresp = appsync_http_request2(mutation, session, token)
+    jresp = appsync_http_request2(mutation, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1287,11 +1287,11 @@ def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def req_cloud_read_screen(session, request, token):
+def req_cloud_read_screen(session, request, token, endpoint):
 
     query = gen_screen_read_request_string(request)
 
-    jresp = appsync_http_request(query, session, token)
+    jresp = appsync_http_request(query, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1303,11 +1303,11 @@ def req_cloud_read_screen(session, request, token):
     return jresponse
 
 
-async def req_cloud_read_screen8(session, request, token):
+async def req_cloud_read_screen8(session, request, token, endpoint):
 
     query = gen_screen_read_request_string(request)
 
-    jresp = await appsync_http_request8(query, session, token)
+    jresp = await appsync_http_request8(query, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1319,11 +1319,11 @@ async def req_cloud_read_screen8(session, request, token):
     return jresponse
 
 
-def req_cloud_obtain_review(session, request, token):
+def req_cloud_obtain_review(session, request, token, endpoint):
 
     query = gen_obtain_review_request_string(request)
 
-    jresp = appsync_http_request(query, session, token)
+    jresp = appsync_http_request(query, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1336,11 +1336,11 @@ def req_cloud_obtain_review(session, request, token):
     return jresponse
 
 
-def req_cloud_obtain_review_w_aipkey(session, request, apikey):
+def req_cloud_obtain_review_w_aipkey(session, request, apikey, endpoint):
 
     query = gen_obtain_review_request_string(request)
 
-    jresp = appsync_http_request_w_apikey(query, session, apikey)
+    jresp = appsync_http_request_w_apikey(query, session, apikey, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1355,11 +1355,11 @@ def req_cloud_obtain_review_w_aipkey(session, request, apikey):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def req_train_read_screen(session, request, token):
+def req_train_read_screen(session, request, token, endpoint):
 
     query = gen_train_request_string(request)
 
-    jresp = appsync_http_request(query, session, token)
+    jresp = appsync_http_request(query, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1371,11 +1371,11 @@ def req_train_read_screen(session, request, token):
     return jresponse
 
 
-def send_update_missions_ex_status_to_cloud(session, missionStats, token):
+def send_update_missions_ex_status_to_cloud(session, missionStats, token, endpoint):
     if len(missionStats) > 0:
         query = gen_update_missions_ex_status_string(missionStats)
 
-        jresp = appsync_http_request(query, session, token)
+        jresp = appsync_http_request(query, session, token, endpoint)
 
         if "errors" in jresp:
             screen_error = True
@@ -1392,11 +1392,11 @@ def send_update_missions_ex_status_to_cloud(session, missionStats, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_completion_status_to_cloud(session, missionStats, token, full=True):
+def send_completion_status_to_cloud(session, missionStats, token, endpoint, full=True):
     if len(missionStats) > 0:
         query = gen_daily_update_string(missionStats, full)
 
-        jresp = appsync_http_request(query, session, token)
+        jresp = appsync_http_request(query, session, token, endpoint)
 
         if "errors" in jresp:
             screen_error = True
@@ -1409,11 +1409,11 @@ def send_completion_status_to_cloud(session, missionStats, token, full=True):
         jresponse = "ERROR: EMPTY REPORTS"
     return jresponse
 
-async def send_run_ext_skill_request_to_cloud8(session, reqs, token):
+async def send_run_ext_skill_request_to_cloud8(session, reqs, token, endpoint):
 
     mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
 
-    jresp = await appsync_http_request8(mutationInfo, session, token)
+    jresp = await appsync_http_request8(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1425,11 +1425,11 @@ async def send_run_ext_skill_request_to_cloud8(session, reqs, token):
 
     return jresponse
 
-def send_run_ext_skill_request_to_cloud(session, reqs, token):
+def send_run_ext_skill_request_to_cloud(session, reqs, token, endpoint):
 
     mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1443,11 +1443,11 @@ def send_run_ext_skill_request_to_cloud(session, reqs, token):
     return jresponse
 
 
-def send_report_run_ext_skill_status_request_to_cloud(session, reps, token):
+def send_report_run_ext_skill_status_request_to_cloud(session, reps, token, endpoint):
 
     mutationInfo = gen_query_report_run_ext_skill_status_string(reps)
     print("report status mutation:", mutationInfo)
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1463,11 +1463,11 @@ def send_report_run_ext_skill_status_request_to_cloud(session, reps, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_bots_request_to_cloud(session, bots, token):
+def send_add_bots_request_to_cloud(session, bots, token, endpoint):
 
     mutationInfo = gen_add_bots_string(bots)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1482,11 +1482,11 @@ def send_add_bots_request_to_cloud(session, bots, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_update_bots_request_to_cloud(session, bots, token):
+def send_update_bots_request_to_cloud(session, bots, token, endpoint):
 
     mutationInfo = gen_update_bots_string(bots)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1501,11 +1501,11 @@ def send_update_bots_request_to_cloud(session, bots, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_remove_bots_request_to_cloud(session, removes, token):
+def send_remove_bots_request_to_cloud(session, removes, token, endpoint):
 
     mutationInfo = gen_remove_bots_string(removes)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1516,11 +1516,11 @@ def send_remove_bots_request_to_cloud(session, removes, token):
     return jresponse
 
 
-def send_update_vehicles_request_to_cloud(session, vehicles, token):
+def send_update_vehicles_request_to_cloud(session, vehicles, token, endpoint):
 
     mutationInfo = gen_update_vehicles_string(vehicles)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1535,11 +1535,11 @@ def send_update_vehicles_request_to_cloud(session, vehicles, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_missions_request_to_cloud(session, missions, token):
+def send_add_missions_request_to_cloud(session, missions, token, endpoint):
 
     mutationInfo = gen_add_missions_string(missions)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1553,11 +1553,11 @@ def send_add_missions_request_to_cloud(session, missions, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_update_missions_request_to_cloud(session, missions, token):
+def send_update_missions_request_to_cloud(session, missions, token, endpoint):
 
     mutationInfo = gen_update_missions_string(missions)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1571,11 +1571,11 @@ def send_update_missions_request_to_cloud(session, missions, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_remove_missions_request_to_cloud(session, removes, token):
+def send_remove_missions_request_to_cloud(session, removes, token, endpoint):
 
     mutationInfo = gen_remove_missions_string(removes)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1589,11 +1589,11 @@ def send_remove_missions_request_to_cloud(session, removes, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_skills_request_to_cloud(session, skills, token):
+def send_add_skills_request_to_cloud(session, skills, token, endpoint):
 
     mutationInfo = gen_add_skills_string(skills)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1607,11 +1607,11 @@ def send_add_skills_request_to_cloud(session, skills, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_update_skills_request_to_cloud(session, bots, token):
+def send_update_skills_request_to_cloud(session, bots, token, endpoint):
 
     mutationInfo = gen_update_skills_string(bots)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1626,11 +1626,11 @@ def send_update_skills_request_to_cloud(session, bots, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_remove_skills_request_to_cloud(session, removes, token):
+def send_remove_skills_request_to_cloud(session, removes, token, endpoint):
 
     mutationInfo = gen_remove_skills_string(removes)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1645,11 +1645,11 @@ def send_remove_skills_request_to_cloud(session, removes, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_open_acct_request_to_cloud(session, accts, token):
+def send_open_acct_request_to_cloud(session, accts, token, endpoint):
 
     mutationInfo = gen_open_acct_string(accts)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1663,11 +1663,11 @@ def send_open_acct_request_to_cloud(session, accts, token):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_make_order_request_to_cloud(session, orders, token):
+def send_make_order_request_to_cloud(session, orders, token, endpoint):
 
     mutationInfo = gen_make_order_string(orders)
 
-    jresp = appsync_http_request(mutationInfo, session, token)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1692,11 +1692,11 @@ def gen_get_bot_string():
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_get_bots_request_to_cloud(session, token):
+def send_get_bots_request_to_cloud(session, token, endpoint):
 
     queryInfo = gen_get_bot_string()
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1708,11 +1708,11 @@ def send_get_bots_request_to_cloud(session, token):
 
     return jresponse
 
-def send_query_skills_request_to_cloud(session, token, q_settings):
+def send_query_skills_request_to_cloud(session, token, q_settings, endpoint):
 
     queryInfo = gen_query_skills_string(q_settings)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1725,11 +1725,11 @@ def send_query_skills_request_to_cloud(session, token, q_settings):
     return jresponse
 
 
-def send_report_vehicles_to_cloud(session, token, vehicles):
+def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
 
     queryInfo = gen_report_vehicles_string(vehicles)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1743,11 +1743,11 @@ def send_report_vehicles_to_cloud(session, token, vehicles):
     return jresponse
 
 
-def send_dequeue_tasks_to_cloud(session, token, vehicles):
+def send_dequeue_tasks_to_cloud(session, token, vehicles, endpoint):
 
     queryInfo = gen_dequeue_tasks_string(vehicles)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1762,10 +1762,10 @@ def send_dequeue_tasks_to_cloud(session, token, vehicles):
 
 
 
-def send_query_bots_request_to_cloud(session, token, q_settings):
+def send_query_bots_request_to_cloud(session, token, q_settings, endpoint):
 
     queryInfo = gen_query_bots_string(q_settings)
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
     if "errors" in jresp:
         screen_error = True
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
@@ -1776,11 +1776,11 @@ def send_query_bots_request_to_cloud(session, token, q_settings):
 
     return jresponse
 
-def send_query_missions_request_to_cloud(session, token, q_settings):
+def send_query_missions_request_to_cloud(session, token, q_settings, endpoint):
 
     queryInfo = gen_query_missions_string(q_settings)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1793,11 +1793,11 @@ def send_query_missions_request_to_cloud(session, token, q_settings):
     return jresponse
 
 
-def send_query_missions_by_time_request_to_cloud(session, token, q_settings):
+def send_query_missions_by_time_request_to_cloud(session, token, q_settings, endpoint):
     try:
         queryInfo = gen_query_missions_by_time_string(q_settings)
 
-        jresp = appsync_http_request(queryInfo, session, token)
+        jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
         if "errors" in jresp:
             screen_error = True
@@ -1822,11 +1822,11 @@ def send_query_missions_by_time_request_to_cloud(session, token, q_settings):
 
 
 
-def send_query_chat_request_to_cloud(session, token, chat_request):
+def send_query_chat_request_to_cloud(session, token, chat_request, endpoint):
 
     queryInfo = gen_query_chat_request_string(chat_request)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1839,11 +1839,11 @@ def send_query_chat_request_to_cloud(session, token, chat_request):
     return jresponse
 
 
-async def send_query_chat_request_to_cloud8(session, token, chat_request):
+async def send_query_chat_request_to_cloud8(session, token, chat_request, endpoint):
 
     queryInfo = gen_query_chat_request_string(chat_request)
 
-    jresp = await appsync_http_request8(queryInfo, session, token)
+    jresp = await appsync_http_request8(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -1858,11 +1858,11 @@ async def send_query_chat_request_to_cloud8(session, token, chat_request):
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_file_op_request_to_cloud(session, fops, token):
+def send_file_op_request_to_cloud(session, fops, token, endpoint):
 
     queryInfo = gen_file_op_request_string(fops)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
@@ -1875,11 +1875,11 @@ def send_file_op_request_to_cloud(session, fops, token):
     return jresponse
 
 
-def send_account_info_request_to_cloud(session, acct_ops, token):
+def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
 
     queryInfo = gen_account_info_request_string(acct_ops)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
@@ -1893,11 +1893,11 @@ def send_account_info_request_to_cloud(session, acct_ops, token):
 
 
 
-def send_reg_steps_to_cloud(session, localSteps, token):
+def send_reg_steps_to_cloud(session, localSteps, token, endpoint):
 
     queryInfo = gen_query_reg_steps_string(localSteps)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
@@ -1911,11 +1911,11 @@ def send_reg_steps_to_cloud(session, localSteps, token):
 
 
 
-def send_feedback_request_to_cloud(session, fb_reqs, token):
+def send_feedback_request_to_cloud(session, fb_reqs, token, endpoint):
 
     queryInfo = gen_feedback_request_string(fb_reqs)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
@@ -1930,11 +1930,11 @@ def send_feedback_request_to_cloud(session, fb_reqs, token):
 
 
 
-def send_rag_store_request_to_cloud(session, fb_reqs, token):
+def send_rag_store_request_to_cloud(session, fb_reqs, token, endpoint):
 
     queryInfo = gen_rag_store_request_string(fb_reqs)
 
-    jresp = appsync_http_request(queryInfo, session, token)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
@@ -1956,7 +1956,7 @@ def findIdx(list, element):
     return index_value
 
 
-def upload_file(session, f2ul, destination, token, ftype="general"):
+def upload_file(session, f2ul, destination, token, endpoint, ftype="general"):
     try:
         logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1971,7 +1971,7 @@ def upload_file(session, f2ul, destination, token, ftype="general"):
         fopreqs = [{"op": "upload", "names": fname, "options": prefix}]
         logger_helper.debug("fopreqs:"+json.dumps(fopreqs))
 
-        res = send_file_op_request_to_cloud(session, fopreqs, token)
+        res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
         logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
         logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1999,7 +1999,7 @@ def upload_file(session, f2ul, destination, token, ftype="general"):
 
 
 # datahome should ends with "/", f2dl should starts with "runlogs"
-def download_file(session, datahome, f2dl, source, token, ftype="general"):
+def download_file(session, datahome, f2dl, source, token, endpoint, ftype="general"):
     try:
         fname = os.path.basename(f2dl)
         fwords = f2dl.split("/")
@@ -2015,7 +2015,7 @@ def download_file(session, datahome, f2dl, source, token, ftype="general"):
         fopreqs = [{"op": "download", "names": fname, "options": prefix}]
         print("FOPREQS:", fopreqs)
 
-        res = send_file_op_request_to_cloud(session, fopreqs, token)
+        res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
         # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
         resd = json.loads(res['body']['urls']['result'])
@@ -2040,7 +2040,7 @@ def download_file(session, datahome, f2dl, source, token, ftype="general"):
 
 
 
-def download_file8(session, datahome, f2dl, token, ftype="general"):
+def download_file8(session, datahome, f2dl, token, endpoint, ftype="general"):
     try:
         fname = os.path.basename(f2dl)
         fwords = f2dl.split("/")
@@ -2049,7 +2049,7 @@ def download_file8(session, datahome, f2dl, token, ftype="general"):
 
         fopreqs = [{"op": "download", "names": fname, "options": prefix}]
 
-        res = send_file_op_request_to_cloud(session, fopreqs, token)
+        res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
         # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
         resd = json.loads(res['body']['urls']['result'])
@@ -2074,10 +2074,10 @@ def download_file8(session, datahome, f2dl, token, ftype="general"):
 
 
 # list dir on my cloud storage
-def cloud_ls(session, token):
+def cloud_ls(session, token, endpoint):
     flist = []
     fopreqs = [{"op" : "list", "names": "", "options": ""}]
-    res = send_file_op_request_to_cloud(session, fopreqs, token)
+    res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
     # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
     for k in res['body']["urls"][0]['Contents']:
@@ -2086,18 +2086,19 @@ def cloud_ls(session, token):
     return flist
 
 
-def cloud_rm(session, f2rm, token):
+def cloud_rm(session, f2rm, token, endpoint):
     fopreqs = [{"op": "delete", "names": f2rm, "options": ""}]
-    res = send_file_op_request_to_cloud(session, fopreqs, token)
+    res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
-def appsync_http_request(query_string, session, token):
+def appsync_http_request(query_string, session, token, endpoint):
     if API_DEV_MODE:
         APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
     else:
         APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
     # Use JSON format string for the query. It does not need reformatting.
-
+    if not endpoint:
+        endpoint = APPSYNC_API_ENDPOINT_URL
     headers = {
         'Content-Type': "application/graphql",
         'Authorization': token,
@@ -2106,7 +2107,7 @@ def appsync_http_request(query_string, session, token):
 
     # Now we can simply post the request...
     response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
+        url=endpoint,
         method='POST',
         timeout=300,
         headers=headers,
@@ -2118,12 +2119,7 @@ def appsync_http_request(query_string, session, token):
 
     return jresp
 
-def appsync_http_request_w_apikey(query_string, session, apikey):
-    if API_DEV_MODE:
-        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
+def appsync_http_request_w_apikey(query_string, session, apikey, endpoint):
 
     headers = {
         'Content-Type': "application/graphql",
@@ -2135,7 +2131,7 @@ def appsync_http_request_w_apikey(query_string, session, apikey):
 
     # Now we can simply post the request...
     response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
+        url=endpoint,
         method='POST',
         timeout=300,
         headers=headers,
@@ -2149,12 +2145,7 @@ def appsync_http_request_w_apikey(query_string, session, apikey):
     return jresp
 
 
-def appsync_http_request2(query_string, session, token):
-    if API_DEV_MODE:
-        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
+def appsync_http_request2(query_string, session, token, endpoint):
 
     headers = {
         'Content-Type': "application/json",
@@ -2164,7 +2155,7 @@ def appsync_http_request2(query_string, session, token):
 
     # Now we can simply post the request...
     response = session.request(
-        url=APPSYNC_API_ENDPOINT_URL,
+        url=endpoint,
         method='POST',
         timeout=300,
         headers=headers,
@@ -2178,11 +2169,7 @@ def appsync_http_request2(query_string, session, token):
     return jresp
 
 
-async def appsync_http_request8(query_string, session, token):
-    if API_DEV_MODE:
-        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+async def appsync_http_request8(query_string, session, token, endpoint):
 
     headers = {
         'Content-Type': "application/graphql",
@@ -2191,7 +2178,7 @@ async def appsync_http_request8(query_string, session, token):
     }
     async with aiohttp.ClientSession() as session8:
         async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL,
+                url=endpoint,
                 timeout=aiohttp.ClientTimeout(total=300),
                 headers=headers,
                 json={'query': query_string}
@@ -2201,11 +2188,11 @@ async def appsync_http_request8(query_string, session, token):
             return jresp
 
 
-async def send_file_op_request_to_cloud8(session, fops, token):
+async def send_file_op_request_to_cloud8(session, fops, token, endpoint):
 
     queryInfo = gen_file_op_request_string(fops)
 
-    jresp = await appsync_http_request8(queryInfo, session, token)
+    jresp = await appsync_http_request8(queryInfo, session, token, endpoint)
 
     #  logger_helper.debug("file op response:"+json.dumps(jresp))
     if "errors" in jresp:
@@ -2232,7 +2219,7 @@ async def send_file_with_presigned_url8(session, src_file, resp):
                 return r.status
 
 
-async def upload_file8(session, f2ul, token, ftype="general"):
+async def upload_file8(session, f2ul, token, endpoint, ftype="general"):
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp1: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     fname = os.path.basename(f2ul)
@@ -2244,7 +2231,7 @@ async def upload_file8(session, f2ul, token, ftype="general"):
     logger_helper.debug("fopreqs:"+json.dumps(fopreqs))
 
     # get presigned URL
-    res = await send_file_op_request_to_cloud8(session, fopreqs, token)
+    res = await send_file_op_request_to_cloud8(session, fopreqs, token, endpoint)
     logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -2258,11 +2245,7 @@ async def upload_file8(session, f2ul, token, ftype="general"):
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
-async def send_wan_chat_message(content, sender, token):
-    if API_DEV_MODE:
-        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+async def send_wan_chat_message(content, sender, token, endpoint):
     variables = {
         "content": content,
         "sender": sender
@@ -2275,7 +2258,7 @@ async def send_wan_chat_message(content, sender, token):
     }
     async with aiohttp.ClientSession() as session8:
         async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL,
+                url=endpoint,
                 timeout=aiohttp.ClientTimeout(total=300),
                 headers=headers,
                 json={
@@ -2289,8 +2272,7 @@ async def send_wan_chat_message(content, sender, token):
 
 
 
-async def wan_chat_subscribe(token):
-    WS_URL = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+async def wan_chat_subscribe(token, endpoint):
     query_string = gen_wan_subscription_connection_string()
     async def handle_message(websocket):
         while True:
@@ -2306,7 +2288,7 @@ async def wan_chat_subscribe(token):
 
     while True:
         try:
-            async with websockets.connect(WS_URL, extra_headers={
+            async with websockets.connect(endpoint, extra_headers={
                 'Content-Type': 'application/json',
                 'Authorization': token
             }) as websocket:
@@ -2341,7 +2323,7 @@ async def wan_chat_subscribe(token):
 
 
 
-def local_http_request(query_string, session, api_Key, url):
+def local_http_request(query_string, session, api_Key, endpoint):
 
     headers = {
         'Content-Type': "application/graphql",
@@ -2351,7 +2333,7 @@ def local_http_request(query_string, session, api_Key, url):
 
     # Now we can simply post the request...
     response = session.request(
-        url=url,
+        url=endpoint,
         method='POST',
         timeout=300,
         headers=headers,
@@ -2366,11 +2348,7 @@ def local_http_request(query_string, session, api_Key, url):
 
 
 
-async def wanSendRequestSolvePuzzle(msg_req, token):
-    if API_DEV_MODE:
-        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+async def wanSendRequestSolvePuzzle(msg_req, token, endpoint):
     variables = {
         "input": {
             "content": msg_req["content"],
@@ -2388,7 +2366,7 @@ async def wanSendRequestSolvePuzzle(msg_req, token):
     }
     async with aiohttp.ClientSession() as session8:
         async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL,
+                url=endpoint,
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers=headers,
                 json={
@@ -2400,11 +2378,7 @@ async def wanSendRequestSolvePuzzle(msg_req, token):
             print(jresp)
             return jresp
 
-async def wanSendConfirmSolvePuzzle(msg_req, token):
-    if API_DEV_MODE:
-        APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+async def wanSendConfirmSolvePuzzle(msg_req, token, endpoint):
     variables = {
         "input": {
             "content": msg_req["content"],
@@ -2422,7 +2396,7 @@ async def wanSendConfirmSolvePuzzle(msg_req, token):
     }
     async with aiohttp.ClientSession() as session8:
         async with session8.post(
-                url=APPSYNC_API_ENDPOINT_URL,
+                url=endpoint,
                 timeout=aiohttp.ClientTimeout(total=30),
                 headers=headers,
                 json={

@@ -3,11 +3,11 @@ from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, send_rag
 
 
 # skill for enter documents to vector DB
-def storeDocToVectorDB(session, token, ragReqs):
-
+def storeDocToVectorDB(mission, session, token, ragReqs):
+    mainwin = mission.get_main_win()
     reqs = []
     for rag in [ragReqs]:
-        # upload_file(session, rag["file"], token, "rag txt")
+        # upload_file(session, rag["file"], token,  mainwin.getWanApiEndpoint(), "rag txt")
         req = {
             "fid": rag["fid"],
             "pid": rag["pid"],
@@ -18,4 +18,4 @@ def storeDocToVectorDB(session, token, ragReqs):
             "version": rag["version"]
         }
         reqs.append(req)
-    send_rag_store_request_to_cloud(session, reqs, token)
+    send_rag_store_request_to_cloud(session, reqs, token, mainwin.getWanApiEndpoint())

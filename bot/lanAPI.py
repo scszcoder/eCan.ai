@@ -4,11 +4,8 @@ import re
 from datetime import datetime
 
 import requests
-import boto3
-from botocore.exceptions import ClientError
-from boto3.s3.transfer import TransferConfig
 import logging
-import aiohttp
+import httpx
 import asyncio
 
 from bot.envi import getECBotDataHome
@@ -22,43 +19,22 @@ ecb_data_homepath = getECBotDataHome()
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
 
 
-def gen_screen_read_request_string(query):
-    logger_helper.debug("in query:"+json.dumps(query))
-    query_string = """
-        query MyQuery {
-      reqScreenTxtRead (inScrn:[
-    """
-    rec_string = ""
-    for i in range(len(query)):
-        #rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ mid: " + str(int(query[i]["id"])) + ", "
-        rec_string = rec_string + "bid: " + str(int(query[i]["bid"])) + ", "
-        rec_string = rec_string + "os: \"" + query[i]["os"] + "\", "
-        rec_string = rec_string + "app: \"" + query[i]["app"] + "\", "
-        rec_string = rec_string + "domain: \"" + query[i]["domain"] + "\", "
-        rec_string = rec_string + "page: \"" + query[i]["page"] + "\", "
-        rec_string = rec_string + "layout: \"" + query[i]["layout"] + "\", "
-        rec_string = rec_string + "skill: \"" + query[i]["skill_name"] + "\", "
-        rec_string = rec_string + "psk: \"" + query[i]["psk"] + "\", "
-        rec_string = rec_string + "csk: \"" + query[i]["csk"] + "\", "
-        rec_string = rec_string + "lastMove: \"" + query[i]["lastMove"] + "\", "
-        rec_string = rec_string + "options: \"" + query[i]["options"] + "\", "
-        rec_string = rec_string + "theme: \"" + query[i]["theme"] + "\", "
-        rec_string = rec_string + "imageFile: \"" + query[i]["imageFile"] + "\", "
-        rec_string = rec_string + "factor:  \"" + str(query[i]["factor"]) + "\"" + " }"
+def gen_screen_read_request_js(query, local_info):
 
-        if i != len(query) - 1:
-            rec_string = rec_string + ', '
+    q_data = {
+        "inScrn": query,
+        "requester": local_info["user"],
+        "host_name": local_info["host_name"],
+        "host_ip": local_info["ip"],
+        "type": "reqScreenTxtRead",
+        "query_type": "Query"
+    }
 
-    tail_string = """
-    ]) 
-    }"""
-    query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
-    return query_string
+    logger_helper.debug(q_data)
+    return q_data
 
 
-def gen_obtain_review_request_string(query):
+def gen_obtain_review_request_js(query):
     logger_helper.debug("in query:" + json.dumps(query))
     query_string = """
             query MyQuery {
@@ -90,7 +66,7 @@ def gen_obtain_review_request_string(query):
 
 
 # reqTrain(input: [Skill]!): AWSJSON!
-def gen_train_request_string(query):
+def gen_train_request_js(query):
     query_string = """
         mutation MyMutation {
       reqTrain (input:[
@@ -111,35 +87,10 @@ def gen_train_request_string(query):
 
 
 
-def gen_screen_read_icon_request_string(query):
-    query_string = """
-        query MyQuery {
-      reqScreenIconRead (inScrn:[
-    """
-    rec_string = ""
-    for i in range(len(query)):
-        rec_string = rec_string + "{ id: " + str(int(query[i].id)) + ", "
-        rec_string = rec_string + "app: \"" + query[i].app + "\", "
-        rec_string = rec_string + "domain: \"" + query[i].domain + "\", "
-        rec_string = rec_string + "type: \"" + query[i].req_type + "\", "
-        rec_string = rec_string + "intent: \"" + query[i].intent + "\", "
-        rec_string = rec_string + "lastMove: \"" + query[i].last_move + "\", "
-        rec_string = rec_string + "imageFile: \"" + query[i].image_file + "\" }"
-        if i != len(query) - 1:
-            rec_string = rec_string + ', '
+async def req_lan_read_screen8(session, request, token, local_info, imgs, lan_endpoint):
+    qdata = gen_screen_read_request_js(request, local_info)
 
-    tail_string = """
-        ]) {id}
-        }"""
-    query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
-    return query_string
-
-
-async def req_lan_read_screen8(session, request, token, lan_endpoint):
-    query = gen_screen_read_request_string(request)
-
-    jresp = await lan_http_request8(query, session, token, lan_endpoint)
+    jresp = await lan_http_request8(qdata, imgs, session, token, lan_endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -153,7 +104,7 @@ async def req_lan_read_screen8(session, request, token, lan_endpoint):
 
 
 def req_lan_read_screen(session, request, token, lan_endpoint):
-    query = gen_screen_read_request_string(request)
+    query = gen_screen_read_request(request)
 
     jresp = lan_http_request2(query, session, token, lan_endpoint)
 
@@ -193,21 +144,47 @@ def lan_http_request2(query_string, session, token, lan_endpoint):
     return jresp
 
 
-async def lan_http_request8(query_string, session, token, lan_endpoint):
-    LAN_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
+# since it's LAN, should be fast, so we send file and request data in 1 shot
+async def lan_http_request8(query_js, imgs, session, token, lan_endpoint):
+    host_ip = "192.168.0.2"
+    LAN_API_ENDPOINT_URL= f"http://{host_ip}:8848/graphql/reqScreenTxtRead/"
 
     headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
+        'Content-Type': "multipart/form-data",
+        # 'Authorization': token,
+        # 'cache-control': "no-cache",
     }
-    async with aiohttp.ClientSession() as session8:
-        async with session8.post(
-                url=lan_endpoint,
-                timeout=aiohttp.ClientTimeout(total=300),
-                headers=headers,
-                json={'query': query_string}
-        ) as response:
-            jresp = await response.json()
-            # print(jresp)
-            return jresp
+    print("endpoint:", LAN_API_ENDPOINT_URL, headers)
+
+    timeout = httpx.Timeout(connect=10.0, read=100.0, write=30.0, pool=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            print("no need to read files, img is already there...")
+            # Prepare the multipart form-data request
+            # files = {"file": (os.path.basename(query_js['img_file_name']), query_js['img'], "image/png")}
+            files = {
+                os.path.basename(img["file_name"]): (os.path.basename(img["file_name"]), img["bytes"],  "image/png")
+                for img in imgs
+            }
+            payload = {"data": json.dumps(query_js)}
+
+            print("Sending HTTP request...")
+
+            # Send the async request
+            response = await client.post(LAN_API_ENDPOINT_URL, files=files, data=payload)
+
+            # need to repackage response to be the same format as from aws so that
+            # the response handler can be the same. ... sc, well, let's push it to
+            # the server side.
+
+            print("Response:", response)
+
+            return response
+
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorHttpxClient:" + traceback.format_exc() + " " + str(e)
+                print(ex_stat)

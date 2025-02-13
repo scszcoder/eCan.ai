@@ -775,7 +775,7 @@ class SkillManagerWindow(QMainWindow):
             else:
                 qsettings = {"byowneruser": False, "qphrase": self.skill_search_edit.text()}
 
-            resp = send_query_skills_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qsettings)
+            resp = send_query_skills_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qsettings, self.parent.getWanApiEndpoint())
             # self.parent.showMsg("fetch skills results:", resp)
         except Exception as e:
             # Get the traceback information
@@ -819,7 +819,7 @@ class SkillManagerWindow(QMainWindow):
             #         self.missionModel.removeRow(item.row())
             #
             #     # remove on the cloud side
-            #     jresp = send_remove_skills_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'])
+            #     jresp = send_remove_skills_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'], self.parent.getWanApiEndpoint())
             #     if "errorType" in jresp:
             #         screen_error = True
             #         self.parent.showMsg("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )

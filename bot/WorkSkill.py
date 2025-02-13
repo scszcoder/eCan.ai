@@ -485,9 +485,9 @@ class WORKSKILL(QStandardItem):
 
     def send_csk_to_cloud(self, session, token, csk):
         for ankf in self.cloud_skill.get_anchors():
-            upload_file(session, ankf, token, "anchor")
+            upload_file(session, ankf, token, self.parent.getWanApiEndpoint(), "anchor")
 
-        upload_file(session, self.cloud_skill.get_csk_file(), token, "csk")
+        upload_file(session, self.cloud_skill.get_csk_file(), token, self.parent.getWanApiEndpoint(), "csk")
 
     def matchPskFileName(self, skill_file_name):
         # return true only when platform, app, site, page, skill name all matched.
