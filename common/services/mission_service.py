@@ -251,11 +251,11 @@ class MissionService:
             self.session.commit()
         return mission_instances
 
-    def sync_cloud_mission_data(self, session, tokens):
+    def sync_cloud_mission_data(self, session, tokens, mwin):
 
         print("sending query missions.....")
         jresp = send_query_missions_by_time_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
-                                                     [{"byowneruser": True}])
+                                                     [{"byowneruser": True}], mwin.getWanApiEndpoint())
         all_missions = json.loads(jresp['body'])
         # all_missions = jresp['body']
         for mission in all_missions:

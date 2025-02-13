@@ -147,10 +147,10 @@ class BotService:
             self.session.commit()
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
 
-    def sync_cloud_bot_data(self, session, tokens):
+    def sync_cloud_bot_data(self, session, tokens, mwin):
         try:
             jresp = send_query_bots_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
-                                                     {"byowneruser": True})
+                                                     {"byowneruser": True}, mwin.getWanApiEndpoint())
             # print("what's happening....", type(jresp['body']))
             # all_bots = json.loads(jresp['body'])
             all_bots = jresp['body']

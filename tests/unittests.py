@@ -358,10 +358,10 @@ def test_coordinates():
         print(row)
 
 
-def test_get_account_info(session, token):
+def test_get_account_info(host, session, token):
     qs = [{"actid": 5, "op":"", "options": ""}]
 
-    result = send_account_info_request_to_cloud(session, qs, token)
+    result = send_account_info_request_to_cloud(session, qs, token, host.getWanApiEndpoint())
 
     print("RESULT:", result)
 
@@ -392,7 +392,7 @@ def test_api(parent, session, token):
     # allTodoReports = [{'mid': 702, 'bid': 85, 'starttime': 1712082891, 'endtime': 1712082891, 'status': 'Completed:0'},
     #  {'mid': 694, 'bid': 71, 'starttime': 1712082921, 'endtime': 1712082921, 'status': 'Completed:0'},
     #  {'mid': 698, 'bid': 77, 'starttime': 1712082951, 'endtime': 1712082951, 'status': 'Completed:0'}]
-    # send_completion_status_to_cloud(session, allTodoReports, token)
+    # send_completion_status_to_cloud(session, allTodoReports, token, parent.getWanApiEndpoint())
 
 
     # // { "pass_method": "", "total_score": 0, "passing_score": 0, goals":[{"name": "xxx", "type": "xxx", "mandatory": true/false, "score": "", "standards": number/set of string, "weight": 1, passed": true/false}....]
@@ -414,40 +414,40 @@ def test_api(parent, session, token):
     }
     goals_string = json.dumps(goals_json).replace('"', '\\"')
     qs = [{"msgID": "1", "user": "john", "timeStamp": "2024-04-09T12:00:00.000Z", "products": "", "goals": goals_string, "background": "", "msg": "hi, do you sell fabric type?"}]
-    result = send_query_chat_request_to_cloud(session, token, qs)
+    result = send_query_chat_request_to_cloud(session, token, qs, parent.getWanApiEndpoint())
     print("send_query_chat_request_to_cloud RESULT:", result)
 
 
 
     # qs = [{"mid": 1, "bid": 1, "status":"Completed:0", "starttime": 123, "endtime": 123}]
-    # result = send_completion_status_to_cloud(session, qs, token)
+    # result = send_completion_status_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_completion_status_to_cloud RESULT:", result)
 
     # tests passed - 2024-01-21
     # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_add_bots_request_to_cloud(session, qs, token)
+    # result = send_add_bots_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_add_bots_request_to_cloud RESULT:", result)
     #
 
     # tests passsed - 2024-01-23
     # abot = parent.bots[0]
     # abot.pubProfile.setPubBirthday("1992-03-01")
-    # result = send_update_bots_request_to_cloud(session, [abot], token)
+    # result = send_update_bots_request_to_cloud(session, [abot], token, parent.getWanApiEndpoint())
     # print("send_update_bots_request_to_cloud RESULT:", result)
     #
     # tests passed - 2024-01-21
     # qs = [{"id": 12, "owner": "", "reason": ""}]
-    # result = send_remove_bots_request_to_cloud(session, qs, token)
+    # result = send_remove_bots_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_remove_bots_request_to_cloud RESULT:", result)
     #
     # tests passed.
-    # result = send_get_bots_request_to_cloud(session, token)
+    # result = send_get_bots_request_to_cloud(session, token, parent.getWanApiEndpoint())
     # print("send_get_bots_request_to_cloud RESULT:", result)
 
     # tests passed
     # qs = {"byowneruser": True}
     # qs = {"byowneruser": False, "qphrase": "etsy male"}
-    # result = send_query_bots_request_to_cloud(session, token, qs)
+    # result = send_query_bots_request_to_cloud(session, token, qs, parent.getWanApiEndpoint())
     # print("send_remove_missions_request_to_cloud RESULT:", result)
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
@@ -473,7 +473,7 @@ def test_api(parent, session, token):
     # amission.setConfig('')
     # amission.setSkills('9, 3')
     # amission.setDelDate('3022-10-23 00:00:00')
-    # result = send_add_missions_request_to_cloud(session, [amission], token)
+    # result = send_add_missions_request_to_cloud(session, [amission], token, parent.getWanApiEndpoint())
     # print("send_add_missions_request_to_cloud RESULT:", result)
     #
 
@@ -498,19 +498,19 @@ def test_api(parent, session, token):
     # amission.setSkills('2, 3')
     # amission.setDelDate('3022-10-23 00:00:00')
     #
-    # result = send_update_missions_request_to_cloud(session, [amission], token)
+    # result = send_update_missions_request_to_cloud(session, [amission], token, parent.getWanApiEndpoint())
     # print("send_update_missions_request_to_cloud RESULT:", result)
     #
     # tests passed - 2024-01-21
     # qs = [{"id": 44, "owner": "", "reason": ""}]
-    # result = send_remove_missions_request_to_cloud(session, qs, token)
+    # result = send_remove_missions_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_remove_missions_request_to_cloud RESULT:", result)
     #
 
     # tests passed
     # qs = {"byowneruser": True}
     # qs = {"byowneruser": False, "created_date_range": "2022-10-20 00:00:00,2022-10-25 00:00:00"}
-    # result = send_query_missions_request_to_cloud(session, token, qs)
+    # result = send_query_missions_request_to_cloud(session, token, qs, parent.getWanApiEndpoint())
     # print("send_remove_missions_request_to_cloud RESULT:", result)
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
@@ -518,27 +518,27 @@ def test_api(parent, session, token):
     # tests passed.
     # ts_skill = WORKSKILL(parent, "test_skill")
     # qs = [ts_skill]
-    # result = send_add_skills_request_to_cloud(session, qs, token)
+    # result = send_add_skills_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_add_skills_request_to_cloud RESULT:", result)
     # successfull result sample: {'statusCode': 200, 'body': [{'skid': 2, 'owner': 'songc@yahoo.com', 'createdOn': '2024-01-13', 'platform': 'win', 'app': 'chrome', 'site': 'amz', 'name': 'test_skill', 'path': '/resource/skills/public/', 'description': 'This skill does great automation.', 'runtime': 1, 'price_model': '', 'price': 0, 'privacy': 'PRV'}]}
 
     # tests passed.
     # ts_skill.setName("test_skill0")
     # ts_skill.setSkid(1)
-    # result = send_update_skills_request_to_cloud(session, qs, token)
+    # result = send_update_skills_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_update_skills_request_to_cloud RESULT:", result)
     # sample successful result: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '906f94f0-d998-48aa-aca9-6faf60f1964e', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
     # tests passed.
     # qs = [{"skid": 1, "owner": "", "reason": ""}]
-    # result = send_remove_skills_request_to_cloud(session, qs, token)
+    # result = send_remove_skills_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_remove_skills_request_to_cloud RESULT:", result)
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
     # tests passed.
     # qs = {"byowneruser": True}
     # qs = {"byowneruser": False, "qphrase": "great automation"}
-    # result = send_query_skills_request_to_cloud(session, token, qs)
+    # result = send_query_skills_request_to_cloud(session, token, qs, parent.getWanApiEndpoint())
     # print("send_remove_skills_request_to_cloud RESULT:", result)
     # sample results: {'statusCode': 200, 'body': {'$metadata': {'httpStatusCode': 200, 'requestId': '38991f4b-ea44-471a-b48a-f59d93357cfc', 'attempts': 1, 'totalRetryDelay': 0}, 'generatedFields': [], 'numberOfRecordsUpdated': 1}}
 
@@ -547,7 +547,7 @@ def test_api(parent, session, token):
     # print("send_schedule_request_to_cloud RESULT:", jresp)
     #
     # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = req_train_read_screen(session, qs, token)
+    # result = req_train_read_screen(session, qs, token, parent.getWanApiEndpoint())
     # print("req_train_read_screen RESULT:", result)
     #
     # tested many times by now
@@ -556,13 +556,13 @@ def test_api(parent, session, token):
     # print("req_cloud_read_screen RESULT:", result)
     #
     # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_account_info_request_to_cloud(session, qs, token)
+    # result = send_account_info_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_account_info_request_to_cloud RESULT:", result)
 
 
 
     # qs = [{"actid": 5, "op":"", "options": ""}]
-    # result = send_account_info_request_to_cloud(session, qs, token)
+    # result = send_account_info_request_to_cloud(session, qs, token, parent.getWanApiEndpoint())
     # print("send_account_info_request_to_cloud RESULT:", result)
 
 
@@ -1075,7 +1075,7 @@ def run_genSchedules_test_case(host, session, token, tcn):
         }
     }
 
-    jresp = send_schedule_request_to_cloud(session, token, "tests", schedule_test_settings)
+    jresp = send_schedule_request_to_cloud(session, token, "tests", schedule_test_settings, host.getWanApiEndpoint())
     if "errorType" in jresp:
         screen_error = True
         print("ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
@@ -1243,9 +1243,9 @@ def test_printer_print_sync():
     # win32api.ShellExecute(0, "print", "C:/temp/label_print_test/ebay_george_pele_p1_v1_1_p2_v2_1.pdf", None, ".", 0)
 
 
-def test_save_csk(session, token):
+def test_save_csk(endpoint, session, token):
     csk_dir = "C:/Users/songc/PycharmProjects/ecbot/my_skills/win_chrome_goodsupply_label/bulk_buy"
-    threading.Thread(target=startSaveCSK, args=(csk_dir, session, token), daemon=True).start()
+    threading.Thread(target=startSaveCSK, args=(endpoint, csk_dir, session, token), daemon=True).start()
 
 def test_ebay(session, token):
     print("test ebay")
@@ -1528,10 +1528,10 @@ def test_pyzipunzip():
     processZipUnzip(step, 1)
 
 
-def test_handle_extern_skill_run_report(session, token):
+def test_handle_extern_skill_run_report(endpoint, session, token):
     in_message = {"contents": "[{\"service\":\"USPS Ground Advantage (1-15oz)\",\"price\":6.75,\"num_orders\":3,\"dir\":\"C:\\Users\\songc\\PycharmProjects\\ecbot/songc_yahoo_com/runlogs/songc_yahoo/20240824/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels\",\"file\":\"runlogs/songc_yahoo/20240824/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels/ebayOrdersGround20240824183259.xlsx\",\"zip_file\":\"ebayOrdersGround20240824183259.zip\",\"zip_dir\":\"C:/Users/songc/PycharmProjects/ecbot/songc_yahoo_com/runlogs/songc_yahoo_com/20240824/b88m697/win_ads_ebay_orders/skills/browser_fullfill_orders_with_ecb_labels/ecb_labels\",\"order_data\":[{\\\"name\":\"Shaker Sediqi\",\"order_ids\":[\"04-11983-43763\"],\"tracking\":\"92346853310287736074040659\"},{\"name\":\"ramez boos\",\"order_ids\":[\"07-11979-59634\"],\"tracking\":\"92346143461007104750277876\"},{\"name\":\"Nicholas bumgardner\",\"order_ids\":[\"20-11961-97395\"],\"tracking\":\"92346407433757614105836042\"}],\"succeed\":false,\"result\":\"Completed\"}]"}
     ext_run_results = json.loads(in_message['contents'])
-    handleExtLabelGenResults(session, token, ext_run_results)
+    handleExtLabelGenResults(endpoint, session, token, ext_run_results)
 
 
 
@@ -1608,7 +1608,7 @@ def setupExtSkillRunReportResultsTestData(mainwin):
     }]
 
 
-def testCloudAccessWithAPIKey(session, token):
+def testCloudAccessWithAPIKey(session, token, mainwin):
     apikey = os.getenv('SC_ECB_TEST_API_KEY0')
     print("apikey:", apikey)
     req = [
@@ -1622,7 +1622,7 @@ def testCloudAccessWithAPIKey(session, token):
 
 
 
-    req_cloud_obtain_review_w_aipkey(session, req, apikey)
+    req_cloud_obtain_review_w_aipkey(session, req, apikey, mainwin.getWanImageEndpoint())
 
 
 
@@ -1633,7 +1633,7 @@ def testReportVehicles(mwinwin):
 
 def testDequeue(mwinwin):
     vehicle_report = mwinwin.prepVehicleReportData()
-    resp = send_dequeue_tasks_to_cloud(mwinwin.session, mwinwin.tokens['AuthenticationResult']['IdToken'], vehicle_report)
+    resp = send_dequeue_tasks_to_cloud(mwinwin.session, mwinwin.tokens['AuthenticationResult']['IdToken'], vehicle_report, mwinwin.getWanApiEndpoint())
 
 def testUpdateMissionsExStatus(mwin):
     print("entering test....")
@@ -1641,7 +1641,7 @@ def testUpdateMissionsExStatus(mwin):
         "mid": 11098,
         "status": "started"
     }]
-    resp = send_update_missions_ex_status_to_cloud(mwin.session, mstats, mwin.tokens['AuthenticationResult']['IdToken'])
+    resp = send_update_missions_ex_status_to_cloud(mwin.session, mstats, mwin.tokens['AuthenticationResult']['IdToken'], mwin.getWanApiEndpoint())
     print("test done!!!")
 
 
@@ -1958,7 +1958,7 @@ async def testLocalImageAPI2(parent):
         "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
         "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
-        "options": json.dumps({"attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),
+        "options": json.dumps({"attention_area": [0, 0, 700, 700], "attention_targets": ["@all"]}),
         "theme": "light",
         "imageFile": img_file_name,
         "factor": "{}"
@@ -1973,7 +1973,7 @@ async def testLocalImageAPI2(parent):
     }
 
     # Use local IP instead of .local hostname
-    host_ip = "192.168.0.16"
+    host_ip = "192.168.0.2"
     endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead/"
 
     print("endpoint:", endpoint)

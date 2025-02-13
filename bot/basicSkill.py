@@ -19,6 +19,7 @@ import numpy as np
 from deepdiff import DeepDiff
 import importlib.util
 import requests
+import io
 
 from ping3 import ping
 import utils.logger_helper
@@ -1428,19 +1429,24 @@ def captureScreenToFile(win_title_keyword, sfile, subArea=None, fformat='png'):
 
         subimage.save(sfile)
 
+    # Convert the PIL Image to bytes (in memory, no disk write)
+    image_io = io.BytesIO()
+    subimage.save(image_io, format="PNG")  # Convert image to PNG format
+    image_bytes = image_io.getvalue()
+
     screen_loc = (window_rect[0], window_rect[1])
-    return subimage, window_rect
+    return subimage, image_bytes, window_rect
 
 def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
     mainwin = mission.get_main_win()
 
-    screen_img, window_rect = captureScreenToFile(win_title_keyword, sfile)
+    screen_img, img_bytes, window_rect = captureScreenToFile(win_title_keyword, sfile)
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
     #upload screen to S3
-    upload_file(settings["session"], sfile, settings["token"], "screen")
+    upload_file(settings["session"], sfile, settings["token"],  mainwin.getWanApiEndpoint(), "screen")
 
     m_skill_names = [sk_settings["skname"]]
     m_psk_names = [sk_settings["skfname"]]
@@ -1459,14 +1465,14 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
     # basically let a user to modify csk file by appending some user defined way to extract certain information element.
 
     request = [{
-        "id": mission.getMid(),
+        "mid": mission.getMid(),
         "bid": mission.getBid(),
         "os": sk_settings["platform"],
         "app": sk_settings["app"],
         "domain": sk_settings["site"],
         "page": site_page,
         "layout": layout,
-        "skill_name": m_skill_names[0],
+        "skill": m_skill_names[0],
         "psk": m_psk_names[0].replace("\\", "\\\\"),
         "csk": m_csk_names[0].replace("\\", "\\\\"),
         "lastMove": page_sect,
@@ -1511,7 +1517,7 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
-    result = req_cloud_read_screen(settings["session"], request, settings["token"])
+    result = req_cloud_read_screen(settings["session"], request, settings["token"], mainwin.getWanApiEndpoint())
     # log3("result::: "+json.dumps(result))
     jresult = json.loads(result['body'])
     # log3("cloud result data: "+json.dumps(jresult["data"]))
@@ -1534,7 +1540,7 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
             return []
 
 # win_title_keyword == "" means capture the entire screen
-async def readRandomWindow8(win_title_keyword, log_user, session,  token):
+async def readRandomWindow8(mission, win_title_keyword, log_user, session,  token):
     dtnow = datetime.now()
     date_word = dtnow.strftime("%Y%m%d")
     dt_string = str(int(dtnow.timestamp()))
@@ -1542,30 +1548,29 @@ async def readRandomWindow8(win_title_keyword, log_user, session,  token):
     fdir = ecb_data_homepath + f"/{log_user}/runlogs/{log_user}/" + date_word + "/b0m0/any_any_any_any/skills/any/images"
     image_file = fdir + "scrn" + "_" + dt_string + ".png"
 
-    screen_img, window_rect = captureScreenToFile(win_title_keyword, image_file)
+    screen_img, img_bytes, window_rect = captureScreenToFile(win_title_keyword, image_file)
     # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
     # shutil.copy(source_file, image_file)
-    return await cloudAnalyzeRandomImage8(image_file, session, token)
+    return await cloudAnalyzeRandomImage8(mission, image_file, screen_img, session, token)
 
 async def readScreen8(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
     settings = mission.main_win_settings
     mainwin = mission.get_main_win()
-    screen_img, window_rect = captureScreenToFile(win_title_keyword, sfile)
+    screen_img, img_bytes, window_rect = captureScreenToFile(win_title_keyword, sfile)
 
     session = settings["session"]
     token = settings["token"]
     mid = mission.getMid()
     bid = mission.getBid()
     image_file = sfile
-    img_engine = mainwin.getImageEngine()
-    loan_img_endpoint = mainwin.getLanImageEndpoint()
-    result = await cloudAnalyzeImage8(image_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, img_engine, loan_img_endpoint)
+
+    result = await cloudAnalyzeImage8(image_file, img_bytes, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, mission)
     return result
 
 
 #image_file *.png must be put in the following diretory
 # "imageFile": "C:/Users/***/PycharmProjects/ecbot/resource/runlogs/20240328/b0m0/any_any_any_any/skills/any/images/*.png"
-async def cloudAnalyzeRandomImage8(image_file, session, token):
+async def cloudAnalyzeRandomImage8(mission, image_file, image_bytes, session, token):
     sk_settings = {
         "platform": "any",
         "app": "any",
@@ -1573,14 +1578,14 @@ async def cloudAnalyzeRandomImage8(image_file, session, token):
         "skname": "any",
         "skfname": "resource/skills/public/any_any_any_any/any.psk"
     }
-    return await cloudAnalyzeImage8(image_file, "any", "any", "", "", 0, 0, sk_settings, "", "{}", session, token)
+    return await cloudAnalyzeImage8(image_file, image_bytes,"any", "any", "", "", 0, 0, sk_settings, "", "{}", session, token, mission)
 
-async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, img_engine="aws", lan_img_endpoint=""):
+async def cloudAnalyzeImage8(img_file, image_bytes, site_page, page_sect, page_theme, layout, mid, bid, sk_settings, options, factors, session, token, mission):
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BXXX: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
-
+    mwin = mission.get_main_win()
     #upload screen to S3
-    await upload_file8(session, img_file, token, "screen")
+    await upload_file8(session, img_file, token, mwin.getWanApiEndpoint(),"screen")
     with Image.open(img_file) as img:
         # Get width and height
         full_width, full_height = img.size
@@ -1599,14 +1604,14 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
     # basically let a user to modify csk file by appending some user defined way to extract certain information element.
 
     request = [{
-        "id": mid,
+        "mid": mid,
         "bid": bid,
         "os": sk_settings["platform"],
         "app": sk_settings["app"],
         "domain": sk_settings["site"],
         "page": site_page,
         "layout": layout,
-        "skill_name": m_skill_names[0],
+        "skill": m_skill_names[0],
         "psk": m_psk_names[0].replace("\\", "\\\\"),
         "csk": m_csk_names[0].replace("\\", "\\\\"),
         "lastMove": page_sect,
@@ -1641,8 +1646,26 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
         request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+    mainwin = mission.get_main_win()
+    img_engine = mainwin.getImageEngine()
+    if mainwin.getImageEngine() == "lan":
+        img_endpoint = mainwin.getLanImageEndpoint()
+    else:
+        img_endpoint = mainwin.getWanImageEndpoint()
 
-    result = await req_read_screen8(session, request, token, img_engine, lan_img_endpoint)
+    local_info = {
+        "user": mainwin.getUser(),
+        "host_name": mainwin.getHostName(),
+        "ip": mainwin.getIP()
+    }
+
+    imgs = [
+        {
+            "file_name": img_file,
+            "bytes": image_bytes
+        }
+    ]
+    result = await req_read_screen8(session, request, token, local_info, imgs, img_engine, img_endpoint)
     jresult = json.loads(result['body'])
     # log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
@@ -1663,11 +1686,11 @@ async def cloudAnalyzeImage8(img_file, site_page, page_sect, page_theme, layout,
             return []
 
 
-async def req_read_screen8(session, request, token, engine, lan_img_endpoint):
+async def req_read_screen8(session, request, token, local_info, imgs, engine, api_endpoint):
     if engine == "aws":
-        return await req_cloud_read_screen8(session, request, token)
+        return await req_cloud_read_screen8(session, request, token, api_endpoint)
     elif engine == "lan":
-        return await req_lan_read_screen8(session, request, token, lan_img_endpoint)
+        return await req_lan_read_screen8(session, request, token, local_info, imgs, api_endpoint)
 
 # actual processing skill routines =========================================================>
 def build_current_context():
@@ -2068,7 +2091,7 @@ def processScreenCapture(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
 
-        screen_img, window_rect = captureScreenToFile("", symTab[step["img_file_var"]], symTab[step["area"]], symTab[step["format"]])
+        screen_img, img_bytes, window_rect = captureScreenToFile("", symTab[step["img_file_var"]], symTab[step["area"]], symTab[step["format"]])
         if step["img_var"]:
             symTab[step["img_var"]] = screen_img
 
@@ -2093,6 +2116,8 @@ def processUploadFiles(step, i, mission):
         symTab[step["flag"]] = True
         symTab[step["results"]] = []
         settings = mission.main_win_settings
+        mainwin = mission.get_main_win()
+        endpoint = mainwin.getWanApiEndpoint()
         if "/" in step["files_var"]:
             sfiles = [step["files_var"]]
         elif type(step["files_var"]) == list:
@@ -2110,10 +2135,10 @@ def processUploadFiles(step, i, mission):
             print("uploading....", sfile)
             if type(symTab[step["locs"]]) == list:
                 print("tos....", symTab[step["locs"]][si])
-                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], ftype))
+                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]][si], settings["token"], endpoint, ftype))
             else:
                 print("to....", symTab[step["locs"]])
-                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], ftype))
+                symTab[step["results"]].append(upload_file(settings["session"], sfile, symTab[step["locs"]], settings["token"], endpoint, ftype))
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -2135,6 +2160,7 @@ def processDownloadFiles(step, i, mission):
         symTab[step["flag"]] = True
         symTab[step["results"]] = []
         mainwin = mission.get_main_win()
+        endpoint = mainwin.getWanApiEndpoint()
         dh = ecb_data_homepath + f"/{mainwin.log_user}/"
         settings = mission.main_win_settings
         if "/" in step["files_var"]:
@@ -2150,9 +2176,9 @@ def processDownloadFiles(step, i, mission):
 
         for si, sfile in enumerate(sfiles):
             if type(symTab[step["locs"]]) == list:
-                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]][si], settings["token"], ftype))
+                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]][si], settings["token"], endpoint, ftype))
             else:
-                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]], settings["token"], ftype))
+                symTab[step["results"]].append(download_file(settings["session"], dh, sfile, symTab[step["locs"]], settings["token"], endpoint, ftype))
 
     except Exception as e:
         # Get the traceback information
@@ -2198,8 +2224,8 @@ def processUpdateMissionStatus(step, i, mission):
             "status": status
         }
 
-
-        symTab[step["results"]] = send_update_missions_ex_status_to_cloud(session, [mstat], token)
+        mainwin = mission.get_main_win()
+        symTab[step["results"]] = send_update_missions_ex_status_to_cloud(session, [mstat], token, mainwin.getWanApiEndpoint())
 
     except Exception as e:
         # Get the traceback information
@@ -3540,7 +3566,8 @@ def processUseExternalSkill(step, i, mission):
         reqs = [req]
         print("REQS:", reqs)
 
-        symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"])
+        mainwin = mission.get_main_win()
+        symTab[step["output"]] = send_run_ext_skill_request_to_cloud(settings["session"], reqs, settings["token"], mainwin.getWanApiEndpoint())
 
     except Exception as e:
         # Get the traceback information
@@ -3577,7 +3604,8 @@ def processReportExternalSkillRunStatus(step, i, mission):
         }
         reqs = [req]
 
-        send_result = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"])
+        mainwin = mission.get_main_win()
+        send_result = send_report_run_ext_skill_status_request_to_cloud(settings["session"], reqs, settings["token"], mainwin.getWanApiEndpoint())
 
     except Exception as e:
         # Get the traceback information
@@ -4038,11 +4066,12 @@ def processDeleteFile(step, i):
 
 def processObtainReviews(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
+    mainwin = mission.get_main_win()
 
     review_request = [{"product": symTab[step["product"]], "instructions": symTab[step["instructions"]]}]
     try:
         settings = mission.main_win_settings
-        resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"])
+        resp = req_cloud_obtain_review(settings["session"], review_request, settings["token"], mainwin.getWanApiEndpoint())
         netReview = json.loads(resp['body'])
         symTab[step["review_body"]] = netReview["body"]
         symTab[step["review_title"]] = netReview["title"]
@@ -5212,7 +5241,9 @@ def processThink(step, i, mission):
             "msg": symTab[step["user_prompt"]]
         }]
         settings = mission.main_win_settings
-        symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
+
+        mainwin = mission.get_main_win()
+        symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs, mainwin.getWanApiEndpoint())
 
 
     except Exception as e:
@@ -5255,7 +5286,8 @@ async def processThink8(step, i, mission):
             "msg": "provide answer"
         }]
         settings = mission.main_win_settings
-        symTab[step["response"]] = await send_query_chat_request_to_cloud8(settings["session"], settings["token"], qs)
+        mainwin = mission.get_main_win()
+        symTab[step["response"]] = await send_query_chat_request_to_cloud8(settings["session"], settings["token"], qs, mainwin.getWanApiEndpoint())
 
 
     except Exception as e:
@@ -5288,7 +5320,9 @@ def processGenRespMsg(step, i, mission):
         qs = [{"msgID": "1", "bot": str(mission.botid), "timeStamp": date_word, "product": symTab[step["products"]],
                "goals": step["setup"], "background": "", "msg_thread": symTab[step["query"]]}]
         settings = mission.main_win_settings
-        symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs)
+
+        mainwin = mission.get_main_win()
+        symTab[step["response"]] = send_query_chat_request_to_cloud(settings["session"], settings["token"], qs, mainwin.getWanApiEndpoint())
 
 
     except Exception as e:
@@ -5724,17 +5758,17 @@ def processAmzPLCalcNCols(step, i):
 
 
 
-def startSaveCSK(csk_dir, session, token):
+def startSaveCSK(endpoint, csk_dir, session, token):
     print("hello????")
     loop = asyncio.new_event_loop()
     print("hohohohohoh????")
-    loop.run_until_complete(saveCSKToCloud(csk_dir, session, token))
+    loop.run_until_complete(saveCSKToCloud(endpoint, csk_dir, session, token))
 
 # def on_upload_button_click(loop, csk_dir):
 #     threading.Thread(target=start_upload, args=(loop, csk_dir), daemon=True).start()
 
 
-async def saveCSKToCloud(csk_dir, session, token):
+async def saveCSKToCloud(endpoint, csk_dir, session, token):
     try:
         images_dir = os.path.join(csk_dir, 'images')
         scripts_dir = os.path.join(csk_dir, 'scripts')
@@ -5749,7 +5783,7 @@ async def saveCSKToCloud(csk_dir, session, token):
             for file in os.listdir(scripts_dir) if file.endswith('.csk')
         ]
 
-        tasks = [upload_file8(session, file, token, ftype) for (file, ftype) in image_files + script_files]
+        tasks = [upload_file8(session, file, token, endpoint, ftype) for (file, ftype) in image_files + script_files]
 
         await asyncio.gather(*tasks)
 
@@ -6149,7 +6183,7 @@ def regSteps(stepType, stepData, start, result, mainWin):
         }
     ]
     #upload screen to S3
-    resp = send_reg_steps_to_cloud(mainWin.session, steps, mainWin.tokens['AuthenticationResult']['IdToken'])
+    resp = send_reg_steps_to_cloud(mainWin.session, steps, mainWin.tokens['AuthenticationResult']['IdToken'], mainWin.getWanApiEndpoint())
 
 
 def processPasteToData(step, i):

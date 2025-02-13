@@ -1097,9 +1097,9 @@ def setLabelsReady():
 
 
 
-def handleExtLabelGenResults(session, token, ext_run_results):
+def handleExtLabelGenResults(session, token, endpoint, ext_run_results):
     for req in ext_run_results:  # per batch of orders for one shipping method.
-        dl_stat = download_file(session, req['zip_dir'], req['zip_file'], req['zip_dir'], token, "general")
+        dl_stat = download_file(session, req['zip_dir'], req['zip_file'], req['zip_dir'], token, endpoint,"general")
         dl_zip = req['zip_dir'] + "/" + req['zip_file']
         print("dl_zip", dl_zip, req['zip_dir'])
         unzip_file(dl_zip, req['zip_dir'])
