@@ -34,56 +34,33 @@ def gen_screen_read_request_js(query, local_info):
     return q_data
 
 
-def gen_obtain_review_request_js(query):
-    logger_helper.debug("in query:" + json.dumps(query))
-    query_string = """
-            query MyQuery {
-          getFB (fb_reqs:[
-        """
-    rec_string = ""
-    for i in range(len(query)):
-        # rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ number: 1, "
-        rec_string = rec_string + "product: \"" + query[i]["product"] + "\", "
-        rec_string = rec_string + "orderID: \"\", "
-        rec_string = rec_string + "payType: \"\", "
-        rec_string = rec_string + "total: 0, "
-        rec_string = rec_string + "transactionID: \"\", "
-        rec_string = rec_string + "customerMail: \"songc@yahoo.com\", "
-        rec_string = rec_string + "customerPhone: \"\", "
-        rec_string = rec_string + "instructions: \"" + query[i]["instructions"] + "\", "
-        rec_string = rec_string + "origin:  \"ecbot app\"" + " }"
+def gen_obtain_review_request_js(query, local_info):
+    q_data = {
+        "getFB": query,
+        "requester": local_info["user"],
+        "host_name": local_info["host_name"],
+        "host_ip": local_info["ip"],
+        "type": "reqScreenTxtRead",
+        "query_type": "Query"
+    }
 
-        if i != len(query) - 1:
-            rec_string = rec_string + ', '
-
-    tail_string = """
-        ])
-        }"""
-    query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
-    return query_string
+    logger_helper.debug(q_data)
+    return q_data
 
 
 # reqTrain(input: [Skill]!): AWSJSON!
-def gen_train_request_js(query):
-    query_string = """
-        mutation MyMutation {
-      reqTrain (input:[
-    """
-    rec_string = ""
-    for i in range(len(query)):
-        logger_helper.debug("query: "+json.dumps(query[i]))
-        rec_string = rec_string + "{ skillName: \"" + query[i]["skillName"] + "\", "
-        rec_string = rec_string + "skillFile: \"" + query[i]["skillFile"] + "\", "
-        rec_string = rec_string + "imageFile: \"" + query[i]["imageFile"] + "\" }"
-        if i != len(query) - 1:
-            rec_string = rec_string + ', '
+def gen_train_request_js(query, local_info):
+    q_data = {
+        "inScrn": query,
+        "requester": local_info["user"],
+        "host_name": local_info["host_name"],
+        "host_ip": local_info["ip"],
+        "type": "reqTrain",
+        "query_type": "Query"
+    }
 
-    tail_string = "])  }"
-    query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
-    return query_string
+    logger_helper.debug(q_data)
+    return q_data
 
 
 
@@ -103,10 +80,10 @@ async def req_lan_read_screen8(session, request, token, local_info, imgs, lan_en
     return jresponse
 
 
-def req_lan_read_screen(session, request, token, lan_endpoint):
-    query = gen_screen_read_request(request)
+def req_lan_read_screen(session, request, token, local_info, imgs, lan_endpoint):
+    qdata = gen_screen_read_request_js(request, local_info)
 
-    jresp = lan_http_request2(query, session, token, lan_endpoint)
+    jresp = lan_http_request2(qdata, imgs, session, token, lan_endpoint)
 
     if "errors" in jresp:
         screen_error = True
@@ -119,36 +96,53 @@ def req_lan_read_screen(session, request, token, lan_endpoint):
     return jresponse
 
 
-
-def lan_http_request2(query_string, session, token, lan_endpoint):
-
+# send request over the LAN synchronously.
+def lan_http_request2(query_js, imgs, session, token, lan_endpoint):
+    LAN_API_ENDPOINT_URL = f"{lan_endpoint}/reqScreenTxtRead/"
+    print("lan endpoint: " + LAN_API_ENDPOINT_URL)
     headers = {
-        'Content-Type': "application/json",
-        'Authorization': token,
-        'cache-control': "no-cache",
+        'Content-Type': "multipart/form-data",
     }
+    print("endpoint:", LAN_API_ENDPOINT_URL, headers)
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=lan_endpoint,
-        method='POST',
-        timeout=300,
-        headers=headers,
-        json={'query': query_string}
-    )
-    # save response to a log file. with a time stamp.
-    # print(response)
+    timeout = httpx.Timeout(connect=10.0, read=100.0, write=30.0, pool=10.0)
+    with httpx.Client(timeout=timeout) as client:
+        try:
+            print("no need to read files, img is already there...")
+            # Prepare the multipart form-data request
+            # files = {"file": (os.path.basename(query_js['img_file_name']), query_js['img'], "image/png")}
+            files = {
+                os.path.basename(img["file_name"]): (os.path.basename(img["file_name"]), img["bytes"], "image/png")
+                for img in imgs
+            }
+            payload = {"data": json.dumps(query_js)}
 
-    jresp = response.json()
+            print("Sending HTTP request...")
 
-    return jresp
+            # Send the async request
+            response = client.post(LAN_API_ENDPOINT_URL, files=files, data=payload)
+
+            # need to repackage response to be the same format as from aws so that
+            # the response handler can be the same. ... sc, well, let's push it to
+            # the server side.
+
+            print("Response:", response)
+
+            return response
+
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorHttpxClient:" + traceback.format_exc() + " " + str(e)
+                print(ex_stat)
 
 
 # since it's LAN, should be fast, so we send file and request data in 1 shot
 async def lan_http_request8(query_js, imgs, session, token, lan_endpoint):
-    host_ip = "192.168.0.2"
-    LAN_API_ENDPOINT_URL= f"http://{host_ip}:8848/graphql/reqScreenTxtRead/"
-
+    LAN_API_ENDPOINT_URL= f"{lan_endpoint}/reqScreenTxtRead/"
+    print("lan endpoint: "+LAN_API_ENDPOINT_URL)
     headers = {
         'Content-Type': "multipart/form-data",
         # 'Authorization': token,
