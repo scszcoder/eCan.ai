@@ -16,8 +16,6 @@ from config.constants import API_DEV_MODE
 
 ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
-API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
-
 
 def gen_screen_read_request_js(query, local_info):
 
