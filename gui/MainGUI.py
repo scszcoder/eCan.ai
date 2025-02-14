@@ -1414,6 +1414,15 @@ class MainWindow(QMainWindow):
     def getLanApiEndpoint(self):
         return self.general_settings["lan_api_endpoint"]
 
+    def setMILANServer(self, ip, port="8848"):
+        self.general_settings["lan_api_host"] = ip
+        self.general_settings["lan_api_port"] = port
+        self.general_settings["lan_api_endpoint"] = f"http://{ip}:{port}/graphql"
+
+    def setLanDBServer(self, ip, port="5080"):
+        self.general_settings["localUserDB_host"] = ip
+        self.general_settings["localUserDB_port"] = port
+
     def _syncBotAccountsAction(self):
         # File actions
         new_action = QAction(self)

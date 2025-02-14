@@ -440,6 +440,17 @@ class UDPServerProtocol:
                 self.commander_connect_attempted = True
                 if self.active_reconnect_task is None or self.active_reconnect_task.done():
                     self.active_reconnect_task = self.loop.create_task(self.reconnect_to_commander(commanderIP))
+        elif "MILAN" in message and  myBoss in message and commanderXport is None:
+            rxmsg_parts = message.split(":")
+            milanServerIP = rxmsg_parts[1]
+            print(f"received milan server IP: {milanServerIP}")
+            self.topgui.setMILANServer(milanServerIP)
+
+        elif "LANDB" in message and myBoss in message and commanderXport is None:
+            rxmsg_parts = message.split(":")
+            lanDBServerIP = rxmsg_parts[1]
+            print(f"received lan DB server IP: {lanDBServerIP}")
+            self.topgui.setLanDBServer(lanDBServerIP)
 
     async def reconnect_to_commander(self, commanderIP):
         global commanderXport
