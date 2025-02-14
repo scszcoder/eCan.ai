@@ -118,7 +118,7 @@ def genStepsChromeRefreshGMailSkill(worksettings, stepN, theme):
     this_step, step_words = genStepCallExtern("global gmail_acct\ngmail_acct = fin[0]", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]\print('gmail_pw:', gmail_pw, gmail_acct)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]\nprint('gmail_pw:', gmail_pw, gmail_acct)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # os is like windows, macos, linux...

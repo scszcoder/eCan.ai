@@ -1405,13 +1405,13 @@ class MainWindow(QMainWindow):
     def getWanImageEndpoint(self):
         return self.general_settings["wan_api_endpoint"]
 
-    def getWanApiEndPoint(self):
+    def getWanApiEndpoint(self):
         return self.general_settings["wan_api_endpoint"]
 
-    def getWSApiEndPoint(self):
+    def getWSApiEndpoint(self):
         return self.general_settings["ws_api_endpoint"]
 
-    def getLanApiEndPoint(self):
+    def getLanApiEndpoint(self):
         return self.general_settings["lan_api_endpoint"]
 
     def _syncBotAccountsAction(self):
