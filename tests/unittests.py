@@ -329,8 +329,8 @@ def test_basic():
     #     print("price NOT FOUND!!!!")
 
     addr = "Coral Springs, FL "
-    us_addr_pattern = re.compile("[a-zA-Z ]+\, *[A-Z][A-Z] *$")
-    ca_addr_pattern = re.compile("[a-zA-Z ]+\, *Canada *$")
+    us_addr_pattern = re.compile(r"[a-zA-Z ]+, *[A-Z][A-Z] *$")  # Use raw string (r"") or double backslash
+    ca_addr_pattern = re.compile(r"[a-zA-Z ]+, *Canada *$")  # Use raw string
 
     us_matched = us_addr_pattern.search(addr)
     ca_matched = ca_addr_pattern.search(addr)
@@ -897,7 +897,7 @@ def test_processSearchWordLine():
                               }
                             ]
 
-    symTab["test_pattern"] = "2[0-9]\."
+    symTab["test_pattern"] = r"2[0-9]\."  # Use raw string
     stepjson = {
         "type": "Search Word Line",
         "screen": "screen_info",
