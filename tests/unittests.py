@@ -1933,7 +1933,7 @@ def testSyncLocalImageAPI(parent):
         print(f"Unexpected error: {e}")
 
 
-async def testLocalImageAPI2(parent):
+async def testLocalImageAPI2(mwin):
     print("TESTING LOCAL IMG API2....")
     # Ensure ECB_HOME is set
     ecb_home = os.getenv("ECB_HOME")
@@ -1943,12 +1943,12 @@ async def testLocalImageAPI2(parent):
     print(f"ecb_home: {ecb_home}")  # Debugging print
 
     # Construct file path
-    img_file_name = os.path.join(ecb_home, "runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png")
-
+    img_file_name = os.path.join(ecb_home, "runlogs/songc_yahoo_com/20250214/b229m12455/win_ads_local_open/skills/open_profile/images/scrnsongc_yahoo_1739568219.png")
+    print("img_file_name:", img_file_name)
     # Construct request payload
     request = [{
-        "mid": 702,
-        "bid": 85,
+        "mid": 12455,
+        "bid": 229,
         "os": "win",
         "app": "file",
         "domain": "local",
@@ -1974,7 +1974,7 @@ async def testLocalImageAPI2(parent):
 
     # Use local IP instead of .local hostname
     host_ip = "192.168.0.2"
-    endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead/"
+    endpoint = mwin.getLanApiEndpoint() + "/reqScreenTxtRead/"
 
     print("endpoint:", endpoint)
 
@@ -1996,7 +1996,7 @@ async def testLocalImageAPI2(parent):
                 files = {"file": (os.path.basename(img_file_name), img_file, "image/png")}
                 payload = {"data": json.dumps(data)}
 
-                print("Sending HTTP request...")
+                print("Sending HTTP request...", files)
 
                 # Send the async request
                 response = await client.post(endpoint, files=files, data=payload)
@@ -2011,3 +2011,56 @@ async def testLocalImageAPI2(parent):
             if traceback_info:
                 ex_stat = "ErrorHttpxClient:" + traceback.format_exc() + " " + str(e)
                 print(ex_stat)
+
+
+async def testLocalImageAPI3(mwin):
+    ecb_home = os.getenv("ECB_HOME")
+    if not ecb_home:
+        raise ValueError("Environment variable ECB_HOME is not set!")
+
+    print(f"ecb_home: {ecb_home}")  # Debugging print
+
+    # Construct file path
+    img_file_name = os.path.join(ecb_home,
+                                 "runlogs/songc_yahoo_com/20250214/b229m12455/win_ads_local_open/skills/open_profile/images/scrnsongc_yahoo_1739568219.png")
+    print("img_file_name:", img_file_name)
+    # Construct request payload
+    request = [{
+        "mid": 12455,
+        "bid": 229,
+        "os": "win",
+        "app": "file",
+        "domain": "local",
+        "page": "op",
+        "layout": "",
+        "skill": "open_save_as",
+        "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
+        "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
+        "lastMove": "top",
+        "options": json.dumps({"attention_area": [0, 0, 700, 700], "attention_targets": ["@all"]}),
+        "theme": "light",
+        "imageFile": img_file_name,
+        "factor": "{}"
+    }]
+
+    img_engine = mwin.getImageEngine()
+    if img_engine == "lan":
+        img_endpoint = mwin.getLanImageEndpoint()
+    else:
+        img_endpoint = mwin.getWanImageEndpoint()
+
+    local_info = {
+        "user": mwin.getUser(),
+        "host_name": mwin.getHostName(),
+        "ip": mwin.getIP()
+    }
+    with open(img_file_name, "rb") as image_bytes:
+        imgs = [
+            {
+                "file_name": img_file_name,
+                "bytes": image_bytes
+            }
+        ]
+        await req_read_screen8(None, request, None, local_info, imgs, img_engine, img_endpoint)
+
+

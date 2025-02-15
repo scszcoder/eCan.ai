@@ -32,7 +32,9 @@
     "app_link": "https://www.etsy.com/your/orders/sold",
     "cargs_type": "expr",
     "cargs": "sk_work_settings['cargs']",
-    "wait": 5
+    "win_info": "topWin",
+    "wait": 5,
+    "result": "actionSuccess"
 },
 "step 20":
 {

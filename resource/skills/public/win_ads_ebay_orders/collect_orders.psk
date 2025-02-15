@@ -25,12 +25,28 @@
 },
 "step 15":
 {
+    "type": "Create Data",
+    "data_type": "boolean",
+    "data_name": "actionSuccess",
+    "key_name": "NA",
+    "key_value": false
+},
+"step 20":
+{
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "topWin",
+    "key_name": "NA",
+    "key_value": null
+},
+"step 25":
+{
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 1
 },
-"step 20":
+"step 30":
 {
     "type": "Create Data",
     "data_type": "int",
@@ -38,7 +54,7 @@
     "key_name": "NA",
     "key_value": 0
 },
-"step 25":
+"step 35":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -46,7 +62,7 @@
     "key_name": "NA",
     "key_value": "None"
 },
-"step 30":
+"step 40":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -54,7 +70,7 @@
     "key_name": "NA",
     "key_value": "None"
 },
-"step 35":
+"step 45":
 {
     "type": "Call Extern",
     "file": "from datetime import datetime\nglobal hf_name\nhf_name= 'ebayOrders'+ str(int(datetime.now().timestamp()))+'.html'\nprint('hf_name:',hf_name,datetime.now())",
@@ -62,7 +78,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 40":
+"step 50":
 {
     "type": "Call Extern",
     "file": "global pageOfOrders\nprint('PAGE OF ORDERS:', pageOfOrders)",
@@ -70,7 +86,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 45":
+"step 55":
 {
     "type": "Create Data",
     "data_type": "bool",
@@ -78,7 +94,7 @@
     "key_name": "NA",
     "key_value": false
 },
-"step 50":
+"step 60":
 {
     "type": "Create Data",
     "data_type": "bool",
@@ -86,7 +102,7 @@
     "key_name": "NA",
     "key_value": false
 },
-"step 55":
+"step 65":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -94,7 +110,7 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 60":
+"step 70":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -102,14 +118,14 @@
     "key_name": "NA",
     "key_value": "[]"
 },
-"step 65":
+"step 75":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 2
 },
-"step 70":
+"step 80":
 {
     "type": "Repeat",
     "lc_name": "browseEbayOL0",
@@ -117,14 +133,14 @@
     "count": "",
     "end": ""
 },
-"step 75":
+"step 85":
 {
     "type": "Create Dir",
     "dir": "sk_work_settings['log_path']",
     "name_type": "expr",
     "result": "fileStatus"
 },
-"step 80":
+"step 90":
 {
     "type": "Key Input",
     "action": "",
@@ -133,7 +149,7 @@
     "location": "",
     "wait_after": 4
 },
-"step 85":
+"step 95":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -141,7 +157,7 @@
     "key_name": "NA",
     "key_value": "['save', sk_work_settings['log_path'], hf_name]"
 },
-"step 90":
+"step 100":
 {
     "type": "Use Skill",
     "skill_name": "open_save_as",
@@ -149,14 +165,14 @@
     "skill_args": "file_save_input",
     "output": "fileStatus"
 },
-"step 95":
+"step 105":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 18
 },
-"step 100":
+"step 110":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -164,7 +180,7 @@
     "key_name": "NA",
     "key_value": "sk_work_settings['log_path']"
 },
-"step 105":
+"step 115":
 {
     "type": "EBAY Scrape Orders Html",
     "pidx": "currentPage",
@@ -174,21 +190,21 @@
     "result": "pageOfOrders",
     "status": "scrape_stat"
 },
-"step 110":
+"step 120":
 {
     "type": "Check Condition",
     "condition": "pageOfOrders['n_new_orders'] > 0 and pageOfOrders['num_pages'] > 1",
     "if_else": "",
     "if_end": ""
 },
-"step 115":
+"step 125":
 {
     "type": "Check Condition",
     "condition": "pageOfOrders['num_pages'] == pageOfOrders['page']+1",
     "if_else": "",
     "if_end": ""
 },
-"step 120":
+"step 130":
 {
     "type": "Call Extern",
     "file": "global endOfOrderList\nendOfOrderList = True",
@@ -196,14 +212,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 125":
+"step 135":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 130":
+"step 140":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -230,21 +246,21 @@
     ],
     "post_wait": 0
 },
-"step 135":
+"step 145":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 140":
+"step 150":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 145":
+"step 155":
 {
     "type": "Call Extern",
     "file": "global endOfOrderList\nendOfOrderList = True",
@@ -252,21 +268,21 @@
     "entity": "in_line",
     "output": ""
 },
-"step 150":
+"step 160":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 155":
+"step 165":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 160":
+"step 170":
 {
     "type": "Stub",
     "stub_name": "end skill",
