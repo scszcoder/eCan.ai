@@ -56,6 +56,22 @@
 },
 "step 35":
 {
+    "type": "Create Data",
+    "data_type": "boolean",
+    "data_name": "actionSuccess",
+    "key_name": "NA",
+    "key_value": false
+},
+"step 40":
+{
+    "type": "Create Data",
+    "data_type": "obj",
+    "data_name": "topWin",
+    "key_name": "NA",
+    "key_value": null
+},
+"step 45":
+{
     "type": "App Open",
     "action": "cmd",
     "save_rb": true,
@@ -63,16 +79,18 @@
     "app_link": "explorer",
     "cargs_type": "expr",
     "cargs": "zipped_full_path",
-    "wait": 2
+    "win_info": "topWin",
+    "wait": 3,
+    "result": "actionSuccess"
 },
-"step 40":
+"step 50":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 45":
+"step 55":
 {
     "type": "App Open",
     "action": "cmd",
@@ -81,23 +99,25 @@
     "app_link": "rarexe",
     "cargs_type": "expr",
     "cargs": "zipped_full_path",
-    "wait": 2
+    "win_info": "topWin",
+    "wait": 3,
+    "result": "actionSuccess"
 },
-"step 50":
+"step 60":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 55":
+"step 65":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 5
 },
-"step 60":
+"step 70":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -110,7 +130,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 65":
+"step 75":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -123,7 +143,7 @@
     "breakpoint": false,
     "status": "rar_trial_end_popped"
 },
-"step 70":
+"step 80":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -136,14 +156,14 @@
     "breakpoint": false,
     "status": "rar_license_popped"
 },
-"step 75":
+"step 85":
 {
     "type": "Check Condition",
     "condition": "rar_trial_end_popped",
     "if_else": "",
     "if_end": ""
 },
-"step 80":
+"step 90":
 {
     "type": "Key Input",
     "action": "",
@@ -152,14 +172,14 @@
     "location": "",
     "wait_after": 0
 },
-"step 85":
+"step 95":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 90":
+"step 100":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -186,14 +206,14 @@
     ],
     "post_wait": 0
 },
-"step 95":
+"step 105":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 100":
+"step 110":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -206,7 +226,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 105":
+"step 115":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -233,7 +253,7 @@
     ],
     "post_wait": 0
 },
-"step 110":
+"step 120":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -246,7 +266,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 115":
+"step 125":
 {
     "type": "Key Input",
     "action": "",
@@ -255,7 +275,7 @@
     "location": "",
     "wait_after": 0
 },
-"step 120":
+"step 130":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -282,7 +302,7 @@
     ],
     "post_wait": 0
 },
-"step 125":
+"step 135":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -293,7 +313,7 @@
     "key_after": "enter",
     "wait_after": 2
 },
-"step 130":
+"step 140":
 {
     "type": "Key Input",
     "action": "",
@@ -302,7 +322,7 @@
     "location": "",
     "wait_after": 0
 },
-"step 135":
+"step 145":
 {
     "type": "Stub",
     "stub_name": "end skill",

@@ -1824,8 +1824,9 @@ class MainWindow(QMainWindow):
         new_mission = EBMISSION(self)
         # test_request_skill_run(new_mission)
 
+        # asyncio.ensure_future(testLocalImageAPI2(self))
         # asyncio.create_task(testLocalImageAPI2(self))
-        asyncio.ensure_future(testLocalImageAPI2(self))
+        asyncio.create_task(testLocalImageAPI3(self))
         # testSyncLocalImageAPI(self)
 
         # test_report_skill_run_result(new_mission)
