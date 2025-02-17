@@ -2087,21 +2087,32 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         # end condition for "not_logged_in == False"
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
+
+
         #
         # close the browser and exit the skill, assuming at the end of genWinChromeAMZWalkSteps, the browser tab
         # should return to top of the amazon home page with the search text box cleared.
         this_step, step_words = genStepKeyInput("", True, "alt,f4", "", 3, this_step)
         psk_words = psk_words + step_words
 
-
         this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCallExtern(
+            "global bot_email, current_batch\nuseless=current_batch.pop(bot_email, None)\nprint('current_batch:', current_batch)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("sk_work_settings['last_one'] or sk_work_settings['retry']", "", "", this_step)
+        psk_words = psk_words + step_words
+
         # in case mission executed successfully, save profile, kind of an overkill or save all profiles, but simple to do.
+        # only do the save when current profile is at the end of the list.
         this_step, step_words = genStepsADSPowerExitProfile(worksettings, this_step, theme)
         psk_words = psk_words + step_words
 
-
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_browse_search", "", this_step)
         psk_words = psk_words + step_words
@@ -2412,6 +2423,10 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepAPIADSListProfiles("ads_config", "loaded_profiles", "action_flag", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCallExtern(
+            "import copy\nglobal loaded_profiles, current_batch\ncurrent_batch = copy.deepcopy(loaded_profiles)\nprint('current_batch:', current_batch)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
 
         # end condition  for "bot email not in loaded_profiles"
         this_step, step_words = genStepStub("end condition", "", "", this_step)
