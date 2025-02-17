@@ -469,6 +469,8 @@ def getWorkRunSettings(lieutenant, bot_works):
         works = bot_works["works"]
         widx = bot_works["current widx"]  # walk task index
 
+        last_one = (widx == (len(works)-1))
+
         log3("works:"+json.dumps(works))
         log3("widx: "+str(widx)+" mid:"+str(works[widx]["mid"]))
 
@@ -495,6 +497,7 @@ def getWorkRunSettings(lieutenant, bot_works):
         log3("bot_id: " + str(bot_id))
         run_config = in_mission.getConfig()
         fp_profile = in_mission.getFingerPrintProfile()
+        last_one = True
 
     if midx < 0 or midx >= len(lieutenant.missions):
         log3("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
@@ -502,15 +505,18 @@ def getWorkRunSettings(lieutenant, bot_works):
     log3("mission_id: "+str(mission_id)+"midx: "+str(midx))
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
     # settings = lieutenant.missions[midx].getParentSettings()
-    platform = lieutenant.missions[midx].getPlatform()
-    site = lieutenant.missions[midx].getSite()
-    full_site = lieutenant.missions[midx].getSiteHTML()
-    app = lieutenant.missions[midx].getApp()
-    app_exe = lieutenant.missions[midx].getAppExe()
-    as_server = lieutenant.missions[midx].getAsServer()
-    useGiftCard = lieutenant.missions[midx].getUseGiftCard()
-    vccard_number = lieutenant.missions[midx].getVCCardNumber()
+    current_mission = lieutenant.missions[midx]
+    platform = current_mission.getPlatform()
+    site = current_mission.getSite()
+    full_site = current_mission.getSiteHTML()
+    app = current_mission.getApp()
+    app_exe = current_mission.getAppExe()
+    as_server = current_mission.getAsServer()
+    useGiftCard = current_mission.getUseGiftCard()
+    vccard_number = current_mission.getVCCardNumber()
     log3("settings setting app_exe: "+app+app_exe+platform+site)
+
+    retry = (current_mission.getNRetries() > 0)
 
     products = lieutenant.getSellerProductCatelog()
 
@@ -608,7 +614,9 @@ def getWorkRunSettings(lieutenant, bot_works):
             # "commander_link": lieutenant.commanderXport,
             "use_gift_card": useGiftCard,
             "vccard_number": vccard_number,
-            "name_space": name_space
+            "name_space": name_space,
+            "last_one": last_one,
+            "retry": retry
             }
 
 # set skill related setting items in worksettings.
