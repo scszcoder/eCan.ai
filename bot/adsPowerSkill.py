@@ -468,6 +468,10 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepCheckCondition("not no_profiles", "", "", this_step)
         psk_words = psk_words + step_words
 
+        # now it's time to switch profile, need to save current profiles first,
+
+
+
         this_step, step_words = genStepCreateData("expr", "ads_file_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
         psk_words = psk_words + step_words
 
@@ -561,6 +565,9 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [4, 0], "box", 1, 2, [0, 0], this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global ads_file_path\nads_file_path = os.path.normpath(ads_file_path).replace('/', '\\')\nprint('ads_file_path:', ads_file_path)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepTextInput("var", False, "ads_file_path", "direct", 0.05, "enter", 1, this_step)

@@ -29,7 +29,8 @@ from bot.Logger import log3
 from bot.amzBuyerSkill import genStepsAMZLoginIn
 from bot.adsPowerSkill import genStepsADSPowerExitProfile, genStepsADSPowerObtainLocalAPISettings, \
     genStepADSSaveAPISettings, genStepsADSBatchExportProfiles
-from bot.adsAPISkill import genStepAPIADSListProfiles
+from bot.adsAPISkill import genStepAPIADSListProfiles, genStepAPIADSStopProfile, \
+    genStepAPIADSCheckProfileBrowserStatus
 
 import utils.logger_helper
 
@@ -2323,6 +2324,54 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         # else - if bot email not in loaded_profiles , then need to save/export current batch,
         # and then load the right batch.
         this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        #before saving the current profiles need to close them first. so here we
+        # loop thru "loaded_profiles" and check each to see whether that
+        # profile is "active" if so, close it.
+
+        # loop to go thru each profile....
+
+        this_step, step_words = genStepCreateData("integer", "profile_idx", "NA", 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "profile_status", "NA", "Inactive", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "users", "NA", [], this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "profile_id", "NA", "[]", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global loaded_profiles, users\nusers == loaded_profiles.keys()\nprint('users:', users)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepLoop("profile_idx < len(loaded_profiles)", "", "", "amzbuy" + str(stepN),
+                                            this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global profile_id, loaded_profiles, users, profile_idx\nprofile_id == loaded_profiles[users[profile_idx]]['uid']\nprint('profile id:', profile_id)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepAPIADSCheckProfileBrowserStatus("ads_config", "profile_id", "profile_status", "web_driver_successful", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("profile_status == 'active'", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepAPIADSStopProfile("ads_config", "profile_id", "stop_result", "web_driver_successful", this_step)
+        psk_words = psk_words + step_words
+
+        # end of check condition for checkFB
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCallExtern("profile_idx == profile_idx + 1", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end loop", "", "", this_step)
         psk_words = psk_words + step_words
 
         # in case connecting to ads failed due to account not currently loaded, now it's time to load in the correct batch of profiles.
