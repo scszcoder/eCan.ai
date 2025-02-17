@@ -2749,7 +2749,7 @@ class MainWindow(QMainWindow):
                 log3("assignwork scheduled checking vehicle: "+vname, "assignWork", self)
                 p_task_groups = self.unassigned_scheduled_task_groups[vname]      # flattend per vehicle tasks.
                 log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
-                print("p_task_groups:", p_task_groups)
+                # print("p_task_groups:", p_task_groups)
                 if len(p_task_groups) > 0:
                     print("some work to assign...", self.machine_name)
                     if self.machine_name in vname:

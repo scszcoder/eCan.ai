@@ -482,16 +482,16 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         psk_words = psk_words + step_words
 
 
-        this_step, step_words = genStepSearchAnchorInfo("screen_info", "your_passwords", "direct", "anchor text", "any",
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "your_password", "direct", "anchor text", "any",
                                                         "input_pw_box", "input_ready", "gmail", False, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("input_ready", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "your_passwords", "anchor text",
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "your_password", "anchor text",
                                                   "", 0,
-                                                  "bottom", [0, 2], "box", 2, 2, [0, 0], this_step)
+                                                  "bottom", [0, 1], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepTextInput("var", False, "gmail_pw", "direct", 0.05, "enter", 1, this_step)
@@ -503,6 +503,42 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # now check the verify recover info page. ...... if so, click on cancel button.
+        # popup = WebDriverWait(driver, 5).until(
+        #         EC.presence_of_element_located((By.CLASS_NAME, "PcQtJe"))
+        #     )
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME,
+                                                            "PcQtJe", True, "var",
+                                                            "verify_recovery_info", "prompted_verify_recovery_info",
+                                                            this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("prompted_verify_recovery_info", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
+                                                            "//button[.//span[contains(text(), 'Cancel')]]", False, "var",
+                                                            "cancel_button",
+                                                            "prompted_verify_recovery_info", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "cancel_button", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
 
         # this_step, step_words = genStepWebdriverKeyIn("web_driver", "pw_input_box", "gmail_pw", "action_result",
         #                                               "action_flag", this_step)
@@ -559,6 +595,61 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+        # now check the verify recover info page. ...... if so, click on cancel button.
+        # popup = WebDriverWait(driver, 5).until(
+        #         EC.presence_of_element_located((By.CLASS_NAME, "PcQtJe"))
+        #     )
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME,
+                                                            "PcQtJe", True, "var",
+                                                            "verify_recovery_info", "prompted_verify_recovery_info",
+                                                            this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("prompted_verify_recovery_info", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
+                                                            "//button[.//span[contains(text(), 'Cancel')]]", False, "var",
+                                                            "cancel_button",
+                                                            "prompted_verify_recovery_info", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
+                                                            "//button[@jsname='ZUkOIc']", False, "var",
+                                                            "cancel_button0",
+                                                            "prompted_verify_recovery_info0", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("prompted_verify_recovery_info", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "cancel_button", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("prompted_verify_recovery_info0", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "cancel_button0", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(1, 0, 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
 
         # now we should have entered gmail, but we might be prompted to do some house keeping stuff if long time no log in
         # passkeys_message = WebDriverWait(driver, 5).until(
@@ -573,17 +664,41 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepCheckCondition("prompted_simplify_signin", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # cancel_button = WebDriverWait(driver, 5).until(
-        #         EC.element_to_be_clickable((By.XPATH, "//button[@aria-label='Cancel']"))
-        #     )
+        # when prompted simply sign, we should try to click on "not now" button
         this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
                                                             "//button[.//span[text()='Not now']]", False, "var",
                                                             "not_now_button",
-                                                            "prompted_to_add_backup", this_step)
+                                                            "prompted_to_complete_acct_info", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type",
+                                                            By.XPATH,
+                                                            "//button[@jsname='bySMBb']", False, "var",
+                                                            "not_now_button0",
+                                                            "prompted_to_complete_acct_info0", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("prompted_to_complete_acct_info", "", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepWebdriverClick("web_driver", "not_now_button", "action_result", "action_flag",
                                                       this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("prompted_to_complete_acct_info0", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "not_now_button0", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepWait(1, 0, 0, this_step)
@@ -591,6 +706,11 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
+
+        # cancel_button = WebDriverWait(driver, 5).until(
+        #         EC.element_to_be_clickable((By.XPATH, "//button[@aria-label='Cancel']"))
+        #     )
+
 
 
         # the 1st screen could be a prompt to complete backup contact info.
@@ -623,7 +743,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
 
         this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CLASS_NAME,
                                                             "RY3zi", True, "var",
-                                                            "prompted_to_add_backup", "prompted_to_add_backup", this_step)
+                                                            "verify_info0", "prompted_to_add_backup0", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("prompted_to_add_backup", "", "", this_step)
@@ -678,11 +798,36 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
                                                             "prompted_to_complete_acct_info", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepWebdriverClick("web_driver", "not_now_button", "action_result", "action_flag", this_step)
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
+                                                            "//button[@jsname='bySMBb']", False, "var", "not_now_button0",
+                                                            "prompted_to_complete_acct_info0", this_step)
         psk_words = psk_words + step_words
 
 
-        this_step, step_words = genStepWait(12, 0, 0, this_step)
+        this_step, step_words = genStepCheckCondition("prompted_to_complete_acct_info", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "not_now_button", "action_result", "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("prompted_to_complete_acct_info0", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverClick("web_driver", "not_now_button0", "action_result", "action_flag",
+                                                      this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWait(8, 0, 0, this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
