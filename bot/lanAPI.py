@@ -183,7 +183,7 @@ async def lan_http_request8(query_js, imgs, session, token, lan_endpoint):
             payload = {"data": json.dumps(query_js)}
 
             print("Sending HTTP request...", len(files.keys()), query_js)
-            print("files:", files)
+            # print("files:", files)
 
             # Send the async request
             headers = {}

@@ -40,8 +40,8 @@ def startAdspowerProfile(api_key, profile_id, port):
         'Authorization': f'Bearer {api_key}'
     }
     response = requests.get(url, headers=headers)
+    print("response:", response)
     if response.status_code == 200:
-        print("response:", response)
         data = response.json()
         print("data:", data)
         return data
@@ -57,13 +57,50 @@ def stopAdspowerProfile(api_key, profile_id, port):
         'Authorization': f'Bearer {api_key}'
     }
     response = requests.get(url, headers=headers)
+    print("response:", response)
     if response.status_code == 200:
-        print("response:", response)
         data = response.json()
         print("data:", data)
         return data
     else:
         raise Exception('Failed to stop Adspower profile', response.text)
+
+
+
+def checkAdspowerProfileBrowserStatus(api_key, profile_id, port):
+
+    url = f'http://local.adspower.net:{port}/api/v1/browser/active?user_id={profile_id}'
+    print("URL:", url)
+
+    headers = {
+        'Authorization': f'Bearer {api_key}'
+    }
+    response = requests.get(url, headers=headers)
+    print("response:", response)
+    if response.status_code == 200:
+        data = response.json()
+        print("data:", data)
+        return data["data"]["status"]
+    else:
+        raise Exception('Failed to stop Adspower profile', response.text)
+
+
+def deleteAdspowerProfiles(api_key, users, port):
+    # users is a list of string user IDs like ["uid1", "uid2"...]
+    url = f'http://local.adspower.net:{port}/api/v1/user/delete'
+    print("URL:", url)
+
+    headers = {
+        'Authorization': f'Bearer {api_key}'
+    }
+    response = requests.post(url, headers=headers, data=users)
+    print("response:", response)
+    if response.status_code == 200:
+        data = response.json()
+        print("data:", data)
+        return data
+    else:
+        raise Exception('Failed to delete Adspower user profiles', response.text)
 
 def createAdspowerProfile(api_key, port, profile):
 
@@ -122,8 +159,8 @@ def createAdspowerProfile(api_key, port, profile):
         'Content-Type': 'application/json'
     }
     response = requests.request("POST", url, headers=headers, json=payload)
+    print("response:", response)
     if response.status_code == 200:
-        print("response:", response)
         data = response.json()
         print("data:", data)
         return data
@@ -143,8 +180,8 @@ def createAdspowerGroup(api_key, port, group):
         'Content-Type': 'application/json'
     }
     response = requests.request("POST", url, headers=headers, json=payload)
+    print("response:", response)
     if response.status_code == 200:
-        print("response:", response)
         data = response.json()
         print("data:", data)
         return data
@@ -166,9 +203,8 @@ def regroupAdspowerProfiles(api_key, group_id, uids, port):
     }
 
     response = requests.request("POST", url, headers=headers, json=payload)
-
+    print("response:", response)
     if response.status_code == 200:
-        print("response:", response)
         data = response.json()
         print("data:", data)
         return data
@@ -263,6 +299,17 @@ def genStepAPIADSCreateProfile(ads_cfg_var, ads_profile_var, result_var, flag_va
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepAPIADSDeleteProfiles(ads_cfg_var, ads_profiles_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Delete Profiles",
+        "ads_cfg_var": ads_cfg_var,
+        "ads_profiles_var": ads_profiles_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
 def genStepAPIADSCreateGroup(ads_cfg_var, group_name_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Create Profile",
@@ -274,24 +321,39 @@ def genStepAPIADSCreateGroup(ads_cfg_var, group_name_var, result_var, flag_var, 
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepAPIADSStartProfile(ads_cfg_var, result_var, flag_var, stepN):
+def genStepAPIADSStartProfile(ads_cfg_var, user_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Start Profile",
         "ads_cfg_var": ads_cfg_var,
+        "user_var": user_var,
         "result_var": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepAPIADSStopProfile(ads_cfg_var, result_var, flag_var, stepN):
+def genStepAPIADSStopProfile(ads_cfg_var, user_var, result_var, flag_var, stepN):
     stepjson = {
         "type": "API ADS Stop Profile",
         "ads_cfg_var": ads_cfg_var,
+        "user_var": user_var,
         "result_var": result_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
+def genStepAPIADSCheckProfileBrowserStatus(ads_cfg_var, user_var, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "API ADS Check Browser Status",
+        "ads_cfg_var": ads_cfg_var,
+        "user_var": user_var,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 def genStepAPIADSDeleteProfile(ads_cfg_var, result_var, flag_var, stepN):
     stepjson = {
@@ -351,6 +413,7 @@ def processAPIADSCreateProfile(step, i):
     return (i + 1), DEFAULT_RUN_STATUS
 
 
+
 def processAPIADSCreateGroup(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
@@ -381,8 +444,8 @@ def processAPIADSStartProfile(step, i):
     try:
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
-
-        result = startAdspowerProfile(ads_cfg["api_key"], ads_cfg["profile_id"], ads_cfg["port"])
+        user_id = symTab[step["user_var"]]
+        result = startAdspowerProfile(ads_cfg["api_key"], user_id, ads_cfg["port"])
         symTab[step["result_var"]] = result
 
     except Exception as e:
@@ -403,20 +466,65 @@ def processAPIADSStopProfile(step, i):
     try:
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
+        user_id = symTab[step["user_var"]]
 
         # once works are dispatched, empty the report data for a fresh start.....
-        result = stopAdspowerProfile(ads_cfg["api_key"], ads_cfg["profile_id"], ads_cfg["port"])
+        result = stopAdspowerProfile(ads_cfg["api_key"], user_id, ads_cfg["port"])
         symTab[step["result_var"]] = result
 
     except Exception as e:
         # Log and skip errors gracefully
-        ex_stat = f"Error in APIADSCreateProfile: {traceback.format_exc()} {str(e)}"
-        print(f"Error APIADSCreateProfile: {ex_stat}")
+        ex_stat = f"Error in APIADSCloseProfile: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCloseProfile: {ex_stat}")
         symTab[step["flag"]] = False
 
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
 
+
+def processAPIADSCheckProfileBrowserStatus(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        ads_cfg = symTab[step["ads_cfg_var"]]
+        user_id = symTab[step["user_var"]]
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        result = checkAdspowerProfileBrowserStatus(ads_cfg["api_key"], user_id, ads_cfg["port"])
+        symTab[step["result_var"]] = result
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSCheckProfileBrowserStatus: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSCheckProfileBrowserStatus: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
+
+
+def processAPIADSDeleteProfiles(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+
+    try:
+        symTab[step["flag"]] = True
+        ads_cfg = symTab[step["ads_cfg_var"]]
+
+        # once works are dispatched, empty the report data for a fresh start.....
+        result = deleteAdspowerProfiles(ads_cfg["api_key"], symTab[step["ads_profiles_var"]], ads_cfg["port"])
+        symTab[step["result_var"]] = result
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in APIADSDeleteProfiles: {traceback.format_exc()} {str(e)}"
+        print(f"Error APIADSDeleteProfiles: {ex_stat}")
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
 
 
 def processAPIADSDeleteProfile(step, i):

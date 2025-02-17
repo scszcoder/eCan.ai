@@ -10,7 +10,8 @@ from difflib import SequenceMatcher
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
 from bot.adsAPISkill import processAPIADSStartProfile, processAPIADSRegroupProfiles, processAPIADSStopProfile, \
-    processAPIADSCreateProfile, processAPIADSDeleteProfile, processAPIADSListProfiles
+    processAPIADSCreateProfile, processAPIADSDeleteProfiles, processAPIADSListProfiles, \
+    processAPIADSCheckProfileBrowserStatus
 from bot.amzBuyerSkill import processAMZScrapePLHtml, processAMZBrowseDetails, \
     processAMZScrapeProductDetailsHtml, processAMZBrowseReviews, processAMZScrapeReviewsHtml, processAmzBuyCheckShipping, \
     processAMZMatchProduct, genStepAMZSearchReviews
@@ -277,7 +278,8 @@ RAIS = {
     "API ADS Create Profile": lambda x, y: processAPIADSCreateProfile(x, y),
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
-    "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
+    "API ADS Check Browser Status": lambda x, y: processAPIADSCheckProfileBrowserStatus(x, y),
+    "API ADS Delete Profiles": lambda x, y: processAPIADSDeleteProfiles(x, y),
     "API ADS List Profiles": lambda x, y: processAPIADSListProfiles(x, y),
     "API ADS Regroup Profiles": lambda x, y: processAPIADSRegroupProfiles(x, y)
 }
@@ -444,7 +446,8 @@ ARAIS = {
     "API ADS Create Profile": lambda x, y: processAPIADSCreateProfile(x, y),
     "API ADS Start Profile": lambda x, y: processAPIADSStartProfile(x, y),
     "API ADS Stop Profile": lambda x, y: processAPIADSStopProfile(x, y),
-    "API ADS Delete Profile": lambda x, y: processAPIADSDeleteProfile(x, y),
+    "API ADS Check Browser Status": lambda x, y: processAPIADSCheckProfileBrowserStatus(x, y),
+    "API ADS Delete Profiles": lambda x, y: processAPIADSDeleteProfiles(x, y),
     "API ADS List Profiles": lambda x, y: processAPIADSListProfiles(x, y),
     "API ADS Regroup Profiles": lambda x, y: processAPIADSRegroupProfiles(x, y)
 }

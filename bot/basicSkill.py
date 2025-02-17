@@ -1667,7 +1667,10 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         }
     ]
     result = await req_read_screen8(session, request, token, local_info, imgs, img_engine, img_endpoint)
-    jresult = json.loads(result['body'])
+    if img_engine == "wan":
+        jresult = json.loads(result['body'])
+    else:
+        jresult = result['body']
     # log3("cloud result data: "+json.dumps(jresult["data"]))
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1E: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1676,7 +1679,11 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         return []
     else:
         # log3("cloud result data body: "+json.dumps(result["body"]))
-        jbody = json.loads(result["body"])
+        if img_engine == "wan":
+            jbody = json.loads(result['body'])
+        else:
+            jbody = json.loads(result['body']['data']['body'])
+            print("result body:", jbody)
 
         # global var "last_screen" always contains information extracted from the last screen shot.
         if len(jbody["data"]) > 0:
@@ -2469,8 +2476,9 @@ def find_clickable_object(sd, target, template, target_type, nth):
     log3("LOOKING FOR:"+json.dumps(target)+"   "+json.dumps(template)+"   "+json.dumps(target_type)+"   "+json.dumps(nth))
     found = {"loc": None}
     if target != "paragraph":
-        reg = re.compile(target+"[0-9]+")
-        targets = [x for x in sd if (x["name"] == target or reg.match(x["name"])) and x["type"] == target_type]
+        # reg = re.compile(target+"[0-9]+")
+        reg = re.compile(rf"^{target}([0-9]*)$")
+        targets = [x for x in sd if (x["name"] == target or reg.match(x["name"].split("!")[0])) and x["type"] == target_type]
     else:
         reg = re.compile(template)
         targets = [x for x in sd if template in x["text"] and x["type"] == target_type and x["name"] == target]

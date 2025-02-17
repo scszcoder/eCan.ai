@@ -432,11 +432,40 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepCheckCondition("win_popped", "", "", this_step)
         psk_words = psk_words + step_words
 
+        # at this moment google's auto passwd filler might come up and block the windows pop up, so
+        # so click on windows popup first, to bring it to front in any case.
+        this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "protect_passwords", "anchor text",
+                                                  "", 0,
+                                                  "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        psk_words = psk_words + step_words
+
+        # now read windows again, and we should have the full popup
+
+        this_step, step_words = genStepCallExtern(
+            "global dyn_options\ndyn_options = {'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "gmail", "top", "light",
+                                                   this_step, None, "dyn_options")
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepSearchAnchorInfo("screen_info", "no_thanks", "direct", "anchor text", "any",
+                                                        "win_popup", "win_popped", "gmail", False, this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCheckCondition("win_popped", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "no_thanks", "anchor text",
                                                   "", 0,
                                                   "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words

@@ -11,7 +11,8 @@ from bot.adsPowerSkill import genStepSetupADS, genWinADSOpenProfileSkill, genWin
     genADSPowerLaunchSteps, genStepUpdateBotADSProfileFromSavedBatchTxt, genStepADSSaveAPISettings, \
     genStepADSUpdateProfileIds, genWinADSCreateProfileSkill
 from bot.adsAPISkill import genStepAPIADSStopProfile, genStepAPIADSRegroupProfiles, genStepAPIADSStartProfile, \
-    genStepAPIADSCreateProfile, genStepAPIADSDeleteProfile, genStepAPIADSListProfiles
+    genStepAPIADSCreateProfile, genStepAPIADSDeleteProfiles, genStepAPIADSListProfiles, \
+    genStepAPIADSCheckProfileBrowserStatus
 from bot.amzBuyerSkill import genWinChromeAMZWalkSkill, genWinADSAMZWalkSkill, genAMZScrollProductListToBottom, \
     genAMZScrollProductListToTop, genAMZScrollProductDetailsToTop, genStepAMZMatchProduct, \
     genAMZBrowseProductListToBottom, genAMZBrowseProductListToLastAttention, genAMZBrowseDetails, \
@@ -208,8 +209,9 @@ PUBLIC = {
     "genStepAPIADSStopProfile": genStepAPIADSStopProfile,
     "genStepAPIADSRegroupProfiles": genStepAPIADSRegroupProfiles,
     "genStepAPIADSStartProfile": genStepAPIADSStartProfile,
-    "genStepAPIADSCreateProfile": genStepAPIADSCreateProfile,
-    "genStepAPIADSDeleteProfile": genStepAPIADSDeleteProfile,
+    "genStepAPIADSStopProfile": genStepAPIADSStopProfile,
+    "genStepAPIADSCheckProfileBrowserStatus": genStepAPIADSCheckProfileBrowserStatus,
+    "genStepAPIADSDeleteProfiles": genStepAPIADSDeleteProfiles,
     "genStepAPIADSListProfiles": genStepAPIADSListProfiles,
     "genWinChromeAMZWalkSkill": genWinChromeAMZWalkSkill,
     "genWinADSAMZWalkSkill": genWinADSAMZWalkSkill,
