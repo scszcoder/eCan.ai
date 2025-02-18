@@ -1899,7 +1899,7 @@ def testSyncLocalImageAPI(parent):
     }
 
     # Use local IP instead of .local hostname
-    host_ip = "192.168.0.16"
+    host_ip = "192.168.0.11"
     endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead"
 
     print("endpoint:", endpoint)
@@ -2064,3 +2064,20 @@ async def testLocalImageAPI3(mwin):
         await req_read_screen8(None, request, None, local_info, imgs, img_engine, img_endpoint)
 
 
+async def stressTestImageAPI(mwin, iterations):
+    tasks = []  # List to keep track of running tasks
+
+    for i in range(iterations):
+        print(f"Sending request {i + 1}")
+
+        # Create and launch a task without awaiting it
+        task = asyncio.create_task(testLocalImageAPI2(mwin))
+        tasks.append(task)  # Store the task to keep track of it
+
+        # Wait a random time between 0 and 7 seconds before sending the next request
+        delay = random.uniform(0, 7)
+        print(f"Waiting {delay:.2f} seconds before next request...")
+        await asyncio.sleep(delay)
+
+    # Optionally, wait for all tasks to complete before exiting
+    await asyncio.gather(*tasks)

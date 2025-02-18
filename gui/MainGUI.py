@@ -1827,8 +1827,12 @@ class MainWindow(QMainWindow):
 
         # asyncio.ensure_future(testLocalImageAPI2(self))
         # asyncio.create_task(testLocalImageAPI2(self))
-        asyncio.create_task(testLocalImageAPI3(self))
+        # asyncio.create_task(testLocalImageAPI3(self))
         # testSyncLocalImageAPI(self)
+        # asyncio.ensure_future(stressTestImageAPI(self, 5))
+
+        loop = asyncio.get_event_loop()
+        loop.create_task(stressTestImageAPI(self, iterations=6))
 
         # test_report_skill_run_result(new_mission)
         # msg = "vVABC|M123|B21|S-running_idle|Error: Exception hello world"
@@ -9982,7 +9986,7 @@ class MainWindow(QMainWindow):
                 "options": json.dumps({}).replace('"', '\\"'),
                 "background": "assume you are happy customers, and would like to write good reviews for both the seller and the product",
                 "msg": f"please help generate {len(mids)} review for both seller and the product ({product}), each review should have a title and a review body, \n" +
-                       f"the titles should satisfy the following criteria: 1) concise, no more than 6 words long, 2) non repeating 3) title contents should match the body contents.\n"+
+                       f"the titles sh ould satisfy the following criteria: 1) concise, no more than 6 words long, 2) non repeating 3) title contents should match the body contents.\n"+
                        f"the body of the seller reivew should satisfy the following criteria: 1) concise, no more 2 sentences long, each sentence should have no more than 8 words, 2) non repeating 3) for seller usually, the good review is about a combinartion of good products, fast deliver, prompt communication, fiendly support etc.\n" +
                        f"the body of the product reivew  the following criteria: 1) no more 5 sentences long, best to be less than 3 sentences long, each sentence should contain no more than 12 words. 2) non repeating 3) try comment on product's quality, price, or particular attributes or good for certain occassions (for example, a gift to a closed friend or relative). 4) avoid exaggerating wording, it's perferrable to sound cliche \n" +
                        f"the return reponse should be json structure data, it should a list of json dicts with seller_fb_title, sell_fb_body, product_fb_title, product_fb_body as the key, and the corresponding text as the value.\n"
