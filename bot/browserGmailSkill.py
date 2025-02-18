@@ -507,7 +507,17 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+        # end of checking whether signed out.
         this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # now there is possibility of being asked to complete backup info, try to detect and skip it.
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+                                                            "tr.zA", True, "var",
+                                                            "emails", "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("not emails", "", "", this_step)
         psk_words = psk_words + step_words
 
         # now check the verify recover info page. ...... if so, click on cancel button.
@@ -830,12 +840,15 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepWait(8, 0, 0, this_step)
         psk_words = psk_words + step_words
 
+        # done with all the non contents related prompt responses
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
 
         # now there is possibility of being asked to complete backup info, try to detect and skip it.
-        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR,
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 3, "info_type", By.CSS_SELECTOR,
                                                             "tr.zA", True, "var",
                                                             "emails", "extract_flag", this_step)
         psk_words = psk_words + step_words
