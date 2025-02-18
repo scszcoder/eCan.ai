@@ -2377,7 +2377,6 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-
         this_step, step_words = genStepCallExtern("global profile_idx\nprofile_idx = profile_idx + 1", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
