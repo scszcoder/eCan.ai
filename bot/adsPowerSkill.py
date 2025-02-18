@@ -567,7 +567,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [4, 0], "box", 1, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global ads_file_path\nads_file_path = os.path.normpath(ads_file_path).replace('/', '\\')\nprint('ads_file_path:', ads_file_path)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global ads_file_path\nads_file_path = os.path.normpath(ads_file_path).replace('/', '\\\\')\nprint('ads_file_path:', ads_file_path)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepTextInput("var", False, "ads_file_path", "direct", 0.05, "enter", 1, this_step)
@@ -576,7 +576,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0.5, 0.85, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
@@ -974,12 +974,18 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
         #read screen for the confirmation pop up.
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         # click on the confirmation popup.
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # now do the batch import
@@ -994,6 +1000,9 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
 
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "", 0, "center", [0, 0], "box", 2, 5, [0, 0], this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # now do the batch import
