@@ -2384,6 +2384,7 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end loop", "", "", this_step)
         psk_words = psk_words + step_words
 
+
         # in case connecting to ads failed due to account not currently loaded, now it's time to load in the correct batch of profiles.
         # now exit current batch which will save the current batch, note this saving will penerate
         # to update each individual bot's profile in this batch, as well as each bot's ads profile parameter.
