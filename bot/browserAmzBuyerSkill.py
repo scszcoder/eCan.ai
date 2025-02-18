@@ -2392,7 +2392,6 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepsADSBatchExportProfiles(worksettings, theme, this_step)
         psk_words = psk_words + step_words
 
-
         # set up to import the right batch profile
         this_step, step_words = genStepCreateData("expr", "profile_name", "NA", "os.path.basename(sk_work_settings['batch_profile'])", this_step)
         psk_words = psk_words + step_words
