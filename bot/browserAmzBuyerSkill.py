@@ -2358,8 +2358,7 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepCallExtern("global loaded_profiles, users\nusers = list(loaded_profiles.keys())\nprint('users:', users)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepLoop("profile_idx < len(loaded_profiles)", "", "", "amzbuy" + str(stepN),
-                                            this_step)
+        this_step, step_words = genStepLoop("profile_idx < len(loaded_profiles)", "", "", "amzbuy" + str(stepN), this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern("global profile_id, loaded_profiles, users, profile_idx\nprofile_id = loaded_profiles[users[profile_idx]]['uid']\nprint('profile id:', profile_id)", "", "in_line", "", this_step)
