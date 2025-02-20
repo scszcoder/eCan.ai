@@ -3273,7 +3273,10 @@ class MainWindow(QMainWindow):
                         self.update1MStat(worksettings, "Incomplete: ERRORRunRPA:No Skill To Run")
                         self.update1WorkRunStatus(worksTBD, worksettings["midx"])
                         raise Exception('ERROR: NO SKILL TO RUN!')
-
+            else:
+                log3("mission already ran " + str(worksettings["mid"]), "runRPA", self)
+                log3("mission ALREADY Completed today: " + str(worksettings["mid"]), "runRPA", self)
+                runResult = "Completed:0 Skip Rerun"
 
         except Exception as e:
             # Get the traceback information
