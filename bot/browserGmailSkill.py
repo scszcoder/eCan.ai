@@ -1,6 +1,6 @@
 from bot.basicSkill import genStepHeader, genStepMouseClick, genStepStub, genStepKeyInput, genStepCallExtern, genStepWait, \
     genStepExtractInfo, genStepTextInput, genStepSearchAnchorInfo, genStepCreateData, genStepCheckCondition
-
+from bot.adsAPISkill import  genStepAPIADSCreateProfile
 from bot.seleniumSkill import *
 ADS_BATCH_SIZE = 2
 
@@ -959,5 +959,269 @@ def genStepsWinChromeGmailBrowserRefresh(stepN):
         # Log and skip errors gracefully
         ex_stat = f"Error in genStepsWinChromeGmailBrowserRefresh: {traceback.format_exc()} {str(e)}"
         print(f"Error while generating genStepsWinChromeGmailBrowserRefresh: {ex_stat}")
+
+    return this_step, psk_words
+
+
+def genWinADSGmailBrowserRefreshSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_gmail_home_browser_refresh", "win", "1.0", "AIPPS LLC", "PUBWINADSREFRESHGMAIL001",
+                                          "Windows ADS Power refresh gmail with webdriver.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
+    psk_words = psk_words + step_words
+
+    # now open gmail tab if not already，(this step will internall check whether the tab is already open, if open, simply switch to it)
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "gmail", "https://www.gmail.com", "site_result", "site_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    # assume profile file is ready.
+    this_step, step_words = genStepCallExtern("global gmail_acct\ngmail_acct = fin[0]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('Start Refresh Gmail.....', gmail_acct, gmail_pw)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+    # first try to sign in
+    # this_step, step_words = genStepsChromeRefreshGMailSkill(worksettings, this_step, theme)
+    this_step, step_words = genStepsWinChromeGmailBrowserSignIn(this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power gmail routine access....." + psk_words)
+
+    return this_step, psk_words
+
+
+def genWinADSGmailBrowserCreateAccountsSkill(worksettings, stepN, theme):
+    psk_words = "{"
+    # site_url = "https://www.amazon.com/"
+
+    this_step, step_words = genStepHeader("win_ads_gmail_home_browser_create_accts", "win", "1.0", "AIPPS LLC", "PUBWINADSACCTS002",
+                                          "Windows ADS Power answer gmails with webdriver.", stepN)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("start skill", "public/win_ads_local_home/browser_create_accounts", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "file_prefix", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global file_name, file_prefix, sk_work_settings\nfile_prefix=sk_work_settings['local_data_path']+'/my_skills/hooks'\nfile_name = 'team_prep_hook.py'",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login\nparams['test_mode']=False",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "ts_name", "NA", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("string", "forceful", "NA", "false", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "hook_result", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "works_ready_to_dispatch", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    # fetch daily schedule
+    this_step, step_words = genStepECBFetchDailySchedule("ts_name", "forceful", "daily_schedule", "fetch_success",
+                                                         this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepECBCollectBotProfiles("op_results", "profiles_updated", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global params, daily_schedule\nparams['daily_schedule']=daily_schedule\n", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    # call hook function to create accounts for a given email file.
+    this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name", "params", "hook_result",
+                                                "acct_success", this_step)
+    psk_words = psk_words + step_words
+
+
+    # now in a loop, for each acct, create ads power profile, open it,
+    # go thru steps to create an gmail acct and once gmail acct done, create an amazon acct.
+    this_step, step_words = genStepCreateData("integer", "nthAcct", "NA", 0, this_step)
+    psk_words = psk_words + step_words
+
+    his_step, step_words = genStepLoop("nthAcct < len(rows)", "", "", "addAcct" + str(stepN), this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global acctRow, nthAcct, rows\nacctRow = rows[nthAcct]", "", "in_line", "",
+        this_step)
+    psk_words = psk_words + step_words
+
+    # 1) create ads profile, this assumes ADS power is already opened, and once this is done,
+    # the profile will be downloaded.
+    this_step, step_words = genStepAPIADSCreateProfile("ads_config", "ads_profile", "ads_profile_id", "ads_success", this_step)
+    psk_words = psk_words + step_words
+
+    # 2) open ads power and load this profile. this step should already be included in step 1
+
+    # 3) try to create gmail account try go as far as possible, but might be
+    #    blocked by captcha
+    # now open gmail tab if not already，(this step will internall check whether the tab is already open, if open, simply switch to it)
+    this_step, step_words = genStepWebdriverGoToTab("web_driver", "gmail", "https://www.gmail.com", "site_result", "site_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepsWebdriverCreateNewGmailAcct("web_driver", "gmail", "https://www.gmail.com", "site_result", "site_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # 4) if 3 successfull, create amz acct
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type",
+                                                        By.CSS_SELECTOR,
+                                                        "input[type='checkbox']", False, "var", "checkbox",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type",
+                                                        By.CSS_SELECTOR,
+                                                        ".sc-product-title", False, "var", "title",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type",
+                                                        By.CSS_SELECTOR,
+                                                        "[aria-label^='Quantity is']", False, "var", "quantity",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type",
+                                                        By.CSS_SELECTOR,
+                                                        ".sc-item-price-block .a-price .a-offscreen", False, "var",
+                                                        "price",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type",
+                                                        By.CSS_SELECTOR,
+                                                        "input[type='submit'][value='Delete']", False, "var",
+                                                        "del_button",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern(
+        "global nthAcct\nnthAcct = nthAcct + 1\nprint('nthAcct:', nthAcct)", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end loop", "", "", this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepStub("end skill", "public/win_ads_local_home/browser_create_accounts", "", this_step)
+    psk_words = psk_words + step_words
+
+    psk_words = psk_words + "\"dummy\" : \"\"}"
+    print("DEBUG", "generated skill for windows ads power answer gmails and remove spams....." + psk_words)
+
+    return this_step, psk_words
+
+
+def genStepsWebdriverCreateNewGmailAcct(stepN):
+    psk_words = ""
+    this_step = stepN
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 8, "info_type",
+                                                        By.ID,
+                                                        "identifierId", False, "var",
+                                                        "email_input_box",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "email_input_box", "email_addr", "action_result", "extract_flag",
+                                                  this_step)
+    psk_words = psk_words + step_words
+
+    # click the sign in button to sign in after pw is filled.
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    # other choices: find_element(By.XPATH, "//span[@jsname='V67aGc' and contains(@class, 'VfPpkd-vQzf8d')]")
+    # driver.find_element(By.CSS_SELECTOR, "span[jsname='V67aGc'].VfPpkd-vQzf8d")
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type",
+                                                        By.CLASS_NAME,
+                                                        "VfPpkd-vQzf8d", False, "var",
+                                                        "create_button",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    # click on create. which will bring us to sign in again to input password.
+    # alternatively:
+    # # Scroll into view
+    # driver.execute_script("arguments[0].scrollIntoView();", button)
+    #
+    # # Try clicking using JavaScript (if standard click fails)
+    # driver.execute_script("arguments[0].click();", button)
+    #
+    # # Alternative: Hover and click
+    # actions = ActionChains(driver)
+    # actions.move_to_element(button).click().perform()
+    this_step, step_words = genStepWebdriverClick("web_driver", "create_button", "action_result", "action_flag",
+                                                  this_step)
+    psk_words = psk_words + step_words
+
+    # click the sign in button to sign in after pw is filled.
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 8, "info_type",
+                                                        By.NAME,
+                                                        "Passsd", False, "var",
+                                                        "pw_input_box",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # password_input.send_keys("your-secure-password" + Keys.RETURN)
+    this_step, step_words = genStepWebdriverKeyIn("web_driver", "pw_input_box", "email_pw", "action_result",
+                                                  "extract_flag",
+                                                  this_step)
+    psk_words = psk_words + step_words
+
+    # click the sign in button to sign in after pw is filled.
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "cart_item", 0, "info_type",
+                                                        By.CLASS_NAME,
+                                                        "VfPpkd-RLmnJb", False, "var",
+                                                        "next_button",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverClick("web_driver", "next_button", "action_result", "action_flag",
+                                                  this_step)
+    psk_words = psk_words + step_words
+
+    # click the sign in button to sign in after pw is filled.
+    this_step, step_words = genStepWait(1, 0, 0, this_step)
+    psk_words = psk_words + step_words
+
 
     return this_step, psk_words
