@@ -340,7 +340,7 @@ class BOT_PUB_PROFILE():
         self.org = "{}"
         self.owner = ""
         self.levels = ""
-        self.status = "active"
+        self.status = "Active"
         self.delDate = "2121-01-01"
         self.levelStart = ""
         self.vid = ""

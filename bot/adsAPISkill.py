@@ -401,6 +401,7 @@ def processAPIADSCreateProfile(step, i):
 
         # once works are dispatched, empty the report data for a fresh start.....
         result = createAdspowerProfile(ads_cfg["api_key"], ads_cfg["port"], ads_profile)
+        print("create profile result:", result)
         symTab[step["result_var"]] = result
 
     except Exception as e:
