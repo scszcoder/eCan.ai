@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text, TEXT, REAL, INTEGER
 
-from bot.Cloud import send_query_missions_by_time_request_to_cloud
+from bot.Cloud import send_query_missions_by_time_request_to_cloud, send_query_manager_missions_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.mission import MissionModel
 from utils.logger_helper import logger_helper
@@ -65,7 +65,21 @@ class MissionService:
         current_time = datetime.now()
         some_days_ago = current_time - timedelta(days=7)
         missions = self.session.query(MissionModel).filter(MissionModel.createon >= some_days_ago).all()
-        return missions
+        #by default we need to get manager missions too....
+        manager_missions = self.session.query(MissionModel).filter(or_(
+                MissionModel.type.ilike("%manage%"),
+                MissionModel.type.ilike("%admin%")
+            )).all()
+
+        # ✅ Merge both lists, ensuring uniqueness by `mid`
+        merged_missions = {mission.mid: mission for mission in missions}  # Store existing missions
+        for mission in manager_missions:
+            merged_missions[mission.mid] = mission  # Overwrite if already present
+
+        # Convert dictionary back to a list
+        final_missions = list(merged_missions.values())
+
+        return final_missions
 
     def find_missions_by_mids(self, mids) -> [MissionModel]:
         results = self.session.query(MissionModel).filter(MissionModel.mid.in_(mids)).all()
@@ -257,6 +271,18 @@ class MissionService:
         jresp = send_query_missions_by_time_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
                                                      [{"byowneruser": True}], mwin.getWanApiEndpoint())
         all_missions = json.loads(jresp['body'])
+        # print("all missions:", all_missions)
+
+        jresp = send_query_manager_missions_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+                                                     [{"byowneruser": True}], mwin.getWanApiEndpoint())
+        # print("manager missions::", jresp)
+        manager_missions = jresp['body']
+        allmids = [m["mid"] for m in all_missions]
+        for m in manager_missions:
+            if m not in allmids:
+                all_missions.append(m)
+
+        print("all missions:", all_missions)
         # all_missions = jresp['body']
         for mission in all_missions:
             mid = mission['mid']
