@@ -15,7 +15,7 @@ import traceback
 
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
     req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud, \
-    send_update_missions_ex_status_to_cloud
+    send_update_missions_ex_status_to_cloud, send_query_manager_missions_request_to_cloud
 from bot.lanAPI import req_lan_read_screen8
 from bot.adsPowerSkill import readTxtProfile, removeUselessCookies, genProfileXlsx, convertTxtProfiles2XlsxProfiles, \
     processUpdateBotADSProfileFromSavedBatchTxt, formADSProfileBatches
@@ -2081,3 +2081,8 @@ async def stressTestImageAPI(mwin, iterations):
 
     # Optionally, wait for all tasks to complete before exiting
     await asyncio.gather(*tasks)
+
+
+def testGetManagerMissions(mwin):
+    result = send_query_manager_missions_request_to_cloud(mwin.session, mwin.tokens['AuthenticationResult']['IdToken'], [], mwin.getWanApiEndpoint())
+    print(result)

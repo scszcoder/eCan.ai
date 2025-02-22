@@ -568,6 +568,23 @@ def gen_query_missions_string(query):
     return query_string
 
 
+def gen_query_manager_missions_string(query):
+
+    query_string = """
+        query MyQuery {
+      getManagerMissions (qm:
+    """
+    # rec_string = json.dumps({"a": "b"}).replace('"', '\"')
+    rec_string = "\"{ \\\"byowneruser\\\": true}\""
+
+    tail_string = """
+        )
+        }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
 def gen_schedule_request_string(test_name, schedule_settings):
     if test_name == "":
         qvs = None
@@ -1820,6 +1837,31 @@ def send_query_missions_by_time_request_to_cloud(session, token, q_settings, end
     return jresponse
 
 
+def send_query_manager_missions_request_to_cloud(session, token, q_settings, endpoint):
+    try:
+        queryInfo = gen_query_manager_missions_string(q_settings)
+
+        jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+        if "errors" in jresp:
+            screen_error = True
+            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+            jresponse = jresp["errors"][0]
+        else:
+            jresponse = json.loads(jresp["data"]["getManagerMissions"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorQueryManagerMissions:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorQueryManagerMissions traceback information not available:" + str(e)
+        print(ex_stat)
+        jresponse = {}
+
+    return jresponse
 
 
 def send_query_chat_request_to_cloud(session, token, chat_request, endpoint):

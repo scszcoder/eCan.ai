@@ -1831,9 +1831,9 @@ class MainWindow(QMainWindow):
         # testSyncLocalImageAPI(self)
         # asyncio.ensure_future(stressTestImageAPI(self, 5))
 
-        loop = asyncio.get_event_loop()
-        loop.create_task(stressTestImageAPI(self, iterations=6))
-
+        # loop = asyncio.get_event_loop()
+        # loop.create_task(stressTestImageAPI(self, iterations=6))
+        testGetManagerMissions(self)
         # test_report_skill_run_result(new_mission)
         # msg = "vVABC|M123|B21|S-running_idle|Error: Exception hello world"
         # ek = self.getEncryptKey()
@@ -9490,8 +9490,6 @@ class MainWindow(QMainWindow):
         managerBids = [x.getBid() for x in managerBots]
         print("#managerBids::", managerBids)
         managerMissions = [x for x in self.missions if x.getBid() in managerBids and ("completed" not in x.getStatus().lower())]
-
-
         return managerBots, managerMissions
 
     def getDailyFailedBots(self):
