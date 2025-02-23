@@ -3981,11 +3981,10 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
     log3("GENERATING genWinChromeAMZTeamPrepSkill======>")
     this_step = stepN
     psk_words = "{"
-
     try:
         this_step, step_words = genStepHeader("win_chrome_amz_browse_search", "win", "1.0", "AIPPS LLC",
                                               "PUBWINCHROMEAMZTEAMPREP005",
-                                              "AMZ Daily Prep On Windows Chrome.", stepN)
+                                               "AMZ Daily Prep On Windows Chrome.", stepN)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("start skill main", "public/win_chrome_amz_home/team_prep", "", this_step)

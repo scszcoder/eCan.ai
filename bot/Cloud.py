@@ -1296,8 +1296,8 @@ def send_schedule_request_to_cloud(session, token, ts_name, schedule_settings, e
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["genSchedules"])
-
-        logger_helper.debug("reponse:"+json.dumps(jresponse))
+        # no logging, the data could be large.
+        # logger_helper.debug("reponse:"+json.dumps(jresponse))
 
     return jresponse
 

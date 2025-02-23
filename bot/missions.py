@@ -899,9 +899,11 @@ class EBMISSION(QStandardItem):
 
     def setFeedbackText(self, bf):
         self.privateAttributes.feedback_text = bf
+        self.pubAttributes.config["feedback_text"] = bf
 
     def setFeedbackTitle(self, tf):
         self.privateAttributes.feedback_title = tf
+        self.pubAttributes.config["feedback_title"] = tf
 
     def getSellerFeedbackText(self):
         return self.privateAttributes.seller_feedback_text
@@ -911,9 +913,11 @@ class EBMISSION(QStandardItem):
 
     def setSellerFeedbackText(self, bf):
         self.privateAttributes.seller_feedback_text = bf
+        self.pubAttributes.config["seller_feedback_text"] = bf
 
     def setSellerFeedbackTitle(self, tf):
         self.privateAttributes.seller_feedback_title = tf
+        self.pubAttributes.config["seller_feedback_title"] = tf
 
     def getFeedbackRating(self):
         return self.privateAttributes.feedback_rating
@@ -1210,6 +1214,7 @@ class EBMISSION(QStandardItem):
 
     def setVCCardNumber(self, vcn):
         self.privateAttributes.ccard_numer = vcn
+        self.pubAttributes.config["ccard_numer"] = vcn
 
     def getVCCardNumber(self):
         return self.privateAttributes.ccard_numer
