@@ -1983,9 +1983,9 @@ class MainWindow(QMainWindow):
                 log3(f"schedule file {schedule_file} exists: {todaysScheduleExists}", "fetchSchedule", self)
                 if not todaysScheduleExists or forceful:
                     jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings, self.getWanApiEndpoint())
-                    log3("schedule JRESP:"+json.dumps(jresp), "fetchSchedule", self)
+                    log3(f"schedule JRESP: {len(jresp['body'])} bytes", "fetchSchedule", self)
                 else:
-                    with open(schedule_file) as sf:
+                    with open(schedule_file, "r") as sf:
                         jresp = json.load(sf)
             else:
                 log3("debug mode, skipping cloud fetch schedule", "fetchSchedule", self)
@@ -2004,14 +2004,13 @@ class MainWindow(QMainWindow):
                         uncompressed = "{}"
                 else:
                     uncompressed = "{}"
-
+                print("unzip schedule done....")
                 # for testing purpose, short circuit the cloud fetch schedule and load a tests schedule from a tests
                 # json file instead.
 
                 # uncompressed = jresp["body"]
-                log3("decomppressed response:"+uncompressed+"!", "fetchSchedule", self)
                 if uncompressed != "":
-                    self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+                    self.showMsg("body string:!"+str(len(uncompressed))+"::")
 
                     bodyobj = {"task_groups": {}, "added_missions": []}
 
@@ -2933,7 +2932,7 @@ class MainWindow(QMainWindow):
 
                     # if time is up to run the next work group,
                     if self.todays_work["tbd"][0]["works"]:
-                        if self.ts2time(int(self.todays_work["tbd"][0]["works"][current_work_idx]["start_time"]/3)) < pt:
+                        if self.ts2time(int(self.todays_work["tbd"][0]["works"][current_work_idx]["start_time"])) < pt:
                             log3("next run is now set up......", "checkNextToRun", self)
                             nextrun = self.todays_work["tbd"][0]
                         else:
@@ -3414,7 +3413,7 @@ class MainWindow(QMainWindow):
                         setMissionInput(self.running_manager_mission.getConfig())
 
 
-                    log3("BEFORE RUN: " + worksettings["b_email"], "runRPA", self)
+                    log3("MANAGER BEFORE RUN: " + worksettings["b_email"], "runRPA", self)
                     runResult = await runAllSteps(rpa_script, self.running_manager_mission, relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
 
 
@@ -5237,7 +5236,7 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Run Now"))
-        # new_action.triggered.connect(self.runCusMissionNowSync)
+        new_action.triggered.connect(self.runCusMissionNowSync)
 
         return new_action
 
@@ -5436,8 +5435,8 @@ class MainWindow(QMainWindow):
 
 
     def runCusMissionNowSync(self):
-        print("")
-        # asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+        print("force mission to run now")
+        asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
 
     async def runCusMissionNow(self, amission, gui_rpa_queue, gui_monitor_queue):
         # check if psk is already there, if not generate psk, then run it.
@@ -5457,10 +5456,10 @@ class MainWindow(QMainWindow):
             "start_time": 1            # make this task due 00:20 am, which should have been passed by now, so to catch up, the schedule will run this at the first possible chance.
         }]
 
-        ads_profile_batches_fnames = genAdsProfileBatchs(self, self.ip, tempMissionTasks)
+        # ads_profile_batches_fnames = genAdsProfileBatchs(self, self.ip, tempMissionTasks)
         print("updated tempMissionTasks:", tempMissionTasks)
-
-        self.todays_work["tbd"].append({"name": "automation", "works": tempMissionTasks, "status": "Assigned", "current widx": 0, "completed": [], "aborted": []})
+        widx = len(self.todays_work["tbd"])
+        self.todays_work["tbd"].append({"name": "automation", "works": tempMissionTasks, "status": "Assigned", "current widx": widx, "completed": [], "aborted": []})
 
 
     def _createBotRCEditAction(self):
@@ -6963,11 +6962,13 @@ class MainWindow(QMainWindow):
         # simply search the past mission and check whether there are
         # already mission running this skill, if there is simply copy it and run.
         # if nothing found, then create a brand new mission on the fly.
-        foundMission = next((x for i, x in enumerate(self.missions) if str(skid) in x.getSkills()), None)
+        foundMission = next((x for i, x in enumerate(self.missions) if x.getSkills().startswith(str(skid)+',')), None)
         if foundMission:
-            log3("duplicate the found mission ", foundMission.getMid())
-            newMisssion = copy.deepcopy(foundMission)
+            log3(f"duplicate the found mission {foundMission.getMid()}", "runmanagerworks", self)
+            # newMisssion = copy.deepcopy(foundMission)
+            newMisssion = foundMission
         else:
+            log3(f"create a new mission based on skill {skid}...", "runmanagerworks", self)
             today = datetime.now()
             formatted_date = today.strftime("%Y-%m-%d")
             future_date = today + timedelta(days=1)
@@ -7030,8 +7031,10 @@ class MainWindow(QMainWindow):
     # like process new orders, turn them into new missions, and so on....
     # the message will likely,
     async def processManagerNetMessage(self, msg, managers, in_queue, out_team_queue, out_gui_queue):
+        print(f"recevied manager msg type: {msg['type']}")
         if msg["type"] in ManagerTriggerTable:
             otm = self.genOneTimeMissionWithSkill(ManagerTriggerTable[msg["type"]][0], ManagerTriggerTable[msg["type"]][1], managers[0].getBid())
+            print("ready to run manager 1 mission....")
             result = await self.run1ManagerMission(otm, in_queue, out_team_queue, out_gui_queue)
 
 
@@ -7060,6 +7063,7 @@ class MainWindow(QMainWindow):
 
                 if not gui_manager_queue.empty():
                     # Process all available messages in the queue
+                    print("recevied manager queued msg...")
                     while not gui_manager_queue.empty():
                         net_message = await gui_manager_queue.get()
                         await self.processManagerNetMessage(net_message, managerBots, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
