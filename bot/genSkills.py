@@ -500,9 +500,9 @@ def getWorkRunSettings(lieutenant, bot_works):
         last_one = True
 
     if midx < 0 or midx >= len(lieutenant.missions):
-        log3("ERROR: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
+        log3("WARNING: Designated Mission " + str(mission_id) + "(out of " + str(len(lieutenant.missions)) + " missions) not found!!!!")
 
-    log3("mission_id: "+str(mission_id)+"midx: "+str(midx))
+    log3("mission_id: "+str(mission_id)+" midx: "+str(midx))
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
     # settings = lieutenant.missions[midx].getParentSettings()
     current_mission = lieutenant.missions[midx]
