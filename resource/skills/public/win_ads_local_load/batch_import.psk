@@ -208,6 +208,14 @@
 },
 "step 95":
 {
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 100":
+{
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
@@ -219,7 +227,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 100":
+"step 105":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -243,7 +251,15 @@
     ],
     "post_wait": 2
 },
-"step 105":
+"step 110":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 115":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -256,21 +272,21 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 110":
+"step 120":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 115":
+"step 125":
 {
     "type": "Check Condition",
     "condition": "ads_main_ver_num < 60229",
     "if_else": "",
     "if_end": ""
 },
-"step 120":
+"step 130":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -294,7 +310,15 @@
     ],
     "post_wait": 5
 },
-"step 125":
+"step 135":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 140":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -307,7 +331,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 130":
+"step 145":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -331,14 +355,14 @@
     ],
     "post_wait": 2
 },
-"step 135":
+"step 150":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 140":
+"step 155":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -362,14 +386,14 @@
     ],
     "post_wait": 2
 },
-"step 145":
+"step 160":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 150":
+"step 165":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -382,14 +406,14 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 155":
+"step 170":
 {
     "type": "Check Condition",
     "condition": "ads_main_ver_num < 60229",
     "if_else": "",
     "if_end": ""
 },
-"step 160":
+"step 175":
 {
     "type": "Call Extern",
     "file": "print('now gen steps to select target browser')",
@@ -397,7 +421,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 165":
+"step 180":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -410,14 +434,14 @@
     "breakpoint": false,
     "status": "sun_selected"
 },
-"step 170":
+"step 185":
 {
     "type": "Check Condition",
     "condition": "not sun_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 175":
+"step 190":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -441,14 +465,14 @@
     ],
     "post_wait": 2
 },
-"step 180":
+"step 195":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 185":
+"step 200":
 {
     "type": "Call Extern",
     "file": "print('now gen steps to select approriate OS')",
@@ -456,14 +480,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 190":
+"step 205":
 {
     "type": "Check Condition",
     "condition": "in_os == 'win'",
     "if_else": "",
     "if_end": ""
 },
-"step 195":
+"step 210":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -476,14 +500,14 @@
     "breakpoint": false,
     "status": "win_selected"
 },
-"step 200":
+"step 215":
 {
     "type": "Check Condition",
     "condition": "not win_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 205":
+"step 220":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -507,28 +531,28 @@
     ],
     "post_wait": 2
 },
-"step 210":
+"step 225":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 215":
+"step 230":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 220":
+"step 235":
 {
     "type": "Check Condition",
     "condition": "in_os == 'mac'",
     "if_else": "",
     "if_end": ""
 },
-"step 225":
+"step 240":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -541,14 +565,14 @@
     "breakpoint": false,
     "status": "mac_selected"
 },
-"step 230":
+"step 245":
 {
     "type": "Check Condition",
     "condition": "not mac_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 235":
+"step 250":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -572,28 +596,28 @@
     ],
     "post_wait": 2
 },
-"step 240":
+"step 255":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 245":
+"step 260":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 250":
+"step 265":
 {
     "type": "Check Condition",
     "condition": "in_os == 'linux'",
     "if_else": "",
     "if_end": ""
 },
-"step 255":
+"step 270":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -606,14 +630,14 @@
     "breakpoint": false,
     "status": "linux_selected"
 },
-"step 260":
+"step 275":
 {
     "type": "Check Condition",
     "condition": "not linux_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 265":
+"step 280":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -637,27 +661,6 @@
     ],
     "post_wait": 2
 },
-"step 270":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 275":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 280":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
 "step 285":
 {
     "type": "Stub",
@@ -666,6 +669,27 @@
     "fargs": ""
 },
 "step 290":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 295":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 300":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 305":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -678,7 +702,7 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 295":
+"step 310":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -691,7 +715,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 300":
+"step 315":
 {
     "type": "Call Extern",
     "file": "print('now gen steps to select approriate web site')",
@@ -699,7 +723,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 305":
+"step 320":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -723,7 +747,7 @@
     ],
     "post_wait": 2
 },
-"step 310":
+"step 325":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -736,7 +760,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 315":
+"step 330":
 {
     "type": "Search Word Line",
     "screen": "screen_info",
@@ -748,7 +772,7 @@
     "breakpoint": false,
     "status": "site_found"
 },
-"step 320":
+"step 335":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -761,15 +785,15 @@
     "breakpoint": false,
     "status": "site_list_ended"
 },
-"step 325":
+"step 340":
 {
     "type": "Repeat",
-    "lc_name": "search_site300",
+    "lc_name": "search_site315",
     "until": "not (site_found or site_list_ended)",
     "count": "",
     "end": ""
 },
-"step 330":
+"step 345":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -782,7 +806,7 @@
     "postwait": 0.5,
     "unit": "raw"
 },
-"step 335":
+"step 350":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -795,7 +819,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 340":
+"step 355":
 {
     "type": "Search Word Line",
     "screen": "screen_info",
@@ -807,7 +831,7 @@
     "breakpoint": false,
     "status": "site_found"
 },
-"step 345":
+"step 360":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -820,21 +844,21 @@
     "breakpoint": false,
     "status": "site_list_ended"
 },
-"step 350":
+"step 365":
 {
     "type": "Stub",
     "stub_name": "end loop",
     "func_name": "",
     "fargs": ""
 },
-"step 355":
+"step 370":
 {
     "type": "Check Condition",
     "condition": "site_found",
     "if_else": "",
     "if_end": ""
 },
-"step 360":
+"step 375":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -858,14 +882,14 @@
     ],
     "post_wait": 2
 },
-"step 365":
+"step 380":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 370":
+"step 385":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -889,7 +913,7 @@
     ],
     "post_wait": 2
 },
-"step 375":
+"step 390":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -902,7 +926,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 380":
+"step 395":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -926,7 +950,7 @@
     ],
     "post_wait": 2
 },
-"step 385":
+"step 400":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -937,14 +961,14 @@
     "key_after": "enter",
     "wait_after": 1
 },
-"step 390":
+"step 405":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 395":
+"step 410":
 {
     "type": "Call Extern",
     "file": "print('now gen steps to load profile xlsx')",
@@ -952,7 +976,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 400":
+"step 415":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -965,7 +989,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 405":
+"step 420":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -978,14 +1002,14 @@
     "breakpoint": false,
     "status": "file_load_found"
 },
-"step 410":
+"step 425":
 {
     "type": "Check Condition",
     "condition": "not file_load_found",
     "if_else": "",
     "if_end": ""
 },
-"step 415":
+"step 430":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -998,7 +1022,7 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 420":
+"step 435":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1011,14 +1035,14 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 425":
+"step 440":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 430":
+"step 445":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1042,14 +1066,14 @@
     ],
     "post_wait": 2
 },
-"step 435":
+"step 450":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 3
 },
-"step 440":
+"step 455":
 {
     "type": "Create Data",
     "data_type": "expr",
@@ -1057,7 +1081,7 @@
     "key_name": "NA",
     "key_value": "['open', current_profile_path, current_profile_name]"
 },
-"step 445":
+"step 460":
 {
     "type": "Use Skill",
     "skill_name": "open_save_as",
@@ -1065,7 +1089,7 @@
     "skill_args": "file_open_input",
     "output": "fileStatus"
 },
-"step 450":
+"step 465":
 {
     "type": "Call Extern",
     "file": "global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
@@ -1073,56 +1097,12 @@
     "entity": "in_line",
     "output": ""
 },
-"step 455":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "scrn_options",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 460":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "ok",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": 0,
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 2
-},
-"step 465":
-{
-    "type": "Wait",
-    "random_min": 0,
-    "random_max": 0,
-    "time": 10
-},
 "step 470":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
-    "options": "",
+    "options": "scrn_options",
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
@@ -1156,18 +1136,17 @@
 },
 "step 480":
 {
-    "type": "Call Extern",
-    "file": "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 10
 },
 "step 485":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
-    "options": "dyn_options",
+    "options": "",
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
@@ -1176,533 +1155,6 @@
     "section": "top"
 },
 "step 490":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "bot_user",
-    "name_type": "direct",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "useless",
-    "site": "ads",
-    "breakpoint": false,
-    "status": "bot_loaded"
-},
-"step 495":
-{
-    "type": "Check Condition",
-    "condition": "not bot_loaded",
-    "if_else": "",
-    "if_end": ""
-},
-"step 500":
-{
-    "type": "Mouse Scroll",
-    "action": "Scroll Down",
-    "screen": "screen_info",
-    "amount": 50,
-    "resolution": "scroll_resolution",
-    "random_min": 0,
-    "random_max": 2,
-    "breakpoint": false,
-    "postwait": 0.5,
-    "unit": "screen"
-},
-"step 505":
-{
-    "type": "Call Extern",
-    "file": "global dyn_options\ndyn_options = {'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 510":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "dyn_options",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 515":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "bot_user",
-    "name_type": "direct",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "useless",
-    "site": "ads",
-    "breakpoint": false,
-    "status": "bot_loaded"
-},
-"step 520":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 525":
-{
-    "type": "Check Condition",
-    "condition": "bot_loaded",
-    "if_else": "",
-    "if_end": ""
-},
-"step 530":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "bot_open",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": 0,
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 2
-},
-"step 535":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 540":
-{
-    "type": "Stub",
-    "stub_name": "else",
-    "func_name": "",
-    "fargs": ""
-},
-"step 545":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 550":
-{
-    "type": "Call Extern",
-    "file": "print('now gen steps to select approriate web site')",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 555":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "platform",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": 0,
-    "offset_from": "right",
-    "offset_unit": "box",
-    "offset": [
-        3,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        5
-    ],
-    "post_wait": 2
-},
-"step 560":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 565":
-{
-    "type": "Search Word Line",
-    "screen": "screen_info",
-    "names": "in_full_site",
-    "name_types": "expr",
-    "logic": "any",
-    "result": "useless",
-    "site": "ads",
-    "breakpoint": false,
-    "status": "site_found"
-},
-"step 570":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "other",
-    "name_type": "direct",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "useless",
-    "site": "ads",
-    "breakpoint": false,
-    "status": "site_list_ended"
-},
-"step 575":
-{
-    "type": "Repeat",
-    "lc_name": "search_site550",
-    "until": "not (site_found or site_list_ended)",
-    "count": "",
-    "end": ""
-},
-"step 580":
-{
-    "type": "Mouse Scroll",
-    "action": "Scroll Down",
-    "screen": "screen_info",
-    "amount": 2,
-    "resolution": "scroll_resolution",
-    "random_min": 0,
-    "random_max": 0,
-    "breakpoint": false,
-    "postwait": 0.5,
-    "unit": "raw"
-},
-"step 585":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 590":
-{
-    "type": "Search Word Line",
-    "screen": "screen_info",
-    "names": "in_full_site",
-    "name_types": "expr",
-    "logic": "any",
-    "result": "useless",
-    "site": "ads",
-    "breakpoint": false,
-    "status": "site_found"
-},
-"step 595":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "other",
-    "name_type": "direct",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "useless",
-    "site": "ads",
-    "breakpoint": false,
-    "status": "site_list_ended"
-},
-"step 600":
-{
-    "type": "Stub",
-    "stub_name": "end loop",
-    "func_name": "",
-    "fargs": ""
-},
-"step 605":
-{
-    "type": "Check Condition",
-    "condition": "site_found",
-    "if_else": "",
-    "if_end": ""
-},
-"step 610":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "paragraph",
-    "target_type": "info",
-    "text": "in_full_site",
-    "nth": 0,
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 2
-},
-"step 615":
-{
-    "type": "Stub",
-    "stub_name": "else",
-    "func_name": "",
-    "fargs": ""
-},
-"step 620":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "other",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": 0,
-    "offset_from": "left",
-    "offset_unit": "box",
-    "offset": [
-        3,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 2
-},
-"step 625":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 630":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "enter_platform",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": 0,
-    "offset_from": "left",
-    "offset_unit": "box",
-    "offset": [
-        3,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 2
-},
-"step 635":
-{
-    "type": "Text Input",
-    "txt_ref_type": "direct",
-    "save_rb": false,
-    "text": "in_full_site",
-    "txt_type": "var",
-    "speed": 0.05,
-    "key_after": "enter",
-    "wait_after": 1
-},
-"step 640":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 645":
-{
-    "type": "Call Extern",
-    "file": "print('now gen steps to load profile xlsx')",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 650":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 655":
-{
-    "type": "Search Anchor Info",
-    "screen": "screen_info",
-    "names": "drag_drop",
-    "name_type": "direct",
-    "target_types": "anchor text",
-    "logic": "any",
-    "result": "useless",
-    "site": "ads",
-    "breakpoint": false,
-    "status": "file_load_found"
-},
-"step 660":
-{
-    "type": "Check Condition",
-    "condition": "not file_load_found",
-    "if_else": "",
-    "if_end": ""
-},
-"step 665":
-{
-    "type": "Mouse Scroll",
-    "action": "Scroll Down",
-    "screen": "screen_info",
-    "amount": 50,
-    "resolution": "scroll_resolution",
-    "random_min": 0,
-    "random_max": 0,
-    "breakpoint": false,
-    "postwait": 0.5,
-    "unit": "screen"
-},
-"step 670":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 675":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 680":
-{
-    "type": "Mouse Click",
-    "action": "Single Click",
-    "action_args": "",
-    "save_rb": true,
-    "screen": "screen_info",
-    "target_name": "drag_drop",
-    "target_type": "anchor text",
-    "text": "",
-    "nth": 0,
-    "offset_from": "center",
-    "offset_unit": "box",
-    "offset": [
-        0,
-        0
-    ],
-    "move_pause": 2,
-    "post_move": [
-        0,
-        0
-    ],
-    "post_wait": 2
-},
-"step 685":
-{
-    "type": "Wait",
-    "random_min": 0,
-    "random_max": 0,
-    "time": 3
-},
-"step 690":
-{
-    "type": "Create Data",
-    "data_type": "expr",
-    "data_name": "file_open_input",
-    "key_name": "NA",
-    "key_value": "['open', current_profile_path, current_profile_name]"
-},
-"step 695":
-{
-    "type": "Use Skill",
-    "skill_name": "open_save_as",
-    "skill_path": "public/win_file_local_op",
-    "skill_args": "file_open_input",
-    "output": "fileStatus"
-},
-"step 700":
-{
-    "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
-    "args": "",
-    "entity": "in_line",
-    "output": ""
-},
-"step 705":
-{
-    "type": "Extract Info",
-    "settings": "sk_work_settings",
-    "template": "",
-    "options": "scrn_options",
-    "data_sink": "screen_info",
-    "win_title_kw": "",
-    "page": "ads_power",
-    "theme": "light",
-    "page_data_info": null,
-    "section": "top"
-},
-"step 710":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1726,19 +1178,547 @@
     ],
     "post_wait": 2
 },
-"step 715":
+"step 495":
+{
+    "type": "Call Extern",
+    "file": "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 500":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "dyn_options",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 505":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "bot_user",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "bot_loaded"
+},
+"step 510":
+{
+    "type": "Check Condition",
+    "condition": "not bot_loaded",
+    "if_else": "",
+    "if_end": ""
+},
+"step 515":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 2,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 520":
+{
+    "type": "Call Extern",
+    "file": "global dyn_options\ndyn_options = {'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 525":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "dyn_options",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 530":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "bot_user",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "bot_loaded"
+},
+"step 535":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 540":
+{
+    "type": "Check Condition",
+    "condition": "bot_loaded",
+    "if_else": "",
+    "if_end": ""
+},
+"step 545":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "bot_open",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 550":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 555":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 560":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 565":
+{
+    "type": "Call Extern",
+    "file": "print('now gen steps to select approriate web site')",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 570":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "platform",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "right",
+    "offset_unit": "box",
+    "offset": [
+        3,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        5
+    ],
+    "post_wait": 2
+},
+"step 575":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 580":
+{
+    "type": "Search Word Line",
+    "screen": "screen_info",
+    "names": "in_full_site",
+    "name_types": "expr",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_found"
+},
+"step 585":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "other",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_list_ended"
+},
+"step 590":
+{
+    "type": "Repeat",
+    "lc_name": "search_site565",
+    "until": "not (site_found or site_list_ended)",
+    "count": "",
+    "end": ""
+},
+"step 595":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 2,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "raw"
+},
+"step 600":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 605":
+{
+    "type": "Search Word Line",
+    "screen": "screen_info",
+    "names": "in_full_site",
+    "name_types": "expr",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_found"
+},
+"step 610":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "other",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "site_list_ended"
+},
+"step 615":
+{
+    "type": "Stub",
+    "stub_name": "end loop",
+    "func_name": "",
+    "fargs": ""
+},
+"step 620":
+{
+    "type": "Check Condition",
+    "condition": "site_found",
+    "if_else": "",
+    "if_end": ""
+},
+"step 625":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "paragraph",
+    "target_type": "info",
+    "text": "in_full_site",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 630":
+{
+    "type": "Stub",
+    "stub_name": "else",
+    "func_name": "",
+    "fargs": ""
+},
+"step 635":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "other",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        3,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 640":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 645":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "enter_platform",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "left",
+    "offset_unit": "box",
+    "offset": [
+        3,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 650":
+{
+    "type": "Text Input",
+    "txt_ref_type": "direct",
+    "save_rb": false,
+    "text": "in_full_site",
+    "txt_type": "var",
+    "speed": 0.05,
+    "key_after": "enter",
+    "wait_after": 1
+},
+"step 655":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 660":
+{
+    "type": "Call Extern",
+    "file": "print('now gen steps to load profile xlsx')",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
+},
+"step 665":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 670":
+{
+    "type": "Search Anchor Info",
+    "screen": "screen_info",
+    "names": "drag_drop",
+    "name_type": "direct",
+    "target_types": "anchor text",
+    "logic": "any",
+    "result": "useless",
+    "site": "ads",
+    "breakpoint": false,
+    "status": "file_load_found"
+},
+"step 675":
+{
+    "type": "Check Condition",
+    "condition": "not file_load_found",
+    "if_else": "",
+    "if_end": ""
+},
+"step 680":
+{
+    "type": "Mouse Scroll",
+    "action": "Scroll Down",
+    "screen": "screen_info",
+    "amount": 50,
+    "resolution": "scroll_resolution",
+    "random_min": 0,
+    "random_max": 0,
+    "breakpoint": false,
+    "postwait": 0.5,
+    "unit": "screen"
+},
+"step 685":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 690":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 695":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "drag_drop",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 700":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
-    "time": 10
+    "time": 3
+},
+"step 705":
+{
+    "type": "Create Data",
+    "data_type": "expr",
+    "data_name": "file_open_input",
+    "key_name": "NA",
+    "key_value": "['open', current_profile_path, current_profile_name]"
+},
+"step 710":
+{
+    "type": "Use Skill",
+    "skill_name": "open_save_as",
+    "skill_path": "public/win_file_local_op",
+    "skill_args": "file_open_input",
+    "output": "fileStatus"
+},
+"step 715":
+{
+    "type": "Call Extern",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
+    "args": "",
+    "entity": "in_line",
+    "output": ""
 },
 "step 720":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
     "template": "",
-    "options": "",
+    "options": "scrn_options",
     "data_sink": "screen_info",
     "win_title_kw": "",
     "page": "ads_power",
@@ -1772,13 +1752,57 @@
 },
 "step 730":
 {
+    "type": "Wait",
+    "random_min": 0,
+    "random_max": 0,
+    "time": 10
+},
+"step 735":
+{
+    "type": "Extract Info",
+    "settings": "sk_work_settings",
+    "template": "",
+    "options": "",
+    "data_sink": "screen_info",
+    "win_title_kw": "",
+    "page": "ads_power",
+    "theme": "light",
+    "page_data_info": null,
+    "section": "top"
+},
+"step 740":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "ok",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 0,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 2
+},
+"step 745":
+{
     "type": "Call Extern",
     "file": "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
     "args": "",
     "entity": "in_line",
     "output": ""
 },
-"step 735":
+"step 750":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1791,7 +1815,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 740":
+"step 755":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -1804,14 +1828,14 @@
     "breakpoint": false,
     "status": "bot_loaded"
 },
-"step 745":
+"step 760":
 {
     "type": "Check Condition",
     "condition": "not bot_loaded",
     "if_else": "",
     "if_end": ""
 },
-"step 750":
+"step 765":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1824,7 +1848,7 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 755":
+"step 770":
 {
     "type": "Call Extern",
     "file": "global dyn_options\ndyn_options = {'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
@@ -1832,7 +1856,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 760":
+"step 775":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1845,7 +1869,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 765":
+"step 780":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -1858,21 +1882,21 @@
     "breakpoint": false,
     "status": "bot_loaded"
 },
-"step 770":
+"step 785":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 775":
+"step 790":
 {
     "type": "Check Condition",
     "condition": "bot_loaded",
     "if_else": "",
     "if_end": ""
 },
-"step 780":
+"step 795":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1896,14 +1920,14 @@
     ],
     "post_wait": 2
 },
-"step 785":
+"step 800":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 790":
+"step 805":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -1916,7 +1940,7 @@
     "postwait": 0.5,
     "unit": "screen"
 },
-"step 795":
+"step 810":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -1929,7 +1953,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 800":
+"step 815":
 {
     "type": "Call Extern",
     "file": "print('now gen steps to select target browser')",
@@ -1937,7 +1961,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 805":
+"step 820":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -1950,14 +1974,14 @@
     "breakpoint": false,
     "status": "sun_selected"
 },
-"step 810":
+"step 825":
 {
     "type": "Check Condition",
     "condition": "not sun_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 815":
+"step 830":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -1981,14 +2005,14 @@
     ],
     "post_wait": 2
 },
-"step 820":
+"step 835":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 825":
+"step 840":
 {
     "type": "Call Extern",
     "file": "print('now gen steps to select approriate OS')",
@@ -1996,14 +2020,14 @@
     "entity": "in_line",
     "output": ""
 },
-"step 830":
+"step 845":
 {
     "type": "Check Condition",
     "condition": "in_os == 'win'",
     "if_else": "",
     "if_end": ""
 },
-"step 835":
+"step 850":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2016,14 +2040,14 @@
     "breakpoint": false,
     "status": "win_selected"
 },
-"step 840":
+"step 855":
 {
     "type": "Check Condition",
     "condition": "not win_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 845":
+"step 860":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -2047,28 +2071,28 @@
     ],
     "post_wait": 2
 },
-"step 850":
+"step 865":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 855":
+"step 870":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 860":
+"step 875":
 {
     "type": "Check Condition",
     "condition": "in_os == 'mac'",
     "if_else": "",
     "if_end": ""
 },
-"step 865":
+"step 880":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2081,14 +2105,14 @@
     "breakpoint": false,
     "status": "mac_selected"
 },
-"step 870":
+"step 885":
 {
     "type": "Check Condition",
     "condition": "not mac_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 875":
+"step 890":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -2112,28 +2136,28 @@
     ],
     "post_wait": 2
 },
-"step 880":
+"step 895":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 885":
+"step 900":
 {
     "type": "Stub",
     "stub_name": "else",
     "func_name": "",
     "fargs": ""
 },
-"step 890":
+"step 905":
 {
     "type": "Check Condition",
     "condition": "in_os == 'linux'",
     "if_else": "",
     "if_end": ""
 },
-"step 895":
+"step 910":
 {
     "type": "Search Anchor Info",
     "screen": "screen_info",
@@ -2146,14 +2170,14 @@
     "breakpoint": false,
     "status": "linux_selected"
 },
-"step 900":
+"step 915":
 {
     "type": "Check Condition",
     "condition": "not linux_selected",
     "if_else": "",
     "if_end": ""
 },
-"step 905":
+"step 920":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -2177,27 +2201,6 @@
     ],
     "post_wait": 2
 },
-"step 910":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 915":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
-"step 920":
-{
-    "type": "Stub",
-    "stub_name": "end condition",
-    "func_name": "",
-    "fargs": ""
-},
 "step 925":
 {
     "type": "Stub",
@@ -2213,6 +2216,27 @@
     "fargs": ""
 },
 "step 935":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 940":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 945":
+{
+    "type": "Stub",
+    "stub_name": "end condition",
+    "func_name": "",
+    "fargs": ""
+},
+"step 950":
 {
     "type": "Stub",
     "stub_name": "end skill",

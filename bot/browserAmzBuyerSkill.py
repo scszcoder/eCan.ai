@@ -2098,10 +2098,10 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepGoToWindow("AdsPower", "", "g2w_status", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern(
-            "global bot_email, current_batch\nuseless=current_batch.pop(bot_email, None)\nprint('current_batch:', current_batch)",
-            "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
+        # this_step, step_words = genStepCallExtern(
+        #     "global bot_email, current_batch\nuseless=current_batch.pop(bot_email, None)\nprint('current_batch:', current_batch)",
+        #     "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
 
         this_step, step_words = genStepCheckCondition("sk_work_settings['last_one'] or sk_work_settings['retry']", "", "", this_step)
         psk_words = psk_words + step_words
@@ -2421,10 +2421,10 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepAPIADSListProfiles("ads_config", "loaded_profiles", "action_flag", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern(
-            "import copy\nglobal loaded_profiles, current_batch\ncurrent_batch = copy.deepcopy(loaded_profiles)\nprint('current_batch:', current_batch)",
-            "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
+        # this_step, step_words = genStepCallExtern(
+        #     "import copy\nglobal loaded_profiles, current_batch\ncurrent_batch = copy.deepcopy(loaded_profiles)\nprint('current_batch:', current_batch)",
+        #     "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
 
         # end condition  for "bot email not in loaded_profiles"
         this_step, step_words = genStepStub("end condition", "", "", this_step)
