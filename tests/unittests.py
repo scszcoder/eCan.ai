@@ -2075,7 +2075,7 @@ async def stressTestImageAPI(mwin, iterations):
         tasks.append(task)  # Store the task to keep track of it
 
         # Wait a random time between 0 and 7 seconds before sending the next request
-        delay = random.uniform(0, 7)
+        delay = random.uniform(0, 1)
         print(f"Waiting {delay:.2f} seconds before next request...")
         await asyncio.sleep(delay)
 
