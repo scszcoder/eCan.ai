@@ -4149,6 +4149,7 @@ class MainWindow(QMainWindow):
                 "email": new_bot.getEmail(),
                 "epw": new_bot.getEmPW(),
                 "backemail": new_bot.getBackEm(),
+                "backemailpw": new_bot.getBackEmPW(),
                 "ebpw": new_bot.getAcctPw(),
                 "backemail_site": new_bot.getBackEmSite(),
                 "createon": new_bot.getCreateOn(),
@@ -4205,6 +4206,7 @@ class MainWindow(QMainWindow):
                 "email": abot.getEmail(),
                 "epw": abot.getEmPW(),
                 "backemail": abot.getBackEm(),
+                "backemailpw": abot.getBackEmPW(),
                 "ebpw": abot.getAcctPw(),
                 "backemail_site": abot.getAcctPw()
             })
@@ -4257,6 +4259,7 @@ class MainWindow(QMainWindow):
                     "email": abot["privateProfile"]["email"],
                     "epw": abot["privateProfile"]["email_pw"],
                     "backemail": abot["privateProfile"]["backup_email"],
+                    "backemailpw": abot["privateProfile"]["backup_email_pw"],
                     "ebpw": abot["privateProfile"]["acct_pw"],
                     "backemail_site": abot["privateProfile"]["backup_email_site"],
                 })
@@ -5090,6 +5093,7 @@ class MainWindow(QMainWindow):
             self.cusMissionDeleteAction = self._createCusMissionDeleteAction()
             self.cusMissionUpdateAction = self._createCusMissionUpdateAction()
             self.cusMissionRunAction = self._createRunMissionNowAction()
+            self.cusMissionMarkCompletedAction = self._createMarkMissionCompletedAction()
 
             self.popMenu.addAction(self.cusMissionEditAction)
             self.popMenu.addAction(self.cusMissionCloneAction)
@@ -5099,6 +5103,7 @@ class MainWindow(QMainWindow):
             self.popMenu.addAction(self.cusMissionUpdateAction)
             self.popMenu.addSeparator()
             self.popMenu.addAction(self.cusMissionRunAction)
+            self.popMenu.addAction(self.cusMissionMarkCompletedAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -5118,9 +5123,13 @@ class MainWindow(QMainWindow):
                 elif selected_act == self.cusMissionUpdateAction:
                     self.updateCusMissionStatus(self.selected_cus_mission_item)
                 elif selected_act == self.cusMissionRunAction:
-                    print("selected_mission_row: ", self.selected_mission_row)
-                    print("selected_cus_mission_item: ", self.selected_cus_mission_item)
+                    # print("selected_mission_row: ", self.selected_mission_row)
+                    # print("selected_cus_mission_item: ", self.selected_cus_mission_item)
                     asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
+                elif selected_act == self.cusMissionMarkCompletedAction:
+                    # print("selected_mission_row: ", self.selected_mission_row)
+                    # print("selected_cus_mission_item: ", self.selected_cus_mission_item)
+                    asyncio.create_task(self.markCusMissionCompleted(self.selected_cus_mission_item))
 
             return True
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
@@ -5236,7 +5245,15 @@ class MainWindow(QMainWindow):
         # File actions
         new_action = QAction(self)
         new_action.setText(QApplication.translate("QAction", "&Run Now"))
-        new_action.triggered.connect(self.runCusMissionNowSync)
+        # new_action.triggered.connect(self.runCusMissionNowSync)
+
+        return new_action
+
+    def _createMarkMissionCompletedAction(self):
+        # File actions
+        new_action = QAction(self)
+        new_action.setText(QApplication.translate("QAction", "&Mark Completed"))
+        # new_action.triggered.connect(self.markCusMissionCompletedSync)
 
         return new_action
 
@@ -5462,6 +5479,13 @@ class MainWindow(QMainWindow):
         self.todays_work["tbd"].append({"name": "automation", "works": tempMissionTasks, "status": "Assigned", "current widx": widx, "completed": [], "aborted": []})
 
 
+    async def markCusMissionCompleted(self, amission, gui_rpa_queue, gui_monitor_queue):
+        # check if psk is already there, if not generate psk, then run it.
+        self.showMsg("run mission now...."+str(amission.getBid()))
+        amission.setStatus("Completed:0")
+        if "Commander" in self.host_role:
+            self.updateMissionsStatToCloud([amission])
+
     def _createBotRCEditAction(self):
        new_action = QAction(self)
        new_action.setText(QApplication.translate("QAction", "&Edit"))
@@ -5682,7 +5706,7 @@ class MainWindow(QMainWindow):
             QApplication.translate("QFileDialog", "Bot Files (*.json *.xlsx *.csv)")
         )
         log3("loading bots from a file..."+filename)
-        self.createBotsFromFilesOrJsData([filename])
+        b1, addedBots = self.createBotsFromFilesOrJsData([filename])
 
     def createBotsFromFilesOrJsData(self, bfiles):
         try:
@@ -5755,6 +5779,7 @@ class MainWindow(QMainWindow):
 
                         new_bot = EBBOT(self)
                         self.fillNewBotFullInfo(jsData, new_bot)
+                        self.assignBotVehicle(new_bot)
                         bots_from_file.append(new_bot)
 
                 else:
@@ -5764,9 +5789,7 @@ class MainWindow(QMainWindow):
                 print("adding new bots to both cloud and local DB... update BID and Interests along the way since they're cloud generated.")
                 self.addNewBots(bots_from_file)
                 firstAddedBotId = bots_from_file[0].getBid()
-                return firstAddedBotId
-
-
+                return firstAddedBotId, bots_from_file
 
         except Exception as e:
             # Get the traceback information
@@ -5777,7 +5800,7 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorCreateBotsFromFilesOrJsData: traceback information not available:" + str(e)
             log3(ex_stat)
-            return 0
+            return 0, []
 
     # data format conversion. nb is in EBMISSION data structure format., nbdata is json
     def fillNewMissionFromCloud(self, nmjson, nm):
@@ -8123,9 +8146,14 @@ class MainWindow(QMainWindow):
             print("chat Task ticking....")
             await asyncio.sleep(1)
 
+    def getBV(self, bot):
+        if bot.getVehicle():
+            return bot.getVehicle()
+        else:
+            return ""
 
     def getBotsOnThisVehicle(self):
-        thisBots = [b for b in self.bots if self.machine_name in b.getVehicle()]
+        thisBots = [b for b in self.bots if self.machine_name in self.getBV(b) ]
         return thisBots
 
     def getBidsOnThisVehicle(self):
@@ -9476,7 +9504,7 @@ class MainWindow(QMainWindow):
         newBotsFiles = self.checkNewBotsFiles()
         log3("newBotsFiles:"+json.dumps(newBotsFiles))
         if newBotsFiles:
-            firstNewBid = self.createBotsFromFilesOrJsData(newBotsFiles)
+            firstNewBid, addedBots = self.createBotsFromFilesOrJsData(newBotsFiles)
 
     def isPlatoon(self):
         return (self.machine_role == "Platoon")
@@ -9547,16 +9575,7 @@ class MainWindow(QMainWindow):
                 if not self.isValidAddr(bot.getShippingAddr()) and row["addr_street_line1"]:
                     bot.setShippingAddr(row["addr_street_line1"], row["addr_street_line2"], row["addr_city"], row["addr_state"], row["addr_zip"])
 
-            if not bot.getVehicle():
-                bv = self.genBotVehicle(bot)
-                if bv:
-                    bot.setVehicle(bv.getName())
-                    print("setting vehicle:", bot.getVehicle())
-                    bv.addBot(bot.getBid())
-                    if bv not in vehiclesNeedsUpdate:
-                        vehiclesNeedsUpdate.append(bv)
-                else:
-                    log3("vehicle not found for a bot")
+            self.assignBotVehicle(bot)
 
             if not bot.getOrg():
                 bot.setOrg("{}")
@@ -9564,6 +9583,18 @@ class MainWindow(QMainWindow):
 
         print("bot ids for ones need update:", [b.getBid() for b in botsNeedsUpdate])
         return qualified, rowsNeedsUpdate, botsNeedsUpdate, vehiclesNeedsUpdate
+
+    def assignBotVehicle(self, bot):
+        if not bot.getVehicle():
+            bv = self.genBotVehicle(bot)
+            if bv:
+                bot.setVehicle(bv.getName())
+                print("setting vehicle:", bot.getVehicle())
+                bv.addBot(bot.getBid())
+                if bv not in vehiclesNeedsUpdate:
+                    vehiclesNeedsUpdate.append(bv)
+            else:
+                log3("vehicle not found for a bot")
 
     # turn acct into bots/agents
     def hireBuyerBotCandidates(self, acctRows):
@@ -9618,7 +9649,7 @@ class MainWindow(QMainWindow):
             newBotsJs.append(newBotJS)
 
         print("newBotsJs:", newBotsJs)
-        firstNewBid = self.createBotsFromFilesOrJsData(newBotsJs)
+        firstNewBid, addedBots = self.createBotsFromFilesOrJsData(newBotsJs)
         print("firstNewBid:", firstNewBid)
         if firstNewBid:
             newBid = firstNewBid
