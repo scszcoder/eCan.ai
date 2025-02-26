@@ -636,6 +636,6 @@ def genWinChromeAMZWebdriverFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome webdriver amazon order fullfill..." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome webdriver amazon order fullfill..." + psk_words)
 
     return this_step, psk_words

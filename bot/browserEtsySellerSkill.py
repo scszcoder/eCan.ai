@@ -1344,7 +1344,7 @@ def genWinADSETSYBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser etsy buy shipping and update tracking...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome in browser etsy buy shipping and update tracking...." + psk_words)
 
     return this_step, psk_words
 
@@ -1374,7 +1374,7 @@ def genWinADSETSYBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser update tracking info on etsy...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome in browser update tracking info on etsy...." + psk_words)
 
     return this_step, psk_words
 
@@ -1405,7 +1405,7 @@ def genWinCHROMEETSYBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser update tracking info on etsy...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome in browser update tracking info on etsy...." + psk_words)
 
     return this_step, psk_words
 
@@ -1729,7 +1729,7 @@ def genWinADSETSYBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads in browser etsy handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads in browser etsy handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -1783,7 +1783,7 @@ def genWinCHROMEETSYBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser etsy handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome in browser etsy handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -1943,7 +1943,7 @@ def genWinADSETSYBuyShippingLabelsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads etsy purchase shipping labels...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads etsy purchase shipping labels...." + psk_words)
 
     return this_step, psk_words
 
@@ -2056,7 +2056,7 @@ def genWinADSETSYHandleReturnsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -2182,7 +2182,7 @@ def genWinADSETSYHandleMsgsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -2491,7 +2491,7 @@ def genWinADSETSYRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -2753,7 +2753,7 @@ def genWinADSETSYBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle customer and system messages using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle customer and system messages using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -2796,7 +2796,7 @@ def genWinADSETSYBrowserHandleOffersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle respoding to offers using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle respoding to offers using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -2837,7 +2837,7 @@ def genWinADSETSYBrowserHandleReturnSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle return with etsy labels using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle return with etsy labels using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -2880,7 +2880,7 @@ def genWinADSETSYBrowserHandleReturnWithECBLabelsSkill(worksettings, stepN, them
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle return with ECB generated labels using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle return with ECB generated labels using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -2921,7 +2921,7 @@ def genWinADSETSYBrowserHandleReplacementSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy handle sending replacement using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy handle sending replacement using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 

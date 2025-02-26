@@ -657,7 +657,7 @@ def genADSPowerNewProfileSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         psk_words = psk_words + "\"dummy\" : \"\"}"
-        log3("DEBUG", "generated skill for windows ads power create a new profile...." + psk_words)
+        # log3("DEBUG", "generated skill for windows ads power create a new profile...." + psk_words)
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -1093,7 +1093,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         psk_words = psk_words + "\"dummy\" : \"\"}"
-        log3("DEBUG", "generated skill for windows ads power batch import profiles....." + psk_words)
+        # log3("DEBUG", "generated skill for windows ads power batch import profiles....." + psk_words)
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -1478,7 +1478,7 @@ def genWinADSRemoveProfileSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         psk_words = psk_words + "\"dummy\" : \"\"}"
-        log3("DEBUG", "generated skill for windows ads power profile remove....." + psk_words)
+        # log3("DEBUG", "generated skill for windows ads power profile remove....." + psk_words)
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -1541,7 +1541,7 @@ def genWinADSCreateProfileSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         psk_words = psk_words + "\"dummy\" : \"\"}"
-        log3("DEBUG", "generated skill for windows ads power create new porfile...." + psk_words)
+        # log3("DEBUG", "generated skill for windows ads power create new porfile...." + psk_words)
 
     except Exception as e:
         # Log and skip errors gracefully
