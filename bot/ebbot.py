@@ -192,8 +192,8 @@ class BOT_PRIVATE_PROFILE():
         if addr:
             self.shipping_addr = addr
             addr_lines = addr.split("\n")
-            print("saddr:", addr)
-            print("saddr lines#", len(addr_lines))
+            # print("saddr:", addr)
+            # print("saddr lines#", len(addr_lines))
 
             if len(addr_lines) == 3:
                 self.shipping_addrl1 = addr_lines[0]

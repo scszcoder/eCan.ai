@@ -21,7 +21,7 @@ def init_db(dbfile):
         with open(dbfile, 'w') as f:
             pass  # 创建一个空文件
     global engine
-    engine = create_engine("sqlite:///" + dbfile, echo=True)
+    engine = create_engine("sqlite:///" + dbfile, echo=False)
     Base.metadata.create_all(engine)
     return engine
 

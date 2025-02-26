@@ -557,7 +557,7 @@ def processAPIADSListProfiles(step, i):
     try:
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
-        print("ads_cfg:", ads_cfg)
+        # print("ads_cfg:", ads_cfg)
         # once works are dispatched, empty the report data for a fresh start.....
         profiles = queryAdspowerProfile(ads_cfg["api_key"], ads_cfg["port"])
         print(f"loaded profiles: {profiles}")

@@ -577,7 +577,7 @@ def genWinADSEbayBrowserBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay order browser buy shipping labels on ebay using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay order browser buy shipping labels on ebay using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -1367,7 +1367,7 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser ebay buy shipping and update tracking...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome in browser ebay buy shipping and update tracking...." + psk_words)
 
     return this_step, psk_words
 
@@ -2894,7 +2894,7 @@ def genWinADSEbayBrowserRespondMessagesLegacySkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle customer and system messages with legacy interface using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle customer and system messages with legacy interface using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 

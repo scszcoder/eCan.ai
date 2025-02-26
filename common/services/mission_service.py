@@ -84,26 +84,29 @@ class MissionService:
     def find_missions_by_mids(self, mids) -> [MissionModel]:
         results = self.session.query(MissionModel).filter(MissionModel.mid.in_(mids)).all()
         dict_results = [result.to_dict() for result in results]
-        self.main_win.showMsg("Found Local DB Mission Row(s) by mids: " + json.dumps(dict_results), "debug")
+        # self.main_win.showMsg("Found Local DB Mission Row(s) by mids: " + json.dumps(dict_results), "debug")
         return results
 
     def find_missions_by_mid(self, mid) -> MissionModel:
         result: MissionModel = self.session.query(MissionModel).filter(MissionModel.mid == mid).first()
         if result is not None:
-            self.main_win.showMsg("Found Local DB Mission Row(s) by mid: " + json.dumps(result.to_dict()), "debug")
+            junk =0
+            # self.main_win.showMsg("Found Local DB Mission Row(s) by mid: " + json.dumps(result.to_dict()), "debug")
         return result
 
     def find_missions_by_ticket(self, ticket) -> MissionModel:
         result: MissionModel = self.session.query(MissionModel).filter(MissionModel.ticket == ticket).first()
         if result is not None:
-            self.main_win.showMsg("Found Local DB Mission Row(s) by ticket: " + json.dumps(result.to_dict()), "debug")
+            junk = 0
+            # self.main_win.showMsg("Found Local DB Mission Row(s) by ticket: " + json.dumps(result.to_dict()), "debug")
         return result.to_dict()
 
     def find_missions_by_orders(self, order_files) -> [MissionModel]:
         results: [MissionModel] = self.session.query(MissionModel).filter(MissionModel.original_req_file.in_(order_files)).all()
         dict_results = [result.to_dict() for result in results]
         if results is not None:
-            self.main_win.showMsg("Found Local DB Mission Row(s) by order files: " + json.dumps(dict_results), "debug")
+            junk = 0
+            # self.main_win.showMsg("Found Local DB Mission Row(s) by order files: " + json.dumps(dict_results), "debug")
         return dict_results
 
     def insert_missions_batch_(self, missions: [MissionModel]):
@@ -167,7 +170,7 @@ class MissionService:
             local_mission.as_server = mission["as_server"]
             local_mission.original_req_file = mission["original_req_file"]
             self.session.add(local_mission)
-            self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
+            # self.main_win.showMsg("Mission fetchall" + json.dumps(local_mission.to_dict()))
         self.session.commit()
 
 
@@ -218,7 +221,7 @@ class MissionService:
             result.as_server = amission["as_server"]
             result.original_req_file = amission["original_req_file"]
             self.session.commit()
-            self.main_win.showMsg("update row: " + json.dumps(result.to_dict()))
+            # self.main_win.showMsg("update row: " + json.dumps(result.to_dict()))
 
     def find_missions_by_search(self, start_time, end_time, search) -> [MissionModel]:
         query = self.session.query(MissionModel)
@@ -237,7 +240,7 @@ class MissionService:
             query = query.filter(or_(conditions))
         results = query.all()
         dict_results = [result.to_dict() for result in results]
-        self.main_win.showMsg("Missions fetchall" + json.dumps(dict_results))
+        # self.main_win.showMsg("Missions fetchall" + json.dumps(dict_results))
         return results
 
     def delete_missions_by_mid(self, mid):
@@ -282,7 +285,7 @@ class MissionService:
             if m not in allmids:
                 all_missions.append(m)
 
-        print("all missions:", all_missions)
+        # print("all missions:", all_missions)
         # all_missions = jresp['body']
         for mission in all_missions:
             mid = mission['mid']

@@ -32,7 +32,7 @@ def genWinADSAMZFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ADS amazon order fullfill..." + psk_words)
+    # log3("DEBUG", "generated skill for windows ADS amazon order fullfill..." + psk_words)
 
     return this_step, psk_words
 
@@ -148,7 +148,7 @@ def genWinChromeAMZFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows amazon order fullfill..." + psk_words)
+    # log3("DEBUG", "generated skill for windows amazon order fullfill..." + psk_words)
 
     return this_step, psk_words
 
@@ -405,7 +405,7 @@ def genWinChromeAMZCollectOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows amazon collect orders...." + psk_words)
+    # log3("DEBUG", "generated skill for windows amazon collect orders...." + psk_words)
 
     return this_step, psk_words
 
@@ -619,7 +619,7 @@ def genWinChromeAMZUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows amzon update tracking info...." + psk_words)
+    # log3("DEBUG", "generated skill for windows amzon update tracking info...." + psk_words)
 
     return this_step, psk_words
 
@@ -831,7 +831,7 @@ def genWinChromeAMZBuyShipmentSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome amzon buy shipping and update tracking info...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome amzon buy shipping and update tracking info...." + psk_words)
 
     return this_step, psk_words
 
@@ -855,7 +855,7 @@ def genWinChromeAMZHandleMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome amazon handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome amazon handle messages...." + psk_words)
 
     return this_step, psk_words
 

@@ -136,7 +136,7 @@ def genWinChromeEtsyFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -250,7 +250,7 @@ def genWinADSEtsyFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -507,7 +507,7 @@ def genWinChromeEtsyCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows from collect orders on etsy store...." + psk_words)
+    # log3("DEBUG", "generated skill for windows from collect orders on etsy store...." + psk_words)
 
     return this_step, psk_words
 
@@ -533,7 +533,7 @@ def genWinADSEtsyCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows etsy collect orders on ADS...." + psk_words)
+    # log3("DEBUG", "generated skill for windows etsy collect orders on ADS...." + psk_words)
 
     return this_step, psk_words
 
@@ -554,7 +554,7 @@ def genWinADSEtsyBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads etsy handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads etsy handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -574,7 +574,7 @@ def genWinChromeEtsyBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome etsy handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome etsy handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -593,7 +593,7 @@ def genWinADSEtsyHandleMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads etsy handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads etsy handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -613,7 +613,7 @@ def genWinChromeEtsyHandleMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome etsy handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome etsy handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -863,7 +863,7 @@ def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -886,7 +886,7 @@ def genWinADSEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
 
     return this_step, psk_words
 def genWinEtsyHandleReturnSkill(lieutenant, bot_works, start_step, theme):

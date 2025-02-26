@@ -800,7 +800,7 @@ class EBMISSION(QStandardItem):
     def setConfig(self, cfg):
         try:
             self.pubAttributes.config = cfg
-            print("cfg:", cfg, type(cfg))
+            # print("cfg:", cfg, type(cfg))
 
             # Determine the type of cfg and process accordingly
             if isinstance(cfg, str):

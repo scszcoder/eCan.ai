@@ -1877,16 +1877,14 @@ class MainWindow(QMainWindow):
     def handleCloudScheduledWorks(self, bodyobj):
         if bodyobj:
             log3("handleCloudScheduledWorks...."+str(len(bodyobj))+" "+str(type(bodyobj)), "fetchSchedule", self)
-            print("bodyobj:", bodyobj)
+            # print("bodyobj:", bodyobj)
             for nm in bodyobj["added_missions"]:
                 today = datetime.today()
                 formatted_today = today.strftime('%Y-%m-%d')
                 bd_parts = nm["createon"].split()
                 nm["createon"] = formatted_today + " " + bd_parts[1]
 
-            log3("cloud schedule works:" + json.dumps(bodyobj), "fetchSchedule", self)
-
-
+            # log3("cloud schedule works:" + json.dumps(bodyobj), "fetchSchedule", self)
             log3("BEGIN ASSIGN INCOMING MISSION....", "fetchSchedule", self)
             self.build_cookie_site_lists()
             # convert new added mission json to MISSIONs object
@@ -1898,13 +1896,13 @@ class MainWindow(QMainWindow):
             #  turn this into a per-vehicle flattend list of tasks (vehicle name based dictionary).
             self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
             self.unassigned_scheduled_task_groups = self.todays_scheduled_task_groups
-            print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
+            # print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
             # print("current work to do:", self.todays_work)
             # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
             # self.assignWork()
 
-            log3("current unassigned scheduled task groups after assignwork:"+json.dumps(self.unassigned_scheduled_task_groups), "fetchSchedule", self)
-            log3("current work to do after assignwork:"+json.dumps(self.todays_work), "fetchSchedule", self)
+            # log3("current unassigned scheduled task groups after assignwork:"+json.dumps(self.unassigned_scheduled_task_groups), "fetchSchedule", self)
+            # log3("current work to do after assignwork:"+json.dumps(self.todays_work), "fetchSchedule", self)
 
             self.logDailySchedule(json.dumps(bodyobj))
         else:
@@ -1917,7 +1915,7 @@ class MainWindow(QMainWindow):
         if len(self.todaysSchedule) > 0:
             log3("reGenWorksForVehicle...." + str(len(self.todaysSchedule)) + " " + str(type(self.todaysSchedule)),
                  "fetchSchedule", self)
-            print("todaysSchedule:", self.todaysSchedule)
+            # print("todaysSchedule:", self.todaysSchedule)
 
             vname = vehicle.getName()
             if vname in self.todaysSchedule["task_groups"]:
@@ -1939,7 +1937,7 @@ class MainWindow(QMainWindow):
 
             self.todays_scheduled_task_groups = self.reGroupByBotVehicles(vtg["task_groups"])
             self.unassigned_scheduled_task_groups = self.todays_scheduled_task_groups
-            print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
+            # print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
             # assignWork() will take care of the rest, it will check any unassigned work and assign them.
 
             log3("current unassigned scheduled task groups after assignwork:"+json.dumps(self.unassigned_scheduled_task_groups), "fetchSchedule", self)
@@ -2044,7 +2042,7 @@ class MainWindow(QMainWindow):
 
                 sf.close()
 
-            print("done with fetch schedule....", bodyobj)
+            print("done with fetch schedule....", list(bodyobj.keys()))
             self.todaysSchedule = bodyobj
             return bodyobj
         # ni is already incremented by processExtract(), so simply return it.
@@ -2747,7 +2745,7 @@ class MainWindow(QMainWindow):
                         log3("Vehicle OS:"+key+"["+str(k)+"]"+json.dumps(v.genJson())+"\n", "assignWork", self)
             print("assigning work....")
 
-            log3("unassigned_scheduled_task_groups: "+json.dumps(self.unassigned_scheduled_task_groups), "assignWork", self)
+            # log3("unassigned_scheduled_task_groups: "+json.dumps(self.unassigned_scheduled_task_groups), "assignWork", self)
             tbd_unassigned = []
             for vname in self.unassigned_scheduled_task_groups:
                 log3("assignwork scheduled checking vehicle: "+vname, "assignWork", self)
@@ -2778,18 +2776,18 @@ class MainWindow(QMainWindow):
                             self.rpa_work_assigned_for_today = True
                             self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
                     else:
-
                         # vidx = i
                         vehicle = self.getVehicleByName(vname)
                         print("VVV:",vehicle)
                         log3("assign work for vehicle:"+vname, "assignWork", self)
-                        print("assign for other machine...", vname, vehicle.getVid(), vehicle.getStatus())
+                        if vehicle:
+                            print("assign for other machine...", vname, vehicle.getVid(), vehicle.getStatus())
 
-                        if not vehicle.getTestDisabled():
-                            print("set up schedule for vehicle", vname)
-                            await self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
-                            if "running" in vehicle.getStatus():
-                                self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
+                            if not vehicle.getTestDisabled():
+                                print("set up schedule for vehicle", vname)
+                                await self.vehicleSetupWorkSchedule(vehicle, p_task_groups)
+                                if "running" in vehicle.getStatus():
+                                    self.updateUnassigned("scheduled", vname, p_task_groups, tbd_unassigned)
             if tbd_unassigned:
                 log3("deleting alread assigned schedule task groups", "assignWork", self)
                 for vname in tbd_unassigned:
@@ -6509,12 +6507,12 @@ class MainWindow(QMainWindow):
     # load locally stored mission, but only for the past 7 days, otherwise, there would be too much......
     def loadLocalMissions(self, db_data: [MissionModel]):
         dict_results = [result.to_dict() for result in db_data]
-        self.showMsg("get local missions from db::" + json.dumps(dict_results))
+        # self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:
             self.missions = []
             self.missionModel.clear()
             for row in db_data:
-                self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
+                # self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
                 new_mission = EBMISSION(self)
                 new_mission.loadDBData(row)
                 new_mission.setData(row)
@@ -6670,7 +6668,8 @@ class MainWindow(QMainWindow):
                 # and the rest will be taken care of by the work dispatcher...
                 self.arrangeContractWorks(contractWorks)
 
-                log3("real work starts here...."+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
+                #print only first 3 and last 3 items.
+                log3("real work starts here...."+json.dumps([m.getFingerPrintProfile() for i, m in enumerate(self.missions) if i<3 or i > len(self.missions)-4]), "runbotworks", self)
                 botTodos = None
                 if self.working_state == "running_idle":
                     log3("idle checking.....", "runbotworks", self)
@@ -6680,7 +6679,7 @@ class MainWindow(QMainWindow):
 
                     log3("check next to run"+str(len(self.todays_work["tbd"]))+" "+str(len(self.reactive_work["tbd"]))+" "+str(self.getNumUnassignedWork()), "runbotworks", self)
                     botTodos, runType = self.checkNextToRun()
-                    log3("fp profiles of mission: "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runbotworks", self)
+                    log3("fp profiles of mission: "+json.dumps([m.getFingerPrintProfile() for i, m in enumerate(self.missions) if i < 3 or i > len(self.missions)-4]), "runbotworks", self)
                     if not (botTodos == None):
                         log3("working on..... "+botTodos["name"], "runbotworks", self)
                         self.working_state = "running_working"
@@ -9491,7 +9490,7 @@ class MainWindow(QMainWindow):
         hashed_bytes = hash_obj.digest()
         # Encode in base64 to make it URL-safe and take the desired length
         hashed = base64.urlsafe_b64encode(hashed_bytes).decode()[:length]
-        log3("hashed:"+hashed)
+        # log3("hashed:"+hashed)
         return hashed
 
     def createNewMissionsFromOrdersXlsx(self):
@@ -10157,6 +10156,6 @@ class MainWindow(QMainWindow):
             "flag": "hook_flag"
         }
         i, runStat = processExternalHook(stepjson, 1)
-        print("hook result:", symTab["hook_result"])
+        # print("hook result:", symTab["hook_result"])
         return runStat
 
