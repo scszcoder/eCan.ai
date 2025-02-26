@@ -6702,7 +6702,6 @@ def processECBCollectBotProfiles(step, i):
     return (i + 1), DEFAULT_RUN_STATUS
 
 
-
 def processLogCrossNetwork(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
