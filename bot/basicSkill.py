@@ -6622,8 +6622,6 @@ def processECBDeleteMissions(step, i):
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
 
-
-
 def processECBFetchDailySchedule(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
