@@ -1283,6 +1283,16 @@ def genStepLogCrossNetwork(var_type, msg, result_var, flag_var, stepN):
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
+def genStepLog(var_type, msg, result_var, flag_var, stepN):
+    stepjson = {
+        "type": "Log Cross Network",
+        "var_type": var_type,
+        "msg": msg,
+        "result_var": result_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
 
 def genException():
     psk_words = ""
@@ -6724,6 +6734,28 @@ def processLogCrossNetwork(step, i, mission):
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
 
+
+def processLog(step, i, mission):
+    ex_stat = DEFAULT_RUN_STATUS
+    global symTab
+    mainWin = utils.logger_helper.login.get_mainwin()
+
+    try:
+        symTab[step["flag"]] = True
+        if step["var_type"] == "direct":
+            log3(step["msg"], "local_log", mainWin)
+        else:
+            log3(symTab[step["msg"]], "local_log", mainWin)
+
+    except Exception as e:
+        # Log and skip errors gracefully
+        ex_stat = f"Error in Log Cross Network: {traceback.format_exc()} {str(e)}"
+        print(f"Error while Log Cross Network: {ex_stat}")
+        symTab[step["result_var"]] = None
+        symTab[step["flag"]] = False
+
+    # Always proceed to the next instruction
+    return (i + 1), DEFAULT_RUN_STATUS
 
 async def processLogCrossNetwork8(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS

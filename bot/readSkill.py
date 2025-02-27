@@ -36,7 +36,7 @@ from bot.basicSkill import symTab, processHalt, processWait, processSaveHtml, pr
     processECBFetchDailySchedule, processECBDispatchTroops, processThink8, processECBScreenBotCandidates, \
     processECBCollectBotProfiles, processGetTopWindow, processGetAllWindowsInfo, processScreenCapture, \
     processMouseDragDrop, captureScreenToFile, processExternalHook8, processLogCrossNetwork, \
-    processLogCrossNetwork8
+    processLogCrossNetwork8, processLog
 
 from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, processWebdriverKeyIn, processWebdriverComboKeys, \
     processWebdriverHoverTo, processWebdriverFocus, processWebdriverSelectDropDown, processWebdriverBack, \
@@ -161,6 +161,7 @@ RAIS = {
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "External Hook": lambda x, y: processExternalHook(x, y),
     "Log Cross Network": lambda x, y, z: processLogCrossNetwork(x, y, z),
+    "Log": lambda x, y, z: processLog(x, y, z),
     "Create Requests Session": lambda x, y: processCreateRequestsSession(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
     "Think": lambda x, y, z: processThink(x, y, z),
@@ -329,6 +330,7 @@ ARAIS = {
     "Search Anchor Info": lambda x,y: processSearchAnchorInfo(x, y),
     "External Hook": processExternalHook8,
     "Log Cross Network": lambda x, y, z: processLogCrossNetwork(x, y, z),
+    "Log": lambda x, y, z: processLog(x, y, z),
     "Create Requests Session": lambda x,y: processCreateRequestsSession(x, y),
     "Search Word Line": lambda x, y: processSearchWordLine(x, y),
     "Think": processThink8,
@@ -711,7 +713,7 @@ def run1step(steps, si, mission, skill, stack):
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
             step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or \
-            step["type"] == "Log Cross Network" or \
+            step["type"] == "Log Cross Network" or step["type"] == "Log" or\
             step["type"] == "ADS Update Profile Ids" or step["type"] == "ADS Batch Text To Profiles" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
@@ -778,7 +780,7 @@ async def run1step8(steps, si, mission, skill, stack):
                  step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
                  step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
                  step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-                 step["type"] == "ADS Batch Text To Profiles" or step["type"] == "Log Cross Network" or \
+                 step["type"] == "ADS Batch Text To Profiles" or step["type"] == "Log Cross Network" or step["type"] == "Log" or \
                  step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
                 if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                     si,isat = await ARAIS[step["type"]](step, si, mission)

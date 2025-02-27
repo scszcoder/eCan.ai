@@ -2767,8 +2767,8 @@ class MainWindow(QMainWindow):
                             # batched_tasks now contains the flattened tasks in a vehicle, sorted by start_time, so no longer need complicated structure.
                             log3("arranged for today on this machine...."+vname, "assignWork", self)
 
-                            # handle any buy-side tasks.
-                            self.add_buy_searchs(batched_tasks)
+                            # handle any buy-side tasks. - no long needs this, will let skill itself take care of it.
+                            # self.add_buy_searchs(batched_tasks)
 
                             # current_tz, current_group = self.setTaskGroupInitialState(p_task_groups[0])
                             self.todays_work["tbd"].append({"name": "automation", "works": batched_tasks, "status": "yet to start", "current widx": 0, "vname": vname, "completed": [], "aborted": []})
@@ -5817,7 +5817,7 @@ class MainWindow(QMainWindow):
 
         for new_mission in missions:
             if new_mission.getMid() in existing_mids:
-                log3(f"Mission with mid {new_mission.getMid()} already exists. Skipping.", "debug")
+                log3(f"Mission with mid {new_mission.getMid()} already exists. Skipping.", "debug", self)
                 continue
 
             local_mission = MissionModel()
@@ -9976,7 +9976,7 @@ class MainWindow(QMainWindow):
                 # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
                 batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
                 print("add buy search", batched_tasks)
-                self.add_buy_searchs(batched_tasks)
+                # self.add_buy_searchs(batched_tasks)
 
                 print("ads_profiles:", ads_profiles)
                 # send fingerprint browser profiles to platoon/vehicle

@@ -194,9 +194,6 @@ def genStepsWinChromeAMZBrowserWalk(worksettings, stepN):
         psk_words = psk_words + step_words
 
 
-
-
-
         this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'nav-cart', False, "var", "top_cart", "extract_flag", this_step)
         psk_words = psk_words + step_words
 
@@ -232,21 +229,21 @@ def genStepsWinChromeAMZBrowserWalk(worksettings, stepN):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # no purchase, so regular browse.....
-        this_step, step_words = genStepStub("else", "", "", this_step)
-        psk_words = psk_words + step_words
-
-        # this is the case of non addCart procedure..... this will go directly into the cart or user account and go from there....
-
-        this_step, step_words = genStepCreateData("expr", "direct_buy", "NA", "search_buy[0]", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepWait(1, 0, 0, this_step)
-        psk_words = psk_words + step_words
-
-        # make sure this is a direct buy
-        this_step, step_words = genStepsBrowserPerformBuyRelated("sk_work_settings", "search_buy", this_step)
-        psk_words = psk_words + step_words
+        # # no purchase, so regular browse.....
+        # this_step, step_words = genStepStub("else", "", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # # this is the case of non addCart procedure..... this will go directly into the cart or user account and go from there....
+        #
+        # this_step, step_words = genStepCreateData("expr", "direct_buy", "NA", "search_buy[0]", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepWait(1, 0, 0, this_step)
+        # psk_words = psk_words + step_words
+        #
+        # # make sure this is a direct buy
+        # this_step, step_words = genStepsBrowserPerformBuyRelated("sk_work_settings", "search_buy", this_step)
+        # psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
@@ -353,27 +350,27 @@ def genStepsWinChromeAMZBrowserWalk(worksettings, stepN):
         this_step, step_words = genStepStub("end loop", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # finally handle the purchase, if there is any.
-        # if len(run_config["purchases"]) > 0:
-        #     # purchase could be done in multiple days usually (put in cart first, then finish payment in a few days)
-        #     this_step, step_words = genPurchase(run_config)
-        #     psk_words = psk_words + step_words
-        this_step, step_words = genStepCheckCondition("len() > 0", "", "", this_step)
-        psk_words = psk_words + step_words
-
-        #buyop_var_name = "run_config['searches'][nthSearch]['prodlist_pages'][0]['purchase']"
-        this_step, step_words = genStepCreateData("obj", "buy_actions", "NA", None, this_step)
-        psk_words = psk_words + step_words
-
-
-        this_step, step_words = genStepCallExtern("global buy_actions\nbuy_actions = run_config['searches'][nthSearch]['prodlist_pages'][0]['purchase']\nprint('buy_actions: ', buy_actions)", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepsBrowserPerformBuyRelated(worksettings, "buy_actions", this_step)
-        psk_words = psk_words + step_words
-
-        this_step, step_words = genStepStub("end condition", "", "", this_step)
-        psk_words = psk_words + step_words
+        # # finally handle the purchase, if there is any.
+        # # if len(run_config["purchases"]) > 0:
+        # #     # purchase could be done in multiple days usually (put in cart first, then finish payment in a few days)
+        # #     this_step, step_words = genPurchase(run_config)
+        # #     psk_words = psk_words + step_words
+        # this_step, step_words = genStepCheckCondition("len() > 0", "", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # #buyop_var_name = "run_config['searches'][nthSearch]['prodlist_pages'][0]['purchase']"
+        # this_step, step_words = genStepCreateData("obj", "buy_actions", "NA", None, this_step)
+        # psk_words = psk_words + step_words
+        #
+        #
+        # this_step, step_words = genStepCallExtern("global buy_actions\nbuy_actions = run_config['searches'][nthSearch]['prodlist_pages'][0]['purchase']\nprint('buy_actions: ', buy_actions)", "", "in_line", "", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepsBrowserPerformBuyRelated(worksettings, "buy_actions", this_step)
+        # psk_words = psk_words + step_words
+        #
+        # this_step, step_words = genStepStub("end condition", "", "", this_step)
+        # psk_words = psk_words + step_words
 
         log3("DEBUG", "ready to add stubs...." + psk_words)
 
@@ -1307,6 +1304,7 @@ def genStepsWinChromeAMZBuyAddCart(stepN):
         psk_words = psk_words + step_words
 
         # output of this funciton is buy_box_available flag.
+        # need to refresh the page and double check the cart to make sure its added.....
 
     except Exception as e:
         # Log and skip errors gracefully
@@ -1327,8 +1325,6 @@ def genStepsWinChromeAMZBuyPay(settings_string,  buy_cmd_name, buy_result_name, 
         this_step, step_words = genStepCheckCondition("on_page_top", "", "", this_step)
         psk_words = psk_words + step_words
 
-
-
         # # find buy_now button.
         this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.ID, 'buy-now-button', False, "var", "buy_now_button", "extract_flag", this_step)
         psk_words = psk_words + step_words
@@ -1340,6 +1336,7 @@ def genStepsWinChromeAMZBuyPay(settings_string,  buy_cmd_name, buy_result_name, 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+        # we might have to deal with gift card options, renew/buy prime request. and deal with this here....
         # target, flag, prev_result
 
         # # find buy_now button. don't go this route, always go the cart, make thing simpler?
@@ -1615,7 +1612,6 @@ def genStepsWinChromeAMZBuyCheckShipping(stepN):
     this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
-
     return this_step, psk_words
 
 def genStepsWinChromeAMZBuyGiveProductRating(stepN):
@@ -1819,6 +1815,170 @@ def genStepsWinChromeAMZFeedbackCheckAlert(stepN):
 
 
 
+def genStepsWinChromeAMZBuyPrime(stepN):
+    psk_words = ""
+    this_step = stepN
+
+    # # Locate the error alert box using its data-hook attribute
+    # error_alert = driver.find_element(By.CSS_SELECTOR, 'div[data-hook="ryp-icon-alert"]')
+    #
+    # # Extract the text of the error message
+    # error_message = error_alert.find_element(By.CSS_SELECTOR, 'span.a-color-error').text
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR,
+                                                        'div[data-hook="ryp-icon-alert"]', False, "var", "error_alert",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "error_alert", 0, "info_type", By.CSS_SELECTOR,
+                                                        'span.a-color-error', False, "var", "error_message",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'not met the minimum eligibility' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_eligible\nreview_eligible= False", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'this account will no longer' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_banned\nreview_banned= True", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+def genStepsWinChromeAMZRenewPrime(stepN):
+    psk_words = ""
+    this_step = stepN
+
+    # # Locate the error alert box using its data-hook attribute
+    # error_alert = driver.find_element(By.CSS_SELECTOR, 'div[data-hook="ryp-icon-alert"]')
+    #
+    # # Extract the text of the error message
+    # error_message = error_alert.find_element(By.CSS_SELECTOR, 'span.a-color-error').text
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR,
+                                                        'div[data-hook="ryp-icon-alert"]', False, "var", "error_alert",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "error_alert", 0, "info_type", By.CSS_SELECTOR,
+                                                        'span.a-color-error', False, "var", "error_message",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'not met the minimum eligibility' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_eligible\nreview_eligible= False", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'this account will no longer' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_banned\nreview_banned= True", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+
+def genStepsWinChromeAMZChangePaymentMethod(stepN):
+    psk_words = ""
+    this_step = stepN
+
+    # # Locate the error alert box using its data-hook attribute
+    # error_alert = driver.find_element(By.CSS_SELECTOR, 'div[data-hook="ryp-icon-alert"]')
+    #
+    # # Extract the text of the error message
+    # error_message = error_alert.find_element(By.CSS_SELECTOR, 'span.a-color-error').text
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.CSS_SELECTOR,
+                                                        'div[data-hook="ryp-icon-alert"]', False, "var", "error_alert",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "error_alert", 0, "info_type", By.CSS_SELECTOR,
+                                                        'span.a-color-error', False, "var", "error_message",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'not met the minimum eligibility' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_eligible\nreview_eligible= False", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("'this account will no longer' in error_message", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global review_banned\nreview_banned= True", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    return this_step, psk_words
+
+
+
 def genStepsWinChromeAMZBuyGiveDirectReview(stepN):
     psk_words = ""
     # now we're in order page, search for the order placed,
@@ -1929,11 +2089,11 @@ def genStubWinADSAMZWalkSkill(worksettings, stepN):
 
 
 def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
+    log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill===101===>")
+    psk_words = "{"
+    this_step = stepN
+    site_url = "https://www.amazon.com/"
     try:
-        log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill===101===>")
-        psk_words = "{"
-        site_url = "https://www.amazon.com/"
-
         this_step, step_words = genStepHeader("win_ads_amz_browser_browse_search", "win", "1.0", "AIPPS LLC",
                                               "PUBWINADSAMZBROWSE011",
                                               "AMZ Webdriver Browse On Windows ADS.", stepN)
@@ -1944,6 +2104,36 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
 
         this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
         psk_words = psk_words + step_words
+
+        this_step, step_words = genStepsWinADSAMZBrowserBrowseSearch(worksettings, this_step, theme)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_browse_search", "", this_step)
+        psk_words = psk_words + step_words
+
+        psk_words = psk_words + "\"dummy\" : \"\"}"
+        # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenWinADSAMZBrowserBrowseSearchSkill:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenWinADSAMZBrowserBrowseSearchSkill: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return this_step, psk_words
+
+
+def genStepsWinADSAMZBrowserBrowseSearch(worksettings, stepN, theme):
+    log3("GENERATING genWinADSAMZBrowserBrowseSearchSkill===101===>")
+    psk_words = ""
+    this_step = stepN
+    site_url = "https://www.amazon.com/"
+
+    try:
 
         this_step, step_words = genStepCreateData("expr", "open_profile_input", "NA", "[sk_work_settings['batch_profile']]", this_step)
         psk_words = psk_words + step_words
@@ -2114,12 +2304,6 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_browse_search", "", this_step)
-        psk_words = psk_words + step_words
-
-        psk_words = psk_words + "\"dummy\" : \"\"}"
-        # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
-
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -2131,6 +2315,86 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         log3(ex_stat)
 
     return this_step, psk_words
+
+
+def genWinADSAMZBrowserBuyProductSkill(worksettings, stepN, theme):
+    try:
+        log3("GENERATING genWinADSAMZBrowserBuyProductSkill===117===>")
+        psk_words = "{"
+        site_url = "https://www.amazon.com/"
+
+        this_step, step_words = genStepHeader("win_ads_amz_browser_buy_product", "win", "1.0", "AIPPS LLC",
+                                              "PUBWINADSAMZBROWSE012",
+                                              "AMZ Webdriver Browse On Windows ADS.", stepN)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("start skill main", "public/win_ads_amz_home/browser_buy_product", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "mission_type", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCallExtern("global mission_type, sk_work_settings\nmission_type= sk_work_settings['mtype']", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("'cart' in mission_type.lower() or 'pay' in mission_type.lower()", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # need to search and add cart......or maybe even pay.
+        this_step, step_words = genStepsWinADSAMZBrowserBrowseSearch(worksettings, this_step, theme)
+        psk_words = psk_words + step_words
+
+        # end of condition to check search.
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # Now actually do Buy related steps.
+
+        #==== Now that we have completed browsing the product details page. ========
+        # check whether there is an buy action here, if there is, scroll to top and perform the buy actions.
+        # purchase = page_cfg + "['products'][li]['purchase']"
+        this_step, step_words = genStepCheckCondition("len(buy_ops) >  0", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("print('Perform Buy steps here....')", "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        # do the buy operation
+        this_step, step_words = genStepsBrowserPerformBuyRelated(worksettings, "buy_ops", this_step)
+        psk_words = psk_words + step_words
+
+        # # close on len(buy_ops) >  0
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        # back to produc list page...
+        # now go back to the previous browser page. by press alt-left
+        this_step, step_words = genStepKeyInput("", True, "alt,left", "", 3, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_buy_product", "", this_step)
+        psk_words = psk_words + step_words
+
+        psk_words = psk_words + "\"dummy\" : \"\"}"
+        # log3("DEBUG", "generated skill for windows file operation...." + psk_words)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGenWinADSAMZBrowserBuyProductSkill:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGenWinADSAMZBrowserBuyProductSkill: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return this_step, psk_words
+
 
 
 def genStubWinChromeAMZBrowserWalk(settings_var, stepN):
@@ -2788,29 +3052,6 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
-
-
-        #==== Now that we have completed browsing the product details page. ========
-        # check whether there is an buy action here, if there is, scroll to top and perform the buy actions.
-        # purchase = page_cfg + "['products'][li]['purchase']"
-        this_step, step_words = genStepCheckCondition("len(buy_ops) >  0", "", "", this_step)
-        psk_words = psk_words + step_words
-
-
-        this_step, step_words = genStepCallExtern("print('Perform Buy steps here....')", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
-
-        # do the buy operation
-        this_step, step_words = genStepsBrowserPerformBuyRelated(worksettings, "buy_ops", this_step)
-        psk_words = psk_words + step_words
-
-        # close on check purchase + "[0] == 'add cart'"
-        this_step, step_words = genStepStub("end condition", "", "", this_step)
-        psk_words = psk_words + step_words
-
-        # close on len(buy_ops) >  0
-        # this_step, step_words = genStepStub("end condition", "", "", this_step)
-        # psk_words = psk_words + step_words
 
         # back to produc list page...
         # now go back to the previous browser page. by press alt-left
