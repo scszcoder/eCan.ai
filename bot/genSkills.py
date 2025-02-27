@@ -38,7 +38,8 @@ from bot.basicSkill import symTab, genStepHeader, genStepOpenApp, genStepSaveHtm
     genStepBringWindowToFront, genStepCreateRequestsSession, genStepECBCreateBots, genStepECBDeleteBots, \
     genStepECBUpdateBots, genStepECBUpdateMissions, genStepECBCreateMissions, genStepECBDeleteMissions, \
     genStepECBFetchDailySchedule, genStepECBDispatchTroops, genStepECBScreenBotCandidates, genStepECBCollectBotProfiles, \
-    genStepGetTopWindow, genStepGetAllWindowsInfo, genStepScreenCapture, genStepMouseDragDrop, genStepLogCrossNetwork
+    genStepGetTopWindow, genStepGetAllWindowsInfo, genStepScreenCapture, genStepMouseDragDrop, genStepLogCrossNetwork, \
+    genStepLog
 from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, genStepWebdriverKeyIn, genStepWebdriverComboKeys,\
     genStepWebdriverHoverTo, genStepWebdriverFocus, genStepWebdriverSelectDropDown, genStepWebdriverBack,\
     genStepWebdriverForward, genStepWebdriverGoToTab, genStepWebdriverNewTab, genStepWebdriverCloseTab,\
@@ -58,7 +59,8 @@ from bot.browserEbaySellerSkill import genWinADSEbayBrowserFullfillOrdersSkill, 
     genWinADSEbayBrowserHandleReturnSkill, genWinADSEbayBrowserHandleReturnWithECBLabelsSkill, \
     genWinADSEbayBrowserHandleReplacementSkill, genWinADSEbayBrowserHandleRefundSkill
 
-from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill, genWinChromeAMZTeamPrepSkill, genWinChromeAMZDailyHousekeepingSkill
+from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBrowseSearchSkill, genWinChromeAMZTeamPrepSkill, \
+    genWinChromeAMZDailyHousekeepingSkill
 
 from bot.envi import getECBotDataHome
 from bot.etsySellerSkill import genWinChromeEtsyCollectOrderListSkill, genStepEtsySearchOrders, \
@@ -77,6 +79,7 @@ from bot.ordersData import OrderedProduct, ORDER, Shipping, OrderPerson
 from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkill
 from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
 from bot.hrSkill import genWinChromeECBHrRecruitSkill, genWinChromeECBHrLayoffSkill
+from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBuyProductSkill
 from utils.logger_helper import login
 
 ecb_data_homepath = getECBotDataHome()
@@ -159,6 +162,7 @@ PUBLIC = {
     "genStepFillData": genStepFillData,
     "genStepThink": genStepThink,
     "genStepLogCrossNetwork": genStepLogCrossNetwork,
+    "genStepLog": genStepLog,
     "genException": genException,
     "genStepUploadFiles": genStepUploadFiles,
     "genStepDownloadFiles": genStepDownloadFiles,
@@ -304,6 +308,7 @@ SkillGeneratorTable = {
     "win_ads_amz_home_browse_search": lambda x, y, z: genWinADSAMZWalkSkill(x, y, z),
     "win_ads_amz_home_browser_browse_search": lambda x, y, z: genWinADSAMZBrowserBrowseSearchSkill(x, y, z),
     "win_ads_amz_home_buy_product": lambda x, y, z: genWinADSAMZBuySkill(x, y, z),
+    "win_ads_amz_home_browser_buy_product": lambda x, y, z: genWinADSAMZBrowserBuyProductSkill(x, y, z),
     "win_chrome_amz_home_daily_housekeeping": lambda x, y, z: genWinChromeAMZDailyHousekeepingSkill(x, y, z),
     "win_chrome_amz_home_team_prep": lambda x, y, z: genWinChromeAMZTeamPrepSkill(x, y, z),
     "win_ads_ebay_orders_fullfill_orders": lambda x,y,z: genWinADSEbayFullfillOrdersSkill(x, y, z),
@@ -506,6 +511,7 @@ def getWorkRunSettings(lieutenant, bot_works):
     # get parent settings which contains tokens to allow the machine to communicate with cloud side.
     # settings = lieutenant.missions[midx].getParentSettings()
     current_mission = lieutenant.missions[midx]
+    mtype = current_mission.getType()
     platform = current_mission.getPlatform()
     site = current_mission.getSite()
     full_site = current_mission.getSiteHTML()
@@ -587,6 +593,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "seller": sij,
             "mid": mission_id,
             "midx": midx,
+            "mtype": mtype,
             "run_config": run_config,
             "root_path": root_path,
             "log_path_prefix": log_path_prefix,
