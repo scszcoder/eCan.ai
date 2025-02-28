@@ -74,6 +74,7 @@ class M_Private_Attributes():
         self.fingerprint_profile = ""
         self.note = ""
         self.use_gift_card = True
+        self.use_coupon = True
         self.gift_balance = 0.0
         self.gift_card_number = ""
         self.ccard_numer = ""
@@ -130,6 +131,12 @@ class M_Private_Attributes():
 
     def getUseGiftCard(self):
         return self.use_gift_card
+
+    def setUseCoupon(self, uc):
+        self.use_coupon = uc
+
+    def getUseCoupon(self):
+        return self.use_coupon
 
     def setVCCardNumber(self, vcn):
         self.ccard_numer = vcn
@@ -348,7 +355,11 @@ class M_Pub_Attributes():
         self.pseudo_store = dj.get("pseudo_store")
         self.pseudo_brand = dj.get("pseudo_brand")
         self.pseudo_asin = dj.get("pseudo_asin")
-        self.skills = dj.get("skills", "")
+        skills = dj.get("skills", "")
+        if isinstance(skills, list):
+            lsskills = [str(sk).strip() for sk in skills]
+            skills = ",".join(lsskills)
+        self.skills = skills
         self.cuspas = dj.get("cuspas", "")
         self.app_exe = dj.get("app_exe", "")
         self.platoon_id = dj.get("platoon_id", "")
@@ -379,7 +390,11 @@ class M_Pub_Attributes():
         self.pseudo_store = dj.get("pseudoStore")
         self.pseudo_brand = dj.get("pseudoBrand")
         self.pseudo_asin = dj.get("pseudoASIN")
-        self.skills = dj.get("skills", "")
+        skills = dj.get("skills", "")
+        if isinstance(skills, list):
+            lsskills = [str(sk).strip() for sk in skills]
+            skills = ",".join(lsskills)
+        self.skills = skills
         self.cuspas = dj.get("cuspas", "")
         self.createon = dj.get("createon", "")
         cuspas = self.cuspas.split(",")
@@ -872,7 +887,6 @@ class EBMISSION(QStandardItem):
         cfgJson["repeat_last"] = self.pubAttributes.repeat_last
         self.pubAttributes.config = json.dumps(cfgJson)
 
-
     def getSkills(self):
         return self.pubAttributes.skills
 
@@ -1199,6 +1213,12 @@ class EBMISSION(QStandardItem):
     def getUseGiftCard(self):
         return self.privateAttributes.use_gift_card
 
+    def setUseCoupon(self, uc):
+        self.privateAttributes.use_coupon = uc
+
+    def getUseCoupon(self):
+        return self.privateAttributes.use_coupon
+
     def setGiftBalance(self, ugc):
         self.privateAttributes.gift_balance = ugc
 
@@ -1345,7 +1365,7 @@ class EBMISSION(QStandardItem):
         # self.setPseudoASIN(self.main_win.generateShortHash(dj.get("pseudoASIN")))
         self.setMtype(dj.get("type", ""))
         self.setConfig(dj.get("config", "{}"))
-        self.setSkills(dj.get("skills", ""))
+        self.setSkills(dj.get("skills", "101"))
         self.setASIN(dj.get("asin", ""))                #this will auto set psudo_asin
         self.setStore(dj.get("store", "NoneStore"))     #this will auto set psudo_store
         self.setBrand(dj.get("brand", "NoneBrand"))     #this will auto set psudo_brand
