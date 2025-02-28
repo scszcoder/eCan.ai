@@ -7369,7 +7369,6 @@ class MainWindow(QMainWindow):
                         found_vehicle.setStatus(msg["content"]["vstatus"])
 
                 log3("Heartbeat From Vehicle: "+msg["ip"], "servePlatoons", self)
-
             else:
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.showMsg("unknown type:"+msg["contents"])
