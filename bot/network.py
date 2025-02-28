@@ -474,6 +474,7 @@ class UDPServerProtocol:
 
                 # Ensure previous transport is closed before reconnecting
                 if commanderXport:
+                    print("closing transport....")
                     commanderXport.close()
                     commanderXport = None
 

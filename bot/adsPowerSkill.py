@@ -2,6 +2,7 @@ import copy
 import json
 import os
 import traceback
+from urllib.request import thishost
 
 import pandas as pd
 
@@ -1705,10 +1706,12 @@ def combineProfilesXlsx(xlsProfilesToBeLoaded):
 
 
 # this functionr reads an ADS power saved profile in text format and return a json object that contains the file contents.
-def readTxtProfile(fname):
+def readTxtProfile(fname, thisHost):
     pfJsons = []
     pfJson = {}
     nl = 0
+    log3(f"reading profile....{fname}", "gatherFingerPrints", thisHost)
+    eqcount = 0
     with open(fname, 'r') as file:
         for line in file:
             if '=' in line:
@@ -1733,10 +1736,10 @@ def readTxtProfile(fname):
     return pfJsons
 
 # read in multiple files, returns a list of jsons
-def readTxtProfiles(fnames):
+def readTxtProfiles(fnames, host):
     pfJsons = []
     for fname in fnames:
-        pfJsons = pfJsons + readTxtProfile(fname)
+        pfJsons = pfJsons + readTxtProfile(fname, host)
 
     return pfJsons
 
@@ -1805,10 +1808,10 @@ def genDefaultProfileXlsx(pfJsons, fname):
 
 
 
-def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists):
+def agggregateProfileTxts2Xlsx(profile_names, xlsx_name, site_lists, thisHost):
     # Convert JSON data to a DataFrame
     log3("read txt profiles:" + json.dumps(profile_names))
-    pfJsons = readTxtProfiles(profile_names)
+    pfJsons = readTxtProfiles(profile_names, thisHost)
     for pfJson in pfJsons:
         un = pfJson["username"].split("@")[0]
         log3("aggregate profile searching user name:" + un)
@@ -1857,19 +1860,19 @@ def convertTxtProfiles2XlsxProfiles(fnames, site_lists, thisHost):
         basename = os.path.basename(fname)
         dirname = os.path.dirname(fname)
         xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
-        pfjsons = readTxtProfile(fname)
+        pfjsons = readTxtProfile(fname, thisHost)
         log3("reading in # jsons:"+str(len(pfjsons)))
         genProfileXlsx(pfjsons, xls_name, site_lists.keys(), site_lists, thisHost)
         pf_idx = pf_idx + 1
 
 
-def convertTxtProfiles2DefaultXlsxProfiles(fnames):
+def convertTxtProfiles2DefaultXlsxProfiles(fnames, host):
     pf_idx = 0
     for fname in fnames:
         basename = os.path.basename(fname)
         dirname = os.path.dirname(fname)
         xls_name = dirname + "/" + basename.split(".")[0]+".xlsx"
-        pfjsons = readTxtProfile(fname)
+        pfjsons = readTxtProfile(fname, host)
         log3("reading in # jsons:"+str(len(pfjsons)))
         genDefaultProfileXlsx(pfjsons, xls_name)
         pf_idx = pf_idx + 1
@@ -1925,7 +1928,7 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 
                 log3("batch_bot_profiles_read:"+json.dumps(batch_bot_profiles_read), "genAdsProfileBatchs", thisHost)
                 if os.path.exists(bot_txt_profile_name) and bot_txt_profile_name not in batch_bot_profiles_read:
-                    newly_read = readTxtProfile(bot_txt_profile_name)
+                    newly_read = readTxtProfile(bot_txt_profile_name, thisHost)
                     batch_bot_profiles_read.append(bot_txt_profile_name)
                 else:
                     # if not thisHost.isPlatoon():
@@ -1983,7 +1986,7 @@ def genAdsProfileBatchs(thisHost, target_vehicle_ip, task_groups):
 # input: batch_profiles_txt: just saved batch of profiles in txt format:
 # site_list:
 def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settings_var_name="", excludeUsernames=[]):
-    pfJsons = readTxtProfile(batch_profiles_txt)
+    pfJsons = readTxtProfile(batch_profiles_txt, mainwin)
     pf_dir = os.path.dirname(batch_profiles_txt)
     # log3("pf_dir:"+pf_dir)
     # log3("pfJsons:"+json.dumps(pfJsons))
@@ -1999,7 +2002,7 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
         if userInFile not in excludeUsernames:
             # existing is a bot's current profile, the cookie section contains all cookies this bot has collected so far.
             if os.path.exists(txt_file_path):
-                existing = readTxtProfile(txt_file_path)
+                existing = readTxtProfile(txt_file_path, mainwin)
                 # log3("existing:"+json.dumps(existing))
                 existing_cookies = existing[0]["cookie"]
                 new_cookies = pfJson["cookie"]
