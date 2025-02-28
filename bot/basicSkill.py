@@ -1285,7 +1285,7 @@ def genStepLogCrossNetwork(var_type, msg, result_var, flag_var, stepN):
 
 def genStepLog(var_type, msg, result_var, flag_var, stepN):
     stepjson = {
-        "type": "Log Cross Network",
+        "type": "Log",
         "var_type": var_type,
         "msg": msg,
         "result_var": result_var,

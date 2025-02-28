@@ -1294,7 +1294,9 @@ def genStepsWinChromeAMZBuyAddCart(stepN):
         this_step, step_words = genStepCheckCondition("buy_box_available", "", "", this_step)
         psk_words = psk_words + step_words
 
-        # find add_to_cart button.
+        #needs to check follow sale, select variations, and use coupon....
+
+        # finally find add_to_cart button.
         this_step, step_words = genStepWebdriverClick("web_driver", "add_cart_button", "action_result", "action_flag",
                                                       this_step)
         psk_words = psk_words + step_words
@@ -2270,9 +2272,9 @@ def genStepsWinADSAMZBrowserBrowseSearch(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         #now call the amz chrome browse sub-skill to go thru the walk process.
-        # this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
+        this_step, step_words = genStepsWinChromeAMZBrowserWalk("sk_work_settings", this_step)
         # this_step, step_words = genStubWinChromeAMZBrowserWalk("sk_work_settings", this_step)
-        # psk_words = psk_words + step_words
+        psk_words = psk_words + step_words
 
         # end condition for "not_logged_in == False"
         this_step, step_words = genStepStub("end condition", "", "", this_step)
@@ -2335,6 +2337,9 @@ def genWinADSAMZBrowserBuyProductSkill(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("string", "mission_type", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepLog("direct", "start WinADSAMZBrowserBuyProductSkill===117", "log_result", "log_flag", this_step)
         psk_words = psk_words + step_words
 
 

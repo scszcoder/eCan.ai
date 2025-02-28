@@ -5167,7 +5167,9 @@ class MainWindow(QMainWindow):
 
                 elif selected_act == self.vehicleSetUpWorkScheduleAction:
                     print("vehicle setup work schedule clicked....", self.selected_vehicle_item.getName())
-                    asyncio.run(self.vehicleSetupWorkSchedule(self.selected_vehicle_item, self.todays_scheduled_task_groups))
+                    vname = self.selected_vehicle_item.getName()
+                    p_task_groups = self.unassigned_scheduled_task_groups[vname]
+                    asyncio.run(self.vehicleSetupWorkSchedule(self.selected_vehicle_item, p_task_groups))
                 elif selected_act == self.vehiclePingAction:
                     print("vehicle ping clicked....", self.selected_vehicle_item.getName())
                     self.vehiclePing(self.selected_vehicle_item)
@@ -6602,8 +6604,12 @@ class MainWindow(QMainWindow):
                     # Process all available messages in the queue
                     while not msgQueue.empty():
                         net_message = await msgQueue.get()
+                        if len(net_message) > 256:
+                            mlen = 256
+                        else:
+                            mlen = len(net_message)
                         self.showMsg(
-                            "received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message)
+                            "received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message[:mlen])
 
                         # Parse the message into parts
                         msg_parts = net_message.split("!")
@@ -7090,7 +7096,14 @@ class MainWindow(QMainWindow):
                         net_message = await gui_manager_queue.get()
                         await self.processManagerNetMessage(net_message, managerBots, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
                 else:
+                    # always run some clean up after night
                     print("manager msg queue empty...")
+                    if current_time.hour == 0 and current_time.minute == 0:
+                        # do some data structure and state cleaning and get rid for the
+                        # next day
+                        self.todays_scheduled_task_groups = {}
+                        self.unassigned_scheduled_task_groups = {}  # per vehicle, flatten task list
+                        self.unassigned_reactive_task_groups = {}
 
                 await asyncio.sleep(3)
 
@@ -7314,12 +7327,18 @@ class MainWindow(QMainWindow):
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 remote_outdated = self.receiveBotsADSProfilesBatchUpdateMessage(msg)
                 self.expected_vehicle_responses[found_vehicle.getName()] = "Yes"
+
                 if self.allResponded():
                     print("all ads profiles updated...")
                     self.botsFingerPrintsReady = True
 
                 if remote_outdated:
                     self.batchSendFingerPrintProfilesToCommander(remote_outdated)
+
+                # now the profiles are updated. send this vehicle's schedule to it.
+                vname = found_vehicle.getName()
+                p_task_groups = self.unassigned_scheduled_task_groups[vname]
+                await self.vehicleSetupWorkSchedule(found_vehicle, p_task_groups)
 
             elif msg["type"] == "missionResultFile":
                 self.showMsg("received missionResultFile message")
@@ -7569,6 +7588,22 @@ class MainWindow(QMainWindow):
         self.showMsg("mission status result:"+json.dumps(results))
         return results
 
+    def platoonHasNoneTodo(self):
+        none2do = True
+        if self.machine_role == "Platoon":
+            platform_os = self.platform
+            vname = self.machine_name + ":" + self.os_short
+            # check either some RPA is being run right now, or today's rpa has being all done.
+            if self.working_state == "running_working" or \
+                self.todays_scheduled_task_groups[vname] or \
+                self.unassigned_scheduled_task_groups[vname] or \
+                self.DONE_WITH_TODAY:
+                none2do = False
+
+        return none2do
+
+
+
     async def serveCommander(self, msgQueue):
         log3("starting serve Commanders", "serveCommander", self)
         heartbeat = 0
@@ -7578,7 +7613,7 @@ class MainWindow(QMainWindow):
                 if heartbeat > 255:
                     heartbeat = 0
 
-                if heartbeat%8 == 0:
+                if heartbeat%16 == 0:
                     # sends a heart beat to commander
 
                     hbJson = {
@@ -7599,7 +7634,12 @@ class MainWindow(QMainWindow):
                         if self.commanderXport and not self.commanderXport.is_closing():
                             self.commanderXport.write(msg_with_delimiter.encode('utf8'))
                         # self.commanderXport.get_loop().call_soon(lambda: print("HB MSG SENT2COMMANDER..."))
-
+                elif heartbeat%19 == 0:
+                    # no need to do this, just make sure commander always send set schedule command
+                    # after a ping-pong sequence...... and after syncing fingerprint profiles....
+                    if False and self.platoonHasNoneTodo():
+                        workReq = {"type": "reqResendWorkReq", "ip": self.ip, "content": "now"}
+                        await self.send_json_to_commander(self.commanderXport, workReq)
             except (json.JSONDecodeError, AttributeError) as e:
                 # Handle JSON encoding or missing attributes issues
                 log3(f"Error encoding heartbeat JSON or missing attribute: {e}", "serveCommander", self)
@@ -7691,8 +7731,8 @@ class MainWindow(QMainWindow):
                 log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
 
                 platform_os = self.platform            # win, mac or linux
-                self.todays_scheduled_task_groups[platform_os] = localworks
                 vname = self.machine_name + ":" + self.os_short
+                self.todays_scheduled_task_groups[vname] = localworks
                 self.unassigned_scheduled_task_groups[vname] = localworks
 
                 # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
@@ -7714,8 +7754,8 @@ class MainWindow(QMainWindow):
                 log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
 
                 platform_os = self.platform            # win, mac or linux
-                self.todays_scheduled_task_groups[platform_os] = localworks
                 vname = self.machine_name + ":" + self.os_short
+                self.todays_scheduled_task_groups[vname] = localworks
                 self.unassigned_scheduled_task_groups[vname] = localworks
 
                 # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
