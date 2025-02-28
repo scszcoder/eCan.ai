@@ -12,6 +12,7 @@ from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
 import utils.logger_helper
 import traceback
+from bot.Logger import log3
 
 UDP_IP = "127.0.0.1"
 
@@ -47,14 +48,14 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
-        print('Connection from Platoon {}'.format(self.peername))
+        log3('Connection from Platoon {}'.format(self.peername), "tcpip", self.topgui)
         ip_address = self.peername[0]
         self.transport = transport
         try:
             hostname = socket.gethostbyaddr(ip_address)[0]
         except socket.herror:
             hostname = None  # If no reverse DNS is available
-        print(f'IP Address: {ip_address}, Hostname: {hostname}')
+        log3(f'IP Address: {ip_address}, Hostname: {hostname}', "tcpip", self.topgui)
 
         self.transport = transport
         new_link = {"ip": self.peername[0], "port": self.peername[1], "name": hostname, "transport": transport}
@@ -156,14 +157,14 @@ class CommanderTCPServerProtocol(asyncio.Protocol):
         # self.transport.close()
 
     def connection_lost(self, exc):
-        print(f"Connection to {self.peername[0]} lost")
+        log3(f"Connection to {self.peername[0]} lost", "tcpip", self.topgui)
 
         # Find and delete from fieldLinks
         lostone = next((x for x in fieldLinks if x["ip"] == self.peername[0]), None)
         if lostone:  # Ensure that the link exists in the list before trying to remove it
             lostName = lostone["name"]
             fieldLinks.remove(lostone)
-            print(f"Removed connection: {lostone['ip']} - {lostName}")
+            log3(f"Removed connection: {lostone['ip']} - {lostName}", "tcpip", self.topgui)
 
         # Notify the GUI about the lost connection
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!" + lostName))
@@ -186,7 +187,7 @@ class CommunicatorProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.peername = transport.get_extra_info('peername')
-        print('Connection from commander {}'.format(self.peername))
+        log3('Connection from commander {}'.format(self.peername), "tcpip", self.topgui)
         ip_address = self.peername[0]
         self.transport = transport
         try:
@@ -313,7 +314,7 @@ class CommunicatorProtocol(asyncio.Protocol):
         return fullfname
 
     def connection_lost(self, exec):
-        print("The commander is LOST....")
+        log3("The commander is LOST....", "tcpip", self.topgui)
         self.on_con_lost.set_result(True)
         asyncio.create_task(self.msg_queue.put(self.peername[0] + "!net loss!"))
 
@@ -367,7 +368,7 @@ async def udpBroadcaster(topgui):
     usock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     while not over:
-        print("Broadcasting...", 'Commander Calling:' + myip + " " + topgui.getUser())
+        log3("Broadcasting...", 'Commander Calling:' + myip + " " + topgui.getUser(), "tcpip", topgui)
         message = str.encode('Commander Calling:' + myip+":"+topgui.getUser())
         usock.sendto(message, ('192.168.0.255', UDP_PORT))
         await asyncio.sleep(COMMANDER_UDP_PERIOD)
@@ -419,7 +420,7 @@ class UDPServerProtocol:
 
     def connection_made(self, transport):
         self.transport = transport
-        print("Listenting for Commander...")
+        log3("Listenting for Commander...", "tcpip", self.topgui)
 
     def datagram_received(self, data, addr):
         print(f"Received UDP data: {data.decode()} from {addr}")
@@ -459,7 +460,7 @@ class UDPServerProtocol:
         max_retries = 17280    # 17280 x 5 = 86400 which is 24hrs. if net is lost for 24hrs, we really should restart the whole program......
 
         if commanderXport is not None and not commanderXport.is_closing():
-            print("Already connected to Commander. Skipping reconnection.")
+            log3("Already connected to Commander. Skipping reconnection.", "tcpip", self.topgui)
             return
 
         while reconnect_attempts < max_retries:
@@ -474,7 +475,7 @@ class UDPServerProtocol:
 
                 # Ensure previous transport is closed before reconnecting
                 if commanderXport:
-                    print("closing transport....")
+                    log3("closing transport....", "tcpip", self.topgui)
                     commanderXport.close()
                     commanderXport = None
 
@@ -486,15 +487,14 @@ class UDPServerProtocol:
                 myips = socket.gethostbyname_ex(hostname)[-1]
                 self.topgui.setCommanderXPort(commanderXport)
                 self.topgui.setIP(myips[-1])
-                print(f"commanderXport created: {commanderXport}")
+                log3(f"commanderXport created: {commanderXport}", "tcpip", self.topgui)
 
 
                 # Wait for the connection to be lost
                 await on_con_lost
-                print("Connection to commander lost...")
+                log3("Connection to commander lost...", "tcpip", self.topgui)
 
             except Exception as e:
-                print(f"Failed to connect to commander: {e}")
                 # Get the traceback information
                 traceback_info = traceback.extract_tb(e.__traceback__)
 
@@ -503,7 +503,7 @@ class UDPServerProtocol:
                     ex_stat = "ErrorReconnectToCommander:" + traceback.format_exc() + " " + str(e)
                 else:
                     ex_stat = "ErrorReconnectToCommander traceback information not available"
-
+                log3(f"Failed to connect to commander: {ex_stat}", "tcpip", self.topgui)
                 reconnect_attempts += 1
                 # Optionally add a delay between reconnection attempts
                 await asyncio.sleep(5)
@@ -514,9 +514,9 @@ class UDPServerProtocol:
                     commanderXport = None
 
             # Retry if the connection is lost
-            print("Retrying connection...")
+            log3("Retrying connection...", "tcpip", self.topgui)
 
-        print(f"Failed to reconnect after {max_retries} attempts.")
+        log3(f"Failed to reconnect after {max_retries} attempts.", "tcpip", self.topgui)
         # If max retri
 
 async def platoonUDPServer(thisloop, topgui):
