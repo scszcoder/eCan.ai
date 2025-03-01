@@ -113,12 +113,18 @@ class MissionService:
         self.session.add_all(missions)
         self.session.commit()
         dict_results = [result.to_dict() for result in missions]
-        self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
+        if len(dict_results) > 3:
+            self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results[:2])) + "........."
+        else:
+            self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
 
     def find_all_missions(self) -> [MissionModel]:
         results = self.session.query(MissionModel).all()
         dict_results = [result.to_dict() for result in results]
-        self.main_win.showMsg("Missions fetchall after find all" + json.dumps(dict_results))
+        if len(dict_results) > 3:
+            self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results[:2])) + "........."
+        else:
+            self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
         return results
 
     def insert_missions_batch(self, jbody, api_missions):

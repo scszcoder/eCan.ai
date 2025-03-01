@@ -847,7 +847,7 @@ class EBMISSION(QStandardItem):
             if "repeat_last" in cfgJson:
                 self.pubAttributes.repeat_last = cfgJson["repeat_last"]
 
-            print("Configuration successfully loaded:", cfgJson)
+            print("Config loaded: # searches", len(cfgJson.get('searches', [])))
 
         except (json.JSONDecodeError, ValueError, SyntaxError) as e:
             raise ValueError(f"Invalid config format: {cfg}. Error: {e}")
