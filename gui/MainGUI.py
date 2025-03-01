@@ -6834,7 +6834,7 @@ class MainWindow(QMainWindow):
                     log3("check next to run"+str(len(self.todays_work["tbd"]))+" "+str(len(self.reactive_work["tbd"]))+" "+str(self.getNumUnassignedWork()), "runbotworks", self)
                     botTodos, runType = self.checkNextToRun()
                     log3("fp profiles of mission: "+json.dumps([m.getFingerPrintProfile() for i, m in enumerate(self.missions) if i < 3 or i > len(self.missions)-4]), "runbotworks", self)
-                    if not (botTodos == None):
+                    if not botTodos:
                         log3("working on..... "+botTodos["name"], "runbotworks", self)
                         self.working_state = "running_working"
 
@@ -6893,6 +6893,7 @@ class MainWindow(QMainWindow):
                     else:
                         # nothing to do right now. check if all of today's work are done.
                         # if my own works are done and all platoon's reports are collected.
+                        print("empty to do...")
                         if self.host_role == "Platoon":
                             if len(self.todays_work["tbd"]) == 0:
                                 await self.doneWithToday()
