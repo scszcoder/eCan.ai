@@ -9,6 +9,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
@@ -639,9 +640,15 @@ def processAMZBrowserScrapeProductDetails(step, i):
     try:
         webdriver = symTab[step["web_driver_var"]]
 
-        pagefull_of_orders = amz_buyer_scrape_product_details(webdriver)
+        # product_details = amz_buyer_scrape_product_details(webdriver)
+        product_details = extract_details(webdriver)
 
-        symTab[step["result"]] = pagefull_of_orders
+        # at the end , the product_details should include web elements of:
+        # product title, asin, main image, 7 thumnb image, buybox,
+        # coupon checkbox if any, variations, reviews, full review link,
+        # A+ section images,
+        # section of Q&A, direct review link, asin,
+        symTab[step["result"]] = product_details
 
 
     except Exception as e:
@@ -691,3 +698,184 @@ def processAMZBrowserScrapeOrdersList(step, i):
     return (i + 1), ex_stat
 
 
+
+def extract_variations(driver):
+    variations = {}
+
+    # Find variation sections (Amazon labels them with class 'a-form-label')
+    variation_labels = driver.find_elements(By.CSS_SELECTOR, ".a-form-label")
+
+    for label in variation_labels:
+        variation_name = label.text.strip().replace(":", "")  # Get variation name (e.g., "Size", "Color", "Material")
+
+        # Look for dropdown next to label
+        try:
+            dropdown = label.find_element(By.XPATH, "./following-sibling::span//select")
+            select = Select(dropdown)
+            options = [option.text.strip() for option in select.options if option.get_attribute("value") != "-1"]
+            variations[variation_name] = {"type": "dropdown", "options": options, "element": dropdown}
+            continue  # Skip to next variation after detecting dropdown
+        except:
+            pass
+
+        # Look for swatch buttons (e.g., color thumbnails)
+        try:
+            swatches = label.find_element(By.XPATH, "./following-sibling::span")
+            swatch_items = swatches.find_elements(By.CSS_SELECTOR, "li[data-csa-c-item-id]")
+            swatch_options = {}
+
+            for item in swatch_items:
+                swatch_name = item.get_attribute("title").replace("Click to select ", "").strip()
+                try:
+                    image_url = item.find_element(By.TAG_NAME, "img").get_attribute("src")
+                except:
+                    image_url = None  # Some swatches may not have images
+                swatch_options[swatch_name] = image_url
+
+            if swatch_options:
+                variations[variation_name] = {"type": "thumbnails", "options": swatch_options, "elements": swatch_items}
+        except:
+            pass
+
+    return variations
+
+
+# Function to select a variation dynamically
+def select_variation(variation_name, selection, variations):
+    if variation_name not in variations:
+        print(f"Variation '{variation_name}' not found.")
+        return
+
+    variation_data = variations[variation_name]
+
+    # Select from dropdown
+    if variation_data["type"] == "dropdown":
+        try:
+            select = Select(variation_data["element"])
+            select.select_by_visible_text(selection)
+            print(f"Selected {variation_name}: {selection}")
+        except:
+            print(f"Option '{selection}' not found for {variation_name}")
+
+    # Click swatch button
+    elif variation_data["type"] == "thumbnails":
+        try:
+            for item in variation_data["elements"]:
+                swatch_name = item.get_attribute("title").replace("Click to select ", "").strip()
+                if swatch_name.lower() == selection.lower():
+                    item.click()
+                    print(f"Selected {variation_name}: {selection}")
+                    time.sleep(2)  # Allow time for selection
+                    break
+        except:
+            print(f"Option '{selection}' not found for {variation_name}")
+
+
+
+def extract_details(driver):
+    product_details = {}
+    # get title
+    title_element = driver.find_element(By.ID, "productTitle")
+    product_details["product_title"] = title_element.text.strip()
+
+    # get rating
+    rating_element = driver.find_element(By.ID, "acrPopover")
+    product_details["rating"] = rating_element.get_attribute("title")  # Extract the tooltip title
+
+    #get N reviews
+    review_count_element = driver.find_element(By.ID, "acrCustomerReviewText")
+    product_details["review_count"] = review_count_element.text  # Extract text: "13 ratings"
+
+    product_details["variations"] = extract_variations(driver)
+
+    # get price
+    price_symbol = driver.find_element(By.CLASS_NAME, "a-price-symbol").text  # "$"
+    price_whole = driver.find_element(By.CLASS_NAME, "a-price-whole").text  # "41"
+    price_decimal = driver.find_element(By.CLASS_NAME, "a-price-decimal").text  # "."
+    price_fraction = driver.find_element(By.CLASS_NAME, "a-price-fraction").text  # "99"
+
+    product_details["price"] = f"{price_symbol}{price_whole}{price_decimal}{price_fraction}"
+
+    # get coupon
+    coupon_element = driver.find_element(By.XPATH, "//span[contains(text(), 'coupon')]")
+    coupon = {}
+    coupon["text"] = coupon_element.text.strip()
+
+    coupon["checkbox"] = driver.find_element(By.XPATH, "//input[contains(@id, 'checkbox')]")
+
+    # Click the coupon checkbox
+    # ActionChains(driver).move_to_element(coupon_checkbox).click().perform()
+
+    product_details["add_cart_button"] = driver.find_element(By.ID, "add-to-cart-button")
+
+    # Click the button
+    # ActionChains(driver).move_to_element(add_to_cart_button).click().perform()
+
+    product_details["buy_now_button"] = driver.find_element(By.ID, "buy-now-button")
+
+    product_details["summery_expand_icon"] = driver.find_element(By.XPATH, "//a[@data-action='a-expander-toggle']")
+
+    # Scroll to the element (if needed)
+    # ActionChains(driver).move_to_element(expand_button).perform()
+
+    # Click the "See More" button
+    # expand_button.click()
+
+
+
+    # get asin
+    asin_element = driver.find_element(By.XPATH, "//li[span/span[contains(text(),'ASIN')]]/span/span[last()]")
+    product_details["asin"] = asin_element.text.strip()
+
+    product_details["bullet_elements"] = driver.find_elements(By.CSS_SELECTOR,
+                                           "ul.a-unordered-list.a-vertical.a-spacing-small li span.a-list-item")
+
+    # Find all review elements
+    reviews = driver.find_elements(By.CSS_SELECTOR, "li[data-hook='review']")
+
+    # Extract data from each review
+    pd_reviews = []
+    one_review = {}
+    for review in reviews:
+        one_review["review"] = review
+        try:
+            one_review["reviewer"] = review.find_element(By.CSS_SELECTOR, "span.a-profile-name").text
+        except:
+            one_review["reviewer"] = "N/A"
+
+        try:
+            one_review["rating"] = review.find_element(By.CSS_SELECTOR, "i[data-hook='review-star-rating'] span").text
+        except:
+            one_review["rating"] = "N/A"
+
+        try:
+            one_review["title"] = review.find_element(By.CSS_SELECTOR, "a[data-hook='review-title'] span").text
+        except:
+            one_review["title"] = "N/A"
+
+        try:
+            one_review["review_date"] = review.find_element(By.CSS_SELECTOR, "span[data-hook='review-date']").text
+        except:
+            one_review["review_date"] = "N/A"
+
+        try:
+            one_review["size_color"] = review.find_element(By.CSS_SELECTOR, "span[data-hook='format-strip-linkless']").text
+        except:
+            one_review["size_color"] = "N/A"
+
+            # Expand the "Read More" if available
+        try:
+            one_review["read_more_button"] = review.find_element(By.CSS_SELECTOR, "a[data-hook='expand-collapse-read-more-less']")
+            # driver.execute_script("arguments[0].click();", one_review["read_more_button"])
+            time.sleep(1)  # Wait for content to expand
+        except:
+            pass  # If no "Read More" button, continue
+
+        try:
+            one_review["review_text"] = review.find_element(By.CSS_SELECTOR, "span[data-hook='review-body']").text
+        except:
+            one_review["review_text"] = "N/A"
+
+        pd_reviews.append(one_review)
+
+    product_details["reviews"] = pd_reviews
