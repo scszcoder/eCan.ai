@@ -1189,8 +1189,8 @@ def processEtsySetOrderClickedStatus(step, i):
     return (i + 1), ex_stat
 
 def contains_states(line):
-    us_addr_pattern = re.compile("[a-zA-Z ]+\, *[a-zA-Z][a-zA-Z] *$")
-    ca_addr_pattern = re.compile("[a-zA-Z ]+\, *Canada *$")
+    us_addr_pattern = re.compile("[a-zA-Z ]+\\\, *[a-zA-Z][a-zA-Z] *$")
+    ca_addr_pattern = re.compile("[a-zA-Z ]+\\\, *Canada *$")
 
     us_matched = us_addr_pattern.search(line)
     ca_matched = ca_addr_pattern.search(line)
