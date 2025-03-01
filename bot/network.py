@@ -368,7 +368,7 @@ async def udpBroadcaster(topgui):
     usock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     while not over:
-        log3("Broadcasting...", 'Commander Calling:' + myip + " " + topgui.getUser(), "tcpip", topgui)
+        log3("Broadcasting..."+'Commander Calling:' + myip + " " + topgui.getUser(), "tcpip", topgui)
         message = str.encode('Commander Calling:' + myip+":"+topgui.getUser())
         usock.sendto(message, ('192.168.0.255', UDP_PORT))
         await asyncio.sleep(COMMANDER_UDP_PERIOD)

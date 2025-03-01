@@ -664,6 +664,47 @@ def processAMZBrowserScrapeProductDetails(step, i):
     return (i + 1), ex_stat
 
 
+def genStepAMZBrowserSelectVariation(web_driver, vars_var, var_name_var, selection_var, outvar, statusvar, stepN):
+    stepjson = {
+        "type": "AMZ Browser Select Variation",
+        "web_driver_var": web_driver,
+        "vars_var": vars_var,
+        "var_name_var": var_name_var,
+        "selection_var": selection_var,
+        "result": outvar,
+        "status": statusvar
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def processAMZBrowserSelectVariation(step, i):
+    ex_stat = DEFAULT_RUN_STATUS
+    try:
+        webdriver = symTab[step["web_driver_var"]]
+
+        # product_details = amz_buyer_scrape_product_details(webdriver)
+        product_details = extract_details(webdriver)
+
+        # at the end , the product_details should include web elements of:
+        # product title, asin, main image, 7 thumnb image, buybox,
+        # coupon checkbox if any, variations, reviews, full review link,
+        # A+ section images,
+        # section of Q&A, direct review link, asin,
+        symTab[step["result"]] = product_details
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorAMZBrowserScrapeProductDetails:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorAMZBrowserScrapeProductDetails: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+    return (i + 1), ex_stat
+
 
 def genStepAMZBrowserScrapeOrdersList(web_driver, outvar, statusvar, stepN):
     stepjson = {

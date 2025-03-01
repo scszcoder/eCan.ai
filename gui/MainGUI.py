@@ -384,6 +384,7 @@ class MainWindow(QMainWindow):
             self.log_settings = {}
 
         if os.path.exists(self.buy_search_settings_file):
+            print("buy_serach_settings_file:", self.buy_search_settings_file)
             with open(self.buy_search_settings_file, 'r', encoding='utf-8') as buy_search_settings_f:
                 self.buy_search_settings = json.load(buy_search_settings_f)
         else:
@@ -2185,7 +2186,7 @@ class MainWindow(QMainWindow):
 
 
     def fill_mission(self, blank_m, m, tgs):
-        print("BLANK:", m)
+        # print("BLANK:", m)
         blank_m.loadNetRespJson(m)
         # self.showMsg("after fill mission paramter:"+str(blank_m.getRetry()))
         mconfig = None
@@ -7397,7 +7398,8 @@ class MainWindow(QMainWindow):
                         self.saveVehiclesJsonFile()
 
                         # sync finger print profiles from that vehicle.
-                        self.syncFingerPrintOnConnectedVehicle(found_vehicle)
+                        if  msg["type"] == "pong":
+                            self.syncFingerPrintOnConnectedVehicle(found_vehicle)
 
             elif msg["type"] == "status":
                 # update vehicle status display.
@@ -7466,25 +7468,37 @@ class MainWindow(QMainWindow):
                     await self.doneWithToday()
                     self.num_todays_task_groups = 0
             elif msg["type"] == "botsADSProfilesUpdate":
-                self.showMsg("received botsADSProfilesUpdate message")
+                log3("received botsADSProfilesUpdate message", "servePlatoons", self)
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 self.receivePlatoonBotsADSProfileUpdateMessage(msg)
             elif msg["type"] == "botsADSProfilesBatchUpdate":
-                log3("received botsADSProfilesBatchUpdate message")
+                log3("received botsADSProfilesBatchUpdate message", "servePlatoons", self)
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
                 remote_outdated = self.receiveBotsADSProfilesBatchUpdateMessage(msg)
                 self.expected_vehicle_responses[found_vehicle.getName()] = "Yes"
 
                 if self.allResponded():
-                    print("all ads profiles updated...")
+                    log3("all ads profiles updated...", "servePlatoons", self)
                     self.botsFingerPrintsReady = True
 
                 if remote_outdated:
+                    log3("remote outdated...", "servePlatoons", self)
                     self.batchSendFingerPrintProfilesToCommander(remote_outdated)
 
                 # now the profiles are updated. send this vehicle's schedule to it.
+                log3("setup vehicle to do some work...", "servePlatoons", self)
                 vname = found_vehicle.getName()
-                p_task_groups = self.unassigned_scheduled_task_groups[vname]
+                if self.unassigned_scheduled_task_groups:
+                    if vname in self.unassigned_scheduled_task_groups:
+                        p_task_groups = self.unassigned_scheduled_task_groups[vname]
+                    else:
+                        p_task_groups = []
+                else:
+                    if self.todays_scheduled_task_groups:
+                        if vname in self.todays_scheduled_task_groups:
+                            p_task_groups = self.todays_scheduled_task_groups[vname]
+                        else:
+                            p_task_groups = []
                 await self.vehicleSetupWorkSchedule(found_vehicle, p_task_groups)
 
             elif msg["type"] == "missionResultFile":
@@ -9955,14 +9969,14 @@ class MainWindow(QMainWindow):
         try:
             self.botFingerPrintsReady = False
             if self.machine_role == "Commander":
-                log3("syncing finger prints")
+                log3("syncing finger prints", "gatherFingerPrints", self)
 
                 reqMsg = {"cmd": "reqSyncFingerPrintProfiles", "content": "now"}
 
                 # send over scheduled tasks to platton.
                 self.expected_vehicle_responses = {}
 
-                print("vehicle:", vehicle.getName(), vehicle.getStatus())
+                log3(f"vehicle: {vehicle.getName()} {vehicle.getStatus()}", "gatherFingerPrints", self)
                 if vehicle.getFieldLink() and "running" in vehicle.getStatus():
                     self.showMsg(get_printable_datetime() + "SENDING [" + vehicle.getName() + "]PLATOON[" + vehicle.getFieldLink()[
                         "ip"] + "]: " + json.dumps(reqMsg))
@@ -10161,7 +10175,7 @@ class MainWindow(QMainWindow):
                 # flatten tasks and regroup them based on sites, and divide them into batches
                 # all_works = [work for tg in p_task_groups for work in tg.get("works", [])]
                 batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(p_task_groups, vehicle, self)
-                print("add buy search", batched_tasks)
+                # print("add buy search", batched_tasks)
                 # self.add_buy_searchs(batched_tasks)
 
                 print("ads_profiles:", ads_profiles)
