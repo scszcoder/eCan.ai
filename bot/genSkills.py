@@ -519,6 +519,7 @@ def getWorkRunSettings(lieutenant, bot_works):
     app_exe = current_mission.getAppExe()
     as_server = current_mission.getAsServer()
     useGiftCard = current_mission.getUseGiftCard()
+    useCoupon = current_mission.getUseCoupon()
     vccard_number = current_mission.getVCCardNumber()
     log3("settings setting app_exe: "+app+app_exe+platform+site)
 
@@ -620,6 +621,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             "as_server": as_server,
             # "commander_link": lieutenant.commanderXport,
             "use_gift_card": useGiftCard,
+            "use_coupon": useCoupon,
             "vccard_number": vccard_number,
             "name_space": name_space,
             "last_one": last_one,
