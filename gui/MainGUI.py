@@ -360,6 +360,7 @@ class MainWindow(QMainWindow):
         self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
         self.general_settings_file = f"{self.my_ecb_data_homepath}/resource/data/settings.json"
         self.log_settings_file = f"{self.my_ecb_data_homepath}/resource/data/log_settings.json"
+        self.buy_search_settings_file =  f"{self.my_ecb_data_homepath}/resource/data/search_settings.json"
         self.general_settings = {}
         self.debug_mode = True
         self.fetch_schedule_counter = 1
@@ -381,6 +382,12 @@ class MainWindow(QMainWindow):
                 self.log_settings = json.load(log_settings_f)
         else:
             self.log_settings = {}
+
+        if os.path.exists(self.buy_search_settings_file):
+            with open(self.buy_search_settings_file, 'r', encoding='utf-8') as buy_search_settings_f:
+                self.buy_search_settings = json.load(buy_search_settings_f)
+        else:
+            self.buy_search_settings = {}
 
 
         if os.path.exists(self.general_settings_file):
@@ -2619,6 +2626,146 @@ class MainWindow(QMainWindow):
                         ]
                     }
             log3(f"set up run time swap with buy related search to replace cloud search {first_page['products'][0]}")
+        logger_helper.debug("Modified Buy Work:"+json.dumps(work))
+
+
+    def findWorkFromMission(self, mission):
+        found = False
+        foundWork = None
+        if self.todaysSchedule():
+            for vname in self.todaysSchedule["task_groups"]:
+                tzs = self.todaysSchedule["task_groups"][vname].keys()
+                for tz in tzs:
+                    for w in self.todaysSchedule["task_groups"][vname][tz]["bw_works"]:
+                        if w["mid"] == mission.getMid():
+                            found = True
+                            foundWork = w
+                            break
+
+                    if not found:
+                        for w in self.todaysSchedule["task_groups"][vname][tz]["other_works"]:
+                            if w["mid"] == mission.getMid():
+                                found = True
+                                foundWork = w
+                                break
+
+                    else:
+                        break
+                if found:
+                    break
+
+        return foundWork
+
+    def gen_random_search_term(self, mission):
+        main_cats = list(self.buy_search_settings["search_terms"]["amz"].keys())
+        main_cat_idx = random.randint(0, len(main_cats))
+        main_cat = main_cats[main_cat_idx]
+        sub1_cats = list(self.buy_search_settings["search_terms"]["amz"][main_cat].keys())
+        sub1_cat_idx = random.randint(0, len(sub1_cats))
+        sub1_cat = sub1_cats[sub1_cat_idx]
+        terms = self.buy_search_settings["search_terms"]["amz"][main_cat][sub1_cat]
+        terms_idx = random.randint(0, len(terms))
+        search_term = terms[terms_idx]
+        return search_term
+
+    def gen_random_product_params(self, mission):
+        random_st_idx = random.randint(0, len(self.buy_search_settings["selType_selections"]))
+        random_dl_idx = random.randint(0, len(self.buy_search_settings["detailLvl_selections"]))
+        product_params = {
+            "selType": self.buy_search_settings["selType_selections"][random_st_idx],
+            "detailLvl": self.buy_search_settings["selType_selections"][random_dl_idx],
+            "purchase": []
+        }
+
+        return product_params
+
+    def gen_random_page_params(self, mission):
+        random_flow_idx = random.randint(0, len(self.buy_search_settings["flow_selections"]))
+        pg_params = {
+            "flow_type": self.buy_search_settings["flow_selections"][random_flow_idx],
+            "products": []
+        }
+        nProducts = random.randint(1, self.buy_search_settings["max_browse_products_per_page"]+1)
+        for n in range(nProducts):
+            productConfig = self.gen_random_product_params(mission)
+            pg_params["products"].append(productConfig)
+
+        return pg_params
+
+    def gen_random_search_params(self, mission):
+        search = {
+            "type": "browse_routine",
+            "site": "amz",
+            "os": "win",
+            "app": "ads",
+            "entry_paths": {
+                "type": "Search",
+                "words": [self.gen_random_search_term(mission)]
+            },
+            "top_menu_item": "",
+            "prodlist_pages": [],
+            "buy_cfg": None
+        }
+        nPages = random.randint(1, self.buy_search_settings["max_browse_pages"]+1)
+        for n in range(nPages):
+            pageConfig = self.gen_random_page_params(mission)
+            search["prodlist_pages"].append(pageConfig)
+
+        return search
+
+    def gen_random_search_config(self, mission):
+        config = {"estRunTime": 1, "searches": []}
+        nSearches = random.randint(1, self.buy_search_settings["max_searches"]+1)
+        for n in range(nSearches):
+            search = self.gen_random_search_params(mission)
+            config["searches"].append(search)
+        return config
+
+    def gen_buy_search_config(self, mission):
+        work = self.findWorkFromMission(mission)
+        work["config"] = self.gen_random_search_config(mission)
+
+        # simply modify mission's search configuration to fit our need.
+        # we'll randomely pick one of the searches and modify its parameter.
+        nth_search = random.randrange(0, len(work["config"]["searches"]))
+        # nth_search = 0                  # quick hack for speeding up unit test. should be removed in release code.
+        n_pages = len(work["config"]["searches"][nth_search]["prodlist_pages"])
+
+        work["config"]["searches"][nth_search]["entry_paths"]["type"] = "Search"
+        work["config"]["searches"][nth_search]["entry_paths"]["words"] = [mission.getSearchKW()]
+
+        # simply duplate the last prodlist_pages enough times to satisfy up to 5 pages requirement
+        if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
+            last_page = work["config"]["searches"][nth_search]["prodlist_pages"][n_pages-1]
+            if n_pages < 5:  # we will browse up to 5 pages for a product purchase.
+                for i in range(5-n_pages):
+                    work["config"]["searches"][nth_search]["prodlist_pages"].append(copy.deepcopy(last_page))
+
+            # on each pages, add the target buy product onto the list.
+            for page in work["config"]["searches"][nth_search]["prodlist_pages"]:
+                if work["name"].split("_")[1] in ["addCart", "addCartPay"]:
+                    target_buy = {
+                        "selType": "cus",   # this is key, the skill itself will do the swapping of search terms once it see "cus" here.
+                        "detailLvl": 3,
+                        "purchase": [{
+                                    "action": work["name"].split("_")[1],
+                                    "asin": mission.getASIN(),
+                                    "seller": mission.getStore(),
+                                    "brand": mission.getBrand(),
+                                    "img": mission.getImagePath(),
+                                    "title": mission.getTitle(),
+                                    "variations": mission.getVariations(),
+                                    "rating": mission.getRating(),
+                                    "feedbacks": mission.getFeedbacks(),
+                                    "price": mission.getPrice(),
+                                    "follow_seller": mission.getFollowSeller(),
+                                    "follow_price": mission.getFollowPrice()
+                                }]
+                    }
+                log3(f"added target buy: {target_buy}")
+                page["products"].append(target_buy)
+
+        mission.setConfig(work["config"])
         logger_helper.debug("Modified Buy Work:"+json.dumps(work))
 
 
