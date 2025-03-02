@@ -1904,7 +1904,9 @@ class MainWindow(QMainWindow):
             #  turn this into a per-vehicle flattend list of tasks (vehicle name based dictionary).
             self.todays_scheduled_task_groups = self.reGroupByBotVehicles(bodyobj["task_groups"])
             self.unassigned_scheduled_task_groups = self.todays_scheduled_task_groups
-            # print("current unassigned task groups:", self.unassigned_scheduled_task_groups)
+            print("current unassigned task groups:", list(self.unassigned_scheduled_task_groups.keys()))
+            for vn in self.unassigned_scheduled_task_groups:
+                print(f"unassigned task groups:{vn} {len(self.unassigned_scheduled_task_groups[vn])}")
             # print("current work to do:", self.todays_work)
             # for works on this host, add to the list of todos, otherwise send to the designated vehicle.
             # self.assignWork()
@@ -2374,13 +2376,13 @@ class MainWindow(QMainWindow):
             m = next((mission for i, mission in enumerate(self.missions) if mission.getMid() == mid), None)
 
             if m:
-                print("m skillls: "+m.getSkills())
-                if m.getSkills() != "":
-                    if "," in m.getSkills():
-                        m_skids = [int(skstring.strip()) for skstring in m.getSkills().strip().split(",")]
-                    else:
-                        m_skids = [int(m.getSkills().strip())]
-
+                print("m skillls: ", mid, m.getMid(), m.getSkills(), type(m.getSkills()))
+                if isinstance(m.getSkills(), list):
+                    m_skids = m.getSkills()
+                else:
+                    m_skids = [int(skstring.strip()) for skstring in m.getSkills().strip().split(",")]
+                print("m_skids: ", m_skids)
+                if m_skids:
                     needed_skills = needed_skills + m_skids
                     m_main_skid = m_skids[0]
 
@@ -3410,7 +3412,7 @@ class MainWindow(QMainWindow):
 
                         # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
                         # the timer tick will trigger the run of the next mission on the list....
-                        log3("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult, "runRPA", self)
+                        log3("UPDATEing completed mission status:: "+str(worksettings["midx"])+"RUN result:"+runResult, "runRPA", self)
                         self.update1MStat(worksettings, runResult)
                         self.update1WorkRunStatus(worksTBD, worksettings["midx"])
                     else:
@@ -3565,7 +3567,7 @@ class MainWindow(QMainWindow):
 
                     # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
                     # the timer tick will trigger the run of the next mission on the list....
-                    log3("UPDATEing completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult, "runRPA", self)
+                    log3("UPDATEing 1 completed mmission status:: "+str(worksettings["midx"])+"RUN result:"+runResult, "runRPA", self)
                     mission.setResult(runResult)
                 else:
                     log3("UPDATEing ERROR mmission status:: " + str(worksettings["midx"]) + "RUN result: " + "Incomplete: ERRORRunRPA:-1", "runRPA", self)
@@ -6834,7 +6836,7 @@ class MainWindow(QMainWindow):
                     log3("check next to run"+str(len(self.todays_work["tbd"]))+" "+str(len(self.reactive_work["tbd"]))+" "+str(self.getNumUnassignedWork()), "runbotworks", self)
                     botTodos, runType = self.checkNextToRun()
                     log3("fp profiles of mission: "+json.dumps([m.getFingerPrintProfile() for i, m in enumerate(self.missions) if i < 3 or i > len(self.missions)-4]), "runbotworks", self)
-                    if not botTodos:
+                    if botTodos:
                         log3("working on..... "+botTodos["name"], "runbotworks", self)
                         self.working_state = "running_working"
 
@@ -7493,13 +7495,18 @@ class MainWindow(QMainWindow):
                     if vname in self.unassigned_scheduled_task_groups:
                         p_task_groups = self.unassigned_scheduled_task_groups[vname]
                     else:
+                        print(f"{vname} not found in unassigned_scheduled_task_groups empty")
                         p_task_groups = []
                 else:
                     if self.todays_scheduled_task_groups:
                         if vname in self.todays_scheduled_task_groups:
                             p_task_groups = self.todays_scheduled_task_groups[vname]
                         else:
+                            print(f"{vname} not found in todays_scheduled_task_groups empty")
                             p_task_groups = []
+                    else:
+                        print("todays_scheduled_task_groups empty")
+                        p_task_groups = []
                 await self.vehicleSetupWorkSchedule(found_vehicle, p_task_groups)
 
             elif msg["type"] == "missionResultFile":
