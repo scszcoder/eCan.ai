@@ -4143,7 +4143,7 @@ class MainWindow(QMainWindow):
     def ts2time(self, ts):
         thistime = datetime.now()
         zerotime = datetime(thistime.date().year, thistime.date().month, thistime.date().day, 0, 0, 0)
-        if ts < 0:      # in case of time slot is -1 it means run it asap, so make it 0 zero time of today.
+        if ts < 0:      # in case of timeslot is -1 it means run it asap, so make it 0 zero time of today.
             ts = 0
         time_change = timedelta(minutes=20*ts)
         runtime = zerotime + time_change
