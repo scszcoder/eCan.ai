@@ -114,7 +114,8 @@ class MissionService:
         self.session.commit()
         dict_results = [result.to_dict() for result in missions]
         if len(dict_results) > 3:
-            self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results[:2])) + "........."
+            print("type of dict_results:", type(dict_results))
+            self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results[:2]) + ".........")
         else:
             self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
 
