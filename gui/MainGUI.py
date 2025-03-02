@@ -4642,10 +4642,12 @@ class MainWindow(QMainWindow):
         existinSkids = [sk.getSkid() for sk in self.skills]
         print("existinBids:", existinBids)
         # print("botsJson:", botsJson)
+
+        usefulBotsJson = [bj for bj in botsJson if bj['privateProfile']["email"]]
         # self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
         # self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
         # self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
-        for bjs in botsJson:
+        for bjs in usefulBotsJson:
             if int(bjs["pubProfile"]["bid"]) not in existinBids:
                 self.newBot = EBBOT(self)
                 self.newBot.loadJson(bjs)
@@ -4676,6 +4678,7 @@ class MainWindow(QMainWindow):
                 self.skills.append(self.newSkill)
                 # self.skillModel.appendRow(self.newSkill)
 
+        print("done setting bots, missions, skills from commander")
 
     def addConnectingVehicle(self, vname, vip):
         try:
