@@ -2900,7 +2900,7 @@ class MainWindow(QMainWindow):
             for vname in self.unassigned_scheduled_task_groups:
                 log3("assignwork scheduled checking vehicle: "+vname, "assignWork", self)
                 p_task_groups = self.unassigned_scheduled_task_groups[vname]      # flattend per vehicle tasks.
-                log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
+                # log3("p_task_groups: "+json.dumps(p_task_groups), "assignWork", self)
                 # print("p_task_groups:", p_task_groups)
                 if len(p_task_groups) > 0:
                     print("some work to assign...", self.machine_name)
@@ -4639,7 +4639,7 @@ class MainWindow(QMainWindow):
         existinMids = [m.getMid() for m in self.missions]
         existinSkids = [sk.getSkid() for sk in self.skills]
         print("existinBids:", existinBids)
-        print("botsJson:", botsJson)
+        # print("botsJson:", botsJson)
         # self.showMsg("BOTS String:"+str(type(botsJson))+json.dumps(botsJson))
         # self.showMsg("Missions String:"+str(type(missionsJson))+json.dumps(missionsJson))
         # self.showMsg("Skills String:" + str(type(skillsJson)) + json.dumps(skillsJson))
