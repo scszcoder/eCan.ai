@@ -2319,7 +2319,8 @@ class MainWindow(QMainWindow):
             # result = result + json.dumps(self.getMissionByID(mid).genJson()).replace('"', '\\"')
             found_mission = next((mission for i, mission in enumerate(self.missions) if mission.getMid() == mid), None)
             if found_mission:
-                result.append(found_mission.genJson())
+                mj = found_mission.genJson()
+                result.append(mj)
 
         return result
 
@@ -7254,12 +7255,33 @@ class MainWindow(QMainWindow):
                 else:
                     # always run some clean up after night
                     print("manager msg queue empty...")
-                    if current_time.hour == 0 and current_time.minute == 0:
-                        # do some data structure and state cleaning and get rid for the
+                    if current_time.hour == 0 and current_time.minute == 1:
+                        # do some data structure and state cleaning and get rid   the
                         # next day
                         self.todays_scheduled_task_groups = {}
                         self.unassigned_scheduled_task_groups = {}  # per vehicle, flatten task list
                         self.unassigned_reactive_task_groups = {}
+                        self.rpa_work_assigned_for_today = False
+
+                    # start work after 5:30am
+                    target_time = current_time.replace(hour=5, minute=30, second=0, microsecond=0)
+                    # if manually start platoon after 5:30am, and if todays_scheduled_task_groups
+                    # still empty, then check todo file.....
+                    if current_time > target_time and "Platoon" in self.machine_role:
+                        if not self.todays_scheduled_task_groups:
+                            # check the local schedule file. if there, load it.
+                            yyyymmdd = current_time.strftime("%Y%m%d")
+                            sf_name = "todos" + yyyymmdd + ".json"
+                            todays_todo_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
+                            # with todays_todo_file name this won't run on commander.
+                            if os.path.exists(todays_todo_file):
+                                with open(todays_todo_file, "r") as tdf:
+                                    msg = json.load(tdf)
+                                    tdf.close()
+
+                                    self.setupScheduledTodos(msg)
+
+
 
                 await asyncio.sleep(3)
 
@@ -7272,6 +7294,31 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "Errorwanrunmanagerworks traceback information not available:" + str(e)
             log3(ex_stat, "runmanagerworks", self)
+
+
+    def setupScheduledTodos(self, msg):
+        localworks = msg["todos"]
+        self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
+
+        # this is the time to rebuild skills to make them up to date....
+        self.dailySkillsetUpdate()
+
+        log3("received work request:"+json.dumps(localworks), "serveCommander", self)
+        # send work into work Queue which is the self.todays_work["tbd"] data structure.
+
+        self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
+        log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
+
+        platform_os = self.platform            # win, mac or linux
+        vname = self.machine_name + ":" + self.os_short
+        self.todays_scheduled_task_groups[vname] = localworks
+        self.unassigned_scheduled_task_groups[vname] = localworks
+
+        # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
+        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
+        # clean up the reports on this vehicle....
+        self.todaysReports = []
+        self.DONE_WITH_TODAY = False
 
 
     #update a vehicle's missions status
@@ -7840,6 +7887,32 @@ class MainWindow(QMainWindow):
             await asyncio.sleep(2)
             # log3("watching Commanders...", "serveCommander", self)
 
+    def todoAlreadyExists(self, msg):
+        exists = False
+        today = datetime.now()
+        # Format the date as yyyymmdd
+        yyyymmdd = today.strftime("%Y%m%d")
+        sf_name = "todos" + yyyymmdd + ".json"
+        todays_todo_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
+
+        if os.path.exists(todays_todo_file):
+            exists = True
+
+        return exists
+
+    def saveTodaysTodos(self, msg):
+        today = datetime.now()
+        # Format the date as yyyymmdd
+        yyyymmdd = today.strftime("%Y%m%d")
+        sf_name = "todos" + yyyymmdd + ".json"
+        todays_todo_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
+
+        with open(todays_todo_file, "wb") as tdf:
+            json.dump(msg, tdf, indent=4)
+            tdf.close()
+
+
+
     # '{"cmd":"reqStatusUpdate", "missions":"all"}'
     # content format varies according to type.
     def processCommanderMsgs(self, msgString):
@@ -7891,28 +7964,12 @@ class MainWindow(QMainWindow):
             elif msg["cmd"] == "reqSetSchedule":
                 # schedule work now..... append to array data structure and set up the pointer to the 1st task.
                 # the actual running of the tasks will be taken care of by the schduler.
-                localworks = msg["todos"]
-                self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
 
-                # this is the time to rebuild skills to make them up to date....
-                self.dailySkillsetUpdate()
-
-                log3("received work request:"+json.dumps(localworks), "serveCommander", self)
-                # send work into work Queue which is the self.todays_work["tbd"] data structure.
-
-                self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-                log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
-
-                platform_os = self.platform            # win, mac or linux
-                vname = self.machine_name + ":" + self.os_short
-                self.todays_scheduled_task_groups[vname] = localworks
-                self.unassigned_scheduled_task_groups[vname] = localworks
-
-                # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
-                batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
-                # clean up the reports on this vehicle....
-                self.todaysReports = []
-                self.DONE_WITH_TODAY = False
+                if not self.todoAlreadyExists(msg):
+                    self.saveTodaysTodos(msg)
+                    self.setupScheduledTodos(msg)
+                else:
+                    log3("commander sent todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
 
             elif msg["cmd"] == "reqSetReactiveWorks":
                 # schedule work now..... append to array data structure and set up the pointer to the 1st task.
