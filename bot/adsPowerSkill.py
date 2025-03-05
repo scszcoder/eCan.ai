@@ -1723,7 +1723,10 @@ def readTxtProfile(fname, thisHost):
 
                     pfJson[key] = value
                 elif key == "cookie":
-                    pfJson[key] = json.loads(value)
+                    if value.strip():
+                        pfJson[key] = json.loads(value)
+                    else:
+                        pfJson[key] = []
                 else:
                     pfJson[key] = value
 
@@ -1777,7 +1780,10 @@ def genProfileXlsx(pfJsons, fname, batch_bot_mid_keys, site_lists, thisHost):
             log3("found a match, filter a json cookie....", "genProfileXlsx", thisHost)
             pfJson = copy.deepcopy(original_pfJson)
             removeUselessCookies(pfJson, site_list)
-            pfJson["cookie"]=json.dumps(pfJson["cookie"])
+            if pfJson["cookie"]:
+                pfJson["cookie"]=json.dumps(pfJson["cookie"])
+            else:
+                pfJson["cookie"] = ""
             new_pfJsons.append(pfJson)
         else:
             log3("WARNING: user not found in ADS profile txt..."+one_un+"  "+un, "genProfileXlsx", thisHost)
@@ -1797,12 +1803,15 @@ def genDefaultProfileXlsx(pfJsons, fname):
         site_list = DEFAULT_SITE_LIST
         pfJson = copy.deepcopy(original_pfJson)
         removeUselessCookies(pfJson, site_list)
-        pfJson["cookie"]=json.dumps(pfJson["cookie"])
+        if pfJson["cookie"]:
+            pfJson["cookie"]=json.dumps(pfJson["cookie"])
+        else:
+            pfJson["cookie"] = ""
         new_pfJsons.append(pfJson)
 
 
     df = pd.DataFrame(new_pfJsons)
-    log3("writing to xlsx:"+fname)
+    log3(">>writing to xlsx:"+fname)
     # Write DataFrame to Excel file
     df.to_excel(fname, index=False)
 
