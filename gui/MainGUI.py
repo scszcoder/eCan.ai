@@ -7275,7 +7275,7 @@ class MainWindow(QMainWindow):
                             todays_todo_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
                             # with todays_todo_file name this won't run on commander.
                             if os.path.exists(todays_todo_file):
-                                if os.path.getsize(file_path) > 128:
+                                if os.path.getsize(todays_todo_file) > 128:
                                     with open(todays_todo_file, "r") as tdf:
                                         msg = json.load(tdf)
                                         tdf.close()
