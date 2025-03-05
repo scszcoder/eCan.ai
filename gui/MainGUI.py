@@ -7911,10 +7911,11 @@ class MainWindow(QMainWindow):
         yyyymmdd = today.strftime("%Y%m%d")
         sf_name = "todos" + yyyymmdd + ".json"
         todays_todo_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
-
-        with open(todays_todo_file, "wb") as tdf:
-            json.dump(msg, tdf, indent=4)
-            tdf.close()
+        # print("msg:", msg)
+        if msg['todos']:
+            with open(todays_todo_file, "w") as tdf:
+                json.dump(msg, tdf, indent=4)
+                tdf.close()
 
 
 
