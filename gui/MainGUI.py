@@ -7275,11 +7275,14 @@ class MainWindow(QMainWindow):
                             todays_todo_file = os.path.join(self.my_ecb_data_homepath + "/runlogs", sf_name)
                             # with todays_todo_file name this won't run on commander.
                             if os.path.exists(todays_todo_file):
-                                with open(todays_todo_file, "r") as tdf:
-                                    msg = json.load(tdf)
-                                    tdf.close()
+                                if os.path.getsize(file_path) > 128:
+                                    with open(todays_todo_file, "r") as tdf:
+                                        msg = json.load(tdf)
+                                        tdf.close()
 
-                                    self.setupScheduledTodos(msg)
+                                        self.setupScheduledTodos(msg)
+                                else:
+                                    print("WARNING: invalid todo file")
 
 
 
@@ -7297,29 +7300,31 @@ class MainWindow(QMainWindow):
 
 
     def setupScheduledTodos(self, msg):
-        localworks = msg["todos"]
-        self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
+        if msg:
+            localworks = msg["todos"]
+            self.addBotsMissionsSkillsFromCommander(msg["bots"], msg["missions"], msg["skills"])
 
-        # this is the time to rebuild skills to make them up to date....
-        self.dailySkillsetUpdate()
+            # this is the time to rebuild skills to make them up to date....
+            self.dailySkillsetUpdate()
 
-        log3("received work request:"+json.dumps(localworks), "serveCommander", self)
-        # send work into work Queue which is the self.todays_work["tbd"] data structure.
+            log3("received work request:"+json.dumps(localworks), "serveCommander", self)
+            # send work into work Queue which is the self.todays_work["tbd"] data structure.
 
-        self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
-        log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
+            self.todays_work["tbd"].append({"name": "automation", "works": localworks, "status": "yet to start", "current widx": 0, "vname": self.machine_name+":"+self.os_short, "completed": [], "aborted": []})
+            log3("after assigned work, "+str(len(self.todays_work["tbd"]))+" todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
 
-        platform_os = self.platform            # win, mac or linux
-        vname = self.machine_name + ":" + self.os_short
-        self.todays_scheduled_task_groups[vname] = localworks
-        self.unassigned_scheduled_task_groups[vname] = localworks
+            platform_os = self.platform            # win, mac or linux
+            vname = self.machine_name + ":" + self.os_short
+            self.todays_scheduled_task_groups[vname] = localworks
+            self.unassigned_scheduled_task_groups[vname] = localworks
 
-        # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
-        batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
-        # clean up the reports on this vehicle....
-        self.todaysReports = []
-        self.DONE_WITH_TODAY = False
-
+            # generate ADS loadable batch profiles ((vTasks, vehicle, commander):)
+            batched_tasks, ads_profiles = formADSProfileBatchesFor1Vehicle(localworks, self, self)
+            # clean up the reports on this vehicle....
+            self.todaysReports = []
+            self.DONE_WITH_TODAY = False
+        else:
+            print("nothing to arrange to do....")
 
     #update a vehicle's missions status
     # rx_data is a list of mission status for each mission that belongs to the vehicle.
@@ -7966,8 +7971,9 @@ class MainWindow(QMainWindow):
                 # the actual running of the tasks will be taken care of by the schduler.
 
                 if not self.todoAlreadyExists(msg):
-                    self.saveTodaysTodos(msg)
-                    self.setupScheduledTodos(msg)
+                    if msg:
+                        self.saveTodaysTodos(msg)
+                        self.setupScheduledTodos(msg)
                 else:
                     log3("commander sent todos exists in the queue. "+json.dumps(self.todays_work["tbd"]), "serveCommander", self)
 
