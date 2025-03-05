@@ -106,5 +106,46 @@
                 "handler args": []
             }
         ]
+    },
+    {
+        "file": "vcc_card.py",
+        "dir": "my_skills/win_chrome_vcc_card",
+        "instructions": [
+            {
+                "instruction name": "VCC Card Add Value",
+                "generator": "genStepMyVCCCardAddValue",
+                "handler": "processMyVCCCardAddValue",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Card Cancel",
+                "generator": "genStepMyVCCCardCancel",
+                "handler": "processMyVCCCardCancel",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Card Top Up",
+                "generator": "genStepMyVCCCardTopUp",
+                "handler": "processMyVCCCardTopUp",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Card List All",
+                "generator": "genStepMyVCCCardListAll",
+                "handler": "processMyVCCCardListAll",
+                "generator args": [],
+                "handler args": []
+            },
+            {
+                "instruction name": "VCC Card Create",
+                "generator": "genStepMyVCCCardCreate",
+                "handler": "processMyVCCCardCreate",
+                "generator args": [],
+                "handler args": []
+            }
+        ]
     }
 ]
