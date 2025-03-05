@@ -4178,7 +4178,7 @@ class MainWindow(QMainWindow):
         try:
             if exists(filename):
                 print("file name:", filename)
-                convertTxtProfiles2DefaultXlsxProfiles([filename])
+                convertTxtProfiles2DefaultXlsxProfiles([filename], self)
 
 
         except IOError:
