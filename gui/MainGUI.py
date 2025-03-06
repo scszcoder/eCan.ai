@@ -3621,6 +3621,7 @@ class MainWindow(QMainWindow):
                 json.dump(m_report_json, mrf, indent=4)
         else:
             # no file yet, just write it.
+            os.makedirs(worksettings["log_path_prefix"], exist_ok=True)
             with open(missionReportFile, "w", encoding="utf-8") as mrf:
                 m_report_json = {mid: result}
                 json.dump(m_report_json, mrf, indent=4)
@@ -6906,6 +6907,8 @@ class MainWindow(QMainWindow):
                         if self.host_role == "Platoon":
                             if len(self.todays_work["tbd"]) == 0:
                                 await self.doneWithToday()
+                            else:
+                                self.todays_work["tbd"].pop(0)
 
                 if self.working_state != "running_idle":
                     # clear to make next round ready to work
