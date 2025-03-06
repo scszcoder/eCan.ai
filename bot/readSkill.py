@@ -64,7 +64,7 @@ from bot.seleniumScrapeAmz import processAMZBrowserScrapePL
 from bot.envi import getECBotDataHome
 import traceback
 
-from seleniumSkill import processWebdriverSolveCaptcha
+from bot.seleniumSkill import processWebdriverSolveCaptcha
 
 symTab["fout"] = ""
 symTab["fin"] = ""

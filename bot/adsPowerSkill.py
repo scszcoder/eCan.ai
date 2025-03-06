@@ -2042,21 +2042,24 @@ def updateIndividualProfileFromBatchSavedTxt(mainwin, batch_profiles_txt, settin
 # for a list of existing cookies, find matching in name and domain and path, if matched all three in newones,
 # replace the existing cookie with the one in newones, otherwise, simply add newones into the existing ones.
 def merge_cookies(existing, new_ones):
-    merged_cookies = existing.copy()
+    if existing:
+        merged_cookies = existing.copy()
 
-    for new_cookie in new_ones:
-        matched_index = None
-        for i, existing_cookie in enumerate(merged_cookies):
-            if (existing_cookie['name'] == new_cookie['name'] and
-                existing_cookie['domain'] == new_cookie['domain'] and
-                existing_cookie['path'] == new_cookie['path']):
-                matched_index = i
-                break
+        for new_cookie in new_ones:
+            matched_index = None
+            for i, existing_cookie in enumerate(merged_cookies):
+                if (existing_cookie['name'] == new_cookie['name'] and
+                    existing_cookie['domain'] == new_cookie['domain'] and
+                    existing_cookie['path'] == new_cookie['path']):
+                    matched_index = i
+                    break
 
-        if matched_index is not None:
-            merged_cookies[matched_index] = new_cookie
-        else:
-            merged_cookies.append(new_cookie)
+            if matched_index is not None:
+                merged_cookies[matched_index] = new_cookie
+            else:
+                merged_cookies.append(new_cookie)
+    else:
+        merged_cookies = new_ones
 
     return merged_cookies
 
