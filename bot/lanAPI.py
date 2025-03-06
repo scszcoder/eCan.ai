@@ -81,7 +81,7 @@ async def req_lan_read_screen8(session, request, token, local_info, imgs, lan_en
             jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        print("jresp:", jresp)
+        # print("jresp:", jresp)
         jresponse = jresp["data"]["reqScreenTxtRead"]
 
     return jresponse

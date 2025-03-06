@@ -345,7 +345,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepCreateData("obj", "signed_out", "NA", None, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCreateData("string", "run_stat", "NA", "Completed:0", this_step)
+        this_step, step_words = genStepCreateData("string", "gmail_run_stat", "NA", "Completed:0", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("obj", "enter_key", "NA", None, this_step)
@@ -941,7 +941,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepCheckCondition("risk_flagged", "", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global run_stat\nrun_stat = 'Error: Gamil risk flagged.'", "", "in_line", "",
+        this_step, step_words = genStepCallExtern("global gmail_run_stat\ngmail_run_stat = 'Error: Gamil risk flagged.'", "", "in_line", "",
                                                   this_step)
         psk_words = psk_words + step_words
 
@@ -949,7 +949,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         psk_words = psk_words + step_words
 
         # set error flag somehow.
-        this_step, step_words = genStepCallExtern("global run_stat\nrun_stat = 'Error: Unable to Sign into Gmail.'", "", "in_line", "",
+        this_step, step_words = genStepCallExtern("global gmail_run_stat\ngmail_run_stat = 'Error: Unable to Sign into Gmail.'", "", "in_line", "",
                                                   this_step)
         psk_words = psk_words + step_words
 
