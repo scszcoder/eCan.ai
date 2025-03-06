@@ -430,6 +430,19 @@ def genStepWebdriverCheckConnection(driver_var, url_var, flag_var, stepN):
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+
+def genStepWebdriverSolveCaptcha(driver_var, api_key_var, site_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Solve Captcha",
+        "driver_var": driver_var,  # anchor, info, text
+        "api_key_var": api_key_var,
+        "site_var": site_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 # ====== now the processing routines for the step instructions.
 def processWebdriverClick(step, i, mission):
     mainwin = mission.get_main_win()
@@ -1338,10 +1351,12 @@ def processWebdriverExtractInfo(step, i, mission):
                     symTab[step["flag"]] = False
 
             if info_type == "text":
-                print("found text:", web_element.text)
                 if step["result_type"] == "var":
                     if web_element:
+                        print("found text:", web_element.text)
                         symTab[step["result"]] = web_element.text
+                    else:
+                        symTab[step["result"]] = ""
                 elif step["result_type"] == "expr":
                     to_words = re.split(r'\[|\(|\{', step["result"])
                     sink = to_words[0]
@@ -1808,3 +1823,91 @@ def processWebdriverGetValueFromWebElement(step, i):
         symTab[step["flag"]] = False
 
     return (i + 1), ex_stat
+
+
+
+def processWebdriverSolveCaptcha(step, i):
+    try:
+        ex_stat = DEFAULT_RUN_STATUS
+        driver = symTab[step["driver_var"]]
+        api_key = symTab[step["api_key_var"]]
+        site = step["site_var"]
+        symTab[step["flag"]] = True
+        symTab[step["result"]] = None
+
+        if target_element:
+            symTab[step["result"]] = target_element.get_attribute("value")
+            print(step["target_var"] + "is visible", "processWebdriverScrollTo")
+        else:
+            print(step["we_var"]+" does NOT exist")
+            symTab[step["flag"]] = False
+
+        if site.lower() == "gmail":
+            solveGmailCaptcha(driver, api_key)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverSolveCaptcha:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverSolveCaptcha: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+def solveGmailCaptcha(driver, api_key):
+    iframe = driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
+    driver.switch_to.frame(iframe)
+
+    # Extract site-key from the page
+    site_key = driver.find_element(By.ID, "recaptcha-anchor").get_attribute("data-sitekey")
+
+    driver.switch_to.default_content()  # Switch back to the main page
+
+    print(f"Extracted Site Key: {site_key}")
+
+    # Step 1: Send CAPTCHA solving request to 2Captcha
+    captcha_request_url = f"http://2captcha.com/in.php?key={api_key}&method=userrecaptcha&googlekey={site_key}&pageurl={driver.current_url}&json=1"
+
+    response = requests.get(captcha_request_url)
+    request_result = response.json()
+
+    if request_result["status"] != 1:
+        print("Error sending CAPTCHA to 2Captcha:", request_result)
+        driver.quit()
+        exit()
+
+    captcha_id = request_result["request"]
+    print(f"Captcha request sent! ID: {captcha_id}")
+
+    # Step 2: Wait for the CAPTCHA to be solved
+    time.sleep(15)  # Give time for solving
+
+    captcha_result_url = f"http://2captcha.com/res.php?key={api_key}&action=get&id={captcha_id}&json=1"
+
+    while True:
+        solution_response = requests.get(captcha_result_url)
+        solution_result = solution_response.json()
+
+        if solution_result["status"] == 1:
+            captcha_solution = solution_result["request"]
+            print(f"Solved CAPTCHA: {captcha_solution}")
+            break
+        else:
+            print("Waiting for CAPTCHA solution...")
+            time.sleep(5)
+
+    # Step 3: Inject the CAPTCHA solution into the webpage
+    driver.execute_script(f'document.getElementById("g-recaptcha-response").innerHTML="{captcha_solution}";')
+
+    # Step 4: Submit the form
+    submit_button = driver.find_element(By.XPATH, "//input[@type='submit']")  # Modify this selector as needed
+    submit_button.click()
+
+    print("Form submitted with solved CAPTCHA!")
+
+    # Wait to observe results
+    time.sleep(10)

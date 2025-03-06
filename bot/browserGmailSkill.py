@@ -407,6 +407,48 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
                                                             "extract_flag", this_step)
         psk_words = psk_words + step_words
 
+        # in case we got a captcha check here.....
+        this_step, step_words = genStepCheckCondition("not pw_input_box", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # # Switch to the iframe containing the reCAPTCHA checkbox
+        # iframe = driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
+        # driver.switch_to.frame(iframe)
+        #
+        # # Click the reCAPTCHA checkbox
+        # captcha_checkbox = driver.find_element(By.ID, "recaptcha-anchor")
+        # ActionChains(driver).move_to_element(captcha_checkbox).click().perform()
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 6, "info_type", By.XPATH,
+                                                            "//iframe[contains(@src, 'recaptcha')]", False, "var", "captcha_checkbox",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+
+
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 6, "info_type", By.ID,
+                                                            "recaptcha-anchor", False, "var", "captcha_checkbox",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("captcha_checkbox", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        # Extract site-key from the page
+        # site_key = driver.find_element(By.ID, "recaptcha-anchor").get_attribute("data-sitekey")
+
+        this_step, step_words = genStepWebdriverSolveCaptcha("web_driver", "captcha_api_key", "gmail", "solved", this_step)
+        psk_words = psk_words + step_words
+
+        # this_step, step_words = genStepWebdriverClick("web_driver", "captcha_checkbox", "action_result", "action_flag", this_step)
+        # psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
         this_step, step_words = genStepWebdriverClick("web_driver", "pw_input_box", "action_result", "action_flag", this_step)
         psk_words = psk_words + step_words
 
