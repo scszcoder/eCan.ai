@@ -3594,8 +3594,9 @@ class MainWindow(QMainWindow):
 
     def checkMissionAlreadyRun(self, worksettings):
         alreadyRun = False
-        mid = worksettings["mid"]
+        mid = str(worksettings["mid"])
         missionReportFile = worksettings["log_path_prefix"] + "run_result.json"
+        print("check mission already run missionReportFile:", missionReportFile)
         if os.path.exists(missionReportFile):
             with open(missionReportFile, "r", encoding="utf-8") as mrf:
                 m_report_json = json.load(mrf)
@@ -3610,7 +3611,7 @@ class MainWindow(QMainWindow):
         mid = worksettings["mid"]
         mission = self.missions[worksettings["midx"]]
         missionReportFile = worksettings["log_path_prefix"]+"run_result.json"
-
+        print("saving missionReportFile:", missionReportFile)
         # read-modify-write
         if os.path.exists(missionReportFile):
             with open(missionReportFile, "r", encoding="utf-8") as mrf:
