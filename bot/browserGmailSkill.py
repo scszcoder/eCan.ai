@@ -442,6 +442,20 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         # this_step, step_words = genStepWebdriverClick("web_driver", "captcha_checkbox", "action_result", "action_flag", this_step)
         # psk_words = psk_words + step_words
 
+        # now that we have gone thru the captcha, we should click on the next button to key in the password on the next screen.
+        # Locate the "Next" button using its class name
+        # next_button = driver.find_element(By.XPATH, "//button[.//span[contains(text(),'Next')]]")
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 6, "info_type", By.XPATH,
+                                                            "//button[.//span[contains(text(),'Next')]]", False, "var", "next_button",
+                                                            "extract_flag", this_step)
+        psk_words = psk_words + step_words
+
+        # Click the button
+        # ActionChains(driver).move_to_element(next_button).click().perform()
+        this_step, step_words = genStepWebdriverClick("web_driver", "next_button", "action_result", "action_flag", this_step)
+        psk_words = psk_words + step_words
+
+
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
@@ -449,6 +463,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         psk_words = psk_words + step_words
 
 
+        # now locate the password input text box and key in password
         this_step, step_words = genStepWebdriverClick("web_driver", "pw_input_box", "action_result", "action_flag", this_step)
         psk_words = psk_words + step_words
 
@@ -563,6 +578,23 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepCheckCondition("not emails", "", "", this_step)
         psk_words = psk_words + step_words
 
+        # if not in email page, first check for whether beig risk flagged
+        # message_element = driver.find_element(By.XPATH, "//div[contains(@class, 'dMNVAe')]")
+        # extracted_text = message_element.text
+        # check risk flag message:
+        # Extracted Text: It looks like this account was used in a way that violated Google’s policies
+        this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 5, "info_type", By.XPATH,
+                                                            "//div[contains(@class, 'dMNVAe')]", False, "var",
+                                                            "verify_recovery_info", "risk_flagged_message",
+                                                            this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCheckCondition("risk_flagged_message", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
         # now check the verify recover info page. ...... if so, click on cancel button.
         # popup = WebDriverWait(driver, 5).until(
         #         EC.presence_of_element_located((By.CLASS_NAME, "PcQtJe"))
@@ -647,6 +679,7 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
+
 
         # now check the verify recover info page. ...... if so, click on cancel button.
         # popup = WebDriverWait(driver, 5).until(
@@ -892,6 +925,10 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+        # end condition with else of not risk flagged...
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
         # now there is possibility of being asked to complete backup info, try to detect and skip it.
         this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 6, "info_type", By.CSS_SELECTOR,
                                                             "tr.zA", False, "var",
@@ -901,6 +938,16 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
         this_step, step_words = genStepCheckCondition("not emails", "", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCheckCondition("risk_flagged", "", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern("global run_stat\nrun_stat = 'Error: Gamil risk flagged.'", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("else", "", "", this_step)
+        psk_words = psk_words + step_words
+
         # set error flag somehow.
         this_step, step_words = genStepCallExtern("global run_stat\nrun_stat = 'Error: Unable to Sign into Gmail.'", "", "in_line", "",
                                                   this_step)
@@ -908,6 +955,10 @@ def genStepsWinChromeGmailBrowserSignIn(stepN):
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
 
     except Exception as e:
         # Log and skip errors gracefully
