@@ -4296,7 +4296,7 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepECBCollectBotProfiles("op_results", "profiles_updated", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global params, daily_schedule\nparams['daily_schedule']=daily_schedule\n", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global params, daily_schedule\nparams['daily_schedule']=daily_schedule\nprint('daily schedule::', len(daily_schedule['added_missions']))", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # do some external work - basically do a round of filtering (filter out the accounts not suitable to run)
@@ -4305,7 +4305,7 @@ def genWinChromeAMZTeamPrepSkill(worksettings, stepN, theme):
         this_step, step_words = genStepExternalHook("var", "file_prefix", "file_name","params", "hook_result", "prep_success", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global works_ready_to_dispatch, hook_result\nworks_ready_to_dispatch=hook_result['runnable']\n", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global works_ready_to_dispatch, hook_result\nworks_ready_to_dispatch=hook_result['runnable']\nprint('works_ready_to_dispatch::', type(works_ready_to_dispatch), len(works_ready_to_dispatch))", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # dispatch the works to the worker agents.

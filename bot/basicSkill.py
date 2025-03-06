@@ -6670,6 +6670,7 @@ def processECBDispatchTroops(step, i):
                 symTab[step["flag"]] = False
                 symTab[step["result_var"]] = symTab[step["schedule_var"]]
         elif isinstance(symTab[step["schedule_var"]], dict):
+            print("dispatching....")
             symTab[step["result_var"]] = mainWin.handleCloudScheduledWorks(symTab[step["schedule_var"]])
 
 
