@@ -1943,7 +1943,7 @@ class MainWindow(QMainWindow):
 
             # now that todays' newly added missions are in place, generate the cookie site list for the run.
             self.num_todays_task_groups = self.num_todays_task_groups + len(vtg["task_groups"])
-            print("num_todays_task_groups:", self.num_todays_task_groups)
+            print("regen num_todays_task_groups:", self.num_todays_task_groups)
 
             self.todays_scheduled_task_groups = self.reGroupByBotVehicles(vtg["task_groups"])
             self.unassigned_scheduled_task_groups = self.todays_scheduled_task_groups
@@ -2052,7 +2052,7 @@ class MainWindow(QMainWindow):
 
                 sf.close()
 
-            print("done with fetch schedule....", list(bodyobj.keys()))
+            print("done with fetch schedule....", list(bodyobj.keys()), len(bodyobj["added_missions"]))
             self.todaysSchedule = bodyobj
             return bodyobj
         # ni is already incremented by processExtract(), so simply return it.
@@ -7259,9 +7259,10 @@ class MainWindow(QMainWindow):
                 else:
                     # always run some clean up after night
                     print("manager msg queue empty...")
-                    if current_time.hour == 0 and current_time.minute == 1:
+                    if current_time.hour == 0 and current_time.minute < 10:
                         # do some data structure and state cleaning and get rid   the
                         # next day
+                        log3("clear work related data structure", "runmanagerworks", self)
                         self.todays_scheduled_task_groups = {}
                         self.unassigned_scheduled_task_groups = {}  # per vehicle, flatten task list
                         self.unassigned_reactive_task_groups = {}
@@ -7557,6 +7558,7 @@ class MainWindow(QMainWindow):
                         p_task_groups = self.unassigned_scheduled_task_groups[vname]
                     else:
                         print(f"{vname} not found in unassigned_scheduled_task_groups empty")
+                        print("keys:", list(self.unassigned_scheduled_task_groups.keys()))
                         p_task_groups = []
                 else:
                     if self.todays_scheduled_task_groups:
@@ -7564,6 +7566,7 @@ class MainWindow(QMainWindow):
                             p_task_groups = self.todays_scheduled_task_groups[vname]
                         else:
                             print(f"{vname} not found in todays_scheduled_task_groups empty")
+                            print("keys:", list(self.todays_scheduled_task_groups.keys()))
                             p_task_groups = []
                     else:
                         print("todays_scheduled_task_groups empty")
@@ -8950,7 +8953,7 @@ class MainWindow(QMainWindow):
             for file_name_full_path in file_paths:
                 print("checking", file_name_full_path)
                 if os.path.exists(file_name_full_path):
-                    print("hello?")
+                    print("exists!")
                     # log3(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}", "gatherFingerPrints", self)
                     # print(f"Sending File [{file_name_full_path}] to commander: {self.commanderIP}")
                     with open(file_name_full_path, 'rb') as fileTBSent:
