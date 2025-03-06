@@ -3724,11 +3724,19 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         this_step, step_words = genStepCreateData("string", "web_tab", "NA", "", stepN)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("string", "web_site", "NA", "", stepN)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepCallExtern("global web_tab, ads_profile_remark\nweb_tab = '-'+ads_profile_remark\nprint('web_tab:', web_tab)", "", "in_line", "",
                                                   this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepWebdriverGoToTab("web_driver", "web_tab", "", "site_result", "site_flag", this_step)
+        # specifically go to
+        this_step, step_words = genStepCallExtern("global web_site\nweb_site = 'http://127.0.0.1:20725/'\nprint('web_site:', web_site)", "", "in_line", "",
+                                                  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepWebdriverGoToTab("web_driver", "web_tab", "web_site", "site_result", "site_flag", this_step)
         psk_words = psk_words + step_words
 
         # Locate the element containing the IP address

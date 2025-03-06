@@ -45,7 +45,8 @@ from bot.seleniumSkill import processWebdriverClick, processWebdriverScrollTo, p
     processWebdriverStartExistingADS, processWebdriverStartNewChrome, processWebdriverExtractInfo, \
     processWebdriverWaitUntilClickable, processWebdriverWaitDownloadDoneAndTransfer, \
     processWebdriverWaitForVisibility, processWebdriverSwitchToFrame, processWebdriverSwitchToDefaultContent, \
-    processWebdriverCheckConnection, processWebdriverCheckVisibility, processWebdriverGetValueFromWebElement
+    processWebdriverCheckConnection, processWebdriverCheckVisibility, processWebdriverGetValueFromWebElement, \
+    processWebdriverSolveCaptcha
 from bot.Logger import log3
 from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySetOrderClickedStatus, \
     processEtsyFindScreenOrder, processEtsyRemoveAlreadyExpanded, processEtsyExtractTracking, processEtsyAddPageOfOrder, \
@@ -62,6 +63,8 @@ from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, 
 from bot.seleniumScrapeAmz import processAMZBrowserScrapePL
 from bot.envi import getECBotDataHome
 import traceback
+
+from seleniumSkill import processWebdriverSolveCaptcha
 
 symTab["fout"] = ""
 symTab["fin"] = ""
@@ -255,6 +258,7 @@ RAIS = {
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
     "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Web Driver Get Value": lambda x, y: processWebdriverGetValueFromWebElement(x, y),
+    "Web Driver Solve Captcha": lambda x, y: processWebdriverSolveCaptcha(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
@@ -424,6 +428,7 @@ ARAIS = {
     "Web Driver Check Connection": lambda x, y: processWebdriverCheckConnection(x, y),
     "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Web Driver Get Value": lambda x, y: processWebdriverGetValueFromWebElement(x, y),
+    "Web Driver Solve Captcha": lambda x, y: processWebdriverSolveCaptcha(x, y),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
