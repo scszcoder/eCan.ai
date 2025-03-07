@@ -991,7 +991,7 @@ def processWebdriverGoToTab(step, i):
         # tab_title_txt = symTab[step["text_var"]]
         tab_title_txt = step["text_var"]
         # url = symTab[step["site_var"]]
-        url = step["site_var"]
+        url = symTab[step["site_var"]]
 
         log3("swtich to tab")
         found = False
