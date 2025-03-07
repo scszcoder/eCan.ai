@@ -1317,7 +1317,7 @@ def get_top_visible_window(win_title_keyword):
         win32gui.EnumWindows(winEnumHandler, None)
 
         log3("TOP5 WINDOWS:"+",".join(names[0:5]))
-        effective_names = [nm for nm in names if "dummy" not in nm]
+        effective_names = [nm for nm in names if "dummy" not in nm and "Remote Desktop" not in nm]
         found = False
         if win_title_keyword:
             for wi, wn in enumerate(effective_names):
@@ -1597,6 +1597,7 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
     img_engine = mwin.getImageEngine()
     if img_engine == "lan":
         img_endpoint = mwin.getLanImageEndpoint()
+        print("img endpoint:", img_endpoint)
     else:
         img_endpoint = mwin.getWanImageEndpoint()
 
@@ -6273,7 +6274,8 @@ def processGetWindowsInfo(step, i):
             win32gui.EnumWindows(winEnumHandler, None)
 
             log3("TOP5 WINDOWS:" + ",".join(names[0:5]))
-            effective_names = [nm for nm in names if "dummy" not in nm]
+            effective_names = [nm for nm in names if "dummy" not in nm and "Remote Desktop" not in nm]
+            print("effective_names--", effective_names)
             found = False
             if isinstance(step["nth_var"], str):
                 for wi, wn in enumerate(effective_names):
@@ -6286,6 +6288,7 @@ def processGetWindowsInfo(step, i):
                 # set to default top window
                 nth = step["nth_var"]
                 win_title = effective_names[nth]
+                print("win name2: ", nth, effective_names[nth])
                 window_handle = win32gui.FindWindow(None, effective_names[nth])
                 win_rect = win32gui.GetWindowRect(window_handle)
                 log3("default top window: " + names[nth] + " rect: " + json.dumps(win_rect))

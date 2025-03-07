@@ -878,7 +878,10 @@ class EBBOT(QStandardItem):
         return self.pubProfile.vid
 
     def getVehicle(self):
-        return self.pubProfile.vehicle
+        if self.pubProfile.vehicle:
+            return self.pubProfile.vehicle
+        else:
+            return ""
 
     def setVehicle(self, v):
         self.pubProfile.vehicle = v
