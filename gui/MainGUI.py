@@ -2561,9 +2561,11 @@ class MainWindow(QMainWindow):
     def gen_new_buy_search(self, work, mission):
         # simply modify mission's search configuration to fit our need.
         # we'll randomely pick one of the searches and modify its parameter.
+        log3(f"gen buy related search...", "buyConfig", self)
         nth_search = random.randrange(0, len(work["config"]["searches"]))
         # nth_search = 0                  # quick hack for speeding up unit test. should be removed in release code.
         n_pages = len(work["config"]["searches"][nth_search]["prodlist_pages"])
+        log3(f"nth_search-{nth_search}", "buyConfig", self)
 
         work["config"]["searches"][nth_search]["entry_paths"]["type"] = "Search"
         work["config"]["searches"][nth_search]["entry_paths"]["words"] = [mission.getSearchKW()]
@@ -2596,7 +2598,7 @@ class MainWindow(QMainWindow):
                                     "follow_price": mission.getFollowPrice()
                                 }]
                     }
-                log3(f"added target buy: {target_buy}")
+                log3(f"added target buy cart pay: {target_buy}", "buyConfig", self)
                 page["products"].append(target_buy)
 
         elif work["name"].split("_")[1] in ["pay", "checkShipping", "rate", "feedback", "checkFB"]:
@@ -2629,8 +2631,8 @@ class MainWindow(QMainWindow):
                             }
                         ]
                     }
-            log3(f"set up run time swap with buy related search to replace cloud search {first_page['products'][0]}")
-        logger_helper.debug("Modified Buy Work:"+json.dumps(work))
+            log3(f"set up run time swap with buy related search to replace cloud search {first_page['products'][0]}", "buyConfig", self)
+        log3("Modified Buy Search Work:"+json.dumps(work), "buyConfig", self)
 
 
     def findWorkFromMission(self, mission):
@@ -2720,12 +2722,14 @@ class MainWindow(QMainWindow):
     def gen_random_search_config(self, mission):
         config = {"estRunTime": 1, "searches": []}
         nSearches = random.randint(1, self.buy_search_settings["max_searches"]+1)
+        log3(f"gen nsearches:{nSearches}", "buyConfig", self)
         for n in range(nSearches):
             search = self.gen_random_search_params(mission)
             config["searches"].append(search)
         return config
 
     def gen_buy_search_config(self, mission):
+        log3(f"cofigure buy search {mission.getMid()}", "buyConfig", self)
         work = self.findWorkFromMission(mission)
         work["config"] = self.gen_random_search_config(mission)
 
@@ -2766,16 +2770,16 @@ class MainWindow(QMainWindow):
                                     "follow_price": mission.getFollowPrice()
                                 }]
                     }
-                log3(f"added target buy: {target_buy}")
+                log3(f"added target buy: {target_buy}", "buyConfig", self)
                 page["products"].append(target_buy)
 
         mission.setConfig(work["config"])
-        logger_helper.debug("Modified Buy Work:"+json.dumps(work))
+        log3("Modified Buy Work:"+json.dumps(work), "buyConfig", self)
 
 
     def gen_prod_sel(self):
-        idx = math.floor(random.random() * (len(self.static_resource.PRODUCT_SEL_TYPES.length) - 1));
-        return self.static_resource.PRODUCT_SEL_TYPES[idx];
+        idx = math.floor(random.random() * (len(self.static_resource.PRODUCT_SEL_TYPES.length) - 1))
+        return self.static_resource.PRODUCT_SEL_TYPES[idx]
 
 
     # given a derived buy mission, find out the original buy mission that was put in order by the users.
