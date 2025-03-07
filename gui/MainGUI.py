@@ -3746,7 +3746,7 @@ class MainWindow(QMainWindow):
                 worksTBD["status"] = "Completed"
 
 
-        self.showMsg("current widx pointer now at:"+str(worksTBD["current widx"])+" worksTBD status: "+worksTBD["status"], "update1WorkRunStatus", self)
+        log3("current widx pointer now at:"+str(worksTBD["current widx"])+" worksTBD status: "+worksTBD["status"], "update1WorkRunStatus", self)
 
 
     def checkTaskGroupCompleteness(self, worksTBD):
