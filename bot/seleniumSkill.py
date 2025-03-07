@@ -604,29 +604,33 @@ def smoothScrollToElement(driver, element, y_offset, increment=50):
         current_scroll_position = driver.execute_script("return window.pageYOffset;") + y_offset
         target_position = element.location['y']
         scroll_height = 0
-
+        MAX_SCROLL_COUNT = 48
+        scroll_count = MAX_SCROLL_COUNT
         if current_scroll_position < target_position:
             # Scroll down
-            while current_scroll_position < target_position:
+            while current_scroll_position < target_position and scroll_count:
                 # Scroll by the increment
                 driver.execute_script(f"window.scrollBy(0, {increment});")
                 # Update the current scroll position
                 current_scroll_position = driver.execute_script("return window.pageYOffset;") + y_offset
                 # Optional: Add a small delay to make scrolling visible
                 random_wait = random.randint(1, 100) / 100
+                scroll_count = scroll_count - 1
                 time.sleep(random_wait)
         else:
             # Scroll up
-            while current_scroll_position > target_position:
+            while current_scroll_position > target_position and scroll_count:
                 # Scroll by the increment (in the negative direction)
                 driver.execute_script(f"window.scrollBy(0, -{increment});")
                 # Update the current scroll position
                 current_scroll_position = driver.execute_script("return window.pageYOffset;") + y_offset
                 # Optional: Add a small delay to make scrolling visible
                 random_wait = random.randint(1, 100)/100
+                scroll_count = scroll_count - 1
                 time.sleep(random_wait)
 
-
+        if not scroll_count:
+            print("WARNING: SCROLL TARGET NOT REACHED!")
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -742,7 +746,7 @@ async def processWebdriverScrollTo8(step, i, mission):
         wait = step["wait_var"]
         increment = step["increment_var"]
         loc = step["loc_var"]
-        print("waiting for pagination to load")
+        print("async waiting for pagination to load")
         time.sleep(5)
         # Wait until the pagination element is present
         # target_element = WebDriverWait(driver, wait).until(
@@ -1776,9 +1780,9 @@ def processWebdriverCheckVisibility(step, i):
         if target_element:
             if isDisplayed(driver, target_element):
                 symTab[step["result"]] = True
-                print(step["target_var"] + "is visible", "processWebdriverScrollTo")
+                print(step["target_var"] + "is visible", "processWebdriverCheckVisibility")
             else:
-                print(step["target_var"] + " NOT visible!","processWebdriverScrollTo")
+                print(step["target_var"] + " NOT visible!","processWebdriverCheckVisibility")
 
     except Exception as e:
         # Get the traceback information
@@ -1811,7 +1815,7 @@ def processWebdriverGetValueFromWebElement(step, i):
 
         if target_element:
             symTab[step["result"]] = target_element.get_attribute("value")
-            print(step["target_var"] + "is visible", "processWebdriverScrollTo")
+            print(step["target_var"] + "is visible", "processWebdriverGetValueFromWebElement")
         else:
             print(step["we_var"]+" does NOT exist")
             symTab[step["flag"]] = False
@@ -1842,7 +1846,7 @@ def processWebdriverSolveCaptcha(step, i):
 
         if target_element:
             symTab[step["result"]] = target_element.get_attribute("value")
-            print(step["target_var"] + "is visible", "processWebdriverScrollTo")
+            print(step["target_var"] + "is visible", "processWebdriverSolveCaptcha")
         else:
             print(step["we_var"]+" does NOT exist")
             symTab[step["flag"]] = False
