@@ -560,7 +560,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             fileTBR.close()
 
     bot = lieutenant.bots[bot_idx]
-    print("bot ads profoile:", bot.getADSProfile())
+    # print("bot ads profoile:", bot.getADSProfile())
     if bot.getADSProfile():
         ads_profile_id = bot.getADSProfile()[0]["id"]
     else:

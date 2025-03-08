@@ -3377,7 +3377,7 @@ class MainWindow(QMainWindow):
                         log3("all_skill_codes: "+json.dumps(all_skill_codes), "runRPA", self)
 
                         rpa_script = prepRunSkill(all_skill_codes)
-                        log3("generated ready2run: "+json.dumps(rpa_script), "runRPA", self)
+                        # log3("generated ready2run: "+json.dumps(rpa_script), "runRPA", self)
                         # self.showMsg("generated psk: " + str(len(rpa_script.keys())))
 
                         # doing this just so that the code below can run multiple codes if needed. but in reality
@@ -3545,7 +3545,7 @@ class MainWindow(QMainWindow):
                     log3("all_skill_codes: "+json.dumps(all_skill_codes), "runRPA", self)
 
                     rpa_script = prepRunSkill(all_skill_codes)
-                    log3("generated ready2run: "+json.dumps(rpa_script), "runRPA", self)
+                    # log3("generated ready2run: "+json.dumps(rpa_script), "runRPA", self)
                     # self.showMsg("generated psk: " + str(len(rpa_script.keys())))
 
                     # doing this just so that the code below can run multiple codes if needed. but in reality
