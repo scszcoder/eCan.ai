@@ -581,6 +581,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     rd_screen_count = 0
     running= True
     mission.recordStartTime()
+    mainwin = mission.get_main_win()
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
     log3("====================================="+str(len(stepKeys)))
@@ -668,7 +669,6 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         # should close the current app here, make room for the next retry, and other tasks...
         stepKeys = list(steps.keys())
         step = steps[stepKeys[next_step_index]]
-        mainwin = mission.get_main_win()
         last_screen_shot_file = mainwin.my_ecb_data_homepath+"/runlogs/last_screen.png"
         captureScreenToFile("", last_screen_shot_file)
         mission.recordFailureContext(next_step_index, step, run_stack, step_stat, last_screen_shot_file)
@@ -678,6 +678,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     return run_result
 
 def closeMissionADS(mwin, mission):
+    print("closing ads.....")
     # first check mission's main skill name if ADS is in it, that means it's an ADS related skill
     skills = mission.getSkills()
     if isinstance(skills, list):
@@ -686,7 +687,6 @@ def closeMissionADS(mwin, mission):
         skstrings = skills.split(",")
         skid = int(skills[0].strip())
 
-    mskill = next(sk.getSkid() for sk in mwin.skills if sk.getSkid == skid)
     foundSkill = next((sk for i, sk in enumerate(mwin.skills) if sk.getSkid() == skid), None)
     if foundSkill:
         if "ads" in foundSkill.getName().lower():

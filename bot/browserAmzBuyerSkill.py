@@ -497,6 +497,9 @@ def genStepsAMZBrowserBrowseProductLists(pageCfgsName, ith, lastone, flows, step
         this_step, step_words = genStepCreateData("int", "nthFlow", "NA", 0, this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("obj", "title_tbc", "NA", None, this_step)
+        psk_words = psk_words + step_words
+
         # algorithm goes like this:
         # for each search result, config will tell you how many product list pages to browse thru,
         # usually less than 3 pages, mostly just 1 or 2 pages.
@@ -632,6 +635,9 @@ def genStepsAMZBrowserBrowsePLToBottom(page_cfg, pl, ith, stepN, worksettings):
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("int", "near_offset", "NA", 0, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("obj", "title_tbc", "NA", None, this_step)
         psk_words = psk_words + step_words
 
 
@@ -988,6 +994,9 @@ def genStepsAMZBrowserBrowsePLToLastAttention(page_cfg, pl, ith, stepN, worksett
         psk_words = psk_words + step_words
 
 
+        this_step, step_words = genStepCheckCondition("title_tbc", "", "", this_step)
+        psk_words = psk_words + step_words
+
         # action, action_args, screen, target, target_type, template, nth, offset_from, offset, offset_unit, stepN enter the product details page.
         this_step, step_words = genStepWebdriverClick("web_driver", "title_tbc", "click_result", "click_flag", this_step)
         psk_words = psk_words + step_words
@@ -1005,6 +1014,10 @@ def genStepsAMZBrowserBrowsePLToLastAttention(page_cfg, pl, ith, stepN, worksett
         # create a loop here to click into the interested product list. Note: loop is inside genAMZBrowseDetail
         this_step, step_words = genAMZBrowserBrowseDetails("det_lvl", "pur", this_step, worksettings)
         psk_words = psk_words + step_words
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
 
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
