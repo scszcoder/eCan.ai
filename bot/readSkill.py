@@ -62,6 +62,7 @@ from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOr
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
 from bot.seleniumScrapeAmz import processAMZBrowserScrapePL
 from bot.envi import getECBotDataHome
+from bot.adsAPISkill import stopAdspowerProfile
 import traceback
 
 from bot.seleniumSkill import processWebdriverSolveCaptcha
@@ -672,8 +673,33 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         captureScreenToFile("", last_screen_shot_file)
         mission.recordFailureContext(next_step_index, step, run_stack, step_stat, last_screen_shot_file)
 
+    closeMissionADS(mainwin, mission)
     mission.recordEndTime()
     return run_result
+
+def closeMissionADS(mwin, mission):
+    # first check mission's main skill name if ADS is in it, that means it's an ADS related skill
+    skills = mission.getSkills()
+    if isinstance(skills, list):
+        skid = int(skills[0])
+    else:
+        skstrings = skills.split(",")
+        skid = int(skills[0].strip())
+
+    mskill = next(sk.getSkid() for sk in mwin.skills if sk.getSkid == skid)
+    foundSkill = next((sk for i, sk in enumerate(mwin.skills) if sk.getSkid() == skid), None)
+    if foundSkill:
+        if "ads" in foundSkill.getName().lower():
+            print("This is ADS Skill")
+            # then obtain this mission's executor bot's ads profile id
+            botid = mission.getBid()
+            foundBot = next((bot for i, bot in enumerate(mwin.bots) if bot.getBid() == botid), None)
+            if foundBot:
+                profile_id = foundBot.getADSProfile()[0]["id"]
+                # use ADS API's close the profile.
+                ads_settings = foundBot.getADSSettings()
+                print("bot profile_id:", profile_id, ads_settings["ads_api_key"], ads_settings["ads_port"])
+                stopAdspowerProfile(ads_settings["ads_api_key"], profile_id, ads_settings["ads_port"])
 
 
 def sendGUIMessage(msg_queue, msg_data):

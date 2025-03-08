@@ -1026,6 +1026,7 @@ def processWebdriverGoToTab(step, i):
                     driver.get(url)  # Replace with the new URL
             else:
                 if url:
+                    print("URL:", url)
                     driver.get(url)
 
         else:
