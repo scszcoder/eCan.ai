@@ -814,7 +814,10 @@ def processWebdriverKeyIn(step, i, mission):
         target.clear()
 
         if isinstance(text, list):
-           text_tbki = " ".join(text)
+            if text[0]:
+                text_tbki = " ".join(text)
+            else:
+                text_tbki = ""
         else:
             text_tbki = text
 
