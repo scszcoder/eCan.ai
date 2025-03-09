@@ -3429,6 +3429,7 @@ class MainWindow(QMainWindow):
                 log3("mission already ran " + str(worksettings["mid"]), "runRPA", self)
                 log3("mission ALREADY Completed today: " + str(worksettings["mid"]), "runRPA", self)
                 runResult = "Completed:0 Skip Rerun"
+                self.update1WorkRunStatus(worksTBD, worksettings["midx"])
 
         except Exception as e:
             # Get the traceback information

@@ -575,7 +575,7 @@ def processAMZBrowserScrapePL(step, i, mission):
             found, fi = found_match(p, pl["pl"])
             if found:
                 # remove found from the pl
-                log3("FOUND product:"+json.dumps(found))
+                log3("FOUND to be paid attention product:"+json.dumps(found))
                 if found["summery"]["title"] != "CUSTOM":
                     pl["pl"].remove(found)
                 else:
