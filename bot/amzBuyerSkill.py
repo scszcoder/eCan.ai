@@ -4032,41 +4032,42 @@ def processAMZCalcProductLayout(step, i):
 # pick a product from pl.
 def found_match(p, pl):
     matches = []
-    if p["selType"] == "ac":
-        # amazon's choice.
-        matches = [pr for index, pr in enumerate(pl) if pr["summery"]["ac"]]
-    elif p["selType"] == "op":
-        # amazon's best overall pick.
-        matches = [pr for index, pr in enumerate(pl) if pr["summery"]["op"]]
-    elif p["selType"] == "bs":
-        # amazon's best seller.
-        matches = [pr for index, pr in enumerate(pl) if pr["summery"]["bs"]]
-    elif p["selType"] == "mr":
-        # most reviews
-        rvsorted = sorted(pl, key=lambda x: x["summery"]["feedbacks"], reverse=True)
-        matches = [rvsorted[0]]
-        log3("MOST REVIEWS:", matches)
-    elif p["selType"] == "mhr":
-        # highest star ranking....
-        rvsorted = sorted(pl, key=lambda x: x["summery"]["score"], reverse=True)
-        matches = [rvsorted[0]]
-        log3("HIGHEST RATED:", matches)
-    elif p["selType"] == "ms":
-        # most past week sales
-        rvsorted = sorted(pl, key=lambda x: x["summery"]["weekly_sales"], reverse=True)
-        matches = [rvsorted[0]]
-        log3("MOST WEEK SALES:"+json.dumps(matches))
-    elif p["selType"] == "cp":
-        # cheapest price
-        rvsorted = sorted(pl, key=lambda x: x["summery"]["price"], reverse=False)
-        matches = [rvsorted[0]]
-        log3("CHEAPEST PRICE:"+json.dumps(matches))
-    elif p["selType"] == "cus":
-        matches = [pr for index, pr in enumerate(pl) if p["purchase"][0]["title"] == pr["summery"]["title"]]
-    else:
-        #randomly pick one.
-        k = random.randint(0, len(pl)-1)
-        matches = [pl[k]]
+    if pl:
+        if p["selType"] == "ac":
+            # amazon's choice.
+            matches = [pr for index, pr in enumerate(pl) if pr["summery"]["ac"]]
+        elif p["selType"] == "op":
+            # amazon's best overall pick.
+            matches = [pr for index, pr in enumerate(pl) if pr["summery"]["op"]]
+        elif p["selType"] == "bs":
+            # amazon's best seller.
+            matches = [pr for index, pr in enumerate(pl) if pr["summery"]["bs"]]
+        elif p["selType"] == "mr":
+            # most reviews
+            rvsorted = sorted(pl, key=lambda x: x["summery"]["feedbacks"], reverse=True)
+            matches = [rvsorted[0]]
+            log3("MOST REVIEWS:", matches)
+        elif p["selType"] == "mhr":
+            # highest star ranking....
+            rvsorted = sorted(pl, key=lambda x: x["summery"]["score"], reverse=True)
+            matches = [rvsorted[0]]
+            log3("HIGHEST RATED:", matches)
+        elif p["selType"] == "ms":
+            # most past week sales
+            rvsorted = sorted(pl, key=lambda x: x["summery"]["weekly_sales"], reverse=True)
+            matches = [rvsorted[0]]
+            log3("MOST WEEK SALES:"+json.dumps(matches))
+        elif p["selType"] == "cp":
+            # cheapest price
+            rvsorted = sorted(pl, key=lambda x: x["summery"]["price"], reverse=False)
+            matches = [rvsorted[0]]
+            log3("CHEAPEST PRICE:"+json.dumps(matches))
+        elif p["selType"] == "cus":
+            matches = [pr for index, pr in enumerate(pl) if p["purchase"][0]["title"] == pr["summery"]["title"]]
+        else:
+            #randomly pick one.
+            k = random.randint(0, len(pl)-1)
+            matches = [pl[k]]
 
     found_index = -1
     if len(matches) > 0:

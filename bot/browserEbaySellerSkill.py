@@ -103,7 +103,7 @@ def genWinADSEbayBrowserFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -309,7 +309,7 @@ def genWinADSEbayBrowserFullfillOrdersWithECBLabelsSkill(worksettings, stepN, th
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -672,7 +672,7 @@ def genWinADSEbayBrowserBuyECBLabelsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay order browser fullfill operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -1165,7 +1165,7 @@ def genWinADSEbayBrowserCollectOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay in browser collect orders...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay in browser collect orders...." + psk_words)
 
     return this_step, psk_words
 
@@ -1183,7 +1183,7 @@ def genWinChromeEbayBrowserCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome ebay in browser collect orders...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome ebay in browser collect orders...." + psk_words)
 
     return this_step, psk_words
 
@@ -1203,7 +1203,7 @@ def genWinChromeEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay buy shipping and update tracking...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay buy shipping and update tracking...." + psk_words)
 
     return this_step, psk_words
 
@@ -1396,7 +1396,7 @@ def genWinADSEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser update tracking info on ebay...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome in browser update tracking info on ebay...." + psk_words)
 
     return this_step, psk_words
 
@@ -1427,7 +1427,7 @@ def genWinChromeEbayBrowserUpdateTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome in browser update tracking info on ebay...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome in browser update tracking info on ebay...." + psk_words)
 
     return this_step, psk_words
 
@@ -1804,7 +1804,7 @@ def genWinADSEbayBrowserRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads in browser ebay handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads in browser ebay handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -2083,7 +2083,7 @@ def genWinADSEbayBuyShippingLabelsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
 
     return this_step, psk_words
 
@@ -2196,7 +2196,7 @@ def genWinADSEbayHandleReturnsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -2322,7 +2322,7 @@ def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -2632,7 +2632,7 @@ def genWinADSEbayRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -2937,7 +2937,7 @@ def genWinADSEbayBrowserHandleOffersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle respoding to offers using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle respoding to offers using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -2978,7 +2978,7 @@ def genWinADSEbayBrowserHandleReturnSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return with ebay labels using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return with ebay labels using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -3021,7 +3021,7 @@ def genWinADSEbayBrowserHandleReturnWithECBLabelsSkill(worksettings, stepN, them
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return with ECB generated labels using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return with ECB generated labels using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -3062,7 +3062,7 @@ def genWinADSEbayBrowserHandleReplacementSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle sending replacement using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle sending replacement using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
 
@@ -3103,6 +3103,6 @@ def genWinADSEbayBrowserHandleRefundSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle refund using in-browser automation skills...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle refund using in-browser automation skills...." + psk_words)
 
     return this_step, psk_words
