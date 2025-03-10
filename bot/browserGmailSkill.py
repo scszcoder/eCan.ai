@@ -52,7 +52,7 @@ def genWinADSGmailBrowserRefreshSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ads power gmail routine access....." + psk_words)
+    # print("DEBUG", "generated skill for windows ads power gmail routine access....." + psk_words)
 
     return this_step, psk_words
 
@@ -76,7 +76,7 @@ def genWinADSGmailBrowserAnswerEmailsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ads power answer gmails and remove spams....." + psk_words)
+    # print("DEBUG", "generated skill for windows ads power answer gmails and remove spams....." + psk_words)
 
     return this_step, psk_words
 

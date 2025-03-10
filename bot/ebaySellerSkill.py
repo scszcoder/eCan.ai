@@ -244,7 +244,7 @@ def genWinADSEbayFullfillOrdersSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
     print("generating win ads ebay skill")
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay order fullfill operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay order fullfill operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -463,7 +463,7 @@ def genWinChromeEbayCollectOrderListSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome ebay collect orders operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome ebay collect orders operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -483,7 +483,7 @@ def genWinChromeEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay buy shipping and update tracking...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay buy shipping and update tracking...." + psk_words)
 
     return this_step, psk_words
 
@@ -648,7 +648,7 @@ def genWinADSEbayBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome ebay buy shipping and update tracking...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome ebay buy shipping and update tracking...." + psk_words)
 
     return this_step, psk_words
 
@@ -681,7 +681,7 @@ def genWinADSEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome update tracking info on ebay...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome update tracking info on ebay...." + psk_words)
 
     return this_step, psk_words
 
@@ -712,7 +712,7 @@ def genWinChromeEbayUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome update tracking info on ebay...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome update tracking info on ebay...." + psk_words)
 
     return this_step, psk_words
 
@@ -946,7 +946,7 @@ def genWinADSEbayHandleMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -1000,7 +1000,7 @@ def genWinChromeEbayHandleMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows chrome ebay handle messages...." + psk_words)
+    # log3("DEBUG", "generated skill for windows chrome ebay handle messages...." + psk_words)
 
     return this_step, psk_words
 
@@ -1012,7 +1012,7 @@ def genStepCreateReturnLabels(stepN):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
 
     return this_step, psk_words
 
@@ -1024,7 +1024,7 @@ def genStepCreateResends(stepN):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
 
     return this_step, psk_words
 
@@ -1036,7 +1036,7 @@ def genStepHandleRefunds(stepN):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
 
     return this_step, psk_words
 
@@ -1195,7 +1195,7 @@ def genWinADSEbayBuyShippingLabelsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ads ebay purchase shipping labels...." + psk_words)
 
     return this_step, psk_words
 
@@ -1308,7 +1308,7 @@ def genWinADSEbayHandleReturnsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -1433,7 +1433,7 @@ def genWinADSEbayHandleMsgsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words
 
@@ -1740,6 +1740,6 @@ def genWinADSEbayRespondMessagesSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     psk_words = psk_words + "\"dummy\" : \"\"}"
-    log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
+    # log3("DEBUG", "generated skill for windows ebay handle return operation...." + psk_words)
 
     return this_step, psk_words

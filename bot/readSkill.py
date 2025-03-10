@@ -581,6 +581,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     rd_screen_count = 0
     running= True
     mission.recordStartTime()
+    mainwin = mission.get_main_win()
     # for k in stepKeys:
     #     log3("steps: "+str(k)+" -> "+json.dumps(steps[k]))
     log3("====================================="+str(len(stepKeys)))
@@ -668,7 +669,6 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         # should close the current app here, make room for the next retry, and other tasks...
         stepKeys = list(steps.keys())
         step = steps[stepKeys[next_step_index]]
-        mainwin = mission.get_main_win()
         last_screen_shot_file = mainwin.my_ecb_data_homepath+"/runlogs/last_screen.png"
         captureScreenToFile("", last_screen_shot_file)
         mission.recordFailureContext(next_step_index, step, run_stack, step_stat, last_screen_shot_file)
@@ -678,29 +678,32 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
     return run_result
 
 def closeMissionADS(mwin, mission):
+    print(f"closing ads.... {mission.getMid()} {type(mission.getSkills())} {mission.getSkills()}")
     # first check mission's main skill name if ADS is in it, that means it's an ADS related skill
     skills = mission.getSkills()
     if isinstance(skills, list):
         skid = int(skills[0])
     else:
         skstrings = skills.split(",")
-        skid = int(skills[0].strip())
-
-    mskill = next(sk.getSkid() for sk in mwin.skills if sk.getSkid == skid)
-    foundSkill = next((sk for i, sk in enumerate(mwin.skills) if sk.getSkid() == skid), None)
+        skid = int(skstrings[0].strip())
+    # allskids = [sk.getSkid() for sk in mwin.skills]
+    # print("skid:", skid, "::", type(allskids[0]), ":::", allskids)
+    foundSkill = next((sk for i, sk in enumerate(mwin.skills) if int(sk.getSkid()) == skid), None)
     if foundSkill:
-        if "ads" in foundSkill.getName().lower():
+        if "ads" in foundSkill.getApp().lower():
             print("This is ADS Skill")
             # then obtain this mission's executor bot's ads profile id
             botid = mission.getBid()
             foundBot = next((bot for i, bot in enumerate(mwin.bots) if bot.getBid() == botid), None)
             if foundBot:
-                profile_id = foundBot.getADSProfile()[0]["id"]
+                bot_email = foundBot.getEmail()
+                profile_id = symTab["loaded_profiles"][bot_email]["uid"]
                 # use ADS API's close the profile.
-                ads_settings = foundBot.getADSSettings()
+                ads_settings = mwin.getADSSettings()
                 print("bot profile_id:", profile_id, ads_settings["ads_api_key"], ads_settings["ads_port"])
                 stopAdspowerProfile(ads_settings["ads_api_key"], profile_id, ads_settings["ads_port"])
-
+        else:
+            print("unknown skill from this failed mission", foundSkill.getName())
 
 def sendGUIMessage(msg_queue, msg_data):
     asyncio.create_task(msg_queue.put(msg_data))
@@ -1147,7 +1150,7 @@ def gen_addresses(stepcodes, nth_pass):
         # parse thru the json objects and work on stubs.
         for i in range(len(stepkeys)):
             stepName = stepkeys[i]
-            log3("working on: ["+str(i)+"] "+stepName+" "+stepcodes[stepName]["type"])
+            # log3("working on: ["+str(i)+"] "+stepName+" "+stepcodes[stepName]["type"])
 
             if i != 0:
                 prevStepName = stepkeys[i - 1]
@@ -1233,7 +1236,7 @@ def gen_addresses(stepcodes, nth_pass):
                     # pop from stack
                     loop_start_found = False
                     fi = 0
-                    log3("working on: "+prevStepName+" ("+json.dumps(stepcodes[prevStepName])+")")
+                    # log3("working on: "+prevStepName+" ("+json.dumps(stepcodes[prevStepName])+")")
                     while not loop_start_found:
                         tempStepName = temp_stack.pop()
                         log3("popped out due to end looop step["+str(len(temp_stack))+"]: "+str(fi)+" :: "+json.dumps(tempStepName)+"("+json.dumps(stepcodes[tempStepName])+")")

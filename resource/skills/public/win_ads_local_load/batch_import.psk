@@ -89,7 +89,7 @@
 "step 55":
 {
     "type": "Call Extern",
-    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'NewProfile', 'Profiles', 'No Data']}\nprint('scrn_options', scrn_options)",
+    "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'NewProfile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
     "args": "",
     "entity": "in_line",
     "output": ""
