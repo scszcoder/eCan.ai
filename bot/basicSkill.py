@@ -207,11 +207,12 @@ def genStepExtractInfo(template, settings, sink, page, sect, theme, stepN, page_
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepScreenCapture(area, fformat, img_var, img_file_var, flag, stepN):
+def genStepScreenCapture(area, fformat, text_var, img_var, img_file_var, flag, stepN):
     stepjson = {
         "type": "Screen Capture",
         "area": area,
         "format": fformat,
+        "text_var": text_var,
         "img_var": img_var,
         "img_file_var": img_file_var,
         "flag": flag
@@ -1415,8 +1416,8 @@ def list_windows():
 
         return active_app_name, window_rect
 
-# win_title_keyword == "" means capture the entire screen
-def captureScreenToFile(win_title_keyword, sfile, subArea=None, fformat='png'):
+
+def captureScreen(win_title_keyword, subArea=None):
     global screen_loc
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     if win_title_keyword:
@@ -1433,18 +1434,29 @@ def captureScreenToFile(win_title_keyword, sfile, subArea=None, fformat='png'):
     else:
         subimage = im0
 
-    if sfile:
-        if not os.path.exists(os.path.dirname(sfile)):
-            os.makedirs(os.path.dirname(sfile))
-
-        subimage.save(sfile)
-
     # Convert the PIL Image to bytes (in memory, no disk write)
     image_io = io.BytesIO()
     subimage.save(image_io, format="PNG")  # Convert image to PNG format
     image_bytes = image_io.getvalue()
 
     screen_loc = (window_rect[0], window_rect[1])
+
+
+def saveImageToFile(img, sfile, fformat):
+    if sfile:
+        if not os.path.exists(os.path.dirname(sfile)):
+            os.makedirs(os.path.dirname(sfile))
+
+        img.save(sfile)
+    else:
+        print("WARNING: file name not specified.")
+
+
+# win_title_keyword == "" means capture the entire screen
+def captureScreenToFile(win_title_keyword, sfile, subArea=None, fformat='png'):
+    subimage, image_bytes, window_rect = captureScreen(win_title_keyword, subArea)
+    saveImageToFile(subimage, sfile, fformat)
+
     return subimage, image_bytes, window_rect
 
 def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mission, sk_settings, sfile, options, factors):
@@ -2094,6 +2106,98 @@ async def processExtractInfo8(step, i, mission, skill):
 
     return (i+1), ex_stat
 
+def takeScreenShot(win_title_keyword, subArea=None):
+    global screen_loc
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+    if win_title_keyword:
+        window_name, window_rect = get_top_visible_window(win_title_keyword)
+        # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
+        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+    else:
+        log3("capture default top window")
+        window_name, window_rect = get_top_visible_window("")
+        im0 = pyautogui.screenshot(region=(window_rect[0], window_rect[1], window_rect[2], window_rect[3]))
+
+    return im0, window_rect
+
+
+def findBoundBox(ref_boxes):
+    m0 = min([b[0] for b in ref_boxes])
+    m1 = min([b[1] for b in ref_boxes])
+    m2 = max([b[2] for b in ref_boxes])
+    m3 = max([b[3] for b in ref_boxes])
+    return [m0, m1, m2, m3]
+
+def findRef(ref_name, img_mark_up):
+    found = next((x for x in img_mark_up if ref_name in x["name"]), None)
+    return found
+
+# given a list anchor info in img_mark_up, and given area_spec which is list of anchors
+# carve out a subimage of the original "img" which is the boundbox formed the
+# list of area_spec anchors.
+# area_spec will be the same as defined in CSK
+# assumes: the boundbox defining anchors are unique on the image
+def carveOutImage(img0, area_spec, img_mark_up):
+    subimage = img0
+    if area_spec:
+        if "sub_refs" in area_spec:
+            ref_names = [ref["ref"] for ref in area_spec["sub_refs"]]
+            refs = []
+            for ref_name in ref_names:
+                ref = findRef(ref_name, img_mark_up)
+                if ref:
+                    refs.append(ref[0])
+            ref_boxes = [r["loc"] for r in refs]
+            print(f"ref boxes: {ref_boxes}")
+
+            if len(ref_boxes) >=2:
+                subArea = findBoundBox(ref_boxes)
+                if subArea[0] < subArea[2] and subArea[1] < subArea[3]:
+                    print(f"Carve out {subArea}")
+                    subimage = img0.crop(subArea)
+
+    return subimage
+
+# given a list anchor info in img_mark_up, and given area_spec which is list of anchors
+# mask out (smear with all black or all white) a sub-section of the original "img" which
+# is the boundbox formed the  list of area_spec anchors.
+# area_spec will be the same as defined in CSK
+# loc in T, L, B, R
+def maskOutImage(img, area_spec, img_mark_up):
+    for mask in area_spec["masks"]:
+        ref = findRef(mask["ref"], img_mark_up)
+        if ref:
+            ref = ref[0]
+            box_height = ref["loc"][2] - ref["loc"][0]
+            box_width = ref["loc"][3] - ref["loc"][1]
+            if ref["side"] == "bottom":
+                top = ref["loc"][2] + ref["voffset"]*box_height
+                bottom = top + ref["height"]*box_height
+                left = ref["loc"][0] + ref["hoffset"]*box_width
+                right = left + ref["width"] * box_width
+            elif ref["side"] == "top":
+                bottom = ref["loc"][0] - ref["voffset"] * box_height
+                top = bottom - ref["height"] * box_height
+                left = ref["loc"][0] + ref["hoffset"] * box_width
+                right = left + ref["width"] * box_width
+            elif ref["side"] == "left":
+                top = ref["loc"][0] + ref["voffset"] * box_height
+                bottom = top + ref["height"] * box_height
+                right = ref["loc"][1] - ref["hoffset"] * box_width
+                left = right - ref["width"] * box_width
+            elif ref["side"] == "right":
+                top = ref["loc"][0] + ref["voffset"] * box_height
+                bottom = top + ref["height"] * box_height
+                left = ref["loc"][3] + ref["hoffset"] * box_width
+                right = left + ref["width"] * box_width
+
+            print(f"mask left, top, right, bottom: {[left, top, right, bottom]}")
+            # Define the area to black out (x1, y1) -> (x2, y2)
+            # x1, y1 = 50, 50  # Top-left corner
+            # x2, y2 = 200, 200  # Bottom-right corner
+
+            # Make the region black
+            img[left:top, right:bottom] = (0, 0, 0)
 
 # "type": "Screen Capture",
 # "area": area,
@@ -2110,9 +2214,19 @@ def processScreenCapture(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     try:
 
-        screen_img, img_bytes, window_rect = captureScreenToFile("", symTab[step["img_file_var"]], symTab[step["area"]], symTab[step["format"]])
+        img_mark_up = symTab[step["text_var"]]
+        area_spec = symTab[step["area"]]
+        sfile = symTab[step["img_file_var"]]
+        fformat = step["format"]
+
+        screen_img, window_rect = takeScreenShot("")
+        img_section = carveOutImage(screen_img, area_spec, img_mark_up)
+        maskOutImage(img_section, area_spec, img_mark_up)
+
+        saveImageToFile(img_section, sfile, fformat)
+
         if step["img_var"]:
-            symTab[step["img_var"]] = screen_img
+            symTab[step["img_var"]] = img_section
 
 
     except Exception as e:
