@@ -1439,6 +1439,7 @@ def captureScreen(win_title_keyword, subArea=None):
     image_bytes = image_io.getvalue()
 
     screen_loc = (window_rect[0], window_rect[1])
+    return subimage, image_bytes, screen_loc
 
 
 def saveImageToFile(img, sfile, fformat):
@@ -1452,8 +1453,8 @@ def saveImageToFile(img, sfile, fformat):
 
 
 # win_title_keyword == "" means capture the entire screen
-def captureScreenToFile(win_title_keyword, sfile, subArea=None, fformat='png'):
-    subimage, image_bytes, window_rect = captureScreen(win_title_keyword, subArea)
+def captureScreenToFile(win_title_keyword, sfile, subarea=None, fformat='png'):
+    subimage, image_bytes, window_rect = captureScreen(win_title_keyword, subarea)
     saveImageToFile(subimage, sfile, fformat)
 
     return subimage, image_bytes, window_rect
