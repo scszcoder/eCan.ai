@@ -698,11 +698,12 @@ def closeMissionADS(mwin, mission):
             foundBot = next((bot for i, bot in enumerate(mwin.bots) if bot.getBid() == botid), None)
             if foundBot:
                 bot_email = foundBot.getEmail()
-                profile_id = symTab["loaded_profiles"][bot_email]["uid"]
-                # use ADS API's close the profile.
-                ads_settings = mwin.getADSSettings()
-                print("bot profile_id:", profile_id, ads_settings["ads_api_key"], ads_settings["ads_port"])
-                stopAdspowerProfile(ads_settings["ads_api_key"], profile_id, ads_settings["ads_port"])
+                if bot_email in symTab["loaded_profiles"]:
+                    profile_id = symTab["loaded_profiles"][bot_email]["uid"]
+                    # use ADS API's close the profile.
+                    ads_settings = mwin.getADSSettings()
+                    print("bot profile_id:", profile_id, ads_settings["ads_api_key"], ads_settings["ads_port"])
+                    stopAdspowerProfile(ads_settings["ads_api_key"], profile_id, ads_settings["ads_port"])
         else:
             print("unknown skill from this failed mission", foundSkill.getName())
 
