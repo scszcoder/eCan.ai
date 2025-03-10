@@ -2238,7 +2238,7 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepsWinADSAMZBrowserBrowseSearch(worksettings, this_step, theme)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepUpdateBuyMissionResult("mission_run_result", this_step)
+        this_step, step_words = genStepUpdateBuyMissionResult("mission_run_result", "act_success", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_browse_search", "", this_step)
