@@ -988,12 +988,11 @@ def genStepGenRespMsg(llm_type, llm_model, parameters, products, setup, query, r
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepUpdateBuyMissionResult(mainwin, mid_var, result, stepN):
+def genStepUpdateBuyMissionResult(result, flag, stepN):
     stepjson = {
         "type": "Update Buy Mission Result",
-        "mainwin": mainwin,
-        "mid_var": mid_var,
-        "result": result
+        "result": result,
+        "flag": flag
     }
 
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -5489,18 +5488,15 @@ def find_original_buy(mainwin, buy_mission):
     return original_buy_mission
 
 
-def processUpdateBuyMissionResult(step, i, mission):
+def processUpdateBuyMissionResult(step, i, this_buy_mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        midx = next((i for i, mission in enumerate(step["mainwin"].missions) if str(mission.getMid()) == symTab[step["mid_var"]]), -1)
-        if midx >= 0:
-            this_buy_mission = step["mainwin"].missions[midx]
-            this_buy_mission.setResult(symTab[step["mid_var"]])
-            original_buy_mission = find_original_buy(step["mainwin"], this_buy_mission)
-            original_buy_mission.setResult(symTab[step["mid_var"]])
-        else:
-            ex_stat = "ErrorUpdateBuyMissionResult:"+str(symTab[step["mid_var"]])+" mission NOT found."
-            log3(ex_stat)
+        mainwin = this_buy_mission.get_main_win()
+
+        this_buy_mission.setResult(symTab[step["result"]])
+        original_buy_mission = find_original_buy(mainwin, this_buy_mission)
+        if original_buy_mission:
+            original_buy_mission.setResult(symTab[step["result"]])
 
     except Exception as e:
         # Get the traceback information
