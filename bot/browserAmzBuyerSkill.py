@@ -1466,20 +1466,66 @@ def genStepsAMZBrowserConfirmOrder(settings_string, theme, stepN):
     psk_words = ""
     this_step = stepN
 
-    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "review_recent_orders", "pay_page",
-                                                               "pac_result", this_step)
+    this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "review_recent_orders", "recent_orders_link", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCreateData("obj", "top_order_card", "NA", None, this_step)
+    psk_words = psk_words + step_words
+
+    # now this will show a list of orders, we should grab the first one and click into "View order details" link
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
+                                                        '//div[contains(@class, "order-card")]', True, "var",
+                                                        "order_cards",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCheckCondition("order_cards", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    # click on add_to_cart button, don't use "Cart" since it's not reliable and OCR gets confused by the cart icon.
+    this_step, step_words = genStepCallExtern("global order_cards, top_order_card\ntop_order_card=order_cards[0]", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "",
+                                              this_step)
+    psk_words = psk_words + step_words
+
+
+    this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "top_order_card", 10, "info_type", By.XPATH,
+                                                        "//div[@data-component='orderId']/span", False, "var", "order_id",
+                                                        "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+    # throw order id into mission run result.
+    this_step, step_words = genStepCallExtern("global mission_run_result, order_id\nmission_run_result['order_id']=order_id", "", "in_line", "",
+                                              this_step)
     psk_words = psk_words + step_words
 
     # set a flag
     this_step, step_words = genStepCreateData("string", "buy_status", "NA", "inCart", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepsSaveBuyRecord(theme, this_step)
+    this_step, step_words = genStepsSaveBuyRecord(settings_string, theme, this_step)
     psk_words = psk_words + step_words
 
     #now down with go back to amz main home page.
 
     this_step, step_words = genStepsAMZBrowserPagePeekAndClick(By.ID, "nav-logo-sprites", "amazon_home_button", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("else", "", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepCallExtern("print('Error: Order did NOT go thru!')", "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepStub("end condition", "", "", this_step)
     psk_words = psk_words + step_words
 
 
@@ -1575,7 +1621,7 @@ def genStepsSaveBuyRecord(settings_string, theme, stepN):
 #             print("'Write a product review' button not found.")
 
 # input to this function is an order ID.
-def genStepsWinChromeAMZBuyCheckShipping(stepN):
+def genStepsWinChromeAMZBuyGetRecentOrders(stepN):
     psk_words = ""
     this_step = stepN
 
@@ -1588,13 +1634,27 @@ def genStepsWinChromeAMZBuyCheckShipping(stepN):
                                                         "extract_flag", this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepWebdriverClick("web_driver", "returns_and_orders_link", "action_result", "action_flag",
+    this_step, step_words = genStepWebdriverClick("web_driver", "returns_and_orders_link", "action_result",
+                                                  "action_flag",
                                                   this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 10, "info_type", By.XPATH,
-                                                        '//div[contains(@class, "order-card")]', True, "var", "order_cards",
+                                                        '//div[contains(@class, "order-card")]', True, "var",
+                                                        "order_cards",
                                                         "extract_flag", this_step)
+    psk_words = psk_words + step_words
+
+
+    return this_step, psk_words
+
+
+
+def genStepsWinChromeAMZBuyCheckShipping(stepN):
+    psk_words = ""
+    this_step = stepN
+
+    this_step, step_words = genStepsWinChromeAMZBuyGetRecentOrders(this_step)
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCreateData("boolean", "order_found", "NA", False, this_step)
@@ -2172,7 +2232,13 @@ def genWinADSAMZBrowserBrowseSearchSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCreateData("obj", "mission_run_result", "NA", {}, this_step)
+        psk_words = psk_words + step_words
+
         this_step, step_words = genStepsWinADSAMZBrowserBrowseSearch(worksettings, this_step, theme)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepUpdateBuyMissionResult("mission_run_result", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepStub("end skill", "public/win_ads_amz_home/browser_browse_search", "", this_step)

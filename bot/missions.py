@@ -80,6 +80,7 @@ class M_Private_Attributes():
         self.ccard_numer = ""
         self.seller_feedback_title = ""
         self.seller_feedback_text = ""
+        self.run_result = {}
 
 
     def setItem(self, inum, seller, title, imglink, rank, feedbacks, price):
@@ -153,6 +154,7 @@ class M_Private_Attributes():
         self.rank = dj.get("rank", 0)
         self.feedbacks = dj.get("feedbacks", 0)
         self.result = dj.get("result", "")
+
 
         self.feedback_img_link = dj.get("feedback_img_link", "")
         self.feedback_video_link = dj.get("feedback_video_link", "")
@@ -1255,6 +1257,12 @@ class EBMISSION(QStandardItem):
             self.setActualEndTime(et)
         else:
             self.retry_records.append({"ast": self.getActualStartTime(), "aet": et, "status": self.getStatus()})
+
+    def setRunResult(self, result):
+        self.privateAttributes.run_result = result
+
+    def getRunResult(self):
+        return self.privateAttributes.run_result
 
     def getRetryRecords(self):
         return self.retry_records

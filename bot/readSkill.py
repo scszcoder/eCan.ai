@@ -675,6 +675,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
     closeMissionADS(mainwin, mission)
     mission.recordEndTime()
+    mission.setResult(symTab["mission_run_result"])
     return run_result
 
 def closeMissionADS(mwin, mission):
@@ -747,7 +748,7 @@ def run1step(steps, si, mission, skill, stack):
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
             step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or \
-            step["type"] == "Log Cross Network" or step["type"] == "Log" or\
+            step["type"] == "Log Cross Network" or step["type"] == "Log" or step["type"] == "Update Buy Mission Result" or\
             step["type"] == "ADS Update Profile Ids" or step["type"] == "ADS Batch Text To Profiles" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
             si,isat = RAIS[step["type"]](step, si, mission)
@@ -812,6 +813,7 @@ async def run1step8(steps, si, mission, skill, stack):
                  step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or  step["type"] == "ADS Save API Settings" or \
                  step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
                  step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
+                 step["type"] == "Update Buy Mission Result" or \
                  step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
                  step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
                  step["type"] == "ADS Batch Text To Profiles" or step["type"] == "Log Cross Network" or step["type"] == "Log" or \
