@@ -1058,46 +1058,46 @@ def genStepsWinChromeGmailBrowserRefresh(stepN):
 
     return this_step, psk_words
 
-
-def genWinADSGmailBrowserRefreshSkill(worksettings, stepN, theme):
-    psk_words = "{"
-    # site_url = "https://www.amazon.com/"
-
-    this_step, step_words = genStepHeader("win_ads_gmail_home_browser_refresh", "win", "1.0", "AIPPS LLC", "PUBWINADSREFRESHGMAIL001",
-                                          "Windows ADS Power refresh gmail with webdriver.", stepN)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
-    psk_words = psk_words + step_words
-
-    # now open gmail tab if not already，(this step will internall check whether the tab is already open, if open, simply switch to it)
-    this_step, step_words = genStepWebdriverGoToTab("web_driver", "gmail", "https://www.gmail.com", "site_result", "site_flag", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
-    psk_words = psk_words + step_words
-
-    # assume profile file is ready.
-    this_step, step_words = genStepCallExtern("global gmail_acct\ngmail_acct = fin[0]", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepCallExtern("print('Start Refresh Gmail.....', gmail_acct, gmail_pw)", "", "in_line", "", this_step)
-    psk_words = psk_words + step_words
-    # first try to sign in
-    # this_step, step_words = genStepsChromeRefreshGMailSkill(worksettings, this_step, theme)
-    this_step, step_words = genStepsWinChromeGmailBrowserSignIn(this_step)
-    psk_words = psk_words + step_words
-
-    this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
-    psk_words = psk_words + step_words
-
-    psk_words = psk_words + "\"dummy\" : \"\"}"
-    print("DEBUG", "generated skill for windows ads power gmail routine access....." + psk_words)
-
-    return this_step, psk_words
+#
+# def genWinADSGmailBrowserRefreshSkill(worksettings, stepN, theme):
+#     psk_words = "{"
+#     # site_url = "https://www.amazon.com/"
+#
+#     this_step, step_words = genStepHeader("win_ads_gmail_home_browser_refresh", "win", "1.0", "AIPPS LLC", "PUBWINADSREFRESHGMAIL001",
+#                                           "Windows ADS Power refresh gmail with webdriver.", stepN)
+#     psk_words = psk_words + step_words
+#
+#     this_step, step_words = genStepStub("start skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
+#     psk_words = psk_words + step_words
+#
+#     # now open gmail tab if not already，(this step will internall check whether the tab is already open, if open, simply switch to it)
+#     this_step, step_words = genStepWebdriverGoToTab("web_driver", "gmail", "https://www.gmail.com", "site_result", "site_flag", this_step)
+#     psk_words = psk_words + step_words
+#
+#     this_step, step_words = genStepCreateData("obj", "sk_work_settings", "NA", worksettings, this_step)
+#     psk_words = psk_words + step_words
+#
+#     # assume profile file is ready.
+#     this_step, step_words = genStepCallExtern("global gmail_acct\ngmail_acct = fin[0]", "", "in_line", "", this_step)
+#     psk_words = psk_words + step_words
+#
+#     this_step, step_words = genStepCallExtern("global gmail_pw\ngmail_pw = fin[1]", "", "in_line", "", this_step)
+#     psk_words = psk_words + step_words
+#
+#     this_step, step_words = genStepCallExtern("print('Start Refresh Gmail.....', gmail_acct, gmail_pw)", "", "in_line", "", this_step)
+#     psk_words = psk_words + step_words
+#     # first try to sign in
+#     # this_step, step_words = genStepsChromeRefreshGMailSkill(worksettings, this_step, theme)
+#     this_step, step_words = genStepsWinChromeGmailBrowserSignIn(this_step)
+#     psk_words = psk_words + step_words
+#
+#     this_step, step_words = genStepStub("end skill", "public/win_ads_gmail_home/browser_refresh", "", this_step)
+#     psk_words = psk_words + step_words
+#
+#     psk_words = psk_words + "\"dummy\" : \"\"}"
+#     print("DEBUG", "generated skill for windows ads power gmail routine access....." + psk_words)
+#
+#     return this_step, psk_words
 
 
 def genWinADSGmailBrowserCreateAccountsSkill(worksettings, stepN, theme):

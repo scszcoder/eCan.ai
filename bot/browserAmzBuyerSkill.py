@@ -2388,6 +2388,62 @@ def genStepsWinADSAMZBrowserBrowseSearch(worksettings, stepN, theme):
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCheckCondition("'web_driver' not in symTab", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepCreateData("obj", "ads_config", "NA", {}, this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "web_driver_options", "NA", "", stepN)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global ads_config, local_api_key, local_api_port, sk_work_settings\nlocal_api_port = sk_work_settings['fp_browser_settings']['ads_port']\nlocal_api_key = sk_work_settings['fp_browser_settings']['ads_api_key']\nads_config['port']=local_api_port\nads_config['api_key']=local_api_key\nprint('local_api_port:', local_api_port)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepAPIADSListProfiles("ads_config", "loaded_profiles", "action_flag",  this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "ads_chrome_version", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global ads_chrome_version, sk_work_settings\nads_chrome_version = sk_work_settings['fp_browser_settings']['chrome_version']\nprint('ads_chrome_version:', ads_chrome_version)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "web_driver_path", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global web_driver_path, ads_chrome_version, sk_work_settings\nweb_driver_path =  sk_work_settings['root_path'] + '/' + sk_work_settings['fp_browser_settings']['chromedriver_lut'][ads_chrome_version]\nprint('web_driver_path:', web_driver_path)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "ads_profile_id", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCreateData("string", "ads_profile_remark", "NA", "", this_step)
+        psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global ads_profile_id, ads_profile_remark, loaded_profiles, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]['uid']\nads_profile_remark = loaded_profiles[sk_work_settings['b_email']]['remark']\nprint('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepWebdriverStartExistingADS("web_driver", "local_api_key", "ads_profile_id",
+                                                                 "local_api_port", "web_driver_path", "web_driver_options",
+                                                                 "drive_result", "web_driver_successful", this_step)
+        psk_words = psk_words + step_words
+
+
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
+
+
         this_step, step_words = genStepUseSkill("browser_refresh", "public/win_ads_gmail_home", "gmail_input", "gmail_refresh_stat", this_step)
         psk_words = psk_words + step_words
 
@@ -2680,6 +2736,12 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
 
         this_step, step_words = genStepCreateData("string", "ads_profile_remark", "NA", "", this_step)
         psk_words = psk_words + step_words
+
+        this_step, step_words = genStepCallExtern(
+            "global ads_profile_id, ads_profile_remark, loaded_profiles, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]['uid']\nads_profile_remark = loaded_profiles[sk_work_settings['b_email']]['remark']\nprint('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)",
+            "", "in_line", "", this_step)
+        psk_words = psk_words + step_words
+
         #
         # this_step, step_words = genStepCallExtern(
         #     "global ads_profile_id, sk_work_settings\nads_profile_id = sk_work_settings['b_email']\nprint('ads_profile_id:', ads_profile_id)",
@@ -2830,6 +2892,9 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
         this_step, step_words = genStepStub("end condition", "", "", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepCheckCondition("sk_work_settings['b_email'] in loaded_profiles", "", "", this_step)
+        psk_words = psk_words + step_words
+
         # now update profile id, now we should have the correct profile id loaded into ADS.
         this_step, step_words = genStepCallExtern(
             "global ads_profile_id, ads_profile_remark, loaded_profiles, sk_work_settings\nads_profile_id = loaded_profiles[sk_work_settings['b_email']]['uid']\nads_profile_remark = loaded_profiles[sk_work_settings['b_email']]['remark']\nprint('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)",
@@ -2854,6 +2919,8 @@ def genStepsLoadRightBatchForBot(worksettings, stepN, theme):
                                                                  "drive_result", "web_driver_successful", this_step)
         psk_words = psk_words + step_words
 
+        this_step, step_words = genStepStub("end condition", "", "", this_step)
+        psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern("print('DONE Loading bots correct profile.....')", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
