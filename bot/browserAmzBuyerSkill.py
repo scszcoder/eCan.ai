@@ -1385,7 +1385,7 @@ def genStepsWinChromeAMZBuyPay(settings_string,  theme, stepN):
         # psk_words = psk_words + step_words
 
         # now go back to orders page and confirm the order is placed, and obtain the order ID, as well as obtain the screen shot of the order.
-        this_step, step_words = genStepsAMZBrowserConfirmOrder(settings_string,  theme, "place_order_button", this_step)
+        this_step, step_words = genStepsAMZBrowserConfirmOrder(settings_string,  theme, this_step)
         psk_words = psk_words + step_words
 
 
@@ -1456,7 +1456,7 @@ def genStepsWinChromeAMZBuyFromCart(settings_string,  theme, stepN):
     # psk_words = psk_words + step_words
 
     # now go back to orders page and confirm the order is placed, and obtain the order ID, as well as obtain the screen shot of the order.
-    this_step, step_words = genStepsAMZBrowserConfirmOrder(settings_string,  theme,"amazon_home_button", this_step)
+    this_step, step_words = genStepsAMZBrowserConfirmOrder(settings_string, theme, this_step)
     psk_words = psk_words + step_words
 
     return this_step, psk_words

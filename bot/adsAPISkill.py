@@ -8,7 +8,7 @@ from bot.basicSkill import DEFAULT_RUN_STATUS, STEP_GAP, symTab
 import traceback
 from bot.Logger import log3
 import json
-
+import time
 
 API_CONN = "http://local/adspower.net:50360"
 
@@ -70,7 +70,7 @@ def stopAdspowerProfile(api_key, profile_id, port):
 def checkAdspowerProfileBrowserStatus(api_key, profile_id, port):
 
     url = f'http://local.adspower.net:{port}/api/v1/browser/active?user_id={profile_id}'
-    print("URL:", url)
+    print("URL:", url, api_key, port)
 
     headers = {
         'Authorization': f'Bearer {api_key}'
@@ -395,6 +395,7 @@ def processAPIADSCreateProfile(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
         ads_profile = symTab[step["ads_profile_var"]]
@@ -420,6 +421,7 @@ def processAPIADSCreateGroup(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
         group = symTab[step["group_name_var"]]
@@ -443,6 +445,7 @@ def processAPIADSStartProfile(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
         user_id = symTab[step["user_var"]]
@@ -465,6 +468,7 @@ def processAPIADSStopProfile(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
         user_id = symTab[step["user_var"]]
@@ -488,6 +492,7 @@ def processAPIADSCheckProfileBrowserStatus(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
         user_id = symTab[step["user_var"]]
@@ -511,6 +516,7 @@ def processAPIADSDeleteProfiles(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
 
@@ -533,6 +539,7 @@ def processAPIADSDeleteProfile(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
 
@@ -555,6 +562,7 @@ def processAPIADSListProfiles(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
         # print("ads_cfg:", ads_cfg)
@@ -585,6 +593,7 @@ def processAPIADSRegroupProfiles(step, i):
     global symTab
 
     try:
+        time.sleep(1)
         symTab[step["flag"]] = True
         ads_cfg = symTab[step["ads_cfg_var"]]
         group_id = symTab[step["group_id_var"]]

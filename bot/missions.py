@@ -943,30 +943,33 @@ class EBMISSION(QStandardItem):
 
     def setResult(self, result):
         self.privateAttributes.result = result
-        if result is not None and result.strip() and result != "{}":
-            try:
-                resultJson = json.loads(result)
+        try:
+            if isinstance(result, str):
+                if result is not None and result.strip() and result != "{}":
+                    resultJson = json.loads(result)
+            else:
+                resultJson = result
 
-                if "order_id" in resultJson:
-                    self.privateAttributes.order_id = resultJson["order_id"]
+            if "order_id" in resultJson:
+                self.privateAttributes.order_id = resultJson["order_id"]
 
-                if "feedback_img_link" in resultJson:
-                    self.privateAttributes.feedback_img_link = resultJson["feedback_img_link"]
+            if "feedback_img_link" in resultJson:
+                self.privateAttributes.feedback_img_link = resultJson["feedback_img_link"]
 
-                if "feedback_video_link" in resultJson:
-                    self.privateAttributes.feedback_video_link = resultJson["feedback_video_link"]
+            if "feedback_video_link" in resultJson:
+                self.privateAttributes.feedback_video_link = resultJson["feedback_video_link"]
 
-                if "feedback_text" in resultJson:
-                    self.privateAttributes.feedback_text = resultJson["feedback_text"]
+            if "feedback_text" in resultJson:
+                self.privateAttributes.feedback_text = resultJson["feedback_text"]
 
 
-            except Exception as e:
-                traceback_info = traceback.extract_tb(e.__traceback__)
-                # Extract the file name and line number from the last entry in the traceback
-                if traceback_info:
-                    ex_stat = "ErrorSetResut:" + traceback.format_exc() + " " + str(e)
-                else:
-                    ex_stat = "ErrorSetResut traceback information not available:" + str(e)
+        except Exception as e:
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorSetResut:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorSetResut traceback information not available:" + str(e)
 
 
     def getSkillNames(self):
