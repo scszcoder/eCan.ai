@@ -2212,22 +2212,43 @@ def appsync_http_request2(query_string, session, token, endpoint):
 
 
 async def appsync_http_request8(query_string, session, token, endpoint):
-
     headers = {
         'Content-Type': "application/graphql",
         'Authorization': token,
         'cache-control': "no-cache",
     }
-    async with aiohttp.ClientSession() as session8:
-        async with session8.post(
-                url=endpoint,
-                timeout=aiohttp.ClientTimeout(total=300),
-                headers=headers,
-                json={'query': query_string}
-        ) as response:
-            jresp = await response.json()
-            # print(jresp)
-            return jresp
+    retries = 3
+    for attempt in range(retries):
+        try:
+            async with aiohttp.ClientSession() as session8:
+                async with session8.post(
+                    url=endpoint,
+                    timeout=aiohttp.ClientTimeout(total=300),  # Keep existing timeout
+                    headers=headers,
+                    json={'query': query_string}
+                ) as response:
+                    return await response.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff (2s, 4s, 8s...)
+
+    raise Exception("Failed after multiple retries")
+    # headers = {
+    #     'Content-Type': "application/graphql",
+    #     'Authorization': token,
+    #     'cache-control': "no-cache",
+    # }
+    # async with aiohttp.ClientSession() as session8:
+    #     async with session8.post(
+    #             url=endpoint,
+    #             timeout=aiohttp.ClientTimeout(total=300),
+    #             headers=headers,
+    #             json={'query': query_string}
+    #     ) as response:
+    #         jresp = await response.json()
+    #         # print(jresp)
+    #         return jresp
 
 
 async def send_file_op_request_to_cloud8(session, fops, token, endpoint):
