@@ -2098,7 +2098,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1740950537'+'_'+'955'+'.html'"
+    "key_value": "'check_shipping1741743332'+'_'+'955'+'.html'"
 },
 "step 980":
 {
@@ -5945,7 +5945,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1740950537'+'_'+'2845'+'.html'"
+    "key_value": "'check_shipping1741743332'+'_'+'2845'+'.html'"
 },
 "step 2870":
 {
@@ -9789,7 +9789,7 @@
     "data_type": "expr",
     "data_name": "hf_name",
     "key_name": "NA",
-    "key_value": "'check_shipping1740950537'+'_'+'4720'+'.html'"
+    "key_value": "'check_shipping1741743332'+'_'+'4720'+'.html'"
 },
 "step 4745":
 {
@@ -11392,9 +11392,33 @@
         0,
         0
     ],
-    "post_wait": 2
+    "post_wait": 3
 },
 "step 5455":
+{
+    "type": "Mouse Click",
+    "action": "Single Click",
+    "action_args": "",
+    "save_rb": true,
+    "screen": "screen_info",
+    "target_name": "text_file",
+    "target_type": "anchor text",
+    "text": "",
+    "nth": 1,
+    "offset_from": "center",
+    "offset_unit": "box",
+    "offset": [
+        0,
+        0
+    ],
+    "move_pause": 2,
+    "post_move": [
+        0,
+        0
+    ],
+    "post_wait": 3
+},
+"step 5460":
 {
     "type": "Mouse Scroll",
     "action": "Scroll Down",
@@ -11407,7 +11431,7 @@
     "postwait": 1,
     "unit": "screen"
 },
-"step 5460":
+"step 5465":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -11420,7 +11444,7 @@
     "page_data_info": null,
     "section": "export_text"
 },
-"step 5465":
+"step 5470":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -11444,7 +11468,7 @@
     ],
     "post_wait": 2
 },
-"step 5470":
+"step 5475":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -11457,7 +11481,7 @@
     "page_data_info": null,
     "section": "file_dialog"
 },
-"step 5475":
+"step 5480":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -11484,7 +11508,7 @@
     ],
     "post_wait": 2
 },
-"step 5480":
+"step 5485":
 {
     "type": "Text Input",
     "txt_ref_type": "direct",
@@ -11495,7 +11519,7 @@
     "key_after": "enter",
     "wait_after": 1
 },
-"step 5485":
+"step 5490":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -11519,7 +11543,7 @@
     ],
     "post_wait": 2
 },
-"step 5490":
+"step 5495":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -11532,7 +11556,7 @@
     "page_data_info": null,
     "section": "popup"
 },
-"step 5495":
+"step 5500":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -11556,14 +11580,14 @@
     ],
     "post_wait": 2
 },
-"step 5500":
+"step 5505":
 {
     "type": "Wait",
     "random_min": 0,
     "random_max": 0,
     "time": 6
 },
-"step 5505":
+"step 5510":
 {
     "type": "Call Extern",
     "file": "global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)",
@@ -11571,7 +11595,7 @@
     "entity": "in_line",
     "output": ""
 },
-"step 5510":
+"step 5515":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -11584,7 +11608,7 @@
     "page_data_info": null,
     "section": "popup"
 },
-"step 5515":
+"step 5520":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -11608,7 +11632,7 @@
     ],
     "post_wait": 2
 },
-"step 5520":
+"step 5525":
 {
     "type": "ADS Batch Text To Profiles",
     "batch_txt_dir": "ads_file_path",
@@ -11616,7 +11640,7 @@
     "n_files": 1,
     "output": "saved_batch"
 },
-"step 5525":
+"step 5530":
 {
     "type": "Extract Info",
     "settings": "sk_work_settings",
@@ -11629,7 +11653,7 @@
     "page_data_info": null,
     "section": "top"
 },
-"step 5530":
+"step 5535":
 {
     "type": "Mouse Click",
     "action": "Single Click",
@@ -11653,14 +11677,14 @@
     ],
     "post_wait": 2
 },
-"step 5535":
+"step 5540":
 {
     "type": "Stub",
     "stub_name": "end condition",
     "func_name": "",
     "fargs": ""
 },
-"step 5540":
+"step 5545":
 {
     "type": "Stub",
     "stub_name": "end skill",
