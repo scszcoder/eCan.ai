@@ -175,14 +175,16 @@ class VehicleMonitorWin(QMainWindow):
         else:
             text_color = "color:#608F80;"
 
-        print("text color:", text_color)
         if msgJS['type'] == "logs":
+            text_color = "color:#6000FF;"
+            print("preparing for log printing....")
             mc = msgJS['contents'].replace('\\"', '"')      # invers operation to recover the raw message
             # contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
 
             ek = self.mainwin.generate_key_from_string(self.mainwin.main_key)
             decryptedWanMsgRaw = self.mainwin.decrypt_string(ek, mc)
         else:
+            text_color = "color:#608F80;"
             decryptedWanMsgRaw = msgJS['contents'].replace('\\"', '"')  # invers operation to recover the raw message
             # contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
             contentsJson = json.loads(decryptedWanMsgRaw)
