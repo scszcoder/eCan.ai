@@ -807,7 +807,6 @@ def processWebdriverKeyIn(step, i, mission):
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
         text = symTab[step["text_var"]]
-        log3("wait for target to load")
         wait = WebDriverWait(driver, 10)
         print("TEXT::", text)
         # wait.until(EC.presence_of_element_located(target))
