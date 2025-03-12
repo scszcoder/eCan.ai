@@ -837,7 +837,7 @@ class MainWindow(QMainWindow):
         self.wan_connected = False
         self.wan_msg_subscribed = False
         self.websocket = None
-        self.setWindowTitle("Main Bot&Mission Scheduler")
+        self.setWindowTitle("My E-Commerce Agents ("+self.user+") - "+self.machine_role)
         self.vehicleMonitor = VehicleMonitorWin(self)
         self.showMsg("================= DONE with GUI Setup ==============================")
 
@@ -9161,7 +9161,7 @@ class MainWindow(QMainWindow):
             "chatID": self_chat_id,
             "sender": self.chat_id,
             "receiver": self_chat_id,
-            "type": "ping self",
+            "type": "loopback",
             "contents": json.dumps({"msg": "hello?"}).replace('"', '\\"'),
             "parameters": json.dumps({})
         }
@@ -9190,7 +9190,7 @@ class MainWindow(QMainWindow):
             parameters = {}
             req_msg = {
                 "chatID": so_chat_id,
-                "sender": "commander",
+                "sender": "Commander",
                 "receiver": self.user,
                 "type": "logs",
                 "contents": logmsg.replace('"', '\\"'),
@@ -9204,7 +9204,7 @@ class MainWindow(QMainWindow):
             so_chat_id = self.user.replace("@", "_").replace(".", "_") + "_StaffOfficer"
             req_msg = {
                 "chatID": so_chat_id,
-                "sender": "commander",
+                "sender": "Commander",
                 "receiver": self.user,
                 "type": "logs",
                 "contents": json.dumps({"msg": logmsg}).replace('"', '\\"'),
@@ -9220,7 +9220,7 @@ class MainWindow(QMainWindow):
                 "chatID": self.chat_id,
                 "sender": "",
                 "receiver": commander_chat_id,
-                "type": "request command",
+                "type": "request",
                 "contents": json.dumps({"type": "cmd", "cmd": "start log", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
@@ -9233,7 +9233,7 @@ class MainWindow(QMainWindow):
                 "chatID": sa_chat_id,
                 "sender": self.chat_id,
                 "receiver": sa_chat_id,
-                "type": "cmd",
+                "type": "command",
                 "contents": json.dumps({"type": "cmd", "cmd": "stop log", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
@@ -9246,7 +9246,7 @@ class MainWindow(QMainWindow):
                 "chatID": commander_chat_id,
                 "sender": "",
                 "receiver": commander_chat_id,
-                "type": "cmd",
+                "type": "command",
                 "contents": json.dumps({"type": "cmd", "cmd": "stop log", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
@@ -9259,7 +9259,7 @@ class MainWindow(QMainWindow):
                 "chatID": self.chat_id,
                 "sender": "",
                 "receiver": commander_chat_id,
-                "type": "request command",
+                "type": "command",
                 "contents": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }

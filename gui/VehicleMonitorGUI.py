@@ -66,7 +66,7 @@ class VehicleMonitorWin(QMainWindow):
 
         # **MIDDLE: Log Console**
         self.log_console = QTextEdit()
-        self.log_console.setReadOnly(True)
+        self.log_console.setReadOnly(False)
         right_layout.addWidget(QLabel("Vehicle Logs:"))
         right_layout.addWidget(self.log_console)
 
@@ -122,7 +122,10 @@ class VehicleMonitorWin(QMainWindow):
     def appendLog(self, msg):
         """Append log messages to the log console."""
         print(f"DEBUG: Received log in GUI: {msg}")  # ✅ Debug print
-        msgJS = json.loads(msg)
+        if isinstance(msg, str):
+            msgJS = json.loads(msg)
+        else:
+            msgJS = msg
         displayable = self.formDisplayable(msgJS)
         self.log_console.append(displayable)
         self.log_console.moveCursor(QTextCursor.MoveOperation.End)
@@ -160,7 +163,7 @@ class VehicleMonitorWin(QMainWindow):
         htmlMsg = ""
 
         logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        text_color = ""
+        text_color = "color:#ff0000;"
         if "error" in msgJS["contents"]:
             text_color = "color:#ff0000;"
         elif "warn" in msgJS["contents"]:
@@ -168,21 +171,35 @@ class VehicleMonitorWin(QMainWindow):
         elif "info" in msgJS["contents"]:
             text_color = "color:#004800;"
         elif "debug" in msgJS["contents"]:
-            text_color = "color:#00ffff;"
+            text_color = "color:#90ffff;"
+        else:
+            text_color = "color:#608F80;"
 
-        mc = msgJS['contents'].replace('\\"', '"')      # invers operation to recover the raw message
-        # contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
+        print("text color:", text_color)
+        if msgJS['type'] == "logs":
+            mc = msgJS['contents'].replace('\\"', '"')      # invers operation to recover the raw message
+            # contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
 
-        ek = self.mainwin.generate_key_from_string(self.mainwin.main_key)
-        decryptedWanMsgRaw = self.mainwin.decrypt_string(ek, mc)
-
-        msg_text = """ 
+            ek = self.mainwin.generate_key_from_string(self.mainwin.main_key)
+            decryptedWanMsgRaw = self.mainwin.decrypt_string(ek, mc)
+        else:
+            decryptedWanMsgRaw = msgJS['contents'].replace('\\"', '"')  # invers operation to recover the raw message
+            # contents = f"<{mc['v']}>[{mc['vstate']}]B{mc['bid']}-M{mc['mid']}-{mc['progress']}%-Step#{mc['step']}::{mc['log_msg']}"
+            contentsJson = json.loads(decryptedWanMsgRaw)
+            vinfo = contentsJson["vehiclesInfo"]
+            vstring = ""
+            for v in vinfo:
+                vstring = vstring + v["vname"]+"-"+v["vehicles_status"] + "; "
+            # decryptedWanMsgRaw = json.dumps(contentsJson, indent=2).replace("\n", "<br>").replace("  ","&nbsp;&nbsp;")
+            decryptedWanMsgRaw = vstring.replace("\n", "<br>")
+        htmlMsg = """ 
             <div style="display: flex; padding: 5pt;">
                 <span  style=" font-size:12pt; font-weight:450; margin-right: 40pt;"> 
                     %s |
                 </span>
                 <span style=" font-size:12pt; font-weight:450; %s;">
-                    found %s
+                    %s
                 </span>
             </div>""" % (logTime, text_color, decryptedWanMsgRaw)
+
         return htmlMsg

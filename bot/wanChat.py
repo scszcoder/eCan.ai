@@ -346,10 +346,13 @@ async def subscribeToWanChat(mainwin, tokens, chat_id="nobody"):
                             if "onMessageReceived" in rcvd["payload"]["data"]:
                                 print("actual msg:", type(rcvd["payload"]["data"]["onMessageReceived"]))
                                 # route the message either to chat or RPA
+                                # possible types: chat/command/ping/loopback/pong/logs/request/heartbeat/chat
                                 if rcvd["payload"]["data"]["onMessageReceived"]["type"] == "chat":
                                     asyncio.create_task(mainwin.gui_chat_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                                 elif rcvd["payload"]["data"]["onMessageReceived"]["type"] == "command" and rcvd["payload"]["data"]["onMessageReceived"]["contents"]["cmd"] in ["cancel", "pause", "suspend", "resume"]:
                                     asyncio.create_task(mainwin.gui_rpa_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
+                                elif rcvd["payload"]["data"]["onMessageReceived"]["type"] in ["logs", "heartbeat"]:
+                                    asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                                 else:
                                     asyncio.create_task(mainwin.gui_monitor_msg_queue.put(rcvd["payload"]["data"]["onMessageReceived"]))
                         else:
