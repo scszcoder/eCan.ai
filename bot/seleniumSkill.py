@@ -1298,6 +1298,7 @@ def processWebdriverExtractInfo(step, i, mission):
         element_name = step["element_var"]
         print("element type:", element_type)
         print("element name:", element_name)
+        log6(f"Webdriver Searching:[{element_type} {element_name}]", "wan_log", mainwin, mission, i)
 
         if element_type == "full page":
             if step["result_type"] == "var":

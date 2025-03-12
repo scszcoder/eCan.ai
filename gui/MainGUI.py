@@ -987,7 +987,8 @@ class MainWindow(QMainWindow):
             self.showMsg("spawned wan chat task")
         else:
             self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
-            self.wan_sub_task = asyncio.create_task(self.wait_forever())
+            self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
+            # self.wan_sub_task = asyncio.create_task(self.wait_forever())
             # self.wan_msg_task = asyncio.create_task(self.wait_forever())
 
         # the message queue are
