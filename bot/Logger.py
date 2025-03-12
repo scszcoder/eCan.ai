@@ -238,15 +238,19 @@ def log3(msg, mask='all', gui_main=None):
 
 # this is super log with local log + 2 types remote log method, it will send message thru LAN(commander) and WAN(staff officer).
 def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Action"):
-    print(f"logging 6.... {mask}")
+    if gui_main:
+        log_switches = gui_main.log_settings
+    else:
+        log_switches = LOG_SWITCH_BOARD
+
     log_enabled = False
     wan_enabled = True
-    if mask in LOG_SWITCH_BOARD:
-        if LOG_SWITCH_BOARD[mask]["log"]:
+    if mask in log_switches:
+        if log_switches[mask]["log"]:
             log_enabled = True
-        if LOG_SWITCH_BOARD[mask]["range"] == "wan" and gui_main:
-            print("wan log enabled....")
+        if log_switches[mask]["range"] == "wan" and gui_main:
             wan_enabled = True
+            print("wan enabled....")
 
     if log_enabled:
         ecb_data_homepath = getECBotDataHome()
@@ -274,7 +278,7 @@ def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Actio
             file1.close()
 
         # read details from the page.
-        print(msg)
+        print("log6 msg:", msg)
         # forming a "|"separated string for remote monitoring...
         if gui_main:
             gui_main.appendNetLogs([msg])
@@ -287,19 +291,20 @@ def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Actio
             wanMsg = gui_main.machine_name + ":" + gui_main.os_short + "|" + gui_main.log_user + "|"
             wanMsg = wanMsg + "M" + str(mid) + "|" + "B" + str(bid) + "|"
             wanMsg = wanMsg + "S-" + str(stepIdx) + "-" + gui_main.working_state + "|" + msgType + "|"
+            wanMsg = wanMsg + msg
 
 
             if wan_enabled:
                 loop = asyncio.get_event_loop()
                 #
                 ek = gui_main.generate_key_from_string(gui_main.main_key)
-                encryptedWanMsg = gui_main.encrypt_string(gui_main.main_key, wanMsg)
-                print("sending wan log....")
+                encryptedWanMsg = gui_main.encrypt_string(ek, wanMsg)
+                print("sending wan log...."+wanMsg)
                 gui_main.wan_send_log((encryptedWanMsg))
 
             # send to commander as well
             runlog = {"type": "runLog", "ip": gui_main.ip, "content": wanMsg}
-            gui_main.send_json_to_commander(gui_main.commanderXport, runlog)
+            # gui_main.send_json_to_commander(gui_main.commanderXport, runlog)
 
         #     # loop.run_until_complete(gui_main.gui_monitor_msg_queue.put((":<wanlog>"+msg+"</wanlog>")))
         #     # asyncio.ensure_future(gui_main.wan_send_log((":<mlog>"+msg+"</mlog>")))
@@ -308,10 +313,15 @@ def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Actio
 async def log68(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Action"):
     log_enabled = False
     wan_enabled = True
-    if mask in LOG_SWITCH_BOARD:
-        if LOG_SWITCH_BOARD[mask]["log"]:
+    if gui_main:
+        log_switches = gui_main.log_settings
+    else:
+        log_switches = LOG_SWITCH_BOARD
+
+    if mask in log_switches:
+        if log_switches[mask]["log"]:
             log_enabled = True
-        if LOG_SWITCH_BOARD[mask]["range"] == "wan" and gui_main:
+        if log_switches[mask]["range"] == "wan" and gui_main:
             wan_enabled = True
 
     if log_enabled:
