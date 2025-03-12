@@ -2395,7 +2395,7 @@ def genStepsWinADSAMZBrowserBrowseSearch(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("obj", "ads_config", "NA", {}, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCreateData("string", "web_driver_options", "NA", "", stepN)
+        this_step, step_words = genStepCreateData("string", "web_driver_options", "NA", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern(

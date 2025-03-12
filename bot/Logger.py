@@ -238,12 +238,14 @@ def log3(msg, mask='all', gui_main=None):
 
 # this is super log with local log + 2 types remote log method, it will send message thru LAN(commander) and WAN(staff officer).
 def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Action"):
+    print(f"logging 6.... {mask}")
     log_enabled = False
     wan_enabled = True
     if mask in LOG_SWITCH_BOARD:
         if LOG_SWITCH_BOARD[mask]["log"]:
             log_enabled = True
         if LOG_SWITCH_BOARD[mask]["range"] == "wan" and gui_main:
+            print("wan log enabled....")
             wan_enabled = True
 
     if log_enabled:
@@ -292,6 +294,7 @@ def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Actio
                 #
                 ek = gui_main.generate_key_from_string(gui_main.main_key)
                 encryptedWanMsg = gui_main.encrypt_string(gui_main.main_key, wanMsg)
+                print("sending wan log....")
                 gui_main.wan_send_log((encryptedWanMsg))
 
             # send to commander as well
