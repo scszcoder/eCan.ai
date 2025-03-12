@@ -81,7 +81,7 @@ class Login(QDialog):
         self.settings = QSettings("ecbot")
 
         self.setWindowIcon(self.win_icon)
-        self.setWindowTitle('AiPPS E-Commerce Bots')
+        self.setWindowTitle('AiPPS My E-Commerce Agents')
         self.setWindowFlag(Qt.WindowMinimizeButtonHint, True)
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
 
