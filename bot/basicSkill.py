@@ -1992,7 +1992,8 @@ def processExtractInfo(step, i, mission, skill):
 
         result = read_screen(step['win_title_kw'], step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
-        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+        print(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+        log6(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3], "wan_log", mainwin, mission, i)
 
         if len(result) > 0:
             updateIconScalesDict(machine_name, sk_name, mainwin.log_user, step["page"], step["section"], result)
@@ -2088,7 +2089,7 @@ async def processExtractInfo8(step, i, mission, skill):
 
         result = await readScreen8(step['win_title_kw'], step["page"], step["section"], step["theme"], page_layout, mission, step_settings, sfile, step["options"], factors)
         symTab[step["data_sink"]] = result
-        log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+        log6(">>>>>>>>>>>>>>>>>>>>>screen read time stamp2: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3], "wan_log", mainwin, mission, i)
 
         if len(result) > 0:
             updateIconScalesDict(machine_name, sk_name, mainwin.log_user, step["page"], step["section"], result)

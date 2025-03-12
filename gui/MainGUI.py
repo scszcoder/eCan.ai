@@ -7866,7 +7866,7 @@ class MainWindow(QMainWindow):
                     msg = json.dumps(hbJson)
                     # send to commander
                     msg_with_delimiter = msg + "!ENDMSG!"
-
+                    log6("platoon heartbeat", "wan_log", self, self.running_mission, running_step_index, "~^v^v~")
                     if self.commanderXport:
                         log3("sending heartbeat", "serveCommander", self)
                         if self.commanderXport and not self.commanderXport.is_closing():
