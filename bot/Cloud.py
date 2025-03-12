@@ -16,6 +16,8 @@ from utils.logger_helper import logger_helper
 import websockets
 import traceback
 from config.constants import API_DEV_MODE
+from aiolimiter import AsyncLimiter
+limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
 ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
@@ -2211,23 +2213,24 @@ def appsync_http_request2(query_string, session, token, endpoint):
     return jresp
 
 
-async def appsync_http_request8(query_string, session, token, endpoint):
+async def appsync_http_request8(query_string, token, endpoint, retries=3):
     headers = {
         'Content-Type': "application/graphql",
         'Authorization': token,
         'cache-control': "no-cache",
     }
-    retries = 3
+
     for attempt in range(retries):
         try:
-            async with aiohttp.ClientSession() as session8:
-                async with session8.post(
-                    url=endpoint,
-                    timeout=aiohttp.ClientTimeout(total=300),  # Keep existing timeout
-                    headers=headers,
-                    json={'query': query_string}
-                ) as response:
-                    return await response.json()
+            async with limiter:  # Ensure only 5 requests run per second
+                async with aiohttp.ClientSession() as session8:
+                    async with session8.post(
+                            url=endpoint,
+                            timeout=aiohttp.ClientTimeout(total=300),
+                            headers=headers,
+                            json={'query': query_string}
+                    ) as response:
+                        return await response.json()
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             print(f"Attempt {attempt + 1} failed: {e}")
             if attempt < retries - 1:

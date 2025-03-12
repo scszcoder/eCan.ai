@@ -811,7 +811,8 @@ def processWebdriverKeyIn(step, i, mission):
         wait = WebDriverWait(driver, 10)
         print("TEXT::", text)
         # wait.until(EC.presence_of_element_located(target))
-        target.clear()
+        if target:
+            target.clear()
 
         if isinstance(text, list):
             if text[0]:
@@ -821,7 +822,10 @@ def processWebdriverKeyIn(step, i, mission):
         else:
             text_tbki = text
 
-        target.send_keys(text_tbki)
+        if target:
+            target.send_keys(text_tbki)
+        else:
+            raise Exception("Text Input Element Is NULL!")
 
         log6("WebdriverKeyIn:["+step["target_var"]+"]'"+text_tbki+"'", "wan_log", mainwin, mission, i)
 
