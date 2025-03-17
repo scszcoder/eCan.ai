@@ -1406,6 +1406,7 @@ class EBMISSION(QStandardItem):
         self.setMtype(dj.get("service1_type", ""))
         self.setSkills(dj.get("skills", "117"))
         self.setBD(dj.get("order_date"))
+        self.setEsd(dj.get("order_date"))
         self.setNote(dj.get("order_note"))
         self.setASIN(dj.get("order_asin", ""))          # this will auto set pseudo_asin
         self.setStore(dj.get("order_seller"))           # this will auto set pseudo_store

@@ -2442,7 +2442,6 @@ def processTextInput(step, i, mission):
     mainwin = mission.get_main_win()
     ex_stat = DEFAULT_RUN_STATUS
     try:
-        # log3("Keyboard typing......", nthSearch, type(nthSearch), type(run_config), run_config, list(run_config.keys()))
 
         if step["txt_ref_type"] == "direct":
             txt_to_be_input = step["text"]
@@ -2460,12 +2459,17 @@ def processTextInput(step, i, mission):
         if step["txt_type"] == "var" and step["txt_ref_type"] == "direct":
             log3("about to TYPE in:"+symTab[txt_to_be_input])
             pyautogui.write(symTab[txt_to_be_input], interval=0.25)
+            log_text = symTab[txt_to_be_input]
         else:
             if step["txt_type"] == "list":
                 log3("direct type in:"+txt_to_be_input[0])
                 pyautogui.write(txt_to_be_input[0], interval=step["speed"])
+                log_text = txt_to_be_input[0]
             else:
                 pyautogui.write(txt_to_be_input, interval=step["speed"])
+                log_text = txt_to_be_input
+
+        log6(f"Keyboard typing......{log_text}", "wan_log", mainwin, mission, i)
 
         time.sleep(1)
         if step['key_after'] != "":
@@ -2746,7 +2750,7 @@ def processMouseClick(step, i, mission):
     global page_stack
     global current_context
     mainwin = mission.get_main_win()
-    log3("Mouse Clicking .....")
+    log6(f"Mouse Clicking .....{step['target_name']}", "wan_log", mwinwin, mission, i)
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["target_type"] != "direct" and step["target_type"] != "expr":
@@ -2920,7 +2924,7 @@ def processKeyInput(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         keys = step["action_value"].split(',')
-        log3("Keyboard Action..... hot keys"+json.dumps(keys))
+        log6("Keyboard Action..... hot keys"+json.dumps(keys), "wan_log", mwinwin, mission, i)
         if len(keys) == 4:
             pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
         elif len(keys) == 3:
@@ -3012,7 +3016,7 @@ def processMouseScroll(step, i, mission):
             else:
                 scroll_amount = scroll_amount + random.randrange(step["random_min"], step["random_max"])
 
-        log3("after randomized Scroll Amount: "+str(scroll_amount))
+        log6(f"Mouse Scroll Amount: {scroll_amount}", "wan_log", mainwin, mission, i)
         mouse.scroll(0, scroll_amount)
 
         time.sleep(step["postwait"])
@@ -3058,6 +3062,7 @@ def processOpenApp(step, i):
     # log3("Opening App ....." + step["app_link"] + " " + step["cargs"])
     ex_stat = DEFAULT_RUN_STATUS
     try:
+        log6(f"Open App .....{step['app_type']}...{step['app_link']}", "wan_log", mwinwin, mission, i)
         if step["app_type"] == "browser":
             url = step["app_link"]
             webbrowser.open(url, new=0, autoraise=True)

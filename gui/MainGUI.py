@@ -9253,7 +9253,7 @@ class MainWindow(QMainWindow):
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage8(req_msg, self))
 
-    def wan_rpa_ctrl(self, token):
+    def wan_rpa_ctrl(self, cmd):
         if self.host_role == "Staff Officer":
             commander_chat_id = self.user.replace("@", "_").replace(".", "_") + "_Commander"
             req_msg = {
@@ -9261,7 +9261,7 @@ class MainWindow(QMainWindow):
                 "sender": "",
                 "receiver": commander_chat_id,
                 "type": "command",
-                "contents": json.dumps({"type": "cmd", "cmd": "rpa ctrl", "settings": ["all"]}).replace('"', '\\"'),
+                "contents": json.dumps({"cmd": cmd, "settings": ["all"]}).replace('"', '\\"'),
                 "parameters": ""
             }
             self.wan_sub_task = asyncio.create_task(wanSendMessage(req_msg, self))

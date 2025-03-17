@@ -675,7 +675,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
     closeMissionADS(mainwin, mission)
     mission.recordEndTime()
-    mission.setResult(symTab["mission_run_result"])
+    mission.setResult(symTab.get("mission_run_result", "WARNING: no result."))
     return run_result
 
 def closeMissionADS(mwin, mission):
