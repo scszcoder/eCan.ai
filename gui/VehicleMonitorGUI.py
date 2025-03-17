@@ -81,6 +81,11 @@ class VehicleMonitorWin(QMainWindow):
         button_layout.addWidget(self.btn_terminate)
         button_layout.addWidget(self.btn_report)
         right_layout.addLayout(button_layout)
+        self.btn_pause.clicked.connect(self.sendPauseCommand)
+        self.btn_resume.clicked.connect(self.sendResumeCommand)
+        self.btn_terminate.clicked.connect(self.sendTerminateCommand)
+        self.btn_report.clicked.connect(self.sendReportCommand)
+
 
         # **Command Input & Send Button**
         self.command_input = QLineEdit()
@@ -205,3 +210,21 @@ class VehicleMonitorWin(QMainWindow):
             </div>""" % (logTime, text_color, decryptedWanMsgRaw)
 
         return htmlMsg
+
+
+    def sendPauseCommand(self):
+        """Send pause command to the selected vehicle."""
+        self.mainwin.wan_rpa_ctrl("halt missions")
+
+    def sendResumeCommand(self):
+        """Send resume command to the selected vehicle."""
+        self.mainwin.wan_rpa_ctrl("resume missions")
+
+    def sendTerminateCommand(self):
+        """Send terminate command to the selected vehicle."""
+        self.mainwin.wan_rpa_ctrl("cancel missions")
+
+
+    def sendReportCommand(self):
+        """Send report command to the selected vehicle."""
+        self.mainwin.wan_rpa_ctrl("show status")
