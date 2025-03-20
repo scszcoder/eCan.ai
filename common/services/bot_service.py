@@ -82,6 +82,17 @@ class BotService:
         self.main_win.showMsg("BOTS fetchall" + json.dumps(dict_results))
         return results
 
+    def find_bots_by_emails(self, email_list) -> [BotModel]:
+        """Fetch bots where email is in the given list, return as JSON."""
+        if not email_list:
+            return []  # Return empty list if input is empty
+
+        # Query the database
+        bots = self.session.query(BotModel).filter(BotModel.email.in_(email_list)).all()
+
+        # Convert result to a list of dictionaries (JSON)
+        return [bot.to_dict() for bot in bots]
+
     def update_bots_batch(self, api_bots):
         print("api bots:", api_bots)
         for i, api_bot in enumerate(api_bots):
