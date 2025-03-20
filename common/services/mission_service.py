@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import MetaData,  inspect, delete, or_, Table, Column, Integer, String, Text, text, TEXT, REAL, INTEGER
+from sqlalchemy import MetaData,  inspect, delete, or_, tuple_, Table, Column, Integer, String, Text, text, TEXT, REAL, INTEGER
 
 from bot.Cloud import send_query_missions_by_time_request_to_cloud, send_query_manager_missions_request_to_cloud
 from common.db_init import sync_table_columns
@@ -93,6 +93,31 @@ class MissionService:
             junk =0
             # self.main_win.showMsg("Found Local DB Mission Row(s) by mid: " + json.dumps(result.to_dict()), "debug")
         return result
+
+    def find_missions_by_asin_srcs(self, m_asin_srcs) -> [MissionModel]:
+        """
+            Queries the MISSIONS table to find rows matching the given list of dictionaries.
+            Each dictionary must have 'asin' and 'src' keys.
+            """
+        print("find_missions_by_asin_srcs...")
+        if not m_asin_srcs:
+            print("❌ No input data provided.")
+            return []
+
+        # Convert the input JSON list into a query filter
+        filters = [(item["asin"], item["src"]) for item in m_asin_srcs]
+
+        # Query using SQLAlchemy ORM
+        results = self.session.query(MissionModel).filter(
+            tuple_(
+                MissionModel.asin, MissionModel.original_req_file
+            ).in_(filters)
+        ).all()
+
+        # Convert results to a list of dictionaries
+        mrows = [mission.to_dict() for mission in results]
+        print("mrows...", mrows)
+        return mrows
 
     def find_missions_by_ticket(self, ticket) -> MissionModel:
         result: MissionModel = self.session.query(MissionModel).filter(MissionModel.ticket == ticket).first()
@@ -280,8 +305,14 @@ class MissionService:
         print("sending query missions.....")
         jresp = send_query_missions_by_time_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
                                                      [{"byowneruser": True}], mwin.getWanApiEndpoint())
-        all_missions = json.loads(jresp['body'])
-        # print("all missions:", all_missions)
+        # print("jresp:", type(jresp), jresp)
+        if jresp['body']:
+            if isinstance(jresp['body'], str):  # If it's a string, parse it
+                all_missions = json.loads(jresp['body'])
+            else:  # If it's already a list, use it as is
+                all_missions = jresp['body']
+        else:
+            all_missions = []
 
         jresp = send_query_manager_missions_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
                                                      [{"byowneruser": True}], mwin.getWanApiEndpoint())
@@ -294,7 +325,8 @@ class MissionService:
 
         # print("all missions:", all_missions)
         # all_missions = jresp['body']
-        for mission in all_missions:
+
+        for mi, mission in enumerate(all_missions):
             mid = mission['mid']
             local_mission = self.find_missions_by_mid(mid)
             insert = False
@@ -326,6 +358,9 @@ class MissionService:
             local_mission.config = str(mission['config'])
             local_mission.skills = mission['skills']
             local_mission.delDate = mission['delDate']
+            # print("midx:", mi, mission["mid"])
+            # if mi == 84:
+            #     print("mm:", mission)
             local_mission.as_server = mission['as_server']
             if insert:
                 self.session.add(local_mission)

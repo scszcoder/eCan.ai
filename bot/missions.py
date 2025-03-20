@@ -815,44 +815,85 @@ class EBMISSION(QStandardItem):
         return self.pubAttributes.config
 
     def setConfig(self, cfg):
+        """
+        Parses and sets the configuration JSON.
+        - Accepts a dictionary or a string-encoded dictionary.
+        - Uses JSON decoding for safety.
+        """
         try:
             self.pubAttributes.config = cfg
             # print("cfg:", cfg, type(cfg))
 
-            # Determine the type of cfg and process accordingly
-            if isinstance(cfg, str):
+            # If cfg is already a dictionary, use it directly
+            if isinstance(cfg, dict):
+                cfgJson = cfg
+            elif isinstance(cfg, str):
                 try:
-                    # Safely evaluate string as a Python dictionary
-                    cfgJson = ast.literal_eval(cfg)
-                except (ValueError, SyntaxError):
-                    # Fallback to replacing single quotes with double quotes for JSON compatibility
-                    cfgJson = json.loads(cfg.replace("'", '"'))
+                    # First, attempt to load it as JSON directly
+                    cfgJson = json.loads(cfg)
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ JSON decoding failed: {e}. Trying alternative parsing...")
+
+                    try:
+                        # If JSON decoding fails, try evaluating it safely
+                        cfgJson = ast.literal_eval(cfg)
+                    except (ValueError, SyntaxError) as e:
+                        raise ValueError(f"Invalid config format: {cfg}. Error: {e}")
             else:
-                cfgJson = cfg  # Assume it's already a dictionary or valid structure
+                raise TypeError(f"Unsupported config type: {type(cfg)}")
 
             # Safely update attributes based on the keys in cfgJson
-            if "repeat_type" in cfgJson:
-                self.pubAttributes.repeat_type = cfgJson["repeat_type"]
+            self.pubAttributes.repeat_type = cfgJson.get("repeat_type", self.pubAttributes.repeat_type)
+            self.pubAttributes.repeat_number = cfgJson.get("repeat_number", self.pubAttributes.repeat_number)
+            self.pubAttributes.repeat_unit = cfgJson.get("repeat_unit", self.pubAttributes.repeat_unit)
+            self.pubAttributes.repeat_on = cfgJson.get("repeat_on", self.pubAttributes.repeat_on)
+            self.pubAttributes.repeat_until = cfgJson.get("repeat_until", self.pubAttributes.repeat_until)
+            self.pubAttributes.repeat_last = cfgJson.get("repeat_last", self.pubAttributes.repeat_last)
 
-            if "repeat_number" in cfgJson:
-                self.pubAttributes.repeat_number = cfgJson["repeat_number"]
+            print(f"✅ Config loaded successfully: {len(cfgJson.get('searches', []))} searches.")
 
-            if "repeat_unit" in cfgJson:
-                self.pubAttributes.repeat_unit = cfgJson["repeat_unit"]
+        except (json.JSONDecodeError, ValueError, SyntaxError, TypeError) as e:
+            raise ValueError(f"❌ Invalid config format: {cfg}. Error: {e}")
 
-            if "repeat_on" in cfgJson:
-                self.pubAttributes.repeat_on = cfgJson["repeat_on"]
-
-            if "repeat_until" in cfgJson:
-                self.pubAttributes.repeat_until = cfgJson["repeat_until"]
-
-            if "repeat_last" in cfgJson:
-                self.pubAttributes.repeat_last = cfgJson["repeat_last"]
-
-            print("Config loaded: # searches", len(cfgJson.get('searches', [])))
-
-        except (json.JSONDecodeError, ValueError, SyntaxError) as e:
-            raise ValueError(f"Invalid config format: {cfg}. Error: {e}")
+    # def setConfig(self, cfg):
+    #     try:
+    #         self.pubAttributes.config = cfg
+    #         # print("cfg:", cfg, type(cfg))
+    #
+    #         # Determine the type of cfg and process accordingly
+    #         if isinstance(cfg, str):
+    #             try:
+    #                 # Safely evaluate string as a Python dictionary
+    #                 cfgJson = ast.literal_eval(cfg)
+    #             except (ValueError, SyntaxError):
+    #                 # Fallback to replacing single quotes with double quotes for JSON compatibility
+    #                 cfgJson = json.loads(cfg.replace("'", '"'))
+    #         else:
+    #             cfgJson = cfg  # Assume it's already a dictionary or valid structure
+    #
+    #         # Safely update attributes based on the keys in cfgJson
+    #         if "repeat_type" in cfgJson:
+    #             self.pubAttributes.repeat_type = cfgJson["repeat_type"]
+    #
+    #         if "repeat_number" in cfgJson:
+    #             self.pubAttributes.repeat_number = cfgJson["repeat_number"]
+    #
+    #         if "repeat_unit" in cfgJson:
+    #             self.pubAttributes.repeat_unit = cfgJson["repeat_unit"]
+    #
+    #         if "repeat_on" in cfgJson:
+    #             self.pubAttributes.repeat_on = cfgJson["repeat_on"]
+    #
+    #         if "repeat_until" in cfgJson:
+    #             self.pubAttributes.repeat_until = cfgJson["repeat_until"]
+    #
+    #         if "repeat_last" in cfgJson:
+    #             self.pubAttributes.repeat_last = cfgJson["repeat_last"]
+    #
+    #         # print("Config loaded: # searches", len(cfgJson.get('searches', [])))
+    #
+    #     except (json.JSONDecodeError, ValueError, SyntaxError) as e:
+    #         raise ValueError(f"Invalid config format: {cfg}. Error: {e}")
 
         # self.pubAttributes.config = cfg
         # print("cfg:", cfg, type(cfg))
