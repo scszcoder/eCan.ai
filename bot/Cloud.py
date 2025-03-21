@@ -834,6 +834,7 @@ def gen_add_missions_string(missions, test_settings={}):
             rec_string = rec_string + "asin:\"" + missions[i]["pubAttributes"]["pseudo_asin"] + "\", "
             rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["ms_type"] + "\", "
+            rec_string = rec_string + "esd:\"" + missions[i]["pubAttributes"]["esd"] + "\", "
             rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
             rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
             rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
@@ -851,6 +852,7 @@ def gen_add_missions_string(missions, test_settings={}):
             rec_string = rec_string + "asin:\"" + missions[i].getPseudoASIN() + "\", "
             rec_string = rec_string + "brand:\"" + missions[i].getPseudoBrand() + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i].getMtype() + "\", "
+            rec_string = rec_string + "esd:\"" + missions[i].getEsd() + "\", "
             rec_string = rec_string + "as_server:" + str(int(missions[i].getAsServer())) + ", "
             rec_string = rec_string + "skills:\"" + missions[i].getSkills() + "\", "
             rec_string = rec_string + "config:\"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
@@ -895,6 +897,7 @@ def gen_update_missions_string(missions):
             rec_string = rec_string + "asin:" + str(missions[i]["pubAttributes"]["pseudo_asin"]) + ", "
             rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
             rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["mtype"] + "\", "
+            rec_string = rec_string + "esd:\"" + missions[i]["pubAttributes"]["esd"] + "\", "
             rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
             rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
             rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
@@ -912,6 +915,7 @@ def gen_update_missions_string(missions):
             rec_string = rec_string + "asin: \"" + missions[i].getPseudoASIN() + "\", "
             rec_string = rec_string + "brand: \"" + missions[i].getPseudoBrand() + "\", "
             rec_string = rec_string + "mtype: \"" + missions[i].getMtype() + "\", "
+            rec_string = rec_string + "esd: \"" + missions[i].getEsd() + "\", "
             rec_string = rec_string + "as_server: " + str(int(missions[i].getAsServer())) + ", "
             rec_string = rec_string + "skills: \"" + missions[i].getSkills() + "\", "
             rec_string = rec_string + "config: \"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
@@ -1566,7 +1570,7 @@ def send_add_missions_request_to_cloud(session, missions, token, endpoint):
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addMissions"])
-
+    print("send_add_missions_request_to_cloud response:", send_add_missions_request_to_cloud)
     return jresponse
 
 
@@ -1748,8 +1752,8 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
 
     queryInfo = gen_report_vehicles_string(vehicles)
 
-    jresp = appsync_http_request(queryInfo, session, token, endpoint)
-
+    # jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    jresp = {"data": {"reportVehicles": {}}}
     if "errors" in jresp:
         screen_error = True
         print("JRESP:", jresp)

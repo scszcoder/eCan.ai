@@ -4504,79 +4504,93 @@ class MainWindow(QMainWindow):
 
     def addNewMissions(self, new_missions):
         # Logic for creating a new mission:
-        self.showMsg("adding a .... new... mission")
-        api_missions = []
-        for new_mission in new_missions:
-            api_missions.append({
-                # "mid": new_mission.getMid(),
-                "ticket": new_mission.getMid(),
-                "botid": new_mission.getBid(),
-                "status": new_mission.getStatus(),
-                "createon": new_mission.getBD(),
-                "esd": new_mission.getEsd(),
-                "ecd": new_mission.getEcd(),
-                "asd": new_mission.getAsd(),
-                "abd": new_mission.getAbd(),
-                "aad": new_mission.getAad(),
-                "afd": new_mission.getAfd(),
-                "acd": new_mission.getAcd(),
-                "actual_start_time": new_mission.getActualStartTime(),
-                "est_start_time": new_mission.getEstimatedStartTime(),
-                "actual_run_time": new_mission.getActualRunTime(),
-                "est_run_time": new_mission.getEstimatedRunTime(),
-                "n_retries": new_mission.getNRetries(),
-                "cuspas": new_mission.getCusPAS(),
-                "search_cat": new_mission.getSearchCat(),
-                "search_kw": new_mission.getSearchKW(),
-                "pseudo_store": new_mission.getPseudoStore(),
-                "pseudo_brand": new_mission.getPseudoBrand(),
-                "pseudo_asin": new_mission.getPseudoASIN(),
-                "repeat": new_mission.getRetry(),
-                "mtype": new_mission.getMtype(),
-                "mconfig": new_mission.getConfig(),
-                "skills": new_mission.getSkills(),
-                "delDate": new_mission.getDelDate(),
-                "asin": new_mission.getASIN(),
-                "store": new_mission.getStore(),
-                "follow_seller": new_mission.getFollowSeller(),
-                "brand": new_mission.getBrand(),
-                "image": new_mission.getImagePath(),
-                "title": new_mission.getTitle(),
-                "variations": new_mission.getVariations(),
-                "rating": new_mission.getRating(),
-                "feedbacks": new_mission.getFeedbacks(),
-                "price": new_mission.getPrice(),
-                "follow_price": new_mission.getFollowPrice(),
-                "customer": new_mission.getCustomerID(),
-                "platoon": new_mission.getPlatoonID(),
-                "fingerprint_profile": new_mission.getFingerPrintProfile(),
-                "original_req_file": new_mission.getReqFile(),
-                "as_server": new_mission.getAsServer(),
-                "result": ""
-            })
-        jresp = send_add_missions_request_to_cloud(self.session, new_missions,
-                                                   self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
-        if "errorType" in jresp:
-            screen_error = True
-            self.showMsg("Delete Bots ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
-        else:
-            jbody = jresp["body"]
-            # now that delete is successfull, update local file as well.
-            # self.writeMissionJsonFile()
-            self.showMsg("JUST ADDED mission:"+json.dumps(jbody))
-            for i, new_mission in enumerate(new_missions):
-                new_mission.setMid(jbody[i]["mid"])
-                new_mission.setTicket(jbody[i]["ticket"])
-                new_mission.setEstimatedStartTime(jbody[i]["esttime"])
-                new_mission.setEstimatedRunTime(jbody[i]["runtime"])
-                new_mission.setEsd(jbody[i]["esd"])
-                self.missions.append(new_mission)
-                self.missionModel.appendRow(new_mission)
-            if not self.debug_mode:
-                self.mission_service.insert_missions_batch(jbody, api_missions)
+        try:
+            self.showMsg("adding a .... new... mission")
+            api_missions = []
+            for new_mission in new_missions:
+                api_missions.append({
+                    # "mid": new_mission.getMid(),
+                    "ticket": new_mission.getMid(),
+                    "botid": new_mission.getBid(),
+                    "status": new_mission.getStatus(),
+                    "createon": new_mission.getBD(),
+                    "esd": new_mission.getEsd(),
+                    "ecd": new_mission.getEcd(),
+                    "asd": new_mission.getAsd(),
+                    "abd": new_mission.getAbd(),
+                    "aad": new_mission.getAad(),
+                    "afd": new_mission.getAfd(),
+                    "acd": new_mission.getAcd(),
+                    "actual_start_time": new_mission.getActualStartTime(),
+                    "est_start_time": new_mission.getEstimatedStartTime(),
+                    "actual_run_time": new_mission.getActualRunTime(),
+                    "est_run_time": new_mission.getEstimatedRunTime(),
+                    "n_retries": new_mission.getNRetries(),
+                    "cuspas": new_mission.getCusPAS(),
+                    "search_cat": new_mission.getSearchCat(),
+                    "search_kw": new_mission.getSearchKW(),
+                    "pseudo_store": new_mission.getPseudoStore(),
+                    "pseudo_brand": new_mission.getPseudoBrand(),
+                    "pseudo_asin": new_mission.getPseudoASIN(),
+                    "repeat": new_mission.getRetry(),
+                    "mtype": new_mission.getMtype(),
+                    "mconfig": new_mission.getConfig(),
+                    "skills": new_mission.getSkills(),
+                    "delDate": new_mission.getDelDate(),
+                    "asin": new_mission.getASIN(),
+                    "store": new_mission.getStore(),
+                    "follow_seller": new_mission.getFollowSeller(),
+                    "brand": new_mission.getBrand(),
+                    "image": new_mission.getImagePath(),
+                    "title": new_mission.getTitle(),
+                    "variations": new_mission.getVariations(),
+                    "rating": new_mission.getRating(),
+                    "feedbacks": new_mission.getFeedbacks(),
+                    "price": new_mission.getPrice(),
+                    "follow_price": new_mission.getFollowPrice(),
+                    "customer": new_mission.getCustomerID(),
+                    "platoon": new_mission.getPlatoonID(),
+                    "fingerprint_profile": new_mission.getFingerPrintProfile(),
+                    "original_req_file": new_mission.getReqFile(),
+                    "as_server": new_mission.getAsServer(),
+                    "result": ""
+                })
+            jresp = send_add_missions_request_to_cloud(self.session, new_missions,
+                                                       self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+            if "errorType" in jresp:
+                print("jresp:", jresp)
+                self.showMsg("Error Add New Mission From File: "+json.dumps(jresp))
+            else:
+                jbody = jresp["body"]
+                # now that delete is successfull, update local file as well.
+                # self.writeMissionJsonFile()
+                self.showMsg("JUST ADDED mission:"+json.dumps(jbody))
+                for i, new_mission in enumerate(new_missions):
+                    new_mission.setMid(jbody[i]["mid"])
+                    new_mission.setTicket(jbody[i]["ticket"])
+                    new_mission.setEstimatedStartTime(jbody[i]["esttime"])
+                    new_mission.setEstimatedRunTime(jbody[i]["runtime"])
+                    new_mission.setEsd(jbody[i]["esd"])
+                    self.missions.append(new_mission)
+                    self.missionModel.appendRow(new_mission)
+                if not self.debug_mode:
+                    self.mission_service.insert_missions_batch(jbody, api_missions)
 
-            mid_list = [mission.getMid() for mission in new_missions]
-            self.mission_service.find_missions_by_mids(mid_list)
+                mid_list = [mission.getMid() for mission in new_missions]
+                self.mission_service.find_missions_by_mids(mid_list)
+
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorAddNewMissions:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorAddNewMissions: traceback information not available:" + str(e)
+
+            print(ex_stat)
+
+
 
     def updateMissions(self, missions):
         # potential optimization here, only if cloud side related attributes changed, then we do update on the cloud side.

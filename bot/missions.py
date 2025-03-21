@@ -1438,7 +1438,10 @@ class EBMISSION(QStandardItem):
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadBusinessesDBData(self, dj):
-        self.setMid(dj.get("mid", 0))
+        mid = dj.get("mid", 0)
+        if mid == None or mid == "":
+            mid = 0
+        self.setMid(mid)
         self.setCusPAS(dj.get("platform", "win")+","+dj.get("app", "ads")+","+dj.get("site", "amz"))
         self.setSearchKW(dj.get("order_search_term", ""))
         # self.setPseudoStore(self.main_win.generateShortHash(dj.get("order_seller")))
