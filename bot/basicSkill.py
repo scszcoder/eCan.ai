@@ -3058,9 +3058,10 @@ def is_app_running(process_name):
 # step['app_type'] short name for the app, used to locate app window, so must be a substring of window title.
 # step['cargs_type'] -  "direct" "expr"
 # step['cargs'] - command arguments could be string, could be a list of strings, could be a variable holding the arguments....
-def processOpenApp(step, i):
+def processOpenApp(step, i, mission):
     # log3("Opening App ....." + step["app_link"] + " " + step["cargs"])
     ex_stat = DEFAULT_RUN_STATUS
+    mainwin = mission.get_main_win()
     try:
         log6(f"Open App .....{step['app_type']}...{step['app_link']}", "wan_log", mwinwin, mission, i)
         if step["app_type"] == "browser":
