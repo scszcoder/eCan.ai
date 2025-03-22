@@ -57,7 +57,7 @@ from bot.labelSkill import processGSExtractZippedFileName, processPrepareGSOrder
 from bot.printLabel import processPrintLabels
 from bot.ecSkill import processGenShippingOrdersFromMsgResponses
 from bot.scrapeGoodSupply import processGSScrapeLabels
-from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread, processAMZScrapeBuyOrdersHtml, processAMZScrapeSoldOrdersHtml
+from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread, processAmzScrapeBuyOrdersHtml, processAmzScrapeSoldOrdersHtml
 
 from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOrdersFromJss, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
@@ -195,10 +195,10 @@ RAIS = {
     "AMZ Browser Scrape Products List": lambda x, y, z: processAMZBrowserScrapePL(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
     "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
-    "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
+    "AMZ Scrape Buy Orders Html": lambda x, y, z: processAmzScrapeBuyOrdersHtml(x, y, z),
     "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
     "AMZ Scrape Reviews Html": lambda x, y, z: processAMZScrapeReviewsHtml(x, y, z),
-    "AMZ Scrape Sold Orders Html": lambda x, y, z: processAMZScrapeSoldOrdersHtml(x, y, z),
+    "AMZ Scrape Sold Orders Html": lambda x, y, z: processAmzScrapeSoldOrdersHtml(x, y, z),
     "AMZ Scrape Msg Lists": lambda x, y, z: processAmzScrapeMsgList(x, y, z),
     "AMZ Buy Check Shipping": lambda x, y: processAmzBuyCheckShipping(x, y),
     "AMZ Details Check Position": lambda x, y: processAmzDetailsCheckPosition(x, y),
@@ -365,10 +365,10 @@ ARAIS = {
     "AMZ Browser Scrape Products List": lambda x, y, z: processAMZBrowserScrapePL(x, y, z),
     "AMZ Browse Details": lambda x,y: processAMZBrowseDetails(x, y),
     "AMZ Scrape Product Details Html": lambda x, y, z: processAMZScrapeProductDetailsHtml(x, y, z),
-    "AMZ Scrape Buy Orders Html": lambda x, y, z: processAMZScrapeBuyOrdersHtml(x, y, z),
+    "AMZ Scrape Buy Orders Html": lambda x, y, z: processAmzScrapeBuyOrdersHtml(x, y, z),
     "AMZ Browse Reviews": lambda x,y: processAMZBrowseReviews(x, y),
     "AMZ Scrape Reviews Html": lambda x, y, z: processAMZScrapeReviewsHtml(x, y, z),
-    "AMZ Scrape Sold Orders Html": lambda x, y, z: processAMZScrapeSoldOrdersHtml(x, y, z),
+    "AMZ Scrape Sold Orders Html": lambda x, y, z: processAmzScrapeSoldOrdersHtml(x, y, z),
     "AMZ Scrape Msg Lists": lambda x, y, z: processAmzScrapeMsgList(x, y, z),
     "AMZ Buy Check Shipping": lambda x, y: processAmzBuyCheckShipping(x, y),
     "AMZ Details Check Position": lambda x, y: processAmzDetailsCheckPosition(x, y),

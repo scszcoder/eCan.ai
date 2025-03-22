@@ -4227,7 +4227,7 @@ def processAMZScrapeProductDetailsHtml(step, i):
 
     return (i + 1), ex_stat
 
-def processAMZScrapeReviewsHtml(step, i):
+def processAMZScrapeReviewsHtml(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         log3("Extract Product Reviews from HTML")
