@@ -57,7 +57,8 @@ from bot.labelSkill import processGSExtractZippedFileName, processPrepareGSOrder
 from bot.printLabel import processPrintLabels
 from bot.ecSkill import processGenShippingOrdersFromMsgResponses
 from bot.scrapeGoodSupply import processGSScrapeLabels
-from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread
+from bot.scraperAmz import processAmzScrapeMsgList, processAmzScrapeCustomerMsgThread, processAMZScrapeBuyOrdersHtml, processAMZScrapeSoldOrdersHtml
+
 from bot.scraperEbay import processEbayScrapeOrdersFromHtml, processEbayScrapeOrdersFromJss, processEbayScrapeMsgList, processEbayScrapeCustomerMsgThread
 from bot.scraperEtsy import processEtsyScrapeOrders, processEtsyScrapeMsgLists, processEtsyScrapeMsgThread
 from bot.seleniumScrapeAmz import processAMZBrowserScrapePL
@@ -142,7 +143,7 @@ RAIS = {
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
-    "App Open": lambda x,y: processOpenApp(x, y),
+    "App Open": lambda x,y,z: processOpenApp(x, y, z),
     "Create Data": lambda x,y: processCreateData(x, y),
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
@@ -312,7 +313,7 @@ ARAIS = {
     "Calibrate Scroll": lambda x,y: processCalibrateScroll(x, y),
     "Text Line Location Record": lambda x,y: processRecordTxtLineLocation(x, y),
     "Key Input": lambda x,y,z: processKeyInput(x, y, z),
-    "App Open": lambda x,y: processOpenApp(x, y),
+    "App Open": lambda x,y,z: processOpenApp(x, y, z),
     "Create Data": lambda x,y: processCreateData(x, y),
     "Fill Data": lambda x,y: processFillData(x, y),
     "Load Data": lambda x,y: processLoadData(x, y),
@@ -752,7 +753,7 @@ def run1step(steps, si, mission, skill, stack):
             step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait For Visibility" or\
             step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
             step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-            step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or \
+            step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or step["type"] == "App Open" or \
             step["type"] == "Log Cross Network" or step["type"] == "Log" or step["type"] == "Update Buy Mission Result" or\
             step["type"] == "ADS Update Profile Ids" or step["type"] == "ADS Batch Text To Profiles" or \
             step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
@@ -818,7 +819,7 @@ async def run1step8(steps, si, mission, skill, stack):
                  step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or  step["type"] == "ADS Save API Settings" or \
                  step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
                  step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
-                 step["type"] == "Update Buy Mission Result" or \
+                 step["type"] == "Update Buy Mission Result" or step["type"] == "App Open" or \
                  step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
                  step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
                  step["type"] == "ADS Batch Text To Profiles" or step["type"] == "Log Cross Network" or step["type"] == "Log" or \
