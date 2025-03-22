@@ -1441,7 +1441,14 @@ class EBMISSION(QStandardItem):
         mid = dj.get("mid", 0)
         if mid == None or mid == "":
             mid = 0
+        uid = dj.get("uid", 0)
+        if uid == None or uid == "":
+            uid = 0
+        else:
+            uid = int(uid)
+
         self.setMid(mid)
+        self.setTicket(uid)
         self.setCusPAS(dj.get("platform", "win")+","+dj.get("app", "ads")+","+dj.get("site", "amz"))
         self.setSearchKW(dj.get("order_search_term", ""))
         # self.setPseudoStore(self.main_win.generateShortHash(dj.get("order_seller")))
