@@ -1752,8 +1752,8 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
 
     queryInfo = gen_report_vehicles_string(vehicles)
 
-    # jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    jresp = {"data": {"reportVehicles": {}}}
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    # jresp = {"data": {"reportVehicles": {}}}
     if "errors" in jresp:
         screen_error = True
         print("JRESP:", jresp)
