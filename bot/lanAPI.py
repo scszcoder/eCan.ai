@@ -65,11 +65,13 @@ def gen_train_request_js(query, local_info):
 async def req_lan_read_screen8(session, request, token, local_info, imgs, lan_endpoint):
     qdata = gen_screen_read_request_js(request, local_info)
     print("request qdata:", qdata)
+    print("time stamp800: "+datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     jresp = await lan_http_request8(qdata, imgs, session, token, lan_endpoint)
-
+    print("time stamp801: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     try:
         jresp = jresp.json()  # Convert the response to JSON
+        print("lan jresp:", jresp)
     except Exception as e:
         print(f"Failed to parse JSON from response: {e}")
         print("Raw response:", jresp.text)
@@ -168,7 +170,7 @@ async def lan_http_request8(query_js, imgs, session, token, lan_endpoint):
     def print_on_request(request: httpx.Request):
         print(f"🔍 Raw HTTP Request (sync hook): {request}")
 
-    timeout = httpx.Timeout(connect=10.0, read=100.0, write=30.0, pool=10.0)
+    timeout = httpx.Timeout(connect=60.0, read=60.0, write=60.0, pool=60.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             print("no need to read files, img is already there...")
@@ -194,7 +196,7 @@ async def lan_http_request8(query_js, imgs, session, token, lan_endpoint):
             # the response handler can be the same. ... sc, well, let's push it to
             # the server side.
 
-            print("Response:", response)
+            print("MILAN Response:", response)
 
             return response
 

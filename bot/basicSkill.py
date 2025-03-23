@@ -2750,7 +2750,7 @@ def processMouseClick(step, i, mission):
     global page_stack
     global current_context
     mainwin = mission.get_main_win()
-    log6(f"Mouse Clicking .....{step['target_name']}", "wan_log", mwinwin, mission, i)
+    log6(f"Mouse Clicking .....{step['target_name']}", "wan_log", mainwin, mission, i)
     ex_stat = DEFAULT_RUN_STATUS
     try:
         if step["target_type"] != "direct" and step["target_type"] != "expr":
@@ -2924,7 +2924,7 @@ def processKeyInput(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     try:
         keys = step["action_value"].split(',')
-        log6("Keyboard Action..... hot keys"+json.dumps(keys), "wan_log", mwinwin, mission, i)
+        log6("Keyboard Action..... hot keys"+json.dumps(keys), "wan_log", mainwin, mission, i)
         if len(keys) == 4:
             pyautogui.hotkey(keys[0], keys[1], keys[2], keys[3])
         elif len(keys) == 3:
@@ -3063,7 +3063,7 @@ def processOpenApp(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     mainwin = mission.get_main_win()
     try:
-        log6(f"Open App .....{step['app_type']}...{step['app_link']}", "wan_log", mwinwin, mission, i)
+        log6(f"Open App .....{step['app_type']}...{step['app_link']}", "wan_log", mainwin, mission, i)
         if step["app_type"] == "browser":
             url = step["app_link"]
             webbrowser.open(url, new=0, autoraise=True)

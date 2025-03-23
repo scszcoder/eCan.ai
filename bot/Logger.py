@@ -294,7 +294,7 @@ def log6(msg, mask='all', gui_main=None, mission=None, stepIdx=0, msgType="Actio
 
 
             if wan_enabled:
-                loop = asyncio.get_event_loop()
+                # loop = asyncio.get_event_loop()
                 #
                 ek = gui_main.generate_key_from_string(gui_main.main_key)
                 encryptedWanMsg = gui_main.encrypt_string(ek, wanMsg)

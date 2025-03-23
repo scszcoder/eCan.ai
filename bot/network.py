@@ -443,7 +443,7 @@ class UDPServerProtocol:
                     self.active_reconnect_task = self.loop.create_task(self.reconnect_to_commander(commanderIP))
         elif "MILAN" in message:
             rxmsg_parts = message.split(":")
-            milanServerIP = rxmsg_parts[1]
+            milanServerIP = rxmsg_parts[1].strip()
             print(f"received milan server IP: {milanServerIP}")
             self.topgui.setMILANServer(milanServerIP)
 
