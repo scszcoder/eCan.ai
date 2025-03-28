@@ -2,7 +2,7 @@ import json
 import os
 import re
 from datetime import datetime
-
+import base64
 import requests
 import boto3
 from botocore.exceptions import ClientError
@@ -2478,3 +2478,8 @@ async def wanSendConfirmSolvePuzzle(msg_req, token, endpoint):
             print(jresp)
             return jresp
 
+
+def scramble_api_key(ak):
+    salted = f"ECB|{ak}"
+    scrambled = base64.b64encode(salted.encode("utf-8")).decode("utf-8")
+    return scrambled

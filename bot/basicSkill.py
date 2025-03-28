@@ -6786,7 +6786,9 @@ def processECBDispatchTroops(step, i):
 
     try:
         symTab[step["flag"]] = True
+        print("to be dispatched schedule.....", symTab[step["schedule_var"]])
         if isinstance(symTab[step["schedule_var"]], str):
+            print("string type????")
             if "error" in symTab[step["schedule_var"]].lower():
                 symTab[step["flag"]] = False
                 symTab[step["result_var"]] = symTab[step["schedule_var"]]
