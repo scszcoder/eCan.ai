@@ -12,6 +12,7 @@ from io import BytesIO
 import io
 import httpx
 import traceback
+from bot.Cloud import scramble_api_key
 
 from bot.Cloud import send_account_info_request_to_cloud, send_query_chat_request_to_cloud, send_schedule_request_to_cloud, \
     req_cloud_obtain_review_w_aipkey, req_cloud_obtain_review, send_report_vehicles_to_cloud, send_dequeue_tasks_to_cloud, \
@@ -2086,3 +2087,89 @@ async def stressTestImageAPI(mwin, iterations):
 def testGetManagerMissions(mwin):
     result = send_query_manager_missions_request_to_cloud(mwin.session, mwin.tokens['AuthenticationResult']['IdToken'], [], mwin.getWanApiEndpoint())
     print(result)
+
+
+
+def testSyncPrivateCloudImageAPI(parent):
+    api_key = "c3f8fa3f021fc96172414456ab96df1ecbfcf900a8d3a59a78e8ac9b3867df80"
+    # x_api_key = scramble_api_key(api_key)
+    print("TESTING Private Cloud IMG API....", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    # Ensure ECB_HOME is set
+    ecb_home = os.getenv("ECB_HOME")
+    if not ecb_home:
+        raise ValueError("Environment variable ECB_HOME is not set!")
+
+    print(f"ecb_home: {ecb_home}")  # Debugging print
+
+    # Construct file path
+    img_file_name = os.path.join(ecb_home,
+                                 "runlogs/20240606/b85m702/win_file_local_op/skills/open_save_as/images/scrnsongc_yahoo_1717735671.png")
+
+    # Construct request payload
+    request = [{
+        "mid": 702,
+        "bid": 85,
+        "os": "win",
+        "app": "file",
+        "domain": "local",
+        "page": "op",
+        "layout": "",
+        "skill": "open_save_as",
+        "csk": os.path.join(ecb_home,
+                            "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
+        "psk": os.path.join(ecb_home,
+                            "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
+        "lastMove": "top",
+        "options": json.dumps({"attention_area": [0, 0, 1920, 1080], "attention_targets": ["@all"], "display_resolution": "D1920X1080"}),
+        # Use valid JSON string
+        "theme": "light",
+        "imageFile": img_file_name,
+        "factor": "{}"
+    }]
+
+    data = {
+        "inScrn": request,
+        "requester": "songc@yahoo.com",
+        "host": "DESKTOP-DLLV0",
+        "type": "reqScreenTxtRead",
+        "query_type": "Query"
+    }
+
+    # Use local IP instead of .local hostname
+    host_ip = "47.120.48.82"
+    endpoint = f"http://{host_ip}:8848/graphql/reqScreenTxtRead"
+
+    print("endpoint:", endpoint)
+
+    # Ensure file exists before sending
+    if not os.path.exists(img_file_name):
+        print(f"Error: File not found: {img_file_name}")
+        return
+
+    try:
+        print("Reading file bytes...")
+
+        # Prepare the multipart request
+        with open(img_file_name, "rb") as img_file:
+            files = {
+                "file": (os.path.basename(img_file_name), img_file, "image/png"),
+            }
+            payload = {
+                "data": json.dumps(data)  # Send JSON as a string
+            }
+
+            print("Sending HTTP request...")
+            headers = {
+                "x-api-key": api_key
+            }
+            # Send the POST request
+            response = requests.post(endpoint, headers=headers, files=files, data=payload, timeout=60)
+
+            # Print response
+            print("Response:", response.status_code, response.text)
+            print("RETURNED FROM Private Cloud IMG API....", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+

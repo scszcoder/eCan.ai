@@ -1831,7 +1831,7 @@ class MainWindow(QMainWindow):
         # test_run_mission(self)
         # test_save_csk(self.session, self.tokens['AuthenticationResult']['IdToken'])
 
-        new_mission = EBMISSION(self)
+        # new_mission = EBMISSION(self)
         # test_request_skill_run(new_mission)
 
         # asyncio.ensure_future(testLocalImageAPI2(self))
@@ -1842,7 +1842,7 @@ class MainWindow(QMainWindow):
 
         # loop = asyncio.get_event_loop()
         # loop.create_task(stressTestImageAPI(self, iterations=6))
-        testGetManagerMissions(self)
+        # testGetManagerMissions(self)
         # test_report_skill_run_result(new_mission)
         # msg = "vVABC|M123|B21|S-running_idle|Error: Exception hello world"
         # ek = self.getEncryptKey()
@@ -1857,7 +1857,7 @@ class MainWindow(QMainWindow):
         # asyncio.ensure_future(test_wait_until8())
 
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
-
+        testSyncPrivateCloudImageAPI(self)
         # testReportVehicles(self)
         # testDequeue(self)
         # Start Gradio in a separate thread
@@ -1970,7 +1970,7 @@ class MainWindow(QMainWindow):
 
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings, forceful=False):
-        log3("start fetching schedule...", "fetchSchedule", self)
+        log3("time stamp " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] + " start fetching schedule...", "fetchSchedule", self)
         ex_stat = "Completed:0"
         try:
             # before even actual fetch schedule, automatically all new customer buy orders from the designated directory.
@@ -2050,10 +2050,9 @@ class MainWindow(QMainWindow):
 
                 with open(schedule_file, 'w') as sf:
                     json.dump(bodyobj, sf, indent=4)
-
                 sf.close()
 
-            print("done with fetch schedule....", list(bodyobj.keys()), len(bodyobj["added_missions"]))
+            print("time stamp " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] + " done with fetch schedule....", list(bodyobj.keys()), len(bodyobj["added_missions"]))
             self.todaysSchedule = bodyobj
             return bodyobj
         # ni is already incremented by processExtract(), so simply return it.
@@ -7579,8 +7578,9 @@ class MainWindow(QMainWindow):
                     self.batchSendFingerPrintProfilesToCommander(remote_outdated)
 
                 # now the profiles are updated. send this vehicle's schedule to it.
-                log3("setup vehicle to do some work...", "servePlatoons", self)
                 vname = found_vehicle.getName()
+                log3("setup vehicle to do some work..."+vname, "servePlatoons", self)
+
                 if self.unassigned_scheduled_task_groups:
                     if vname in self.unassigned_scheduled_task_groups:
                         p_task_groups = self.unassigned_scheduled_task_groups[vname]
@@ -7597,7 +7597,7 @@ class MainWindow(QMainWindow):
                             print("keys:", list(self.todays_scheduled_task_groups.keys()))
                             p_task_groups = []
                     else:
-                        print("todays_scheduled_task_groups empty")
+                        print("time stamp "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]+" todays_scheduled_task_groups empty")
                         p_task_groups = []
                 await self.vehicleSetupWorkSchedule(found_vehicle, p_task_groups)
 
