@@ -613,6 +613,7 @@ def getWorkRunSettings(lieutenant, bot_works):
             # "m_status": m_status,
             "wifis" : lieutenant.getWifis(),
             "web_driver_path":  lieutenant.getWebDriverPath(),
+            "wan_api_key": lieutenant.getWanApiKey(),
             "ads_profile_id": ads_profile_id,
             "options": "{}",
             "self_ip": lieutenant.ip,

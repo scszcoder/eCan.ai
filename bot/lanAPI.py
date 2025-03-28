@@ -62,11 +62,11 @@ def gen_train_request_js(query, local_info):
 
 
 
-async def req_lan_read_screen8(session, request, token, local_info, imgs, lan_endpoint):
+async def req_lan_read_screen8(session, request, token, api_key, local_info, imgs, lan_endpoint):
     qdata = gen_screen_read_request_js(request, local_info)
     print("request qdata:", qdata)
     print("time stamp800: "+datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    jresp = await lan_http_request8(qdata, imgs, session, token, lan_endpoint)
+    jresp = await lan_http_request8(qdata, imgs, session, token, api_key, lan_endpoint)
     print("time stamp801: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     try:
@@ -158,10 +158,11 @@ def lan_http_request2(query_js, imgs, session, token, lan_endpoint):
 
 
 # since it's LAN, should be fast, so we send file and request data in 1 shot
-async def lan_http_request8(query_js, imgs, session, token, lan_endpoint):
+async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoint):
     LAN_API_ENDPOINT_URL= f"{lan_endpoint}/reqScreenTxtRead/"
     headers = {
         'Content-Type': "multipart/form-data",
+        "x-api-key": api_key
         # 'Authorization': token,
         # 'cache-control': "no-cache",
     }
@@ -188,9 +189,8 @@ async def lan_http_request8(query_js, imgs, session, token, lan_endpoint):
             # print("files:", files)
 
             # Send the async request
-            headers = {}
             # response = await client.post(LAN_API_ENDPOINT_URL, files=files, data=payload, headers=headers)
-            response = await client.post(LAN_API_ENDPOINT_URL, files=files, data=payload)
+            response = await client.post(LAN_API_ENDPOINT_URL, headers=headers, files=files, data=payload)
 
             # need to repackage response to be the same format as from aws so that
             # the response handler can be the same. ... sc, well, let's push it to

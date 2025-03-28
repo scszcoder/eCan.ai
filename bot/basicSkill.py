@@ -1689,7 +1689,9 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
             "bytes": image_bytes
         }
     ]
-    result = await req_read_screen8(session, request, token, local_info, imgs, img_engine, img_endpoint)
+    api_key = sk_settings["wan_api_key"]
+    print("api_key:", api_key)
+    result = await req_read_screen8(session, request, token, api_key, local_info, imgs, img_engine, img_endpoint)
     if img_engine == "wan":
         jresult = json.loads(result['body'])
     else:
@@ -1717,11 +1719,11 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
             return []
 
 
-async def req_read_screen8(session, request, token, local_info, imgs, engine, api_endpoint):
+async def req_read_screen8(session, request, token, api_key, local_info, imgs, engine, api_endpoint):
     if engine == "aws":
         return await req_cloud_read_screen8(session, request, token, api_endpoint)
     elif engine == "lan":
-        return await req_lan_read_screen8(session, request, token, local_info, imgs, api_endpoint)
+        return await req_lan_read_screen8(session, request, token, api_key, local_info, imgs, api_endpoint)
 
 # actual processing skill routines =========================================================>
 def build_current_context():
