@@ -1417,6 +1417,9 @@ class MainWindow(QMainWindow):
     def getWanApiEndpoint(self):
         return self.general_settings["wan_api_endpoint"]
 
+    def getWanApiKey(self):
+        return self.general_settings["wan_api_key"]
+
     def getWSApiEndpoint(self):
         return self.general_settings["ws_api_endpoint"]
 
