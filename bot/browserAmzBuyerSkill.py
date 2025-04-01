@@ -3930,7 +3930,7 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         psk_words = psk_words + step_words
 
         # specifically go to
-        this_step, step_words = genStepCallExtern("global web_site\nweb_site = 'http://127.0.0.1:20725/'\nprint('web_site:', web_site)", "", "in_line", "",
+        this_step, step_words = genStepCallExtern("global web_site\nweb_site = 'https://start.adspower.net/?id='+ads_profile_id+'&host=127.0.0.1:20725/'\nprint('web_site:', web_site)", "", "in_line", "",
                                                   this_step)
         psk_words = psk_words + step_words
 
@@ -3978,7 +3978,7 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         this_step, step_words = genStepCreateData("obj", "signin_button", "NA", None, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'web element'", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # retry a few times
@@ -3994,6 +3994,7 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         # wait some random time for proxy to connect
         this_step, step_words = genStepWait(0, 5, 8, this_step)
         psk_words = psk_words + step_words
+
 
 
         # after page load, find the location info. some times it's like this,
@@ -4012,8 +4013,6 @@ def genStepsAMZBrowserLoginIn(stepN, theme):
         # Locate the element containing the text, other times, it's like this,
         # element = driver.find_element(By.CSS_SELECTOR, ".locales")
 
-        this_step, step_words = genStepCallExtern("global info_type\ninfo_type= 'text'", "", "in_line", "", this_step)
-        psk_words = psk_words + step_words
 
         this_step, step_words = genStepWebdriverExtractInfo("web_driver", "var", "PAGE", 0, "info_type", By.CSS_SELECTOR, ".locales", False, "var", "location_info2", "element_present", this_step)
         psk_words = psk_words + step_words
