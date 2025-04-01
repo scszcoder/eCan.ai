@@ -1203,7 +1203,7 @@ def test_detect_swatch():
     mission = None
     skill = None
     settings = {}
-    dyn_options = "{'anchors': [{'anchor_name': 'this_var', 'anchor_type': 'text', 'template': 'Size', 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'next_var', 'anchor_type': 'text', 'template': 'BOS', 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'swatch', 'anchor_type': 'polygon', 'template': '', 'ref_method': '1', 'ref_location': [{'ref': 'this_var', 'side': 'bottom', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'this_var', 'side': 'right', 'dir': '>', 'offset': '-1', 'offset_unit': 'box'}]}, {'ref': 'next_var', 'side': 'top', 'dir': '<', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'quantity', 'side': 'left', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}], 'attention_area':[0.35, 0, 0.85, 1], 'attention_targets':['@all']}"
+    dyn_options = "{'anchors': [{'anchor_name': 'this_var', 'anchor_type': 'text', 'template': 'Size', 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'next_var', 'anchor_type': 'text', 'template': 'BOS', 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'swatch', 'anchor_type': 'polygon', 'template': '', 'ref_method': '1', 'ref_location': [{'ref': 'this_var', 'side': 'bottom', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'this_var', 'side': 'right', 'dir': '>', 'offset': '-1', 'offset_unit': 'box'}]}, {'ref': 'next_var', 'side': 'top', 'dir': '<', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'quantity', 'side': 'left', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}], 'txt_attention_area':[0.35, 0, 0.85, 1], 'attention_targets':['@all']}"
 
     step =  {
         "type": "Extract Info",
@@ -1785,7 +1785,7 @@ async def testLocalImageAPI(parent):
         "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
         "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
-        "options": json.dumps({"attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),  # Use valid JSON string
+        "options": json.dumps({"txt_attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),  # Use valid JSON string
         "theme": "light",
         "imageFile": img_file_name,
         "factor": "{}"
@@ -1884,7 +1884,7 @@ def testSyncLocalImageAPI(parent):
         "psk": os.path.join(ecb_home,
                             "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
-        "options": json.dumps({"attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),
+        "options": json.dumps({"txt_attention_area": [0, 0, 1, 1], "attention_targets": ["@all"]}),
         # Use valid JSON string
         "theme": "light",
         "imageFile": img_file_name,
@@ -1959,7 +1959,7 @@ async def testLocalImageAPI2(mwin):
         "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
         "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
-        "options": json.dumps({"attention_area": [0, 0, 700, 700], "attention_targets": ["@all"]}),
+        "options": json.dumps({"txt_attention_area": [0, 0, 700, 700], "attention_targets": ["@all"]}),
         "theme": "light",
         "imageFile": img_file_name,
         "factor": "{}"
@@ -2038,7 +2038,7 @@ async def testLocalImageAPI3(mwin):
         "csk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.csk"),
         "psk": os.path.join(ecb_home, "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
-        "options": json.dumps({"attention_area": [0, 0, 700, 700], "attention_targets": ["@all"]}),
+        "options": json.dumps({"txt_attention_area": [0, 0, 700, 700], "attention_targets": ["@all"]}),
         "theme": "light",
         "imageFile": img_file_name,
         "factor": "{}"
@@ -2121,7 +2121,7 @@ def testSyncPrivateCloudImageAPI(parent):
         "psk": os.path.join(ecb_home,
                             "resource/skills/public/win_file_local_op/open_save_as/scripts/open_save_as.psk"),
         "lastMove": "top",
-        "options": json.dumps({"attention_area": [0, 0, 1920, 1080], "attention_targets": ["@all"], "display_resolution": "D1920X1080"}),
+        "options": json.dumps({"txt_attention_area": [0, 0, 1920, 1080], "attention_targets": ["@all"], "display_resolution": "D1920X1080"}),
         # Use valid JSON string
         "theme": "light",
         "imageFile": img_file_name,

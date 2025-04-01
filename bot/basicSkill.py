@@ -1511,20 +1511,29 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
         elif isinstance(symTab[options], dict):
             full_width = window_rect[2] - window_rect[0]
             full_height = window_rect[3] - window_rect[1]
-            if "attention_area" in symTab[options]:
+            if "txt_attention_area" in symTab[options]:
                 full_width = window_rect[2] - window_rect[0]
                 full_height = window_rect[3] - window_rect[1]
-                symTab[options]["attention_area"] = [ int(symTab[options]["attention_area"][0]*full_width),
-                                                      int(symTab[options]["attention_area"][1]*full_height),
-                                                      int(symTab[options]["attention_area"][2]*full_width),
-                                                      int(symTab[options]["attention_area"][3]*full_height) ]
+                symTab[options]["txt_attention_area"] = [ int(symTab[options]["txt_attention_area"][0]*full_width),
+                                                      int(symTab[options]["txt_attention_area"][1]*full_height),
+                                                      int(symTab[options]["txt_attention_area"][2]*full_width),
+                                                      int(symTab[options]["txt_attention_area"][3]*full_height) ]
+
+            if "icon_attention_area" in symTab[options]:
+                full_width = window_rect[2] - window_rect[0]
+                full_height = window_rect[3] - window_rect[1]
+                symTab[options]["icon_attention_area"] = [ int(symTab[options]["icon_attention_area"][0]*full_width),
+                                                      int(symTab[options]["icon_attention_area"][1]*full_height),
+                                                      int(symTab[options]["icon_attention_area"][2]*full_width),
+                                                      int(symTab[options]["icon_attention_area"][3]*full_height) ]
+
 
             if "display_resolution" not in symTab[options]:
                 symTab[options]["display_resolution"] = sk_settings["display_resolution"]
 
             request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
     else:
-        # attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
+        # txt_attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
         # attention_targets is a list of text strings to find in the attention area. this whole attention scheme is about using more
         # robust image to text algorithms on the cloud side to get a better reading of the results. The downside is the image process time
         # is long, so limiting only certain area of the image helps keep speed in tact. Usually we home in on right half of the screen.
@@ -1533,9 +1542,9 @@ def read_screen(win_title_keyword, site_page, page_sect, page_theme, layout, mis
         half_height = int((window_rect[3] - window_rect[1]) / 2)
         full_width = window_rect[2] - window_rect[0]
         full_height = window_rect[3] - window_rect[1]
-        # request[0]["options"]["attention_area"] = [half_width, 0, full_width, full_height]
+        # request[0]["options"]["txt_attention_area"] = [half_width, 0, full_width, full_height]
         # request[0]["options"]["attention_targets"] = []
-        request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
+        request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "txt_attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
@@ -1654,25 +1663,32 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
         if isinstance(symTab[options], str):
             request[0]["options"] = symTab[options]
         elif isinstance(symTab[options], dict):
-            if "attention_area" in symTab[options]:
-                symTab[options]["attention_area"] = [ int(symTab[options]["attention_area"][0]*full_width),
-                                                      int(symTab[options]["attention_area"][1]*full_height),
-                                                      int(symTab[options]["attention_area"][2]*full_width),
-                                                      int(symTab[options]["attention_area"][3]*full_height) ]
+            if "txt_attention_area" in symTab[options]:
+                symTab[options]["txt_attention_area"] = [ int(symTab[options]["txt_attention_area"][0]*full_width),
+                                                      int(symTab[options]["txt_attention_area"][1]*full_height),
+                                                      int(symTab[options]["txt_attention_area"][2]*full_width),
+                                                      int(symTab[options]["txt_attention_area"][3]*full_height) ]
+
+            if "icon_attention_area" in symTab[options]:
+                symTab[options]["icon_attention_area"] = [ int(symTab[options]["icon_attention_area"][0]*full_width),
+                                                      int(symTab[options]["icon_attention_area"][1]*full_height),
+                                                      int(symTab[options]["icon_attention_area"][2]*full_width),
+                                                      int(symTab[options]["icon_attention_area"][3]*full_height) ]
+
 
             if "display_resolution" not in symTab[options]:
                 symTab[options]["display_resolution"] = sk_settings["display_resolution"]
 
             request[0]["options"] = json.dumps(symTab[options]).replace('"', '\\"')
     else:
-        # attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
+        # txt_attention_area is a list of 4 numbers: left, top, right, bottom which defines the area to pay extra attention on the cloud side.
         # attention_targets is a list of text strings to find in the attention area. this whole attention scheme is about using more
         # robust image to text algorithms on the cloud side to get a better reading of the results. The downside is the image process time
         # is long, so limiting only certain area of the image helps keep speed in tact. Usually we home in on right half of the screen.
         # or center half of the screen.
         half_width = int(full_width/2)
         half_height = int((full_height)/2)
-        request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
+        request[0]["options"] = json.dumps({"display_resolution": sk_settings["display_resolution"], "txt_attention_area": [half_width, 0, full_width, full_height], "attention_targets": ["OK"]}).replace('"', '\\"')
 
     log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1D: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 

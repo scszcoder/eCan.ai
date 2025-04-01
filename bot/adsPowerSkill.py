@@ -63,7 +63,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
         this_step, step_words = genStepWait(8, 0, 0, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # now read screen, if there is log in, then click on log in.
@@ -86,7 +86,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
         this_step, step_words = genStepWait(8, 0, 0, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # now that we have logged in, load profiles.
@@ -118,7 +118,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
         this_step, step_words = genStepKeyInput("", True, "shift,esc", "", 3, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.9, 0.5],'attention_targets':['Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
@@ -142,7 +142,7 @@ def genADSPowerLaunchSteps(worksettings, stepN, theme):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "profiles", "anchor text", "",  0, "center", [0, 0], "box", 2, 2, [7, 2], this_step)
         psk_words = psk_words + step_words
 
-        # this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 0.5],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        # this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 0.5],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         # psk_words = psk_words + step_words
         #
         # this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
@@ -204,7 +204,7 @@ def genStepsADSPowerObtainLocalAPISettings(settings_var, stepN, theme):
         psk_words = psk_words + step_words
 
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # now read screen, now local api URL address and port should appear.
@@ -228,7 +228,7 @@ def genStepsADSPowerObtainLocalAPISettings(settings_var, stepN, theme):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "reset", "anchor text", "", 0, "center", [0, 0], "box", 1, 3, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 0.65],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0.5, 0, 1, 0.65],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
@@ -239,7 +239,7 @@ def genStepsADSPowerObtainLocalAPISettings(settings_var, stepN, theme):
         psk_words = psk_words + step_words
 
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.2, 0, 1, 0.65],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0.2, 0, 1, 0.65],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "api", theme, this_step, None, "scrn_options")
@@ -394,7 +394,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         this_step, step_words = genStepWait(6, 0, 0, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
@@ -424,7 +424,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         # this_step, step_words = genStepWait(4, 0, 0, this_step)
         # psk_words = psk_words + step_words
         #
-        # this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0.5, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        # this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0.5, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         # psk_words = psk_words + step_words
         #
         # # now that we have logged in, load profiles.
@@ -460,7 +460,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         psk_words = psk_words + step_words
 
         # now read screen, if there is log in, then click on log in.
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
@@ -586,7 +586,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "select_folder", "anchor text", "", 1, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
@@ -599,7 +599,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepWait(6, 0, 0, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
@@ -958,7 +958,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepAPIADSListProfiles("ads_config", "loaded_profiles", "action_flag",  this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'NewProfile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['New Profile', 'NewProfile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
@@ -984,7 +984,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "trash0", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         #read screen for the confirmation pop up.
@@ -995,7 +995,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok", "anchor text", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # now do the batch import
@@ -1012,7 +1012,7 @@ def genWinADSBatchImportSkill(worksettings, stepN, theme):
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "new_profile", "anchor text", "", 0, "center", [0, 0], "box", 2, 5, [0, 0], this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # now do the batch import
@@ -1375,7 +1375,7 @@ def genStepsLoadBatchXlsxFile(theme, stepN):
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern(
-            "global scrn_options\nscrn_options = {'attention_area':[0.1, 0.5, 1, 1],'attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
+            "global scrn_options\nscrn_options = {'txt_attention_area':[0.1, 0.5, 1, 1], 'txt_attention_targets':['OK']}\nprint('scrn_options', scrn_options)",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
@@ -1403,7 +1403,7 @@ def genStepsLoadBatchXlsxFile(theme, stepN):
 
         # now that the new profile is loaded. double check to make sure the designated bot profile is loaded from this batch.
         this_step, step_words = genStepCallExtern(
-            "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+            "global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'bot_user', 'anchor_type': 'text', 'template': in_bot_user_name, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'bot_open', 'anchor_type': 'text', 'template': 'Open', 'ref_method': '1', 'ref_location': [{'ref': 'bot_user', 'side': 'right', 'dir': '>', 'offset': '1', 'offset_unit': 'box'}]}], 'txt_attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
@@ -1427,7 +1427,7 @@ def genStepsLoadBatchXlsxFile(theme, stepN):
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCallExtern(
-            "global dyn_options\ndyn_options = {'attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
+            "global dyn_options\ndyn_options = {'txt_attention_area':[0.15, 0.15, 1, 1], 'attention_targets':['@all']}",
             "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 

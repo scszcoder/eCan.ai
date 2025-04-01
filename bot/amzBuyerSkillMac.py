@@ -86,7 +86,7 @@ def genMacChromeAMZWalkSteps(worksettings, start_step, theme):
 
 
 
-    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 0.5],'attention_targets':['Search', 'EN']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
+    this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 0.5],'attention_targets':['Search', 'EN']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
     # extract the amazon home page info.

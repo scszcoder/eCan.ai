@@ -65,9 +65,9 @@ def gen_train_request_js(query, local_info):
 async def req_lan_read_screen8(session, request, token, api_key, local_info, imgs, lan_endpoint):
     qdata = gen_screen_read_request_js(request, local_info)
     print("request qdata:", qdata)
-    print("time stamp800: "+datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print("time stamp800: "+datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"))
     jresp = await lan_http_request8(qdata, imgs, session, token, api_key, lan_endpoint)
-    print("time stamp801: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print("time stamp801: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"))
 
     try:
         jresp = jresp.json()  # Convert the response to JSON
@@ -161,7 +161,7 @@ def lan_http_request2(query_js, imgs, session, token, lan_endpoint):
 async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoint):
     LAN_API_ENDPOINT_URL= f"{lan_endpoint}/reqScreenTxtRead/"
     headers = {
-        'Content-Type': "multipart/form-data",
+        # 'Content-Type': "multipart/form-data",
         "x-api-key": api_key
         # 'Authorization': token,
         # 'cache-control': "no-cache",
@@ -181,11 +181,11 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
             #     f"files": (os.path.basename(img["file_name"]), open(img["file_name"], "rb"),  "image/png")
             #     for ix, img in enumerate(imgs)
             # }
-            files = {"file": (os.path.basename(imgs[0]["file_name"]), imgs[0]["bytes"], "image/png")}
+            files = [("files", (os.path.basename(imgs[0]["file_name"]), imgs[0]["bytes"], "image/png"))]
 
             payload = {"data": json.dumps(query_js)}
 
-            print("Sending HTTP request...", len(files.keys()), query_js)
+            print("Sending HTTP request...", len(files), query_js)
             # print("files:", files)
 
             # Send the async request
