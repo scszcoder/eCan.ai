@@ -68,6 +68,7 @@ pyscreeze.PIL__version__ = __PIL_TUPLE_VERSION
 symTab = globals()
 from pynput.mouse import Controller
 # from bot.envi import *
+import ctypes
 
 from config.app_info import app_info
 
@@ -5227,8 +5228,15 @@ def switchToWindow(winTitleKW):
                     log3("FOUND target window: " + win_title + " rect: " + json.dumps(win_rect))
                     break
 
+
         # Bring the window to the foreground
         if window_handle:
+            # Restore if minimized
+            if win32gui.IsIconic(window_handle):
+                win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)
+
+            ctypes.windll.user32.AllowSetForegroundWindow(-1)
+
             win32gui.ShowWindow(window_handle, win32con.SW_RESTORE)  # Restore window if minimized
             win32gui.SetForegroundWindow(window_handle)
             successful = True
