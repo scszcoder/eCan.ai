@@ -1556,7 +1556,7 @@ def genStepsSaveBuyRecord(settings_string, theme, stepN):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
-        "global scrn_options\nscrn_options = {'attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1],'attention_targets':['@all']}\nprint('scrn_options', scrn_options)",
         "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 
@@ -3831,7 +3831,7 @@ def genAMZBuySelectVariations(pd_var_name, stepN):
         this_step, step_words = genStepCallExtern("search_indices = [var_target_index, var_target_index-1, var_target_index+1, var_target_index-2, var_target_index+2, var_target_index-3, var_target_index+3, var_target_index-4, var_target_index+4]", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'this_var', 'anchor_type': 'text', 'template': var_target_txt, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'next_var', 'anchor_type': 'text', 'template': next_var_target_txt, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'swatch', 'anchor_type': 'polygon', 'template': '', 'ref_method': '1', 'ref_location': [{'ref': 'this_var', 'side': 'bottom', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'this_var', 'side': 'right', 'dir': '>', 'offset': '-1', 'offset_unit': 'box'}]}, {'ref': 'next_var', 'side': 'top', 'dir': '<', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'quantity', 'side': 'left', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}], 'attention_area':[0.35, 0, 0.85, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("global dyn_options\ndyn_options = {'anchors': [{'anchor_name': 'this_var', 'anchor_type': 'text', 'template': var_target_txt, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'next_var', 'anchor_type': 'text', 'template': next_var_target_txt, 'ref_method': '0', 'ref_location': []}, {'anchor_name': 'swatch', 'anchor_type': 'polygon', 'template': '', 'ref_method': '1', 'ref_location': [{'ref': 'this_var', 'side': 'bottom', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'this_var', 'side': 'right', 'dir': '>', 'offset': '-1', 'offset_unit': 'box'}]}, {'ref': 'next_var', 'side': 'top', 'dir': '<', 'offset': '0', 'offset_unit': 'box'}]}, {'ref': 'quantity', 'side': 'left', 'dir': '>', 'offset': '0', 'offset_unit': 'box'}]}], 'txt_attention_area':[0.35, 0, 0.85, 1], 'attention_targets':['@all']}", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
         # first figure out n row and n columns of all selection icons
