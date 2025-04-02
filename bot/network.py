@@ -369,7 +369,13 @@ async def udpBroadcaster(topgui):
 
     while not over:
         log3("Broadcasting..."+'Commander Calling:' + myip + " " + topgui.getUser(), "tcpip", topgui)
-        message = str.encode('Commander Calling:' + myip+":"+topgui.getUser())
+        if "Commander" in topgui.host_role:
+            message = str.encode('Commander Calling:' + myip+":"+topgui.getUser())
+        elif "Staff Officer" in topgui.machine_role:
+            message = str.encode('Staff Officer Calling:' + myip + ":" + topgui.getUser())
+        else:
+            message = str.encode('Platoon Calling:' + myip + ":" + topgui.getUser())
+
         usock.sendto(message, ('192.168.0.255', UDP_PORT))
         await asyncio.sleep(COMMANDER_UDP_PERIOD)
 
