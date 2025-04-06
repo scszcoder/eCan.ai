@@ -635,7 +635,7 @@ class Agent(Generic[Context]):
 			except Exception as e:
 				logger.error(f'Failed to invoke model: {str(e)}')
 				raise LLMException(401, 'LLM API call failed') from e
-			# TODO: currently invoke does not return reasoning_content, we should override invoke
+			# 2do: currently invoke does not return reasoning_content, we should override invoke
 			output.content = self._remove_think_tags(str(output.content))
 			try:
 				parsed_json = extract_json_from_model_output(output.content)
