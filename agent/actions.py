@@ -181,7 +181,8 @@ class Registry(Generic[Context]):
 			for name, param in sig.parameters.items()
 			if name != 'browser' and name != 'page_extraction_llm' and name != 'available_file_paths'
 		}
-		# TODO: make the types here work
+
+		# 2do: make the types here work
 		return create_model(
 			f'{function.__name__}_parameters',
 			__base__=ActionModel,
