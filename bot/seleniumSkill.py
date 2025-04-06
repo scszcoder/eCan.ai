@@ -453,12 +453,11 @@ def genStepWebdriverDetectAndClosePopup(driver_var, site_var, page_var, flag_var
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
-def genStepWebdriverBuildDomTree(driver_var, site_var, page_var, flag_var, stepN):
+def genStepWebdriverBuildDomTree(driver_var, url_var, flag_var, stepN):
     stepjson = {
         "type": "Web Driver Build DOM Tree",
         "driver_var": driver_var,  # anchor, info, text
-        "page_var": page_var,
-        "site_var": site_var,
+        "url_var": url_var,
         "flag": flag_var
     }
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
@@ -1907,7 +1906,7 @@ def processWebdriverBuildDomTree(step, i, mission):
 
         # Launch browser
         driver = webdriver.Chrome()
-        driver.get("https://www.amazon.com")
+        driver.get(step["url_var"])
 
         # Wait a few seconds for the page to load
         time.sleep(3)

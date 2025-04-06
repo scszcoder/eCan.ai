@@ -434,6 +434,8 @@ ARAIS = {
     "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Web Driver Get Value": lambda x, y: processWebdriverGetValueFromWebElement(x, y),
     "Web Driver Solve Captcha": lambda x, y: processWebdriverSolveCaptcha(x, y),
+    "Web Driver Close Popup": lambda x, y, z: processWebdriverDetectAndClosePopup(x, y, z),
+    "Web Driver Build Dom Tree": lambda x, y, z: processWebdriverBuildDomTree(x, y, z),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),
@@ -463,6 +465,58 @@ ARAIS = {
     "API ADS List Profiles": lambda x, y: processAPIADSListProfiles(x, y),
     "API ADS Regroup Profiles": lambda x, y: processAPIADSRegroupProfiles(x, y)
 }
+
+INSTRUCTIONs_NEEDS_MISSIONS = [
+    "Text Input",
+    "Mouse Click",
+    "Mouse Drag Drop",
+    "Mouse Scroll",
+    "Mouse Move",
+    "Key Input",
+    "App Open",
+    "Check Condition",
+    "Repeat",
+    "Goto",
+    "Use External Skill",
+    "Report External Skill Run Status",
+    "Log Cross Network",
+    "Log",
+    "ADS Batch Text To Profiles",
+    "ADS Save API Settings",
+    "ADS Update Profile Ids",
+    "AMZ Scrape PL Html",
+    "AMZ Browser Scrape Products List",
+    "AMZ Scrape Product Details Html",
+    "AMZ Scrape Buy Orders Html",
+    "AMZ Scrape Reviews Html",
+    "AMZ Scrape Sold Orders Html",
+    "AMZ Scrape Msg Lists",
+    "AMZ Scrape Customer Msg",
+    "EBAY Scrape Orders Html",
+    "EBAY Scrape Orders Javascript",
+    "EBAY Scrape Msg Lists",
+    "EBAY Scrape Customer Msg",
+    "ETSY Scrape Orders",
+    "ETSY Scrape Msg Lists",
+    "ETSY Scrape Msg Thread",
+    "Create ADS Profile Batches",
+    "Update Buy Mission Result",
+    "GS Scrape Labels",
+    "Web Driver Click",
+    "Web Driver Scroll To",
+    "Web Driver Key In",
+    "Web Driver Combo Keys",
+    "Web Driver Hover To",
+    "Web Driver Focus",
+    "Web Driver Select Drop Down",
+    "Web Driver Execute Js",
+    "Web Driver Extract Info",
+    "Web Driver Wait Until Clickable",
+    "Web Driver Wait For Visibility",
+    "Web Driver Close Popup",
+    "Web Driver Build Dom Tree",
+    "Update Mission Status"
+]
 
 # read an psk fill into steps (json data structure)
 # input: steps - data structure to hold the results.
@@ -749,17 +803,7 @@ def run1step(steps, si, mission, skill, stack):
             si,isat = RAIS[step["type"]](step, si, stepKeys)
         elif step["type"] == "Extract Info" or step["type"] == "Save Html":
             si,isat = RAIS[step["type"]](step, si, mission, skill)
-        elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
-            step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
-            step["type"] == "Web Driver Scroll To" or step["type"] == "Web Driver Execute Js" or \
-            step["type"] == "Web Driver Wait Until Clickable" or step["type"] == "AMZ Browser Scrape Products List" or \
-            step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait For Visibility" or\
-            step["type"] == "Web Driver Focus" or  step["type"] == "Web Driver Hover To" or step["type"] == "Download Files" or \
-            step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-            step["type"] == "Update Mission Status" or step["type"] == "ADS Save API Settings" or step["type"] == "App Open" or \
-            step["type"] == "Log Cross Network" or step["type"] == "Log" or step["type"] == "Update Buy Mission Result" or\
-            step["type"] == "ADS Update Profile Ids" or step["type"] == "ADS Batch Text To Profiles" or \
-            step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
+        elif step["type"] in INSTRUCTIONs_NEEDS_MISSIONS:
             si,isat = RAIS[step["type"]](step, si, mission)
         elif step["type"] == "End Exception" or step["type"] == "Exception Handler" or step["type"] == "Return":
             si,isat = RAIS[step["type"]](step, si, stack, stepKeys)
@@ -816,17 +860,7 @@ async def run1step8(steps, si, mission, skill, stack):
                 else:
                     si,isat = await asyncio.to_thread(ARAIS[step["type"]], step, si, mission, skill)
 
-            elif step["type"] == "Create ADS Profile Batches" or step["type"] == "Web Driver Extract Info" or \
-                 step["type"] == "Ask LLM" or step["type"] == "Web Driver Click" or step["type"] == "Upload Files" or \
-                 step["type"] == "Web Driver Execute Js" or step["type"] == "Web Driver Focus" or step["type"] == "Download Files" or \
-                 step["type"] == "Web Driver Hover To"  or step["type"] == "Web Driver Scroll To" or  step["type"] == "ADS Save API Settings" or \
-                 step["type"] == "Text Input" or "Scrape" in step["type"] or step["type"] == "Web Driver Wait Until Clickable" or \
-                 step["type"] == "Web Driver Wait For Visibility" or step["type"] == "Update Mission Status" or \
-                 step["type"] == "Update Buy Mission Result" or step["type"] == "App Open" or \
-                 step["type"] == "AMZ Browser Scrape Products List" or step["type"] == "ADS Update Profile Ids" or \
-                 step["type"] == "Use External Skill" or step["type"] == "Report External Skill Run Status" or \
-                 step["type"] == "ADS Batch Text To Profiles" or step["type"] == "Log Cross Network" or step["type"] == "Log" or \
-                 step["type"] == "Web Driver Select Drop Down" or "Mouse" in step["type"] or "Key" in step["type"]:
+            elif step["type"] in INSTRUCTIONs_NEEDS_MISSIONS:
                 if inspect.iscoroutinefunction(ARAIS[step["type"]]):
                     si,isat = await ARAIS[step["type"]](step, si, mission)
                 else:

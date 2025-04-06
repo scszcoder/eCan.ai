@@ -102,16 +102,16 @@ class AgentMessagePrompt:
 		step_info_description += f'Current date and time: {time_str}'
 
 		state_description = f"""
-[Task history memory ends]
-[Current state starts here]
-The following is one-time information - if you need to remember it write it to memory:
-Current url: {self.state.url}
-Available tabs:
-{self.state.tabs}
-Interactive elements from top layer of the current page inside the viewport:
-{elements_text}
-{step_info_description}
-"""
+			[Task history memory ends]
+			[Current state starts here]
+			The following is one-time information - if you need to remember it write it to memory:
+			Current url: {self.state.url}
+			Available tabs:
+			{self.state.tabs}
+			Interactive elements from top layer of the current page inside the viewport:
+			{elements_text}
+			{step_info_description}
+			"""
 
 		if self.result:
 			for i, result in enumerate(self.result):
@@ -140,26 +140,26 @@ Interactive elements from top layer of the current page inside the viewport:
 class PlannerPrompt(SystemPrompt):
 	def get_system_message(self, is_planner_reasoning) -> Union[SystemMessage, HumanMessage]:
 		planner_prompt_text = """You are a planning agent that helps break down tasks into smaller steps and reason about the current state.
-Your role is to:
-1. Analyze the current state and history
-2. Evaluate progress towards the ultimate goal
-3. Identify potential challenges or roadblocks
-4. Suggest the next high-level steps to take
-
-Inside your messages, there will be AI messages from different agents with different formats.
-
-Your output format should be always a JSON object with the following fields:
-{
-    "state_analysis": "Brief analysis of the current state and what has been done so far",
-    "progress_evaluation": "Evaluation of progress towards the ultimate goal (as percentage and description)",
-    "challenges": "List any potential challenges or roadblocks",
-    "next_steps": "List 2-3 concrete next steps to take",
-    "reasoning": "Explain your reasoning for the suggested next steps"
-}
-
-Ignore the other AI messages output structures.
-
-Keep your responses concise and focused on actionable insights."""
+			Your role is to:
+			1. Analyze the current state and history
+			2. Evaluate progress towards the ultimate goal
+			3. Identify potential challenges or roadblocks
+			4. Suggest the next high-level steps to take
+			
+			Inside your messages, there will be AI messages from different agents with different formats.
+			
+			Your output format should be always a JSON object with the following fields:
+			{
+				"state_analysis": "Brief analysis of the current state and what has been done so far",
+				"progress_evaluation": "Evaluation of progress towards the ultimate goal (as percentage and description)",
+				"challenges": "List any potential challenges or roadblocks",
+				"next_steps": "List 2-3 concrete next steps to take",
+				"reasoning": "Explain your reasoning for the suggested next steps"
+			}
+			
+			Ignore the other AI messages output structures.
+			
+			Keep your responses concise and focused on actionable insights."""
 
 		if is_planner_reasoning:
 			return HumanMessage(content=planner_prompt_text)
