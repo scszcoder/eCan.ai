@@ -437,6 +437,12 @@ class MainWindow(QMainWindow):
             self.product_service = ProductService(self, session)
             self.skill_service = SkillService(self, session)
             self.vehicle_service = VehicleService(self, session)
+        else:
+            self.bot_service = None
+            self.mission_service = None
+            self.product_service = None
+            self.skill_service = None
+            self.vehicle_service = None
 
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
@@ -8172,7 +8178,7 @@ class MainWindow(QMainWindow):
                     # self.todaysPlatoonReports.append(rpt)
                     # self.todaysReport.append(rpt)
 
-        log3("GEN REPORT FOR WORKS..."+json.dumps(self.todaysReport), "genRunReport", self)
+        log3(f"GEN REPORT FOR WORKS...[{len(self.todaysReport)}] {json.dumps(self.todaysReport[-1])}", "genRunReport", self)
         return self.todaysReport
 
     def updateMissionsStatsFromReports(self, all_reports):

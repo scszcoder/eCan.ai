@@ -64,9 +64,10 @@ def gen_train_request_js(query, local_info):
 
 async def req_lan_read_screen8(session, request, token, api_key, local_info, imgs, lan_endpoint):
     qdata = gen_screen_read_request_js(request, local_info)
-    print("request qdata:", qdata)
+    # print("request qdata:", qdata)
     print("time stamp800: "+datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"))
     jresp = await lan_http_request8(qdata, imgs, session, token, api_key, lan_endpoint)
+    print("milan jresp:", jresp)
     print("time stamp801: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"))
 
     try:
@@ -107,7 +108,7 @@ def req_lan_read_screen(session, request, token, local_info, imgs, lan_endpoint)
 
 # send request over the LAN synchronously.
 def lan_http_request2(query_js, imgs, session, token, lan_endpoint):
-    LAN_API_ENDPOINT_URL = f"{lan_endpoint}/reqScreenTxtRead/"
+    LAN_API_ENDPOINT_URL = f"{lan_endpoint}/reqScreenTxtRead"
     print("lan endpoint: " + LAN_API_ENDPOINT_URL)
     # headers = {
     #     'Content-Type': "multipart/form-data",
@@ -159,7 +160,7 @@ def lan_http_request2(query_js, imgs, session, token, lan_endpoint):
 
 # since it's LAN, should be fast, so we send file and request data in 1 shot
 async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoint):
-    LAN_API_ENDPOINT_URL= f"{lan_endpoint}/reqScreenTxtRead/"
+    LAN_API_ENDPOINT_URL= f"{lan_endpoint}/reqScreenTxtRead"
     headers = {
         # 'Content-Type': "multipart/form-data",
         "x-api-key": api_key
@@ -185,7 +186,7 @@ async def lan_http_request8(query_js, imgs, session, token, api_key, lan_endpoin
 
             payload = {"data": json.dumps(query_js)}
 
-            print("Sending HTTP request...", len(files), query_js)
+            # print("Sending HTTP request...", len(files), query_js)
             # print("files:", files)
 
             # Send the async request

@@ -67,6 +67,7 @@ from bot.adsAPISkill import stopAdspowerProfile
 import traceback
 
 from bot.seleniumSkill import processWebdriverSolveCaptcha
+from seleniumSkill import processWebdriverDetectAndClosePopup, processWebdriverBuildDomTree
 
 symTab["fout"] = ""
 symTab["fin"] = ""
@@ -261,6 +262,8 @@ RAIS = {
     "Web Driver Check Visibility": lambda x, y: processWebdriverCheckVisibility(x, y),
     "Web Driver Get Value": lambda x, y: processWebdriverGetValueFromWebElement(x, y),
     "Web Driver Solve Captcha": lambda x, y: processWebdriverSolveCaptcha(x, y),
+    "Web Driver Close Popup": lambda x, y, z: processWebdriverDetectAndClosePopup(x, y, z),
+    "Web Driver Build Dom Tree": lambda x, y, z: processWebdriverBuildDomTree(x, y, z),
     "Request Human In Loop": lambda x, y, z, v: processReqHumanInLoop(x, y, z, v),
     "Close Human In Loop": lambda x, y, z, v: processCloseHumanInLoop(x, y, z, v),
     "Check App Running": lambda x, y: processCheckAppRunning(x, y),

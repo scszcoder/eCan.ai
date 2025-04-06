@@ -2128,7 +2128,7 @@ async def processExtractInfo8(step, i, mission, skill):
 
 def takeScreenShot(win_title_keyword, subArea=None):
     global screen_loc
-    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+    log3(">>>>>>>>>>>>>>>>>>>>>screen read time stamp1BBX: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
     if win_title_keyword:
         window_name, window_rect = get_top_visible_window(win_title_keyword)
         # now we have obtained the top window, take a screen shot , region is a 4-tuple of  left, top, width, and height.
@@ -5506,18 +5506,23 @@ def processGenRespMsg(step, i, mission):
 
 def find_original_buy(mainwin, buy_mission):
     # Construct the SQL query with a parameterized IN clause
-    sql = "DELETE FROM missions WHERE ticket = " + str(buy_mission.getTicket()) +";"
-    mainwin.showMsg("find_original_buy sql:" + sql)
-
-    res = mainwin.dbCursor.execute(sql)
-    db_data = mainwin.dbCursor.fetchall()
-    mainwin.showMsg("same ticket missions: " + json.dumps(db_data))
-    if len(db_data) != 0:
-        original_buy_mission = EBMISSION(mainwin)
-        original_buy_mission.loadDBData(db_data[0])
-        mainwin.mission.append(original_buy_mission)
+    mainwin.showMsg("find_original_buy ......")
+    if mainwin.mission_service:
+        db_data = mainwin.mission_service.find_missions_by_ticket(buy_mission.getTicket())
     else:
-        original_buy_mission = None
+        db_data = []
+    allMids = [m.getMid() for m in mainwin.missions]
+    mainwin.showMsg("same ticket missions: " + json.dumps(db_data))
+    if db_data:
+        if db_data["mid"] in allMids:
+            original_buy_mission = next((m for m in mainwin.missions if m.getMid() == db_data["mid"] ), None)
+        else:
+            original_buy_mission = EBMISSION(mainwin)
+            original_buy_mission.loadDBData(db_data[0])
+            mainwin.mission.append(original_buy_mission)
+    else:
+        print("warning: dbData not found")
+        original_buy_mission = next((m for m in mainwin.missions if m.getMid() == buy_mission.getTicket()), None)
 
     return original_buy_mission
 

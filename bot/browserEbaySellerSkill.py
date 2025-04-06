@@ -2335,7 +2335,12 @@ def genEbayLoginInSteps(stepN, theme):
     this_step, step_words = genStepKeyInput("", True, "ctrl,1", "", 3, stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "usa", "direct", "anchor text", "any", "useless", "ip_obtained", "", False, this_step)
@@ -2392,7 +2397,12 @@ def genEbayLoginInSteps(stepN, theme):
     this_step, step_words = genStepWait(0, 5, 8, this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "ebay_logo0", "direct", "anchor icon", "any", "useless", "site_loaded", "", False, this_step)
