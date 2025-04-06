@@ -1292,8 +1292,12 @@ def genWinADSETSYBuyShippingSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     #no need dto scroll to the top,
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "etsy_bulk_labels", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "etsy_bulk_labels", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
     #
     # # use this info, as it contains the name and address, as well as the ship_to anchor location.
@@ -1304,7 +1308,12 @@ def genWinADSETSYBuyShippingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "review_purchase", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "etsy_bulk_labels", "top", theme, this_step, None)
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "etsy_bulk_labels", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # really should do checking here, such as payment method. but for now just assume default is what we want here....
@@ -1319,8 +1328,13 @@ def genWinADSETSYBuyShippingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "confirm_and_pay", "anchor icon", "", "nthCompletion", "center", [0, 0], "box", 2, 2, [0, 0], this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     #now make sure labels are generated successfully by checking the word "successfully" and then click "download labels"
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "etsy_bulk_labels", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "etsy_bulk_labels", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "successfully", "direct", "anchor text", "any", "complete_buttons", "useless", "etsy", False, this_step)
@@ -1847,9 +1861,14 @@ def genWinADSETSYBuyShippingLabelsSkill(worksettings, stepN, theme):
     this_step, step_words = genStepLoop("buyLabelsDone != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # now extract the screen info.
     this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme,
-                                               this_step, None)
+                                               this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
@@ -2195,7 +2214,12 @@ def genEbayLoginInSteps(stepN, theme):
     this_step, step_words = genStepKeyInput("", True, "ctrl,1", "", 3, stepN)
     psk_words = psk_words + step_words
 
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepSearchAnchorInfo("screen_info", "usa", "direct", "anchor text", "any", "useless", "ip_obtained", "", False, this_step)

@@ -47,7 +47,8 @@ from bot.seleniumSkill import genStepWebdriverClick, genStepWebdriverScrollTo, g
     genStepWebdriverStartExistingChrome, genStepWebdriverStartExistingADS, genStepWebdriverStartNewChrome, \
     genStepWebdriverExtractInfo, genStepWebdriverWaitUntilClickable, genStepWebdriverWaitDownloadDoneAndTransfer,\
     genStepWebdriverSwitchToFrame, genStepWebdriverSwitchToDefaultContent, genStepWebdriverCheckConnection, \
-    genStepWebdriverCheckVisibility, genStepWebdriverGetValueFromWebElement, genStepWebdriverSolveCaptcha
+    genStepWebdriverCheckVisibility, genStepWebdriverGetValueFromWebElement, genStepWebdriverSolveCaptcha, \
+    genStepWebdriverBuildDomTree, genStepWebdriverDetectAndClosePopup
 from bot.ebaySellerSkill import genWinADSEbayFullfillOrdersSkill, genWinADSEbayCollectOrderListSkill, \
     genWinADSEbayUpdateShipmentTrackingSkill, genWinChromeEbayFullfillOrdersSkill, \
     genWinChromeEbayCollectOrderListSkill, genWinChromeEbayHandleMessagesSkill, genWinADSEbayBuyShippingSkill, \
@@ -135,6 +136,8 @@ PUBLIC = {
     "genStepWebdriverCheckVisibility": genStepWebdriverCheckVisibility,
     "genStepWebdriverGetValueFromWebElement": genStepWebdriverGetValueFromWebElement,
     "genStepWebdriverSolveCaptcha": genStepWebdriverSolveCaptcha,
+    "genStepWebdriverBuildDomTree": genStepWebdriverBuildDomTree,
+    "genStepWebdriverDetectAndClosePopup": genStepWebdriverDetectAndClosePopup,
     "genStepCheckCondition": genStepCheckCondition,
     "genStepGetDefault": genStepGetDefault,
     "genStepGoto": genStepGoto,

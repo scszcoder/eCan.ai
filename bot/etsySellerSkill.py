@@ -351,8 +351,13 @@ def genWinChromeEtsyCollectOrderListSkill(worksettings, stepN, theme):
     this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "top", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "top", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.
@@ -717,8 +722,13 @@ def genWinChromeEtsyUpdateShipmentTrackingSkill(worksettings, stepN, theme):
     this_step, step_words = genStepLoop("endOfOrdersPage != True", "", "", "browseEtsyOrderPage" + str(this_step), this_step)
     psk_words = psk_words + step_words
 
+    this_step, step_words = genStepCallExtern(
+        "global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['New Profile', 'Profiles', 'No Data', 'All groups']}\nprint('scrn_options', scrn_options)",
+        "", "in_line", "", this_step)
+    psk_words = psk_words + step_words
+
     # now extract the screen info.
-    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None)
+    this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "orders", "completion", theme, this_step, None, "scrn_options")
     psk_words = psk_words + step_words
 
     # use this info, as it contains the name and address, as well as the ship_to anchor location.

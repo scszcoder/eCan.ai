@@ -151,7 +151,7 @@ class MissionService:
             self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results[:2])) + "........."
         else:
             self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
-        return results
+        return dict_results
 
     def insert_missions_batch(self, jbody, api_missions):
         for i, jb in enumerate(jbody):

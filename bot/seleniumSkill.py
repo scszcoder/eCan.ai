@@ -442,6 +442,29 @@ def genStepWebdriverSolveCaptcha(driver_var, api_key_var, site_var, flag_var, st
     return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
 
 
+def genStepWebdriverDetectAndClosePopup(driver_var, site_var, page_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Close Popup",
+        "driver_var": driver_var,  # anchor, info, text
+        "page_var": page_var,
+        "site_var": site_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+def genStepWebdriverBuildDomTree(driver_var, site_var, page_var, flag_var, stepN):
+    stepjson = {
+        "type": "Web Driver Build DOM Tree",
+        "driver_var": driver_var,  # anchor, info, text
+        "page_var": page_var,
+        "site_var": site_var,
+        "flag": flag_var
+    }
+    return ((stepN + STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson, indent=4) + ",\n"))
+
+
+
 
 # ====== now the processing routines for the step instructions.
 def processWebdriverClick(step, i, mission):
@@ -1841,6 +1864,73 @@ def processWebdriverGetValueFromWebElement(step, i):
 
     return (i + 1), ex_stat
 
+
+def processWebdriverDetectAndClosePopup(step, i, mission):
+    try:
+        driver = symTab[step["driver_var"]]
+        # Check if popup appears within 3 seconds
+        if step["site_var"] == "amz":
+            popup = WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div[role='dialog']"))
+            )
+            print("Popup detected!")
+
+            # Try closing it if close button is present
+            close_button = WebDriverWait(driver, 2).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "div[role='dialog'] button[aria-label='Close']"))
+            )
+            close_button.click()
+            print("Popup closed.")
+        else:
+            print(f"don't know how to detect pop up and close it on {step["site_var"]}")
+        symTab[step["flag"]] =  True
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverDetectAndClosePopup:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverDetectAndClosePopup: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
+
+def processWebdriverBuildDomTree(step, i, mission):
+    try:
+
+        # Load your JS file as a string
+        with open("builDomTree.js", "r", encoding="utf-8") as f:
+            js_code = f.read()
+
+        # Launch browser
+        driver = webdriver.Chrome()
+        driver.get("https://www.amazon.com")
+
+        # Wait a few seconds for the page to load
+        time.sleep(3)
+
+        # Inject and execute the JS code
+        result = driver.execute_script(f"return ({js_code})()")
+
+        # Optional: Pretty print the result
+        import json
+        print(json.dumps(result, indent=2))
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorWebdriverBuildDomTree:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorWebdriverBuildDomTree: traceback information not available:" + str(e)
+        log3(ex_stat)
+        symTab[step["flag"]] = False
+
+    return (i + 1), ex_stat
 
 
 def processWebdriverSolveCaptcha(step, i):
