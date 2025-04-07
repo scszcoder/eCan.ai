@@ -1881,7 +1881,7 @@ def processWebdriverDetectAndClosePopup(step, i, mission):
             close_button.click()
             print("Popup closed.")
         else:
-            print(f"don't know how to detect pop up and close it on {step["site_var"]}")
+            print(f"don't know how to detect pop up and close it on {step['site_var']}")
         symTab[step["flag"]] =  True
 
     except Exception as e:
