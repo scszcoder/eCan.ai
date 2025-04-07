@@ -68,6 +68,8 @@ import traceback
 
 from bot.seleniumSkill import processWebdriverSolveCaptcha
 from seleniumSkill import processWebdriverDetectAndClosePopup, processWebdriverBuildDomTree
+from agent.agent_helper import *
+
 
 symTab["fout"] = ""
 symTab["fin"] = ""
@@ -726,9 +728,15 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         run_result = "Incomplete:Error:"+step_stat+":"+str(last_step)
         # should close the current app here, make room for the next retry, and other tasks...
         stepKeys = list(steps.keys())
-        step = steps[stepKeys[next_step_index]]
         last_screen_shot_file = mainwin.my_ecb_data_homepath+"/runlogs/last_screen.png"
         captureScreenToFile("", last_screen_shot_file)
+
+        if agentHelperResolve(step_stat, last_screen_shot_file):
+            step = steps[stepKeys[next_step_index]]
+        else:
+            # go the end of the skill an save some, if any help failed.
+            step = steps[-1]
+
         mission.recordFailureContext(next_step_index, step, run_stack, step_stat, last_screen_shot_file)
 
     closeMissionADS(mainwin, mission)
