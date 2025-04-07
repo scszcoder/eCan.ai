@@ -67,7 +67,7 @@ from bot.adsAPISkill import stopAdspowerProfile
 import traceback
 
 from bot.seleniumSkill import processWebdriverSolveCaptcha
-from seleniumSkill import processWebdriverDetectAndClosePopup, processWebdriverBuildDomTree
+from bot.seleniumSkill import processWebdriverDetectAndClosePopup, processWebdriverBuildDomTree
 from agent.agent_helper import *
 
 
