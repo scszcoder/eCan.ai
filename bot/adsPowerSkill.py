@@ -304,7 +304,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # now read screen, if there is log in, then click on log in.
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepCreateData("expr", "ads_file_path", "NA", "os.path.dirname(sk_work_settings['batch_profile'])", this_step)
@@ -371,7 +371,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.85, 0.66], 'icon_attention_area':[0, 0, 0.85, 0.66], 'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -381,7 +381,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         psk_words = psk_words + step_words
 
         # now file dialog will show up for you to input the dir name, so do so.....
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "file_dialog", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "file_dialog", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [4, 0], "box", 1, 2, [0, 0], this_step)
@@ -406,7 +406,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         # click "Close" button on the pop up.
@@ -420,7 +420,7 @@ def genStepsADSPowerExitProfile(worksettings, stepN, theme):
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0.2, 0, 1, 0.65], 'icon_attention_area':[0.2, 0, 1, 0.65], 'attention_targets':['@all']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         # uncheck all the checkboxes.
@@ -578,7 +578,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['No Data', 'All groups']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "export_text", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "folder_icon", "anchor icon",
@@ -589,7 +589,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         psk_words = psk_words + step_words
 
         # now file dialog will show up for you to input the dir name, so do so.....
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "file_dialog", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "file_dialog", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "refresh", "anchor icon", "", [0, -1], "left", [4, 0], "box", 1, 2, [0, 0], this_step)
@@ -607,7 +607,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 1, 1], 'icon_attention_area':[0, 0, 1, 1], 'attention_targets':['OK']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         this_step, step_words = genStepMouseClick("Single Click", "", True, "screen_info", "ok_button", "anchor icon", "", 0, "center", [0, 0], "box", 2, 2, [0, 0], this_step)
@@ -620,7 +620,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         this_step, step_words = genStepCallExtern("global scrn_options\nscrn_options = {'txt_attention_area':[0, 0, 0.85, 0.66],'attention_targets':['Wait', 'Close']}\nprint('scrn_options', scrn_options)", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "popup", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         # click "Close" button on the pop up.
@@ -635,7 +635,7 @@ def genStepsADSBatchExportProfiles(worksettings, theme, stepN):
         psk_words = psk_words + step_words
 
 
-        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None)
+        this_step, step_words = genStepExtractInfo("", "sk_work_settings", "screen_info", "ads_power", "top", theme, this_step, None, "scrn_options")
         psk_words = psk_words + step_words
 
         # uncheck all the checkboxes.
