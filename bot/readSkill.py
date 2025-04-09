@@ -718,6 +718,17 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
 
         print("current step stat:"+step_stat)
         if step_stat != DEFAULT_RUN_STATUS:
+            # in case of a failure, try to fix it with ai agent.
+            last_screen_shot_file = mainwin.my_ecb_data_homepath + "/runlogs/last_screen.png"
+            captureScreenToFile("", last_screen_shot_file)
+
+            if await agentHelperResolve(step_stat, steps, next_step_index, last_screen_shot_file, mission, symTab):
+                log3("ru-run current step after errors are fixed")
+                next_step_index = last_step
+            else:
+                # go the end of the skill an save some, if any help failed.
+                log3("end the run after attempt to fix failed.")
+                step = steps[-1]
             break
 
         if not running:
@@ -728,14 +739,6 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
         run_result = "Incomplete:Error:"+step_stat+":"+str(last_step)
         # should close the current app here, make room for the next retry, and other tasks...
         stepKeys = list(steps.keys())
-        last_screen_shot_file = mainwin.my_ecb_data_homepath+"/runlogs/last_screen.png"
-        captureScreenToFile("", last_screen_shot_file)
-
-        if agentHelperResolve(step_stat, last_screen_shot_file):
-            step = steps[stepKeys[next_step_index]]
-        else:
-            # go the end of the skill an save some, if any help failed.
-            step = steps[-1]
 
         mission.recordFailureContext(next_step_index, step, run_stack, step_stat, last_screen_shot_file)
 
