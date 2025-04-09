@@ -23,9 +23,9 @@ from langchain_core.messages import (
 from pydantic import BaseModel, ValidationError
 
 # from agent.gif import create_history_gif
-# from agent.memory.service import Memory, MemorySettings
-# from agent.message_manager.service import MessageManager, MessageManagerSettings
-# from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
+from agent.memory.service import Memory, MemorySettings
+from agent.message_manager.service import MessageManager, MessageManagerSettings
+from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
 from agent.views import (
 	REQUIRED_LLM_API_ENV_VARS,
@@ -42,6 +42,7 @@ from agent.views import (
 )
 from browser.browser import Browser
 from browser.context import BrowserContext
+from agent.runner.context import RunnerContext
 from browser.views import BrowserState, BrowserStateHistory
 from agent.actions import ActionModel
 # from browser_use.controller.service import Controller
@@ -57,6 +58,7 @@ from telemetry.views import (
 	AgentStepTelemetryEvent,
 )
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
+from agent.runner.service import Runner
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -95,7 +97,8 @@ class Agent(Generic[Context]):
 		# Optional parameters
 		browser: Browser | None = None,
 		browser_context: BrowserContext | None = None,
-		controller: Controller[Context] = Controller(),
+		runner_context: RunnerContext | None = None,
+		runner: Runner[Context] = Runner(),
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
@@ -158,7 +161,7 @@ class Agent(Generic[Context]):
 		# Core components
 		self.task = task
 		self.llm = llm
-		self.controller = controller
+		self.runner = runner
 		self.sensitive_data = sensitive_data
 
 		self.settings = AgentSettings(
@@ -213,7 +216,7 @@ class Agent(Generic[Context]):
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
-		self.unfiltered_actions = self.controller.registry.get_prompt_description()
+		self.unfiltered_actions = self.runner.registry.get_prompt_description()
 
 		self.tool_calling_method = self._set_tool_calling_method()
 		self.settings.message_context = self._set_message_context()
@@ -755,7 +758,7 @@ class Agent(Generic[Context]):
 		loop = asyncio.get_event_loop()
 
 		# Set up the Ctrl+C signal handler with callbacks specific to this agent
-		from browser_use.utils import SignalHandler
+		from agent.run_utils import SignalHandler
 
 		signal_handler = SignalHandler(
 			loop=loop,
@@ -848,7 +851,7 @@ class Agent(Generic[Context]):
 				if isinstance(self.settings.generate_gif, str):
 					output_path = self.settings.generate_gif
 
-				create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
+				# create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
 	# @observe(name='controller.multi_act')
 	@time_execution_async('--multi-act (agent)')
@@ -1288,3 +1291,104 @@ class Agent(Generic[Context]):
 		# Update done action model too
 		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
+
+	@time_execution_async('--resolve (agent)')
+	async def resolve(
+			self, runner_context, max_steps=8
+	) -> bool:
+		"""Execute the task with maximum number of steps"""
+		resolved = False
+		loop = asyncio.get_event_loop()
+
+		# Set up the Ctrl+C signal handler with callbacks specific to this agent
+		from agent.run_utils import SignalHandler
+
+		signal_handler = SignalHandler(
+			loop=loop,
+			pause_callback=self.pause,
+			resume_callback=self.resume,
+			custom_exit_callback=None,  # No special cleanup needed on forced exit
+			exit_on_second_int=True,
+		)
+		signal_handler.register()
+
+		# Start non-blocking LLM connection verification
+		assert self.llm._verified_api_keys, 'Failed to verify LLM API keys'
+
+		try:
+			self._log_agent_run()
+
+			# Execute initial actions if provided
+			if self.initial_actions:
+				result = await self.multi_act(self.initial_actions, check_for_new_elements=False)
+				self.state.last_result = result
+
+			for step in range(max_steps):
+				# Check if waiting for user input after Ctrl+C
+				if self.state.paused:
+					signal_handler.wait_for_resume()
+					signal_handler.reset()
+
+				# Check if we should stop due to too many failures
+				if self.state.consecutive_failures >= self.settings.max_failures:
+					logger.error(f'❌ Stopping due to {self.settings.max_failures} consecutive failures')
+					break
+
+				# Check control flags before each step
+				if self.state.stopped:
+					logger.info('Agent stopped')
+					break
+
+				while self.state.paused:
+					await asyncio.sleep(0.2)  # Small delay to prevent CPU spinning
+					if self.state.stopped:  # Allow stopping while paused
+						break
+
+
+				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
+				await self.step(step_info)
+
+
+				if self.state.history.is_done():
+					if self.settings.validate_output and step < max_steps - 1:
+						if not await self._validate_output():
+							continue
+
+					await self.log_completion()
+					break
+			else:
+				logger.info('❌ Failed to complete task in maximum steps')
+
+			return result, resolved
+
+		except KeyboardInterrupt:
+			# Already handled by our signal handler, but catch any direct KeyboardInterrupt as well
+			logger.info('Got KeyboardInterrupt during execution, returning current history')
+			return self.state.history
+
+		finally:
+			# Unregister signal handlers before cleanup
+			signal_handler.unregister()
+
+			self.telemetry.capture(
+				AgentEndTelemetryEvent(
+					agent_id=self.state.agent_id,
+					is_done=self.state.history.is_done(),
+					success=self.state.history.is_successful(),
+					steps=self.state.n_steps,
+					max_steps_reached=self.state.n_steps >= max_steps,
+					errors=self.state.history.errors(),
+					total_input_tokens=self.state.history.total_input_tokens(),
+					total_duration_seconds=self.state.history.total_duration_seconds(),
+				)
+			)
+
+			await self.close()
+
+			if self.settings.generate_gif:
+				output_path: str = 'agent_history.gif'
+				if isinstance(self.settings.generate_gif, str):
+					output_path = self.settings.generate_gif
+
+		# create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
+
