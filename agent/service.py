@@ -10,7 +10,8 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
-
+import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -850,7 +851,7 @@ class Agent(Generic[Context]):
 		else:
 			logger.debug(f'Using {self.tool_calling_method} for {self.chat_model_library}')
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
-
+			print("ACTUAL API KEY>>>>>>>>:", self.llm.openai_api_key.get_secret_value())
 			print("LLM prompt>>>>>>>:", input_messages)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
 

@@ -11,9 +11,9 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
-# from agent.message_manager.views import MessageManagerState
+from agent.runner.registry.models import ActionModel
+from agent.message_manager.models import MessageManagerState
 from browser.views import BrowserStateHistory
-from agent.actions import ActionModel
 from dom.history_tree_processor.service import (
 	DOMElementNode,
 	DOMHistoryElement,
@@ -97,6 +97,7 @@ class AgentState(BaseModel):
 class AgentStepInfo:
 	step_number: int
 	max_steps: int
+	in_browser: bool
 
 	def is_last_step(self) -> bool:
 		"""Check if this is the last step"""
@@ -406,3 +407,4 @@ class AgentError:
 		if include_trace:
 			return f'{str(error)}\nStacktrace:\n{traceback.format_exc()}'
 		return f'{str(error)}'
+
