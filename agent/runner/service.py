@@ -12,7 +12,8 @@ from langchain_core.prompts import PromptTemplate
 # from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
 
-from agent.views import ActionModel, ActionResult
+from agent.runner.registry.models import ActionModel
+from agent.views import ActionResult
 from browser.context import BrowserContext
 from agent.runner.registry.service import Registry
 from agent.runner.models import (
@@ -140,7 +141,7 @@ class Runner(Generic[Context]):
 				raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
 
 			element_node = await browser.get_dom_element_by_index(params.index)
-			initial_pages = len(session.context.pages)
+			initial_pages = len(session.pages)
 
 			# if element has file uploader then dont click
 			if await browser.is_file_uploader(element_node):
@@ -159,7 +160,7 @@ class Runner(Generic[Context]):
 
 				logger.info(msg)
 				logger.debug(f'Element xpath: {element_node.xpath}')
-				if len(session.context.pages) > initial_pages:
+				if len(session.pages) > initial_pages:
 					new_tab_msg = 'New tab opened - switching to it'
 					msg += f' - {new_tab_msg}'
 					logger.info(new_tab_msg)

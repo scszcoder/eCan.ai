@@ -1,6 +1,22 @@
 from typing import Callable, Dict, Type
 from selenium import webdriver
 from pydantic import BaseModel, ConfigDict
+from agent.playwright_sim import *
+
+
+class GlobalContext:
+	def __init__(self):
+		self.platform = "win"
+		self.app = "ads"
+		self.page = ""
+		self.section = ""
+		self.state = ""
+
+	async def get_state(self):
+		return self.state
+
+	async def get_current_page(self):
+		return self.page
 
 
 class RegisteredAction(BaseModel):
@@ -13,8 +29,9 @@ class RegisteredAction(BaseModel):
 
 	# filters: provide specific domains or a function to determine whether the action should be available on the given page or not
 	domains: list[str] | None = None  # e.g. ['*.google.com', 'www.bing.com', 'yahoo.*]
-	page_filter: Callable[[webdriver], bool] | None = None
-
+	apps: list[str] | None = None  # e.g. ['ads', 'api', '']
+	page_filter: Callable[[Page], bool] | None = None
+	app_filter: Callable[[str], bool] | None = None
 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
 	def prompt_description(self) -> str:
@@ -113,36 +130,40 @@ class ActionRegistry(BaseModel):
 			return True
 		return page_filter(page)
 
-	def get_prompt_description(self, web_driver: webdriver | None = None) -> str:
+	def get_prompt_description(self, page: Page | None = None, global_context: GlobalContext | None = None) -> str:
 		"""Get a description of all actions for the prompt
 
 		Args:
-			web_driver: If provided, filter actions by page using page_filter and domains.
+			page: If provided, filter actions by page using page_filter and domains.
 
 		Returns:
 			A string description of available actions.
 			- If page is None: return only actions with no page_filter and no domains (for system prompt)
 			- If page is provided: return only filtered actions that match the current page (excluding unfiltered actions)
 		"""
-		if web_driver is None:
-			# For system prompt (no page provided), include only actions with no filters
-			return '\n'.join(
-				action.prompt_description()
-				for action in self.actions.values()
-				if action.page_filter is None and action.domains is None
-			)
+		if global_context is None:
+			if page is None:
+				# For system prompt (no page provided), include only actions with no filters
+				return '\n'.join(
+					action.prompt_description()
+					for action in self.actions.values()
+					if action.page_filter is None and action.domains is None
+				)
 
-		# only include filtered actions for the current page
-		filtered_actions = []
-		for action in self.actions.values():
-			if not (action.domains or action.page_filter):
-				# skip actions with no filters, they are already included in the system prompt
-				continue
+			# only include filtered actions for the current page
+			filtered_actions = []
+			for action in self.actions.values():
+				if not (action.domains or action.page_filter):
+					# skip actions with no filters, they are already included in the system prompt
+					continue
 
-			domain_is_allowed = self._match_domains(action.domains, web_driver.url)
-			page_is_allowed = self._match_page_filter(action.page_filter, web_driver)
+				domain_is_allowed = self._match_domains(action.domains, page.url())
+				page_is_allowed = self._match_page_filter(action.page_filter, page)
 
-			if domain_is_allowed and page_is_allowed:
-				filtered_actions.append(action)
+				if domain_is_allowed and page_is_allowed:
+					filtered_actions.append(action)
+		else:
+			# sc - just a hack for now.
+			filtered_actions = self.actions.values()
 
 		return '\n'.join(action.prompt_description() for action in filtered_actions)

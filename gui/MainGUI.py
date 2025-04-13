@@ -77,6 +77,7 @@ from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper
 from tests.unittests import *
+from tests.agent_tests import *
 import pandas as pd
 from gui.encrypt import *
 import keyboard
@@ -85,7 +86,9 @@ import cpuinfo
 import psutil
 from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
-
+from langchain_openai import ChatOpenAI
+from agent.service import Agent
+from agent.runner.service import Runner
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -444,6 +447,10 @@ class MainWindow(QMainWindow):
             self.skill_service = None
             self.vehicle_service = None
 
+        task = ""
+        model = ChatOpenAI(model='gpt-4o')
+        runner = Runner()
+        self.agent_helper = Agent(task=task, llm=model, runner=runner)
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
         self.rpa_work_assigned_for_today = False
@@ -1121,7 +1128,8 @@ class MainWindow(QMainWindow):
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
             print("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
 
-
+    def get_agent_helper(self):
+        return self.agent_helper
     def updateTokens(self, tokens):
         self.tokens = tokens
 
@@ -1866,7 +1874,8 @@ class MainWindow(QMainWindow):
         # asyncio.ensure_future(test_wait_until8())
 
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
-        testSyncPrivateCloudImageAPI(self)
+        # testSyncPrivateCloudImageAPI(self)
+        asyncio.ensure_future(test_helper(self))
         # testReportVehicles(self)
         # testDequeue(self)
         # Start Gradio in a separate thread

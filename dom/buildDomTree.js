@@ -838,6 +838,8 @@
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
 
     const tagName = element.tagName.toLowerCase();
+//    const computedStyle = window.getComputedStyle(element);
+//    if (computedStyle.cursor === "pointer") return true;
 
     // Fast-path for common interactive elements
     const interactiveElements = new Set([
@@ -850,7 +852,7 @@
     const hasQuickInteractiveAttr = element.hasAttribute("onclick") ||
       element.hasAttribute("role") ||
       element.hasAttribute("tabindex") ||
-      element.hasAttribute("aria-") ||
+      element.startsWith("aria-") ||
       element.hasAttribute("data-action") ||
       element.getAttribute("contenteditable") == "true";
 
@@ -904,7 +906,7 @@
       return null;
     }
 
-    // Process text nodes
+    // Process text nodes, get rid of leading and trailing white spaces.
     if (node.nodeType === Node.TEXT_NODE) {
       const textContent = node.textContent.trim();
       if (!textContent) {
@@ -912,7 +914,7 @@
         return null;
       }
 
-      // Only check visibility for text nodes that might be visible
+      // Only check visibility for text nodes that might be visible, skip script node.
       const parentElement = node.parentElement;
       if (!parentElement || parentElement.tagName.toLowerCase() === 'script') {
         if (debugMode) PERF_METRICS.nodeMetrics.skippedNodes++;

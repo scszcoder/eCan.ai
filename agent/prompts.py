@@ -35,7 +35,7 @@ class SystemPrompt:
 		"""Load the prompt template from the markdown file."""
 		try:
 			# This works both in development and when installed as a package
-			with importlib.resources.files('browser_use.agent').joinpath('system_prompt.md').open('r') as f:
+			with importlib.resources.files('agent').joinpath('system_prompt.md').open('r') as f:
 				self.prompt_template = f.read()
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
@@ -73,10 +73,16 @@ class AgentMessagePrompt:
 		self.step_info = step_info
 
 	def get_user_message(self, use_vision: bool = True) -> HumanMessage:
-		elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
+		print("self state:", self.state)
+		if self.state:
+			elements_text = self.state.element_tree.clickable_elements_to_string(include_attributes=self.include_attributes)
 
-		has_content_above = (self.state.pixels_above or 0) > 0
-		has_content_below = (self.state.pixels_below or 0) > 0
+			has_content_above = (self.state.pixels_above or 0) > 0
+			has_content_below = (self.state.pixels_below or 0) > 0
+		else:
+			elements_text = ""
+			has_content_above = False
+			has_content_below = False
 
 		if elements_text != '':
 			if has_content_above:
@@ -101,17 +107,29 @@ class AgentMessagePrompt:
 		time_str = datetime.now().strftime('%Y-%m-%d %H:%M')
 		step_info_description += f'Current date and time: {time_str}'
 
-		state_description = f"""
-			[Task history memory ends]
-			[Current state starts here]
-			The following is one-time information - if you need to remember it write it to memory:
-			Current url: {self.state.url}
-			Available tabs:
-			{self.state.tabs}
-			Interactive elements from top layer of the current page inside the viewport:
-			{elements_text}
-			{step_info_description}
-			"""
+		if self.state:
+			state_description = f"""
+				[Task history memory ends]
+				[Current state starts here]
+				The following is one-time information - if you need to remember it write it to memory:
+				Current url: {self.state.url}
+				Available tabs:
+				{self.state.tabs}
+				Interactive elements from top layer of the current page inside the viewport:
+				{elements_text}
+				{step_info_description}
+				"""
+		else:
+			state_description = f"""
+							[Task history memory ends]
+							[Current state starts here]
+							The following is one-time information - if you need to remember it write it to memory:
+							Current url: ''
+							Available tabs: []
+							Interactive elements from top layer of the current page inside the viewport:
+							''
+							''
+							"""
 
 		if self.result:
 			for i, result in enumerate(self.result):
@@ -122,17 +140,18 @@ class AgentMessagePrompt:
 					error = result.error.split('\n')[-1]
 					state_description += f'\nAction error {i + 1}/{len(self.result)}: ...{error}'
 
-		if self.state.screenshot and use_vision is True:
-			# Format message for vision model
-			return HumanMessage(
-				content=[
-					{'type': 'text', 'text': state_description},
-					{
-						'type': 'image_url',
-						'image_url': {'url': f'data:image/png;base64,{self.state.screenshot}'},  # , 'detail': 'low'
-					},
-				]
-			)
+		if self.state:
+			if self.state.screenshot and use_vision is True:
+				# Format message for vision model
+				return HumanMessage(
+					content=[
+						{'type': 'text', 'text': state_description},
+						{
+							'type': 'image_url',
+							'image_url': {'url': f'data:image/png;base64,{self.state.screenshot}'},  # , 'detail': 'low'
+						},
+					]
+				)
 
 		return HumanMessage(content=state_description)
 

@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import traceback
 import asyncio
 import gc
 import inspect
@@ -43,9 +43,11 @@ from agent.views import (
 from browser.browser import Browser
 from browser.context import BrowserContext
 from agent.runner.context import RunnerContext
+
+from agent.runner.registry.models import GlobalContext
+
 from browser.views import BrowserState, BrowserStateHistory
-from agent.actions import ActionModel
-# from browser_use.controller.service import Controller
+from agent.runner.service import Runner
 from dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
@@ -97,6 +99,7 @@ class Agent(Generic[Context]):
 		# Optional parameters
 		browser: Browser | None = None,
 		browser_context: BrowserContext | None = None,
+		global_context: GlobalContext | None = None,
 		runner_context: RunnerContext | None = None,
 		runner: Runner[Context] = Runner(),
 		# Initial agent run parameters
@@ -212,7 +215,9 @@ class Agent(Generic[Context]):
 			raise ValueError('Environment variables not set')
 
 		# Start non-blocking LLM connection verification
+		print("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
 		self.llm._verified_api_keys = self._verify_llm_connection(self.llm)
+		print("VERIFIED OPENAI API KEY IS::::::::", self.llm._verified_api_keys)
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
@@ -264,6 +269,7 @@ class Agent(Generic[Context]):
 		self.browser_context = browser_context or BrowserContext(
 			browser=self.browser, config=self.browser.config.new_context_config
 		)
+		self.global_context = global_context or GlobalContext()
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
@@ -278,6 +284,15 @@ class Agent(Generic[Context]):
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
+
+	def set_runner(self, runner):
+		self.runner = runner
+
+	def set_task(self, task):
+		self.task = task
+
+	def set_llm(self, llm):
+		self.llm = llm
 
 	def _set_message_context(self) -> str | None:
 		if self.tool_calling_method == 'raw':
@@ -341,12 +356,12 @@ class Agent(Generic[Context]):
 	def _setup_action_models(self) -> None:
 		"""Setup dynamic action models from controller's registry"""
 		# Initially only include actions with no filters
-		self.ActionModel = self.controller.registry.create_action_model()
+		self.ActionModel = self.runner.registry.create_action_model()
 		# Create output model with the dynamic actions
 		self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 
 		# used to force the done action when max_steps is reached
-		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'])
+		self.DoneActionModel = self.runner.registry.create_action_model(include_actions=['done'])
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
 	def _set_tool_calling_method(self) -> Optional[ToolCallingMethod]:
@@ -379,9 +394,177 @@ class Agent(Generic[Context]):
 			# logger.debug('Agent paused after getting state')
 			raise InterruptedError
 
-	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step (agent)')
 	async def step(self, step_info: Optional[AgentStepInfo] = None) -> None:
+		"""Execute one step of the task"""
+		logger.info(f'📍 Step {self.state.n_steps}')
+		state = None
+		model_output = None
+		result: list[ActionResult] = []
+		step_start_time = time.time()
+		tokens = 0
+
+		try:
+			if step_info.in_browser:
+				await self.browser_step(step_info)
+			else:
+				global_context = self.global_context
+				state = await self.global_context.get_state()
+				active_page = await self.global_context.get_current_page()
+				# generate procedural memory if needed
+				if self.settings.enable_memory and self.memory and self.state.n_steps % self.settings.memory_interval == 0:
+					self.memory.create_procedural_memory(self.state.n_steps)
+
+				await self._raise_if_stopped_or_paused()
+
+				# Update action models with page-specific actions
+				await self._update_action_models_for_page(active_page, global_context)
+
+				# Get page-specific filtered actions
+				page_filtered_actions = self.runner.registry.get_prompt_description(active_page, global_context)
+
+				# If there are page-specific actions, add them as a special message for this step only
+				if page_filtered_actions:
+					page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
+					self._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
+
+				# If using raw tool calling method, we need to update the message context with new actions
+				if self.tool_calling_method == 'raw':
+					# For raw tool calling, get all non-filtered actions plus the page-filtered ones
+					all_unfiltered_actions = self.runner.registry.get_prompt_description()
+					all_actions = all_unfiltered_actions
+					if page_filtered_actions:
+						all_actions += '\n' + page_filtered_actions
+
+					context_lines = self._message_manager.settings.message_context.split('\n')
+					non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
+					updated_context = '\n'.join(non_action_lines)
+					if updated_context:
+						updated_context += f'\n\nAvailable actions: {all_actions}'
+					else:
+						updated_context = f'Available actions: {all_actions}'
+					self._message_manager.settings.message_context = updated_context
+
+				print("add state message:", state)
+				self._message_manager.add_state_message(state, self.state.last_result, step_info, self.settings.use_vision)
+
+				# Run planner at specified intervals if planner is configured
+				if self.settings.planner_llm and self.state.n_steps % self.settings.planner_interval == 0:
+					plan = await self._run_planner()
+					# add plan before last state message
+					self._message_manager.add_plan(plan, position=-1)
+
+				if step_info and step_info.is_last_step():
+					# Add last step warning if needed
+					msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
+					msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
+					msg += '\nIf the task is fully finished, set success in "done" to true.'
+					msg += '\nInclude everything you found out for the ultimate task in the done text.'
+					logger.info('Last step finishing up')
+					self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
+					self.AgentOutput = self.DoneAgentOutput
+
+				input_messages = self._message_manager.get_messages()
+				tokens = self._message_manager.state.history.current_tokens
+
+				try:
+					model_output = await self.get_next_action(input_messages)
+
+					# Check again for paused/stopped state after getting model output
+					# This is needed in case Ctrl+C was pressed during the get_next_action call
+					await self._raise_if_stopped_or_paused()
+
+					self.state.n_steps += 1
+
+					if self.register_new_step_callback:
+						if inspect.iscoroutinefunction(self.register_new_step_callback):
+							await self.register_new_step_callback(state, model_output, self.state.n_steps)
+						else:
+							self.register_new_step_callback(state, model_output, self.state.n_steps)
+					if self.settings.save_conversation_path:
+						target = self.settings.save_conversation_path + f'_{self.state.n_steps}.txt'
+						save_conversation(input_messages, model_output, target,
+										  self.settings.save_conversation_path_encoding)
+
+					self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
+
+					# check again if Ctrl+C was pressed before we commit the output to history
+					await self._raise_if_stopped_or_paused()
+
+					self._message_manager.add_model_output(model_output)
+				except asyncio.CancelledError:
+					# Task was cancelled due to Ctrl+C
+					self._message_manager._remove_last_state_message()
+					raise InterruptedError('Model query cancelled by user')
+				except InterruptedError:
+					# Agent was paused during get_next_action
+					self._message_manager._remove_last_state_message()
+					raise  # Re-raise to be caught by the outer try/except
+				except Exception as e:
+					# model call failed, remove last state message from history
+					self._message_manager._remove_last_state_message()
+					raise e
+
+				result: list[ActionResult] = await self.multi_act(model_output.action)
+
+				self.state.last_result = result
+
+				if len(result) > 0 and result[-1].is_done:
+					logger.info(f'📄 Result: {result[-1].extracted_content}')
+
+				self.state.consecutive_failures = 0
+
+		except InterruptedError:
+			# logger.debug('Agent paused')
+			self.state.last_result = [
+				ActionResult(
+					error='The agent was paused mid-step - the last action might need to be repeated',
+					include_in_memory=False
+				)
+			]
+			return
+		except asyncio.CancelledError:
+			# Directly handle the case where the step is cancelled at a higher level
+			# logger.debug('Task cancelled - agent was paused with Ctrl+C')
+			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
+			raise InterruptedError('Step cancelled by user')
+		except Exception as e:
+			traceback_info = traceback.extract_tb(e.__traceback__)
+			# Extract the file name and line number from the last entry in the traceback
+			if traceback_info:
+				ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
+				logger.error(f'❌  Failed to step: {ex_stat}')
+
+			result = await self._handle_step_error(e)
+			self.state.last_result = result
+
+		finally:
+			step_end_time = time.time()
+			actions = [a.model_dump(exclude_unset=True) for a in model_output.action] if model_output else []
+			self.telemetry.capture(
+				AgentStepTelemetryEvent(
+					agent_id=self.state.agent_id,
+					step=self.state.n_steps,
+					actions=actions,
+					consecutive_failures=self.state.consecutive_failures,
+					step_error=[r.error for r in result if r.error] if result else ['No result'],
+				)
+			)
+			if not result:
+				return
+
+			if state:
+				metadata = StepMetadata(
+					step_number=self.state.n_steps,
+					step_start_time=step_start_time,
+					step_end_time=step_end_time,
+					input_tokens=tokens,
+				)
+				self._make_history_item(model_output, state, result, metadata)
+
+	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
+	@time_execution_async('--browser_step (agent)')
+	async def browser_step(self, step_info: Optional[AgentStepInfo] = None) -> None:
 		"""Execute one step of the task"""
 		logger.info(f'📍 Step {self.state.n_steps}')
 		state = None
@@ -404,7 +587,7 @@ class Agent(Generic[Context]):
 			await self._update_action_models_for_page(active_page)
 
 			# Get page-specific filtered actions
-			page_filtered_actions = self.controller.registry.get_prompt_description(active_page)
+			page_filtered_actions = self.runner.registry.get_prompt_description(active_page)
 
 			# If there are page-specific actions, add them as a special message for this step only
 			if page_filtered_actions:
@@ -414,7 +597,7 @@ class Agent(Generic[Context]):
 			# If using raw tool calling method, we need to update the message context with new actions
 			if self.tool_calling_method == 'raw':
 				# For raw tool calling, get all non-filtered actions plus the page-filtered ones
-				all_unfiltered_actions = self.controller.registry.get_prompt_description()
+				all_unfiltered_actions = self.runner.registry.get_prompt_description()
 				all_actions = all_unfiltered_actions
 				if page_filtered_actions:
 					all_actions += '\n' + page_filtered_actions
@@ -509,6 +692,12 @@ class Agent(Generic[Context]):
 			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
 			raise InterruptedError('Step cancelled by user')
 		except Exception as e:
+			traceback_info = traceback.extract_tb(e.__traceback__)
+			# Extract the file name and line number from the last entry in the traceback
+			if traceback_info:
+				ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
+				logger.error(f'❌  Failed to step: {ex_stat}')
+
 			result = await self._handle_step_error(e)
 			self.state.last_result = result
 
@@ -661,6 +850,8 @@ class Agent(Generic[Context]):
 		else:
 			logger.debug(f'Using {self.tool_calling_method} for {self.chat_model_library}')
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True, method=self.tool_calling_method)
+
+			print("LLM prompt>>>>>>>:", input_messages)
 			response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
 
 		# Handle tool call responses
@@ -804,7 +995,7 @@ class Agent(Generic[Context]):
 				if on_step_start is not None:
 					await on_step_start(self)
 
-				step_info = AgentStepInfo(step_number=step, max_steps=max_steps)
+				step_info = AgentStepInfo(step_number=step, max_steps=max_steps, in_browser=False)
 				await self.step(step_info)
 
 				if on_step_end is not None:
@@ -853,7 +1044,7 @@ class Agent(Generic[Context]):
 
 				# create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
-	# @observe(name='controller.multi_act')
+	# @observe(name='runner.multi_act')
 	@time_execution_async('--multi-act (agent)')
 	async def multi_act(
 		self,
@@ -895,7 +1086,7 @@ class Agent(Generic[Context]):
 			try:
 				await self._raise_if_stopped_or_paused()
 
-				result = await self.controller.act(
+				result = await self.runner.act(
 					action,
 					self.browser_context,
 					self.settings.page_extraction_llm,
@@ -1148,7 +1339,7 @@ class Agent(Generic[Context]):
 			params = action_dict[action_name]
 
 			# Get the parameter model for this action from registry
-			action_info = self.controller.registry.registry.actions[action_name]
+			action_info = self.runner.registry.registry.actions[action_name]
 			param_model = action_info.param_model
 
 			# Create validated parameters using the appropriate param model
@@ -1207,8 +1398,8 @@ class Agent(Generic[Context]):
 		page = await self.browser_context.get_current_page()
 
 		# Get all standard actions (no filter) and page-specific actions
-		standard_actions = self.controller.registry.get_prompt_description()  # No page = system prompt actions
-		page_actions = self.controller.registry.get_prompt_description(page)  # Page-specific actions
+		standard_actions = self.runner.registry.get_prompt_description()  # No page = system prompt actions
+		page_actions = self.runner.registry.get_prompt_description(page)  # Page-specific actions
 
 		# Combine both for the planner
 		all_actions = standard_actions
@@ -1281,15 +1472,16 @@ class Agent(Generic[Context]):
 		except Exception as e:
 			logger.error(f'Error during cleanup: {e}')
 
-	async def _update_action_models_for_page(self, page) -> None:
+	async def _update_action_models_for_page(self, page, global_context=None) -> None:
 		"""Update action models with page-specific actions"""
 		# Create new action model with current page's filtered actions
-		self.ActionModel = self.controller.registry.create_action_model(page=page)
+		# general purpose code
+		self.ActionModel = self.runner.registry.create_action_model(page=page, global_context=global_context)
 		# Update output model with the new actions
 		self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
 
 		# Update done action model too
-		self.DoneActionModel = self.controller.registry.create_action_model(include_actions=['done'], page=page)
+		self.DoneActionModel = self.runner.registry.create_action_model(include_actions=['done'], page=page)
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
 	@time_execution_async('--resolve (agent)')

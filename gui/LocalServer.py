@@ -14,6 +14,13 @@ mecaLocalServer = Flask(__name__, static_folder='dist')  # Serve Vue static file
 CORS(mecaLocalServer)
 MainWin = None
 
+
+IMAGE_FOLDER = os.path.abspath("run_images")  # or any path you want
+
+@mecaLocalServer.route('/<path:filename>')
+def serve_image(filename):
+    return send_from_directory(IMAGE_FOLDER, filename)
+
 # Route to serve the Vue app
 @mecaLocalServer.route('/api/gen_feedbacks', methods=['GET'])
 def gen_feedbacks():

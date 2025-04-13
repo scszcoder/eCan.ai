@@ -1,4 +1,3 @@
-from basicSkill import current_context, build_current_context
 from agent.context_utils import build_context_from_step
 
 async def agentHelperResolve(step_stat, steps, next_step_index, screen_shot_file, mission, symTab):
