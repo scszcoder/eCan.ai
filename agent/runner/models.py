@@ -1,7 +1,6 @@
-from typing import Optional
+from typing import Optional, List
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
+from pydantic import BaseModel, ConfigDict, Field, model_validator, conlist
 
 # Action Input Models
 class SearchGoogleAction(BaseModel):
@@ -123,3 +122,113 @@ class DragDropAction(BaseModel):
 	# Common options
 	steps: Optional[int] = Field(10, description='Number of intermediate points for smoother movement (5-20 recommended)')
 	delay_ms: Optional[int] = Field(5, description='Delay in milliseconds between steps (0 for fastest, 10-20 for more natural)')
+
+class MouseClickAction(BaseModel):
+	index: int
+	loc: Position
+	n: int
+	interval: float
+
+class MouseMoveAction(BaseModel):
+	index: int
+	loc: Position
+
+class MouseDragDropAction(BaseModel):
+	index: int
+	pick_loc: Position
+	drop_loc: Position
+	duration: int
+
+class MouseScrollAction(BaseModel):
+	index: int
+	amount: int
+	direction: str
+
+class TextInputAction(BaseModel):
+	index: int
+	text: str
+	interval: float
+
+class KeysAction(BaseModel):
+	index: int
+	combo: conlist(str)
+
+
+class OpenAppAction(BaseModel):
+	index: int
+	app_name: str
+	app_exe: str
+	app_args: List[str] = []
+
+class CloseAppAction(BaseModel):
+	index: int
+	app_name: str
+	app_exe: str
+
+class SwitchToAppAction(BaseModel):
+	index: int
+	app_name: str
+	win_title: str
+	app_exe: str
+
+class CallAPIAction(BaseModel):
+	index: int
+	api_name: str
+	api_endpoint: str
+	api_route: str
+	api_method: str
+	api_parameters: str
+	async_call: bool
+
+class WaitAction(BaseModel):
+	index: int
+	length: float
+
+class RunExternAction(BaseModel):
+	index: int
+	file: str
+	args: List[str] = []
+
+class MakeDirAction(BaseModel):
+	index: int
+	dir_path: str
+
+class DeleteFileAction(BaseModel):
+	index: int
+	file: str
+
+class DeleteDirAction(BaseModel):
+	index: int
+	dir_path: str
+
+class MoveFileAction(BaseModel):
+	index: int
+	src: str
+	dest: str
+
+class CopyFileDirAction(BaseModel):
+	index: int
+	src: str
+	dest: str
+
+class ScreenCaptureAction(BaseModel):
+	index: int
+	file: str
+	win_title_kw: str
+	sub_area: List[int]
+
+
+class ScreenAnalyzeAction(BaseModel):
+	index: int
+	icons: dict
+
+
+class SevenZipAction(BaseModel):
+	index: int
+	file: str
+	destination: str
+
+
+class KillProcessesAction(BaseModel):
+	index: int
+	pids: List[int]

@@ -1,0 +1,1130 @@
+import os
+from mcp.server.sse import SseServerTransport
+from starlette.applications import Starlette
+from starlette.routing import Route
+from selenium import webdriver
+from mcp.server.fastmcp import FastMCP, Image, Context
+from PIL import Image as PILImage
+import httpx
+import pyautogui
+import pynput
+from pynput.mouse import Controller
+import pygetwindow as gw
+import sqlite3
+import time
+import asyncio
+from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
+from contextlib import AsyncExitStack
+import re
+import mcp.types as types
+# from mcp.server.lowlevel import Server
+from mcp.server import Server
+from agent.a2a.common.types import AgentCard
+import json
+from dotenv import load_dotenv
+import logging
+from agent.views import ActionResult
+from browser.context import BrowserContext
+from agent.runner.registry.service import Registry
+from agent.runner.models import (
+	ClickElementAction,
+	ClickElementBySelectorAction,
+	ClickElementByTextAction,
+	ClickElementByXpathAction,
+	CloseTabAction,
+	DoneAction,
+	DragDropAction,
+	GoToUrlAction,
+	InputTextAction,
+	NoParamsAction,
+	OpenTabAction,
+	Position,
+	ScrollAction,
+	SearchGoogleAction,
+	SendKeysAction,
+	SwitchTabAction,
+	WaitForElementAction,
+	MouseClickAction,
+	MouseMoveAction,
+	MouseDragDropAction,
+	MouseScrollAction,
+	TextInputAction,
+	KeysAction,
+	OpenAppAction,
+	CloseAppAction,
+	SwitchToAppAction,
+	CallAPIAction,
+	WaitAction,
+	RunExternAction,
+	MakeDirAction,
+	DeleteFileAction,
+	DeleteDirAction,
+	MoveFileAction,
+	CopyFileDirAction,
+	ScreenAnalyzeAction,
+	ScreenCaptureAction,
+	SevenZipAction,
+	KillProcessesAction,
+)
+import shutil
+from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
+
+logger = logging.getLogger(__name__)
+
+Context = TypeVar('Context')
+
+mouse = Controller()
+
+load_dotenv()  # load environment variables from .env
+
+mcp = FastMCP("E-Commerce Agents")
+sse = SseServerTransport("/messages")
+
+
+@mcp.resource("ar://roster")
+def get_roster() -> [AgentCard]:
+    """Provide the database schema as a resource"""
+    all_cards = [a.get_card() for a in all_agents]
+    return
+
+@mcp.resource("config://app")
+def get_config() -> dict:
+    """Static configuration data"""
+    return {}
+
+
+@mcp.resource("hr://{agent_id}/profile")
+def get_agent_profile(agent_id: str) -> dict:
+    """Dynamic user data"""
+    return {}
+
+
+@mcp.tool()
+async def wait(seconds: int = 3):
+    msg = f'🕒  Waiting for {seconds} seconds'
+    logger.info(msg)
+    await asyncio.sleep(seconds)
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+@mcp.tool()
+async def wait_for_element(params: WaitForElementAction, browser: BrowserContext):
+    """Waits for the element specified by the CSS selector to become visible within the given timeout."""
+    try:
+        await browser.wait_for_element(params.selector, params.timeout)
+        msg = f'👀  Element with selector "{params.selector}" became visible within {params.timeout}ms.'
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+    except Exception as e:
+        err_msg = f'❌  Failed to wait for element "{params.selector}" within {params.timeout}ms: {str(e)}'
+        logger.error(err_msg)
+        raise Exception(err_msg)
+
+
+# Element Interaction Actions
+@mcp.tool()
+async def click_element_by_index(params: ClickElementAction, browser: BrowserContext):
+    session = await browser.get_session()
+
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element with index {params.index} does not exist - retry or use alternative actions')
+
+    element_node = await browser.get_dom_element_by_index(params.index)
+    initial_pages = len(session.pages)
+
+    # if element has file uploader then dont click
+    if await browser.is_file_uploader(element_node):
+        msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+
+    msg = None
+
+    try:
+        download_path = await browser._click_element_node(element_node)
+        if download_path:
+            msg = f'💾  Downloaded file to {download_path}'
+        else:
+            msg = f'🖱️  Clicked button with index {params.index}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+
+        logger.info(msg)
+        logger.debug(f'Element xpath: {element_node.xpath}')
+        if len(session.pages) > initial_pages:
+            new_tab_msg = 'New tab opened - switching to it'
+            msg += f' - {new_tab_msg}'
+            logger.info(new_tab_msg)
+            await browser.switch_to_tab(-1)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+    except Exception as e:
+        logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
+        return ActionResult(error=str(e))
+
+
+@mcp.tool()
+async def click_element_by_selector(params: ClickElementBySelectorAction, browser: BrowserContext):
+    try:
+        element_node = await browser.get_locate_element_by_css_selector(params.css_selector)
+        if element_node:
+            try:
+                await element_node.scroll_into_view_if_needed()
+                await element_node.click(timeout=1500, force=True)
+            except Exception:
+                try:
+                    # Handle with js evaluate if fails to click using playwright
+                    await element_node.evaluate('el => el.click()')
+                except Exception as e:
+                    logger.warning(f"Element not clickable with css selector '{params.css_selector}' - {e}")
+                    return ActionResult(error=str(e))
+            msg = f'🖱️  Clicked on element with text "{params.css_selector}"'
+            return ActionResult(extracted_content=msg, include_in_memory=True)
+    except Exception as e:
+        logger.warning(f'Element not clickable with selector {params.css_selector} - most likely the page changed')
+        return ActionResult(error=str(e))
+
+
+@mcp.tool()
+async def click_element_by_xpath(params: ClickElementByXpathAction, browser: BrowserContext):
+    try:
+        element_node = await browser.get_locate_element_by_xpath(params.xpath)
+        if element_node:
+            try:
+                await element_node.scroll_into_view_if_needed()
+                await element_node.click(timeout=1500, force=True)
+            except Exception:
+                try:
+                    # Handle with js evaluate if fails to click using playwright
+                    await element_node.evaluate('el => el.click()')
+                except Exception as e:
+                    logger.warning(f"Element not clickable with xpath '{params.xpath}' - {e}")
+                    return ActionResult(error=str(e))
+            msg = f'🖱️  Clicked on element with text "{params.xpath}"'
+            return ActionResult(extracted_content=msg, include_in_memory=True)
+    except Exception as e:
+        logger.warning(f'Element not clickable with xpath {params.xpath} - most likely the page changed')
+        return ActionResult(error=str(e))
+
+
+@mcp.tool()
+async def click_element_by_text(params: ClickElementByTextAction, browser: BrowserContext):
+    try:
+        element_node = await browser.get_locate_element_by_text(
+            text=params.text, nth=params.nth, element_type=params.element_type
+        )
+
+        if element_node:
+            try:
+                await element_node.scroll_into_view_if_needed()
+                await element_node.click(timeout=1500, force=True)
+            except Exception:
+                try:
+                    # Handle with js evaluate if fails to click using playwright
+                    await element_node.evaluate('el => el.click()')
+                except Exception as e:
+                    logger.warning(f"Element not clickable with text '{params.text}' - {e}")
+                    return ActionResult(error=str(e))
+            msg = f'🖱️  Clicked on element with text "{params.text}"'
+            return ActionResult(extracted_content=msg, include_in_memory=True)
+        else:
+            return ActionResult(error=f"No element found for text '{params.text}'")
+    except Exception as e:
+        logger.warning(f"Element not clickable with text '{params.text}' - {e}")
+        return ActionResult(error=str(e))
+
+
+@mcp.tool()
+async def input_text(params: InputTextAction, browser: BrowserContext, has_sensitive_data: bool = False):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    element_node = await browser.get_dom_element_by_index(params.index)
+    await browser._input_text_element_node(element_node, params.text)
+    if not has_sensitive_data:
+        msg = f'⌨️  Input {params.text} into index {params.index}'
+    else:
+        msg = f'⌨️  Input sensitive data into index {params.index}'
+    logger.info(msg)
+    logger.debug(f'Element xpath: {element_node.xpath}')
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# Save PDF
+@mcp.tool()
+async def save_pdf(browser: BrowserContext):
+    page = await browser.get_current_page()
+    short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
+    slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
+    sanitized_filename = f'{slug}.pdf'
+
+    await page.emulate_media('screen')
+    await page.pdf(path=sanitized_filename, format='A4', print_background=False)
+    msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
+    logger.info(msg)
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# Tab Management Actions
+@mcp.tool()
+async def switch_tab(params: SwitchTabAction, browser: BrowserContext):
+    await browser.switch_to_tab(params.page_id)
+    # Wait for tab to be ready
+    page = await browser.get_current_page()
+    await page.wait_for_load_state()
+    msg = f'🔄  Switched to tab {params.page_id}'
+    logger.info(msg)
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def open_tab(params: OpenTabAction, browser: BrowserContext):
+    await browser.create_new_tab(params.url)
+    msg = f'🔗  Opened new tab with {params.url}'
+    logger.info(msg)
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def close_tab(params: CloseTabAction, browser: BrowserContext):
+    await browser.switch_to_tab(params.page_id)
+    page = await browser.get_current_page()
+    url = page.url
+    await page.close()
+    msg = f'❌  Closed tab #{params.page_id} with url {url}'
+    logger.info(msg)
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# Content Actions
+@mcp.tool()
+async def extract_content(
+        goal: str, should_strip_link_urls: bool, browser: BrowserContext, page_extraction_llm: BaseChatModel
+):
+    page = await browser.get_current_page()
+    import markdownify
+
+    strip = []
+    if should_strip_link_urls:
+        strip = ['a', 'img']
+
+    content = markdownify.markdownify(await page.content(), strip=strip)
+
+    # manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
+    for iframe in page.frames:
+        if iframe.url != page.url and not iframe.url.startswith('data:'):
+            content += f'\n\nIFRAME {iframe.url}:\n'
+            content += markdownify.markdownify(await iframe.content())
+
+    prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
+    template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
+    try:
+        output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
+        msg = f'📄  Extracted from page\n: {output.content}\n'
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+    except Exception as e:
+        logger.debug(f'Error extracting content: {e}')
+        msg = f'📄  Extracted from page\n: {content}\n'
+        logger.info(msg)
+        return ActionResult(extracted_content=msg)
+
+
+# HTML Download
+@mcp.tool()
+async def save_html_to_file(_: NoParamsAction, browser: BrowserContext) -> ActionResult:
+    """Retrieves and returns the full HTML content of the current page to a file"""
+    try:
+        page = await browser.get_current_page()
+        html_content = await page.content()
+
+        # Create a filename based on the page URL
+        short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
+        slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()[:64]
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        sanitized_filename = f'{slug}_{timestamp}.html'
+
+        # Save HTML to file
+        with open(sanitized_filename, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
+
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+    except Exception as e:
+        error_msg = f'Failed to save HTML content: {str(e)}'
+        logger.error(error_msg)
+        return ActionResult(error=error_msg, extracted_content='')
+
+
+@mcp.tool()
+async def scroll_down(params: ScrollAction, browser: BrowserContext):
+    page = await browser.get_current_page()
+    if params.amount is not None:
+        await page.evaluate(f'window.scrollBy(0, {params.amount});')
+    else:
+        await page.evaluate('window.scrollBy(0, window.innerHeight);')
+
+    amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
+    msg = f'🔍  Scrolled down the page by {amount}'
+    logger.info(msg)
+    return ActionResult(
+        extracted_content=msg,
+        include_in_memory=True,
+    )
+
+
+# scroll up
+@mcp.tool()
+async def scroll_up(params: ScrollAction, browser: BrowserContext):
+    page = await browser.get_current_page()
+    if params.amount is not None:
+        await page.evaluate(f'window.scrollBy(0, -{params.amount});')
+    else:
+        await page.evaluate('window.scrollBy(0, -window.innerHeight);')
+
+    amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
+    msg = f'🔍  Scrolled up the page by {amount}'
+    logger.info(msg)
+    return ActionResult(
+        extracted_content=msg,
+        include_in_memory=True,
+    )
+
+
+# send keys
+@mcp.tool()
+async def send_keys(params: SendKeysAction, browser: BrowserContext):
+    page = await browser.get_current_page()
+
+    try:
+        await page.keyboard.press(params.keys)
+    except Exception as e:
+        if 'Unknown key' in str(e):
+            # loop over the keys and try to send each one
+            for key in params.keys:
+                try:
+                    await page.keyboard.press(key)
+                except Exception as e:
+                    logger.debug(f'Error sending key {key}: {str(e)}')
+                    raise e
+        else:
+            raise e
+    msg = f'⌨️  Sent keys: {params.keys}'
+    logger.info(msg)
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def scroll_to_text(text: str, browser: BrowserContext):  # type: ignore
+    page = await browser.get_current_page()
+    try:
+        # Try different locator strategies
+        locators = [
+            page.get_by_text(text, exact=False),
+            page.locator(f'text={text}'),
+            page.locator(f"//*[contains(text(), '{text}')]"),
+        ]
+
+        for locator in locators:
+            try:
+                # First check if element exists and is visible
+                if await locator.count() > 0 and await locator.first.is_visible():
+                    await locator.first.scroll_into_view_if_needed()
+                    await asyncio.sleep(0.5)  # Wait for scroll to complete
+                    msg = f'🔍  Scrolled to text: {text}'
+                    logger.info(msg)
+                    return ActionResult(extracted_content=msg, include_in_memory=True)
+            except Exception as e:
+                logger.debug(f'Locator attempt failed: {str(e)}')
+                continue
+
+        msg = f"Text '{text}' not found or not visible on page"
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+
+    except Exception as e:
+        msg = f"Failed to scroll to text '{text}': {str(e)}"
+        logger.error(msg)
+        return ActionResult(error=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def get_dropdown_options(index: int, browser: BrowserContext) -> ActionResult:
+    """Get all options from a native dropdown"""
+    page = await browser.get_current_page()
+    selector_map = await browser.get_selector_map()
+    dom_element = selector_map[index]
+
+    try:
+        # Frame-aware approach since we know it works
+        all_options = []
+        frame_index = 0
+
+        for frame in page.frames:
+            try:
+                options = await frame.evaluate(
+                    """
+                    (xpath) => {
+                        const select = document.evaluate(xpath, document, null,
+                            XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+                        if (!select) return null;
+
+                        return {
+                            options: Array.from(select.options).map(opt => ({
+                                text: opt.text, //do not trim, because we are doing exact match in select_dropdown_option
+                                value: opt.value,
+                                index: opt.index
+                            })),
+                            id: select.id,
+                            name: select.name
+                        };
+                    }
+                """,
+                    dom_element.xpath,
+                )
+
+                if options:
+                    logger.debug(f'Found dropdown in frame {frame_index}')
+                    logger.debug(f'Dropdown ID: {options["id"]}, Name: {options["name"]}')
+
+                    formatted_options = []
+                    for opt in options['options']:
+                        # encoding ensures AI uses the exact string in select_dropdown_option
+                        encoded_text = json.dumps(opt['text'])
+                        formatted_options.append(f'{opt["index"]}: text={encoded_text}')
+
+                    all_options.extend(formatted_options)
+
+            except Exception as frame_e:
+                logger.debug(f'Frame {frame_index} evaluation failed: {str(frame_e)}')
+
+            frame_index += 1
+
+        if all_options:
+            msg = '\n'.join(all_options)
+            msg += '\nUse the exact text string in select_dropdown_option'
+            logger.info(msg)
+            return ActionResult(extracted_content=msg, include_in_memory=True)
+        else:
+            msg = 'No options found in any frame for dropdown'
+            logger.info(msg)
+            return ActionResult(extracted_content=msg, include_in_memory=True)
+
+    except Exception as e:
+        logger.error(f'Failed to get dropdown options: {str(e)}')
+        msg = f'Error getting options: {str(e)}'
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def select_dropdown_option(
+        index: int,
+        text: str,
+        browser: BrowserContext,
+) -> ActionResult:
+    """Select dropdown option by the text of the option you want to select"""
+    page = await browser.get_current_page()
+    selector_map = await browser.get_selector_map()
+    dom_element = selector_map[index]
+
+    # Validate that we're working with a select element
+    if dom_element.tag_name != 'select':
+        logger.error(f'Element is not a select! Tag: {dom_element.tag_name}, Attributes: {dom_element.attributes}')
+        msg = f'Cannot select option: Element with index {index} is a {dom_element.tag_name}, not a select'
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+
+    logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
+    logger.debug(f'Element attributes: {dom_element.attributes}')
+    logger.debug(f'Element tag: {dom_element.tag_name}')
+
+    xpath = '//' + dom_element.xpath
+
+    try:
+        frame_index = 0
+        for frame in page.frames:
+            try:
+                logger.debug(f'Trying frame {frame_index} URL: {frame.url}')
+
+                # First verify we can find the dropdown in this frame
+                find_dropdown_js = """
+					(xpath) => {
+						try {
+							const select = document.evaluate(xpath, document, null,
+								XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+							if (!select) return null;
+							if (select.tagName.toLowerCase() !== 'select') {
+								return {
+									error: `Found element but it's a ${select.tagName}, not a SELECT`,
+									found: false
+								};
+							}
+							return {
+								id: select.id,
+								name: select.name,
+								found: true,
+								tagName: select.tagName,
+								optionCount: select.options.length,
+								currentValue: select.value,
+								availableOptions: Array.from(select.options).map(o => o.text.trim())
+							};
+						} catch (e) {
+							return {error: e.toString(), found: false};
+						}
+					}
+				"""
+
+                dropdown_info = await frame.evaluate(find_dropdown_js, dom_element.xpath)
+
+                if dropdown_info:
+                    if not dropdown_info.get('found'):
+                        logger.error(f'Frame {frame_index} error: {dropdown_info.get("error")}')
+                        continue
+
+                    logger.debug(f'Found dropdown in frame {frame_index}: {dropdown_info}')
+
+                    # "label" because we are selecting by text
+                    # nth(0) to disable error thrown by strict mode
+                    # timeout=1000 because we are already waiting for all network events, therefore ideally we don't need to wait a lot here (default 30s)
+                    selected_option_values = (
+                        await frame.locator('//' + dom_element.xpath).nth(0).select_option(label=text, timeout=1000)
+                    )
+
+                    msg = f'selected option {text} with value {selected_option_values}'
+                    logger.info(msg + f' in frame {frame_index}')
+
+                    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+            except Exception as frame_e:
+                logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
+                logger.error(f'Frame type: {type(frame)}')
+                logger.error(f'Frame URL: {frame.url}')
+
+            frame_index += 1
+
+        msg = f"Could not select option '{text}' in any frame"
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+
+    except Exception as e:
+        msg = f'Selection failed: {str(e)}'
+        logger.error(msg)
+        return ActionResult(error=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def drag_drop(params: DragDropAction, browser: BrowserContext) -> ActionResult:
+    """
+    Performs a precise drag and drop operation between elements or coordinates.
+    """
+
+    async def get_drag_elements(
+            web_driver: webdriver,
+            source_selector: str,
+            target_selector: str,
+    ) -> Tuple[Optional[ElementHandle], Optional[ElementHandle]]:
+        """Get source and target elements with appropriate error handling."""
+        source_element = None
+        target_element = None
+
+        try:
+            # page.locator() auto-detects CSS and XPath
+            source_locator = page.locator(source_selector)
+            target_locator = page.locator(target_selector)
+
+            # Check if elements exist
+            source_count = await source_locator.count()
+            target_count = await target_locator.count()
+
+            if source_count > 0:
+                source_element = await source_locator.first.element_handle()
+                logger.debug(f'Found source element with selector: {source_selector}')
+            else:
+                logger.warning(f'Source element not found: {source_selector}')
+
+            if target_count > 0:
+                target_element = await target_locator.first.element_handle()
+                logger.debug(f'Found target element with selector: {target_selector}')
+            else:
+                logger.warning(f'Target element not found: {target_selector}')
+
+        except Exception as e:
+            logger.error(f'Error finding elements: {str(e)}')
+
+        return source_element, target_element
+
+    async def get_element_coordinates(
+            source_element: ElementHandle,
+            target_element: ElementHandle,
+            source_position: Optional[Position],
+            target_position: Optional[Position],
+    ) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
+        """Get coordinates from elements with appropriate error handling."""
+        source_coords = None
+        target_coords = None
+
+        try:
+            # Get source coordinates
+            if source_position:
+                source_coords = (source_position.x, source_position.y)
+            else:
+                source_box = await source_element.bounding_box()
+                if source_box:
+                    source_coords = (
+                        int(source_box['x'] + source_box['width'] / 2),
+                        int(source_box['y'] + source_box['height'] / 2),
+                    )
+
+            # Get target coordinates
+            if target_position:
+                target_coords = (target_position.x, target_position.y)
+            else:
+                target_box = await target_element.bounding_box()
+                if target_box:
+                    target_coords = (
+                        int(target_box['x'] + target_box['width'] / 2),
+                        int(target_box['y'] + target_box['height'] / 2),
+                    )
+        except Exception as e:
+            logger.error(f'Error getting element coordinates: {str(e)}')
+
+        return source_coords, target_coords
+
+    async def execute_drag_operation(
+            web_driver: webdriver,
+            source_x: int,
+            source_y: int,
+            target_x: int,
+            target_y: int,
+            steps: int,
+            delay_ms: int,
+    ) -> Tuple[bool, str]:
+        """Execute the drag operation with comprehensive error handling."""
+        try:
+            # Try to move to source position
+            try:
+                await page.mouse.move(source_x, source_y)
+                logger.debug(f'Moved to source position ({source_x}, {source_y})')
+            except Exception as e:
+                logger.error(f'Failed to move to source position: {str(e)}')
+                return False, f'Failed to move to source position: {str(e)}'
+
+            # Press mouse button down
+            await page.mouse.down()
+
+            # Move to target position with intermediate steps
+            for i in range(1, steps + 1):
+                ratio = i / steps
+                intermediate_x = int(source_x + (target_x - source_x) * ratio)
+                intermediate_y = int(source_y + (target_y - source_y) * ratio)
+
+                await page.mouse.move(intermediate_x, intermediate_y)
+
+                if delay_ms > 0:
+                    await asyncio.sleep(delay_ms / 1000)
+
+            # Move to final target position
+            await page.mouse.move(target_x, target_y)
+
+            # Move again to ensure dragover events are properly triggered
+            await page.mouse.move(target_x, target_y)
+
+            # Release mouse button
+            await page.mouse.up()
+
+            return True, 'Drag operation completed successfully'
+
+        except Exception as e:
+            return False, f'Error during drag operation: {str(e)}'
+
+    page = await browser.get_current_page()
+
+    try:
+        # Initialize variables
+        source_x: Optional[int] = None
+        source_y: Optional[int] = None
+        target_x: Optional[int] = None
+        target_y: Optional[int] = None
+
+        # Normalize parameters
+        steps = max(1, params.steps or 10)
+        delay_ms = max(0, params.delay_ms or 5)
+
+        # Case 1: Element selectors provided
+        if params.element_source and params.element_target:
+            logger.debug('Using element-based approach with selectors')
+
+            source_element, target_element = await get_drag_elements(
+                page,
+                params.element_source,
+                params.element_target,
+            )
+
+            if not source_element or not target_element:
+                error_msg = f'Failed to find {"source" if not source_element else "target"} element'
+                return ActionResult(error=error_msg, include_in_memory=True)
+
+            source_coords, target_coords = await get_element_coordinates(
+                source_element, target_element, params.element_source_offset, params.element_target_offset
+            )
+
+            if not source_coords or not target_coords:
+                error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
+                return ActionResult(error=error_msg, include_in_memory=True)
+
+            source_x, source_y = source_coords
+            target_x, target_y = target_coords
+
+        # Case 2: Coordinates provided directly
+        elif all(
+                coord is not None
+                for coord in
+                [params.coord_source_x, params.coord_source_y, params.coord_target_x, params.coord_target_y]
+        ):
+            logger.debug('Using coordinate-based approach')
+            source_x = params.coord_source_x
+            source_y = params.coord_source_y
+            target_x = params.coord_target_x
+            target_y = params.coord_target_y
+        else:
+            error_msg = 'Must provide either source/target selectors or source/target coordinates'
+            return ActionResult(error=error_msg, include_in_memory=True)
+
+        # Validate coordinates
+        if any(coord is None for coord in [source_x, source_y, target_x, target_y]):
+            error_msg = 'Failed to determine source or target coordinates'
+            return ActionResult(error=error_msg, include_in_memory=True)
+
+        # Perform the drag operation
+        success, message = await execute_drag_operation(
+            page,
+            cast(int, source_x),
+            cast(int, source_y),
+            cast(int, target_x),
+            cast(int, target_y),
+            steps,
+            delay_ms,
+        )
+
+        if not success:
+            logger.error(f'Drag operation failed: {message}')
+            return ActionResult(error=message, include_in_memory=True)
+
+        # Create descriptive message
+        if params.element_source and params.element_target:
+            msg = f"🖱️ Dragged element '{params.element_source}' to '{params.element_target}'"
+        else:
+            msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
+
+        logger.info(msg)
+        return ActionResult(extracted_content=msg, include_in_memory=True)
+
+    except Exception as e:
+        error_msg = f'Failed to perform drag and drop: {str(e)}'
+        logger.error(error_msg)
+        return ActionResult(error=error_msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def mouse_click(params: MouseClickAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    nClicks = 1
+    interval = 0.1
+    pyautogui.moveTo(params.loc.x, params.loc.y)
+    pyautogui.click(clicks=nClicks, interval=interval)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def mouse_move(params: MouseMoveAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    pyautogui.moveTo(params.loc.x, params.loc.y)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def mouse_drag_drop(params: MouseDragDropAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    pyautogui.moveTo(params.pick_loc.x, params.pick_loc.y)
+    pyautogui.dragTo(params.drop_loc.x, params.drop_loc.y, duration=params.duration)
+
+    logger.debug(f'dragNdrop: {params.pick_loc.x}, {params.pick_loc.y} to {params.drop_loc.x}, {params.drop_loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def mouse_scroll(params: MouseScrollAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    if params.direction == "down":
+        scroll_amount = 0 - params.amount
+    else:
+        scroll_amount = params.amount
+    mouse.scroll(0, scroll_amount)
+
+    logger.debug(f'Element xpath: {scroll_amount}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def text_input(params: TextInputAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    pyautogui.write(params.text, interval=params.interval)
+
+    logger.debug(f'Element xpath: {params.text},  {params.interval}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def keys_input(params: KeysAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    pyautogui.hotkey(*params.combo)
+
+    logger.debug(f'hot keys: {params.combo[0]}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def call_api(params: CallAPIAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    pyautogui.moveTo(params.loc.x, params.loc.y)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def open_app(params: OpenAppAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    DETACHED_PROCESS = 0x00000008
+    subprocess.Popen(params.app_name, creationflags=DETACHED_PROCESS, shell=True, close_fds=True,
+                     stdout=subprocess.PIPE,
+                     stderr=subprocess.PIPE)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def close_app(params: CloseAppAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    app_window = gw.getWindowsWithTitle(params.win_title)[0]
+    app_window.close()
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def switch_to_app(params: SwitchToAppAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    # Find the window by its title
+    target_window = gw.getWindowsWithTitle(params.win_title)[0]
+
+    # Activate the window (bring it to front)
+    target_window.activate()
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def wait(params: WaitAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    time.sleep(params.time)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def run_extern(params: RunExternAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    time.sleep(params.time)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def make_dir(params: MakeDirAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    if not os.path.exists(params.dir_path):
+        # create only if the dir doesn't exist
+        os.makedirs(params.dir_path)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def delete_dir(params: DeleteDirAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    if os.path.exists(params.dir_path):
+        # create only if the dir doesn't exist
+        os.remove(params.dir_path)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def delete_file(params: DeleteFileAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    if os.path.exists(params.file):
+        # create only if the dir doesn't exist
+        os.remove(params.file)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def move_file(params: MoveFileAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    # default_download_dir = getDefaultDownloadDirectory()
+    # new_file = getMostRecentFile(default_download_dir, prefix=step["prefix"], extension=step["extension"])
+
+    shutil.move(params.src, params.dest)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def copy_file_dir(params: CopyFileDirAction, browser: BrowserContext):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    shutil.copy(params.src, params.dest)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    return ActionResult(extracted_content="", include_in_memory=True)
+
+
+@mcp.tool()
+async def screen_analyze(params: ScreenAnalyzeAction, browser: BrowserContext, has_sensitive_data: bool = False):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    element_node = await browser.get_dom_element_by_index(params.index)
+    nClicks = 1
+    interval = 0.1
+    pyautogui.click(clicks=nClicks, interval=interval)
+    if not has_sensitive_data:
+        msg = f'⌨️  Input {params.text} into index {params.index}'
+    else:
+        msg = f'⌨️  Input sensitive data into index {params.index}'
+    logger.info(msg)
+    logger.debug(f'Element xpath: {element_node.xpath}')
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def screen_capture(params: ScreenCaptureAction, browser: BrowserContext, has_sensitive_data: bool = False):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    screen_img, window_rect = await takeScreenShot(params.win_title_kw)
+    img_section = carveOutImage(screen_img, params.sub_area, "")
+    maskOutImage(img_section, params.sub_area, "")
+
+    saveImageToFile(img_section, params.file, "png")
+
+    logger.debug(f'Element xpath: {params.win_title_kw}')
+    msg = ""
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def seven_zip(params: SevenZipAction, browser: BrowserContext, has_sensitive_data: bool = False):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    logger.debug(f'Element xpath: {params.file}')
+    msg = ""
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+@mcp.tool()
+async def kill_processes(params: KillProcessesAction, browser: BrowserContext, has_sensitive_data: bool = False):
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    logger.debug(f'Kill Processes: {params.pids[0]}')
+    msg = ""
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+
+######################### Prompts Section ##################################
+
+@mcp.prompt()
+def review_code(code: str) -> str:
+    return f"Please review this code:\n\n{code}"
+
+
+
+@mcp.tool()
+def create_thumbnail(image_path: str) -> Image:
+    """Create a thumbnail from an image"""
+    img = PILImage.open(image_path)
+    img.thumbnail((100, 100))
+    return Image(data=img.tobytes(), format="png")
+
+@mcp.tool()
+async def long_task(files: list[str], ctx: Context) -> str:
+    """Process multiple files with progress tracking"""
+    for i, file in enumerate(files):
+        ctx.info(f"Processing {file}")
+        await ctx.report_progress(i, len(files))
+        data, mime_type = await ctx.read_resource(f"file://{file}")
+    return "Processing complete"
+
+
+async def handle_sse(scope, receive, send):
+    async with sse.connect_sse(scope, receive, send) as streams:
+        await app.run(streams[0], streams[1], app.create_initialization_options())
+
+async def handle_messages(scope, receive, send):
+    await sse.handle_post_message(scope, receive, send)
+
+starlette_app = Starlette(
+    routes=[
+        Route("/sse", endpoint=handle_sse),
+        Route("/messages", endpoint=handle_messages, methods=["POST"]),
+    ]
+)
