@@ -1,9 +1,20 @@
+import os
+import random
+import re
+import subprocess
 import asyncio
+import pyautogui
+import pynput
 import datetime
 import enum
+import time
 import json
 import logging
 import re
+import shutil
+import pygetwindow as gw
+from pynput.mouse import Controller
+
 from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
 from selenium import webdriver
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -11,7 +22,7 @@ from langchain_core.prompts import PromptTemplate
 
 # from lmnr.sdk.laminar import Laminar
 from pydantic import BaseModel
-
+from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
 from agent.runner.registry.models import ActionModel
 from agent.views import ActionResult
 from browser.context import BrowserContext
@@ -34,6 +45,27 @@ from agent.runner.models import (
 	SendKeysAction,
 	SwitchTabAction,
 	WaitForElementAction,
+	MouseClickAction,
+	MouseMoveAction,
+	MouseDragDropAction,
+	MouseScrollAction,
+	TextInputAction,
+	KeysAction,
+	OpenAppAction,
+	CloseAppAction,
+	SwitchToAppAction,
+	CallAPIAction,
+	WaitAction,
+	RunExternAction,
+	MakeDirAction,
+	DeleteFileAction,
+	DeleteDirAction,
+	MoveFileAction,
+	CopyFileDirAction,
+	ScreenAnalyzeAction,
+	ScreenCaptureAction,
+	SevenZipAction,
+	KillProcessesAction,
 )
 from agent.run_utils import time_execution_sync
 
@@ -41,6 +73,8 @@ logger = logging.getLogger(__name__)
 
 
 Context = TypeVar('Context')
+
+mouse = Controller()
 
 
 class Runner(Generic[Context]):
@@ -843,6 +877,338 @@ class Runner(Generic[Context]):
 				error_msg = f'Failed to perform drag and drop: {str(e)}'
 				logger.error(error_msg)
 				return ActionResult(error=error_msg, include_in_memory=True)
+
+
+		@self.registry.action(
+			'Mouse Click',
+			param_model=MouseClickAction,
+		)
+		async def mouse_click(params: MouseClickAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			nClicks = 1
+			interval = 0.1
+			pyautogui.moveTo(params.loc.x, params.loc.y)
+			pyautogui.click(clicks=nClicks, interval=interval)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+		@self.registry.action(
+			'Mouse Move',
+			param_model=MouseMoveAction,
+		)
+		async def mouse_move(params: MouseMoveAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			pyautogui.moveTo(params.loc.x, params.loc.y)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Mouse Drag Drop',
+			param_model=MouseDragDropAction,
+		)
+		async def mouse_drag_drop(params: MouseDragDropAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			pyautogui.moveTo(params.pick_loc.x, params.pick_loc.y)
+			pyautogui.dragTo(params.drop_loc.x, params.drop_loc.y, duration=params.duration)
+
+			logger.debug(f'dragNdrop: {params.pick_loc.x}, {params.pick_loc.y} to {params.drop_loc.x}, {params.drop_loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Mouse Scroll',
+			param_model=MouseScrollAction,
+		)
+		async def mouse_scroll(params: MouseScrollAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			if params.direction == "down":
+				scroll_amount = 0 - params.amount
+			else:
+				scroll_amount = params.amount
+			mouse.scroll(0, scroll_amount)
+
+			logger.debug(f'Element xpath: {scroll_amount}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+
+		@self.registry.action(
+			'Text Input',
+			param_model=TextInputAction,
+		)
+		async def text_input(params: TextInputAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			pyautogui.write(params.text, interval=params.interval)
+
+			logger.debug(f'Element xpath: {params.text},  {params.interval}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+		@self.registry.action(
+			'Keys Input',
+			param_model=KeysAction,
+		)
+		async def keys_input(params: KeysAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			pyautogui.hotkey(*params.combo)
+
+			logger.debug(f'hot keys: {params.combo[0]}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+		@self.registry.action(
+			'Call API',
+			param_model=CallAPIAction,
+		)
+		async def call_api(params: CallAPIAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			pyautogui.moveTo(params.loc.x, params.loc.y)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+		@self.registry.action(
+			'Open App',
+			param_model=OpenAppAction,
+		)
+		async def open_app(params: OpenAppAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			DETACHED_PROCESS = 0x00000008
+			subprocess.Popen(params.app_name, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE,
+							 stderr=subprocess.PIPE)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Close App',
+			param_model=CloseAppAction,
+		)
+		async def close_app(params: CloseAppAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			app_window = gw.getWindowsWithTitle(params.win_title)[0]
+			app_window.close()
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Switch To App',
+			param_model=SwitchToAppAction,
+		)
+		async def switch_to_app(params: SwitchToAppAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			# Find the window by its title
+			target_window = gw.getWindowsWithTitle(params.win_title)[0]
+
+			# Activate the window (bring it to front)
+			target_window.activate()
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Wait',
+			param_model=WaitAction,
+		)
+		async def wait(params: WaitAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			time.sleep(params.time)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Run External Script',
+			param_model=RunExternAction,
+		)
+		async def run_extern(params: RunExternAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			time.sleep(params.time)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Make Dir',
+			param_model=MakeDirAction,
+		)
+		async def make_dir(params: MakeDirAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			if not os.path.exists(params.dir_path):
+				# create only if the dir doesn't exist
+				os.makedirs(params.dir_path)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Delete Dir',
+			param_model=DeleteDirAction,
+		)
+		async def delete_dir(params: DeleteDirAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			if os.path.exists(params.dir_path):
+				# create only if the dir doesn't exist
+				os.remove(params.dir_path)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Delete File',
+			param_model=DeleteFileAction,
+		)
+		async def delete_file(params: DeleteFileAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			if os.path.exists(params.file):
+				# create only if the dir doesn't exist
+				os.remove(params.file)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Move File',
+			param_model=MoveFileAction,
+		)
+		async def move_file(params: MoveFileAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			# default_download_dir = getDefaultDownloadDirectory()
+			# new_file = getMostRecentFile(default_download_dir, prefix=step["prefix"], extension=step["extension"])
+
+			shutil.move(params.src, params.dest)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+		@self.registry.action(
+			'Copy File Dir',
+			param_model=CopyFileDirAction,
+		)
+		async def copy_file_dir(params: CopyFileDirAction, browser: BrowserContext):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			shutil.copy(params.src, params.dest)
+
+			logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+			return ActionResult(extracted_content="", include_in_memory=True)
+
+
+
+		@self.registry.action(
+			'Screen Analyze',
+			param_model=ScreenAnalyzeAction,
+		)
+		async def screen_analyze(params: ScreenAnalyzeAction, browser: BrowserContext, has_sensitive_data: bool = False):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			element_node = await browser.get_dom_element_by_index(params.index)
+			nClicks = 1
+			interval = 0.1
+			pyautogui.click(clicks=nClicks, interval=interval)
+			if not has_sensitive_data:
+				msg = f'⌨️  Input {params.text} into index {params.index}'
+			else:
+				msg = f'⌨️  Input sensitive data into index {params.index}'
+			logger.info(msg)
+			logger.debug(f'Element xpath: {element_node.xpath}')
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+		@self.registry.action(
+			'Screen Capture',
+			param_model=ScreenCaptureAction,
+		)
+		async def screen_capture(params: ScreenCaptureAction, browser: BrowserContext, has_sensitive_data: bool = False):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+			screen_img, window_rect = await takeScreenShot(params.win_title_kw)
+			img_section = carveOutImage(screen_img, params.sub_area, "")
+			maskOutImage(img_section, params.sub_area, "")
+
+			saveImageToFile(img_section, params.file, "png")
+
+
+			logger.debug(f'Element xpath: {params.win_title_kw}')
+			msg = ""
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+
+		@self.registry.action(
+			'Seven Zip',
+			param_model=SevenZipAction,
+		)
+		async def seven_zip(params: SevenZipAction, browser: BrowserContext, has_sensitive_data: bool = False):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+
+			logger.debug(f'Element xpath: {params.file}')
+			msg = ""
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+
+		@self.registry.action(
+			'Kill Processes',
+			param_model=KillProcessesAction,
+		)
+		async def kill_processes(params: KillProcessesAction, browser: BrowserContext, has_sensitive_data: bool = False):
+			if params.index not in await browser.get_selector_map():
+				raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+
+			logger.debug(f'Kill Processes: {params.pids[0]}')
+			msg = ""
+			return ActionResult(extracted_content=msg, include_in_memory=True)
+
 
 	# Register ---------------------------------------------------------------
 
