@@ -1,4 +1,5 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
+# from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
@@ -48,7 +49,7 @@ class ResponseFormat(BaseModel):
     status: Literal["input_required", "completed", "error"] = "input_required"
     message: str
 
-class CurrencyAgent:
+class ECRPAHelperAgent:
 
     SYSTEM_INSTRUCTION = (
         "You are a specialized assistant for currency conversions. "
@@ -62,7 +63,8 @@ class CurrencyAgent:
     )
      
     def __init__(self):
-        self.model = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
+        # self.model = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
+        self.model = ChatOpenAI(model='gpt-4o')
         self.tools = [get_exchange_rate]
 
         self.graph = create_react_agent(
@@ -129,4 +131,4 @@ class CurrencyAgent:
             "content": "We are unable to process your request at the moment. Please try again.",
         }
 
-    SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
+    SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "json", "file"]

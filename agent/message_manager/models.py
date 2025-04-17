@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_valid
 filterwarnings('ignore', category=LangChainBetaWarning)
 
 if TYPE_CHECKING:
-	from agent.views import AgentOutput
+	from agent.models import AgentOutput
 
 
 class MessageMetadata(BaseModel):

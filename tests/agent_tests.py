@@ -5,11 +5,11 @@ import asyncio
 # test agent capabilities in a variety of ways.
 # for now only test use_vision, and no test for playwright
 async def test_helper(mwin):
-    agent = mwin.get_agent_helper()
+    helper = mwin.get_helper_agent()
     runner = Runner()
     helper_Task = ""
-    agent.set_task(helper_Task)
-    history = await agent.run()
+    helper.set_task(helper_Task)
+    history = await helper.resolve()
 
     result = history.final_result()
     if result:

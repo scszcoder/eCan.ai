@@ -24,7 +24,7 @@ from langchain_core.prompts import PromptTemplate
 from pydantic import BaseModel
 from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
 from agent.runner.registry.models import ActionModel
-from agent.views import ActionResult
+from agent.models import ActionResult
 from browser.context import BrowserContext
 from agent.runner.registry.service import Registry
 from agent.runner.models import (

@@ -89,6 +89,8 @@ from config.constants import API_DEV_MODE
 from langchain_openai import ChatOpenAI
 from agent.service import Agent
 from agent.runner.service import Runner
+from agent.skill import build_agent_skills
+from agent.a2a.langgraph_agent.utils import set_up_ecbot_helper_agent
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -447,10 +449,7 @@ class MainWindow(QMainWindow):
             self.skill_service = None
             self.vehicle_service = None
 
-        task = ""
-        model = ChatOpenAI(model='gpt-4o')
-        runner = Runner()
-        self.agent_helper = Agent(task=task, llm=model, runner=runner)
+
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
         self.rpa_work_assigned_for_today = False
@@ -739,8 +738,8 @@ class MainWindow(QMainWindow):
 
             self.skillNewFromFileAction.setDisabled(True)
 
-        server = HttpServer(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
-        self.server_port = server.port
+        # server = HttpServer(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # self.server_port = server.port
 
         # centralWidget.addBot(self.botListView)
         self.centralScroll.setWidget(self.botListView)
@@ -986,8 +985,10 @@ class MainWindow(QMainWindow):
                 print("add fetch schedule to todo list....")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
+        # setup local web server including MCP server.
+        start_local_server_in_thread(self)
 
-    # async def setupAsyncTasks(self):
+        # async def setupAsyncTasks(self):
         self.showMsg("ready to spawn mesg server task")
         if not self.host_role == "Platoon":
             if not self.host_role == "Staff Officer":
@@ -1008,7 +1009,8 @@ class MainWindow(QMainWindow):
         self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
         self.showMsg("spawned RPA Monitor task")
 
-        start_local_server_in_thread(self)
+
+
         # self.gchat_task = asyncio.create_task(start_gradio_chat_in_background(self))
         # self.gradio_thread = threading.Thread(target=launchChat, args=(self,), daemon=True)
         # self.gradio_thread.start()
@@ -1037,6 +1039,25 @@ class MainWindow(QMainWindow):
 
         self.saveSettings()
         print("vehicles after init:", [v.getName() for v in self.vehicles])
+
+        # finally setup agents, note: local servers needs to be setup and running
+        # before this.
+        self.llm = ChatOpenAI(model='gpt-4o')
+        self.agents = []
+        self.agent_skills = build_agent_skills(self.llm)
+        self.build_agents()
+        self.launch_agents()
+
+    def launch_agents(self):
+        for agent in self.agents:
+            agent.start()
+
+    def build_agents(self):
+        # for now just build a few agents.
+        if "Platoon" in self.machine_role:
+            self.agents.append(set_up_ecbot_helper_agent(self.llm, self.agent_skills))
+        else:
+            self.agents.append(set_up_ecbot_helper_agent(self.llm, self.agent_skills))
 
 
     # SC note - really need to have
@@ -1128,8 +1149,9 @@ class MainWindow(QMainWindow):
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
             print("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
 
-    def get_agent_helper(self):
-        return self.agent_helper
+    def get_helper_agent(self):
+        return self.helper_agent
+
     def updateTokens(self, tokens):
         self.tokens = tokens
 
@@ -10488,4 +10510,19 @@ class MainWindow(QMainWindow):
         i, runStat = processExternalHook(stepjson, 1)
         # print("hook result:", symTab["hook_result"])
         return runStat
+
+    def exit(self):
+        # skill all agents
+        for agent in self.agents:
+            agent.exit()
+
+        #close all windows.
+
+        #kill all tasks, process, threads.
+
+        #tear down networking.
+
+        # take care of any data needs to be saved.
+
+        log3("Good Bye")
 

@@ -19,16 +19,20 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langgraph.prebuilt import create_react_agent
 
 # from lmnr.sdk.decorators import observe
 from pydantic import BaseModel, ValidationError
 
+from agent.a2a.common.client import A2AClient, A2ACardResolver
+from agent.a2a.common.server import A2AServer
 # from agent.gif import create_history_gif
 from agent.memory.service import Memory, MemorySettings
 from agent.message_manager.service import MessageManager, MessageManagerSettings
 from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
-from agent.views import (
+from agent.models import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
 	AgentError,
@@ -41,12 +45,18 @@ from agent.views import (
 	StepMetadata,
 	ToolCallingMethod,
 )
+from agent.a2a.common.server import A2AServer
+from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
+from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
+from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
+from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
+
 from browser.browser import Browser
 from browser.context import BrowserContext
 from agent.runner.context import RunnerContext
 
-from agent.runner.registry.models import GlobalContext
-
+from agent.base import GlobalContext, AppContext, Personality
+from agent.skill import Skill
 from browser.views import BrowserState, BrowserStateHistory
 from agent.runner.service import Runner
 from dom.history_tree_processor.service import (
@@ -102,6 +112,10 @@ class Agent(Generic[Context]):
 		browser_context: BrowserContext | None = None,
 		global_context: GlobalContext | None = None,
 		runner_context: RunnerContext | None = None,
+		init_skill: Skill | None = None,
+		a2a_client: A2AClient | None = None,
+		a2a_server: A2AServer | None = None,
+		personality: Personality | None = None,
 		runner: Runner[Context] = Runner(),
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
@@ -168,6 +182,8 @@ class Agent(Generic[Context]):
 		self.runner = runner
 		self.sensitive_data = sensitive_data
 
+		self.skills = [init_skill]
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			use_vision_for_planner=use_vision_for_planner,
@@ -215,10 +231,17 @@ class Agent(Generic[Context]):
 			logger.error(f'Environment variables not set for {self.llm.__class__.__name__}')
 			raise ValueError('Environment variables not set')
 
+
+		self.a2a_client = a2a_client
+		self.a2a_server = a2a_server
+
 		# Start non-blocking LLM connection verification
 		print("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
 		self.llm._verified_api_keys = self._verify_llm_connection(self.llm)
 		print("VERIFIED OPENAI API KEY IS::::::::", self.llm._verified_api_keys)
+
+
+		self.mcp_agent = create_react_agent(self.llm, client.get_tools())
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
@@ -841,8 +864,12 @@ class Agent(Generic[Context]):
 		elif self.tool_calling_method is None:
 			structured_llm = self.llm.with_structured_output(self.AgentOutput, include_raw=True)
 			try:
-				response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
-				parsed: AgentOutput | None = response['parsed']
+				# response: dict[str, Any] = await structured_llm.ainvoke(input_messages)  # type: ignore
+				# MCP client
+
+					response: dict[str, Any] = await self.mcp_agent.ainvoke(input_messages)  # type: ignore
+
+					parsed: AgentOutput | None = response['parsed']
 
 			except Exception as e:
 				logger.error(f'Failed to invoke model: {str(e)}')
@@ -1585,3 +1612,10 @@ class Agent(Generic[Context]):
 
 		# create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
+	async def start(self):
+		runnable = self.skills[0].get_runnable()
+		response: dict[str, Any] = await self.mcp_agent.ainvoke(input_messages)
+		runnable.ainvoke()
+
+	async def hone_skills(self):
+		print("hone skills...")
