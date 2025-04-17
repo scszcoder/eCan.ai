@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from agent.message_manager.models import MessageMetadata
 from agent.prompts import AgentMessagePrompt
-from agent.views import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
+from agent.models import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
 from browser.views import BrowserState
 from agent.run_utils import time_execution_sync
 

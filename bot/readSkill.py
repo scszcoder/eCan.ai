@@ -68,7 +68,7 @@ import traceback
 
 from bot.seleniumSkill import processWebdriverSolveCaptcha
 from bot.seleniumSkill import processWebdriverDetectAndClosePopup, processWebdriverBuildDomTree
-from agent.agent_helper import *
+from agent.helper_agent import helperAgentResolve
 
 
 symTab["fout"] = ""
@@ -722,7 +722,7 @@ async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="
             last_screen_shot_file = mainwin.my_ecb_data_homepath + "/runlogs/last_screen.png"
             captureScreenToFile("", last_screen_shot_file)
 
-            if await agentHelperResolve(step_stat, steps, next_step_index, last_screen_shot_file, mission, symTab):
+            if await helperAgentResolve(step_stat, steps, next_step_index, last_screen_shot_file, mission, symTab):
                 log3("ru-run current step after errors are fixed")
                 next_step_index = last_step
             else:

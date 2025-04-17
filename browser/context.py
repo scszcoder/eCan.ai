@@ -24,6 +24,7 @@ from browser.views import BrowserState, BrowserError, TabInfo
 from agent.run_utils import time_execution_sync
 import traceback
 from pydantic import BaseModel, ConfigDict, Field
+from agent.base import AppContext
 from agent.playwright_sim import *
 import asyncio
 from browser.views import (
@@ -256,12 +257,12 @@ class BrowserContextState:
 	"""
     target_id: str | None = None  # CDP target ID
 
-class BrowserContext:
-    def __init__(self, browser: 'Browser', config: BrowserContextConfig, state: Optional[BrowserContextState] = None,):
+class BrowserContext(AppContext):
+    def __init__(self, browser: 'Browser', config: BrowserContextConfig, state: Optional[str] = None,):
         self.context_id = str(uuid.uuid4())
         self.browser = browser
         self.config = config
-        self.state = state or BrowserContextState()
+        self.state = state or ""
         options = webdriver.ChromeOptions()
         if self.config.headless:
             options.add_argument('--headless')

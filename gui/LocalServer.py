@@ -1,123 +1,136 @@
 import threading
 import asyncio
-from flask import Flask, send_from_directory, jsonify, request, Response
-from flask_cors import CORS
+# from flask import Flask, send_from_directory, jsonify, request, Response
+# from flask_cors import CORS
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse, FileResponse, StreamingResponse
+from starlette.staticfiles import StaticFiles
+from starlette.routing import Route, Mount
+from starlette.middleware.cors import CORSMiddleware
+import uvicorn
 import os
 import time
 import uuid
 from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
+from agent.mcp.server.server import *
 import traceback
 response_dict = {}
 
-mecaLocalServer = Flask(__name__, static_folder='dist')  # Serve Vue static files
-CORS(mecaLocalServer)
+# mecaLocalServer = Flask(__name__, static_folder='dist')  # Serve Vue static files
+# CORS(mecaLocalServer)
 MainWin = None
+IMAGE_FOLDER = os.path.abspath("run_images")  # Ensure this is your intended path
 
+# Endpoint to serve images
+async def serve_image(request):
+    filename = request.path_params['filename']
+    file_path = os.path.join(IMAGE_FOLDER, filename)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    return JSONResponse({"error": "File not found."}, status_code=404)
 
-IMAGE_FOLDER = os.path.abspath("run_images")  # or any path you want
-
-@mecaLocalServer.route('/<path:filename>')
-def serve_image(filename):
-    return send_from_directory(IMAGE_FOLDER, filename)
-
-# Route to serve the Vue app
-@mecaLocalServer.route('/api/gen_feedbacks', methods=['GET'])
-def gen_feedbacks():
-    print("servering gen_feedbacks.....")
-    mids = request.args.get('mids', default="-1")  # 'default' is the fallback value
+# API Endpoint equivalent to Flask route '/api/gen_feedbacks'
+async def gen_feedbacks(request):
+    print("serving gen_feedbacks.....")
+    mids = request.query_params.get('mids', "-1")  # Default value is "-1"
     print("mids", mids)
+
     data = MainWin.genFeedbacks(mids)
-    # data = {"fb": "hehloooooo"}
-    return jsonify(data), 200 # Return data as JSON
+    return JSONResponse(data, status_code=200)
 
-@mecaLocalServer.route('/api/get_mission_reports', methods=['GET'])
-def get_mission_reports():
-    start_date = request.args.get('start_date', default="-1")  # 'default' is the fallback value
-    end_date = request.args.get('end_date', default="-1")  # 'default' is the fallback value
-
+# API Endpoint to handle GET mission reports
+async def get_mission_reports(request):
+    start_date = request.query_params.get('start_date', "-1")
+    end_date = request.query_params.get('end_date', "-1")
     data = MainWin.getRPAReports(start_date, end_date)
-    return jsonify(data), 200 # Return data as JSON
+    return JSONResponse(data, status_code=200)
 
-
-# Example API to post data
-@mecaLocalServer.route('/api/gen_feedbacks', methods=['POST'])
-def post_data():
-    incoming_data = request.json  # Get JSON data sent from Vue
+# API Endpoint to handle POST feedback data
+async def post_data(request):
+    incoming_data = await request.json()
     print(f"Received data: {incoming_data}")
-    # Generate a unique ID for the task
     task_id = str(uuid.uuid4())
-    future = Future()
-
-    # Add the future to the response dictionary
+    future = asyncio.get_event_loop().create_future()
     response_dict[task_id] = future
-
-    # Send the task to the async worker
     MainWin.task_queue.put({
         "task_id": task_id,
-        "data": request.json  # Pass the request data
+        "data": incoming_data
     })
+    result = await asyncio.wait_for(future, timeout=30)
+    return JSONResponse({"status": "success", "result": result})
 
-    # Wait for the result (blocks until future is resolved)
-    result = future.result(timeout=30)  # Timeout after 30 seconds
-    return jsonify({"status": "success", "result": result})
-
-
-# SSE route to send real-time data to Vue frontend
-@mecaLocalServer.route('/api/stream')
-def stream():
-    def eventStream():
+# SSE endpoint for real-time streaming
+async def stream(request):
+    async def event_stream():
         while True:
-            time.sleep(1)  # Simulate some delay or real-time processing
+            await asyncio.sleep(1)
             yield f"data: The current time is {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
-    return Response(eventStream(), mimetype="text/event-stream")
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-
-# given a list of bot emails, and mission ids,
-# read the rows from local DB and send them back.
-@mecaLocalServer.route('/api/sync_bots_missions', methods=['POST'])
-def sync_bots_missions():
+# Endpoint to sync bots and missions
+async def sync_bots_missions(request):
     try:
-        incoming_data = request.get_json(force=True)  # `force=True` will attempt to parse even if Content-Type is missing
+        incoming_data = await request.json()
         print("sync_bots_missions Received data:", incoming_data)
 
-        b_emails = incoming_data.get('bots',[])  # 'default' is the fallback value
-        minfos = incoming_data.get('missions', [])  # 'default' is the fallback value
-        #minfo is in the format of asin|source_file_full_path
+        b_emails = incoming_data.get('bots', [])
+        minfos = incoming_data.get('missions', [])
+
         m_asin_srcs = []
         for minfo in minfos:
             infos = minfo.split("|")
             m_asin_srcs.append({"asin": infos[0].strip(), "src": infos[1].strip()})
 
-        print(f"received syn_bots_missions request.")
-        # Generate a unique ID for the task
         bots_data = MainWin.bot_service.find_bots_by_emails(b_emails)
         missions_data = MainWin.mission_service.find_missions_by_asin_srcs(m_asin_srcs)
-        # Wait for the result (blocks until future is resolved)
         result = {"bots": bots_data, "missions": missions_data}
-        return jsonify({"status": "success", "result": result}), 200
+
+        return JSONResponse({"status": "success", "result": result}, status_code=200)
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
+        ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
         print(ex_stat)
-        jsonify({"status": "failure", "result": ex_stat})
+        return JSONResponse({"status": "failure", "result": ex_stat}, status_code=500)
 
-def run_flask():
-    print("Starting mecaLocalServer....")
-    mecaLocalServer.run(host="0.0.0.0", port=4668)
+routes = [
+    Route('/api/gen_feedbacks', gen_feedbacks, methods=['GET']),
+    Route('/api/get_mission_reports', get_mission_reports, methods=['GET']),
+    Route('/api/gen_feedbacks', post_data, methods=['POST']),
+    Route('/api/stream', stream),
+    Route('/api/sync_bots_missions', sync_bots_missions, methods=['POST']),
+    Route('/{filename:path}', serve_image),
+    Route("/sse2mcp", endpoint=sse_to_mcp),
+    Route("/messages", endpoint=sse_handle_messages, methods=["POST"]),
+    Mount('/', StaticFiles(directory='agent/agent_files', html=True), name='static'),
+]
 
-# Start Flask server in a separate thread
+
+mecaLocalServer = Starlette(debug=True, routes=routes)
+
+# CORS Middleware setup (same as Flask-CORS)
+mecaLocalServer.add_middleware(
+    CORSMiddleware,
+    allow_origins=['*'],  # Adjust as needed
+    allow_methods=['*'],
+    allow_headers=['*']
+)
+
+def run_starlette():
+    print("Starting Starlette server....")
+    uvicorn.run(mecaLocalServer, host='0.0.0.0', port=4668)
+
+# Start Starlette server in a separate thread
 def start_local_server_in_thread(mwin):
     global MainWin
     MainWin = mwin
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True  # Allows the thread to exit when the main program exits
-    flask_thread.start()
+    MainWin.mcp_server = meca_mcp_server
+    MainWin.sse_server = meca_sse
+    starlette_thread = threading.Thread(target=run_starlette)
+    MainWin.local_server_thread = starlette_thread
+    starlette_thread.daemon = True  # Allows the thread to exit when the main program exits
+    starlette_thread.start()
 
+# if __name__ == '__main__':
+#     run_starlette()

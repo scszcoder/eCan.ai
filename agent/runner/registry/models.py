@@ -2,21 +2,8 @@ from typing import Callable, Dict, Type
 from selenium import webdriver
 from pydantic import BaseModel, ConfigDict
 from agent.playwright_sim import *
-
-
-class GlobalContext:
-	def __init__(self):
-		self.platform = "win"
-		self.app = "ads"
-		self.page = ""
-		self.section = ""
-		self.state = ""
-
-	async def get_state(self):
-		return self.state
-
-	async def get_current_page(self):
-		return self.page
+import uuid
+from agent.base import GlobalContext
 
 
 class RegisteredAction(BaseModel):
@@ -141,6 +128,7 @@ class ActionRegistry(BaseModel):
 			- If page is None: return only actions with no page_filter and no domains (for system prompt)
 			- If page is provided: return only filtered actions that match the current page (excluding unfiltered actions)
 		"""
+
 		if global_context is None:
 			if page is None:
 				# For system prompt (no page provided), include only actions with no filters

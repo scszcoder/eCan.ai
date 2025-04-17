@@ -1,8 +1,8 @@
-from common.server import A2AServer
-from common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
-from common.utils.push_notification_auth import PushNotificationSenderAuth
-from agents.langgraph.task_manager import AgentTaskManager
-from agents.langgraph.agent import CurrencyAgent
+from agent.a2a.common.server import A2AServer
+from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
+from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
+from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
+from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 import click
 import os
 import logging
@@ -35,8 +35,8 @@ def main(host, port):
             description="Helps with exchange rates for currencies",
             url=f"http://{host}:{port}/",
             version="1.0.0",
-            defaultInputModes=CurrencyAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=CurrencyAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=[skill],
         )
@@ -45,7 +45,7 @@ def main(host, port):
         notification_sender_auth.generate_jwk()
         server = A2AServer(
             agent_card=agent_card,
-            task_manager=AgentTaskManager(agent=CurrencyAgent(), notification_sender_auth=notification_sender_auth),
+            task_manager=AgentTaskManager(agent=ECRPAHelperAgent(), notification_sender_auth=notification_sender_auth),
             host=host,
             port=port,
         )

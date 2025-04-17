@@ -1,6 +1,6 @@
-from common.client import A2AClient, A2ACardResolver
-from common.types import TaskState, Task
-from common.utils.push_notification_auth import PushNotificationReceiverAuth
+from agent.a2a.common.client import A2AClient, A2ACardResolver
+from agent.a2a.common.types import TaskState, Task
+from agent.a2a.common.utils.push_notification_auth import PushNotificationReceiverAuth
 import asyncclick as click
 import asyncio
 from uuid import uuid4
