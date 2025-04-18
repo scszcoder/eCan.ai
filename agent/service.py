@@ -50,6 +50,7 @@ from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, Mis
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
 from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
+from agent.a2a.common.types import Message, TextPart
 
 from browser.browser import Browser
 from browser.context import BrowserContext
@@ -72,6 +73,7 @@ from telemetry.views import (
 )
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
 from agent.runner.service import Runner
+from agent.tasks import TaskScheduler
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -116,7 +118,11 @@ class Agent(Generic[Context]):
 		a2a_client: A2AClient | None = None,
 		a2a_server: A2AServer | None = None,
 		personality: Personality | None = None,
-		runner: Runner[Context] = Runner(),
+		supervisors: Optional[List[str]] = None,
+		subordinates: Optional[List[str]] = None,
+		peers: Optional[List[str]] = None,
+		# runner: Runner[Context] = Runner(),
+		task_scheduler: TaskScheduler[Context] = TaskScheduler(),
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
@@ -184,6 +190,10 @@ class Agent(Generic[Context]):
 
 		self.skills = [init_skill]
 
+		self.supervisors = supervisors if supervisors is not None else []
+		self.subordinates = subordinates if subordinates is not None else []
+		self.peers = peers if peers is not None else []
+
 		self.settings = AgentSettings(
 			use_vision=use_vision,
 			use_vision_for_planner=use_vision_for_planner,
@@ -234,14 +244,14 @@ class Agent(Generic[Context]):
 
 		self.a2a_client = a2a_client
 		self.a2a_server = a2a_server
+		self.a2a_server.attach_agent(self)
 
 		# Start non-blocking LLM connection verification
 		print("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
 		self.llm._verified_api_keys = self._verify_llm_connection(self.llm)
 		print("VERIFIED OPENAI API KEY IS::::::::", self.llm._verified_api_keys)
 
-
-		self.mcp_agent = create_react_agent(self.llm, client.get_tools())
+		# self.mcp_agent = create_react_agent(self.llm, self.mcp_client.get_tools())
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
@@ -308,6 +318,9 @@ class Agent(Generic[Context]):
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
+
+		# kick off a2a server:
+		self.a2a_server.start()
 
 	def set_runner(self, runner):
 		self.runner = runner
@@ -1512,6 +1525,16 @@ class Agent(Generic[Context]):
 		self.DoneActionModel = self.runner.registry.create_action_model(include_actions=['done'], page=page)
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
+	def get_card(self):
+		return self.a2a_server.agent_card
+
+	def get_a2a_server_port(self):
+		return int(self.a2a_server.agent_card.url.split(":")[-1])
+
+	def is_busy(self):
+		busy = False
+		return busy
+
 	@time_execution_async('--resolve (agent)')
 	async def resolve(
 			self, runner_context, max_steps=8
@@ -1619,3 +1642,18 @@ class Agent(Generic[Context]):
 
 	async def hone_skills(self):
 		print("hone skills...")
+
+	@time_execution_async('--request_local_help (agent)')
+	async def request_local_help(self, recipient_agent):
+		# this is only available if myself is not a helper agent
+		if "helper" not in self.get_card().name.lower():
+			self.a2a_client.set_recipient(url="127.0.0.1:3600")
+			payload = {
+				"id": "task-001",
+				"sessionId": "sess-abc",
+				"message": Message(role="user", parts=[TextPart(type="text", text="Summarize this report")]),
+				"acceptedOutputModes": ["json"],
+				"skill": "resolve_rpa_failure"  # Or whatever your agent expects
+			}
+
+			response = await self.a2a_client.send_task(payload)

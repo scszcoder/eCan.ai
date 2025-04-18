@@ -8,7 +8,7 @@ from PySide6.QtGui import QStandardItem, QIcon
 from bot.Logger import log3
 import tzlocal
 
-from bot.readSkill import runAllSteps
+from bot.readSkill import rpaRunAllSteps
 from common.models.mission import MissionModel
 import ast
 
@@ -1536,6 +1536,6 @@ class EBMISSION(QStandardItem):
             log3("skill:"+str(sks[si]))
             log3("run all steps ....."+json.dumps(self.pubAttributes.get_all_steps()))
             log3("settings:"+json.dumps(self.main_win_settings))
-            await runAllSteps(self.pubAttributes.get_all_steps(), self.main_win_settings)
+            await rpaRunAllSteps(self.pubAttributes.get_all_steps(), self.main_win_settings)
 
         return run_result

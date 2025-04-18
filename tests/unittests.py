@@ -30,7 +30,7 @@ from bot.ebbot import EBBOT
 from bot.genSkills import genWinTestSkill, genWinTestSkill1, genWinTestSkill2
 from bot.missions import EBMISSION
 from bot.ordersData import ORDER, OrderPerson, OrderedProduct, Shipping
-from bot.readSkill import prepRun1Skill, runAllSteps, prepRunSkill
+from bot.readSkill import prepRun1Skill, rpaRunAllSteps, prepRunSkill
 from bot.scraperAmz import processAmzScrapeSoldOrdersHtml, amz_buyer_scrape_product_details
 from bot.scraperEbay import ebaySellerGetSystemMsgThread, ebay_seller_fetch_page_of_order_list
 from bot.scraperEtsy import processEtsyScrapeOrders
@@ -91,7 +91,7 @@ def test_use_func_instructions():
 
     # set mission to be None, skill to be None, since we won't be testing extractInfo step.
     # test_m = EBMISSION()
-    runAllSteps(rpa_script, None, None)
+    rpaRunAllSteps(rpa_script, None, None)
 
     print("done testing.................")
 
@@ -117,7 +117,7 @@ def test_multi_skills():
     # set mission to be None, skill to be None, since we won't be testing extractInfo step.
 
     # test_m = EBMISSION()
-    runAllSteps(rpa_script, None, None)
+    rpaRunAllSteps(rpa_script, None, None)
 
     print("done testing.................")
 

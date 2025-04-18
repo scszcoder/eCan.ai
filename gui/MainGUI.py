@@ -416,6 +416,7 @@ class MainWindow(QMainWindow):
                 self.ws_api_endpoint = self.general_settings.get("ws_api_endpoint", "")
                 self.img_engine = self.general_settings.get("img_engine", "lan")
                 self.schedule_engine = self.general_settings.get("schedule_engine", "wan")
+                self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
 
 
 
@@ -1044,20 +1045,34 @@ class MainWindow(QMainWindow):
         # before this.
         self.llm = ChatOpenAI(model='gpt-4o')
         self.agents = []
+        print("Building agent skills.....")
         self.agent_skills = build_agent_skills(self.llm)
+        print("DONE build agent skills.....")
         self.build_agents()
+        print("DONE build agents.....")
         self.launch_agents()
+        print("DONE launch agents.....")
 
     def launch_agents(self):
         for agent in self.agents:
             agent.start()
 
+    def get_free_agent_ports(self, n):
+        used_ports = [ag.get_a2a_server_port() for ag in self.agents]
+        all_ports = range(self.local_agents_port_range[0], self.local_agents_port_range[1]+1)
+        free_ports = [port for port in all_ports if port not in used_ports]
+
+        if len(free_ports) < n:
+            raise RuntimeError(f"Only {len(free_ports)} free ports available, but {n} requested.")
+
+        return free_ports[:n]
+
     def build_agents(self):
         # for now just build a few agents.
         if "Platoon" in self.machine_role:
-            self.agents.append(set_up_ecbot_helper_agent(self.llm, self.agent_skills))
+            self.agents.append(set_up_ecbot_helper_agent(self))
         else:
-            self.agents.append(set_up_ecbot_helper_agent(self.llm, self.agent_skills))
+            self.agents.append(set_up_ecbot_helper_agent(self))
 
 
     # SC note - really need to have
@@ -3446,11 +3461,11 @@ class MainWindow(QMainWindow):
                         # running_skill = next((item for i, item in enumerate(self.skills) if item.getSkid() == int(rpaSkillIds[0])), -1)
                         # self.showMsg("running skid:"+str(rpaSkillIds[0])+"len(self.skills): "+str(len(self.skills))+"skill 0 skid: "+str(self.skills[0].getSkid()))
                         # self.showMsg("running skill: "+json.dumps(running_skill))
-                        # runStepsTask = asyncio.create_task(runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue))
+                        # runStepsTask = asyncio.create_task(rpaRunAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue))
                         # runResult = await runStepsTask
 
                         log3("BEFORE RUN: " + worksettings["b_email"], "runRPA", self)
-                        runResult = await runAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
+                        runResult = await rpaRunAllSteps(rpa_script, self.missions[worksettings["midx"]], relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
 
                         # for retry test purpose:
                         # runResult = "Incomplete Error"
@@ -3608,7 +3623,7 @@ class MainWindow(QMainWindow):
 
 
                     log3("MANAGER BEFORE RUN: " + worksettings["b_email"], "runRPA", self)
-                    runResult = await runAllSteps(rpa_script, self.running_manager_mission, relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
+                    runResult = await rpaRunAllSteps(rpa_script, self.running_manager_mission, relevant_skills[0], rpa_msg_queue, monitor_msg_queue)
 
 
                     # finished 1 mission, update status and update pointer to the next one on the list.... and be done.
@@ -4211,7 +4226,7 @@ class MainWindow(QMainWindow):
         task_mission = self.missions[task.mid]
         # run all the todo steps
         # (steps, mission, skill, mode="normal"):
-        runResult = runAllSteps(task.todos, task_mission.parent_settings)
+        runResult = rpaRunAllSteps(task.todos, task_mission.parent_settings)
 
 
     def runADSProfileConverter(self):
