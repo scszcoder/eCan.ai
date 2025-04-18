@@ -88,14 +88,14 @@ def set_up_ec_customer_support_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        helper_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator"), None)
+        support_skill = next((sk for sk in agent_skills if sk.name == "ecbot customer support"), None)
 
         a2a_skill = AgentSkill(
-            id=helper_skill.id,
-            name=helper_skill.name,
-            description=helper_skill.description,
-            tags=["run RPA works", "run RPA missions"],
-            examples=["Please help operate these RPA missions"],
+            id=support_skill.id,
+            name=support_skill.name,
+            description=support_skill.description,
+            tags=["e-commerce customer support", "e-commerce after sale support"],
+            examples=["please take care of orders"],
         )
         host = get_lan_ip()
         free_ports = mainwin.get_free_agent_ports(1)
@@ -104,8 +104,8 @@ def set_up_ec_customer_support_agent(mainwin):
         a2a_server_port = free_ports[0]
 
         agent_card = AgentCard(
-            name="ECBot RPA Operator Agent",
-            description="Run ECBot RPA works",
+            name="ECBot RPA Customer Support Agent",
+            description="Run E-Commerce After Sale works including order fullfill, Order Cancel, Return, Refund, Re-send, Answer Questions etc.",
             url=f"http://{host}:{a2a_server_port}/",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
@@ -125,7 +125,7 @@ def set_up_ec_customer_support_agent(mainwin):
 
         task = ""
         task_scheduler = TaskScheduler()
-        support_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
+        support_skill = next((sk for sk in agent_skills if sk.name == "ecbot customer support"), None)
         customer_support = Agent(task=task, llm=llm, a2a_client=a2a_client, a2a_server=a2a_server,
                          task_scheduler=task_scheduler,
                          init_skill=support_skill)
@@ -149,12 +149,12 @@ def set_up_ec_rpa_operator_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        helper_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator"), None)
+        operator_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator"), None)
 
         a2a_skill = AgentSkill(
-            id=helper_skill.id,
-            name=helper_skill.name,
-            description=helper_skill.description,
+            id=operator_skill.id,
+            name=operator_skill.name,
+            description=operator_skill.description,
             tags=["run RPA works", "run RPA missions"],
             examples=["Please help operate these RPA missions"],
         )
@@ -209,12 +209,12 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        helper_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor"), None)
+        supervisor_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor"), None)
 
         a2a_skill = AgentSkill(
-            id=helper_skill.id,
-            name=helper_skill.name,
-            description=helper_skill.description,
+            id=supervisor_skill.id,
+            name=supervisor_skill.name,
+            description=supervisor_skill.description,
             tags=["Supervise run RPA works", "Supervise run RPA missions"],
             examples=["Please supervise this RPA run works"],
         )
