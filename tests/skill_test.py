@@ -6,7 +6,7 @@ from basicSkill import *
 from genSkills import genWinTestSkill1, genWinTestSkill2
 from config.app_settings import app_settings
 from config.app_info import app_info
-from readSkill import prepRunSkill, runAllSteps
+from readSkill import prepRunSkill, rpaRunAllSteps
 from skill.steps.step_header import StepHeader
 from skill.steps.step_app_open import StepAppOpen, EnumAppOpenAction, EnumAppOpenTargetType
 from skill.steps.step_mouse_scroll import StepMouseScroll, EnumMouseScrollAction, EnumMouseScrollUnit
@@ -68,7 +68,7 @@ class TestSkillFunction(unittest.TestCase):
         rpa_script = prepRunSkill(skodes)
         print("done all address gen.................")
 
-        runAllSteps(rpa_script, None, None)
+        rpaRunAllSteps(rpa_script, None, None)
 
         print("done testing....")
 
@@ -130,7 +130,7 @@ class TestSkillFunction(unittest.TestCase):
         # set mission to be None, skill to be None, since we won't be testing extractInfo step.
 
         # test_m = EBMISSION()
-        runAllSteps(rpa_script, None, None)
+        rpaRunAllSteps(rpa_script, None, None)
 
         print("done testing.................")
 

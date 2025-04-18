@@ -624,7 +624,7 @@ def adressAddNameSpace(l, name_space, lvl):
 # on psk side, what's fundamental instructions to support above:
 #
 
-async def runAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="normal"):
+async def rpaRunAllSteps(steps, mission, skill, in_msg_queue, out_msg_queue, mode="normal"):
     global last_step
     global next_step
     global rd_screen_count

@@ -118,3 +118,6 @@ class A2AServer:
         else:
             logger.error(f"Unexpected result type: {type(result)}")
             raise ValueError(f"Unexpected result type: {type(result)}")
+
+    def attach_agent(self, agent):
+        self.task_manager.attach_agent(agent)

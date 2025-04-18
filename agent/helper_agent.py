@@ -1,11 +1,17 @@
 from agent.context_utils import build_context_from_step
 
-async def helperAgentResolve(step_stat, steps, next_step_index, screen_shot_file, mission, symTab):
+async def helperAgentResolve(mission, fault_context):
     fixed = False
     settings = mission.main_win_settings
     mainwin = mission.get_main_win()
     helper = mainwin.get_agent_helper()
-    current_context = build_context_from_step(step_stat, steps, next_step_index, screen_shot_file, mission, symTab)
-    result, fixed = await helper.resolve(current_context)
+    helper = next((ag for ag in mainwin.agents if ag.get_card().name == "ECBot Helper Agent" and not ag.is_busy()), None)
+    if helper:
+        secret_rpa_agent = next((ag for ag in mainwin.agents if ag.get_card().name == "ECBot Secret Agent" and not ag.is_busy()),
+                      None)
+        # now secret_rpa_agent will send an a2a request to a local helper agent for help.
+        result, fixed = await secret_rpa_agent.request_help(helper)
+    else:
+        print("no helper available")
 
     return fixed

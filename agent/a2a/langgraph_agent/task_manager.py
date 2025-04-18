@@ -49,7 +49,7 @@ class AgentTaskManager(InMemoryTaskManager):
         query = self._get_user_query(task_send_params)
 
         try:
-            async for item in self.agent.stream(query, task_send_params.sessionId):
+            async for item in self._agent.stream(query, task_send_params.sessionId):
                 is_task_complete = item["is_task_complete"]
                 require_user_input = item["require_user_input"]
                 artifact = None
@@ -139,10 +139,20 @@ class AgentTaskManager(InMemoryTaskManager):
         task_send_params: TaskSendParams = request.params
         query = self._get_user_query(task_send_params)
         try:
-            agent_response = self.agent.invoke(query, task_send_params.sessionId)
+            task_id = self._agent.get_task_id_from_query(query)
+            agent_response = await self._agent.scheduler.run_task(task_id)
+
+            # Notify
+            # task = self._agent.scheduler.tasks[task_id]
+            # await self.send_task_notification(task)
+            # return SendTaskResponse(id=request.id, result={"task_id": task_id})
+
+            # agent_response = self._agent.invoke(query, task_send_params.sessionId)
         except Exception as e:
             logger.error(f"Error invoking agent: {e}")
             raise ValueError(f"Error invoking agent: {e}")
+
+        # notify the task requester
         return await self._process_agent_response(
             request, agent_response
         )
@@ -161,14 +171,29 @@ class AgentTaskManager(InMemoryTaskManager):
                 if not await self.set_push_notification_info(request.params.id, request.params.pushNotification):
                     return JSONRPCResponse(id=request.id, error=InvalidParamsError(message="Push notification URL is invalid"))
 
+
+            task_id = self._agent.get_task_id_from_request(request.params)
+            agent_response = await self._agent.scheduler.run_task(task_id)
+            # asyncio.create_task(self._run_streaming_agent(request))
+
             task_send_params: TaskSendParams = request.params
-            sse_event_queue = await self.setup_sse_consumer(task_send_params.id, False)            
+            sse_event_queue = await self.setup_sse_consumer(task_send_params.id, False)
 
-            asyncio.create_task(self._run_streaming_agent(request))
+            async def stream():
+                while True:
+                    event = await sse_event_queue.get()
+                    if isinstance(event, JSONRPCResponse):
+                        yield SendTaskStreamingResponse(id=request.id, error=event.error)
+                        break
+                    yield SendTaskStreamingResponse(id=request.id, result=event)
+                    if isinstance(event, TaskStatusUpdateEvent) and event.final:
+                        break
 
-            return self.dequeue_events_for_sse(
-                request.id, task_send_params.id, sse_event_queue
-            )
+            return stream()
+
+            # return self.dequeue_events_for_sse(
+            #     request.id, task_send_params.id, sse_event_queue
+            # )
         except Exception as e:
             logger.error(f"Error in SSE stream: {e}")
             print(traceback.format_exc())

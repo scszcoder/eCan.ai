@@ -22,7 +22,7 @@ from bot.envi import getECBotDataHome
 from gui.skfc.skfc_widget import SkFCWidget
 from gui.skcode.codeeditor.pythoneditor import PMGPythonEditor
 from config.app_info import app_info
-from bot.readSkill import cancelRun, pauseRun, prepRunSkill, runAllSteps, continueRun, steps, last_step
+from bot.readSkill import cancelRun, pauseRun, prepRunSkill, rpaRunAllSteps, continueRun, steps, last_step
 from utils.logger_helper import logger_helper
 
 INSTALLED_PATH = ""
@@ -2517,7 +2517,7 @@ class SkillGUI(QMainWindow):
         all_skill_codes = [{"ns": "B0M20231225!!", "skfile": psk_file_path}]
 
         rpa_script = prepRunSkill(all_skill_codes)
-        runResult = runAllSteps(rpa_script, trMission, sk)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
+        runResult = rpaRunAllSteps(rpa_script, trMission, sk)   # thisTrialRunSkill is the pointer to WORKSKILL created on this GUI.
 
     def continue_run(self):
         continueRun(steps, last_step)

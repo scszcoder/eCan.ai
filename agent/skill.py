@@ -34,6 +34,7 @@ class Skill(BaseModel):
     inputModes: List[str] | None = None
     outputModes: List[str] | None = None
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def get_config(self):
         return self.config

@@ -132,7 +132,7 @@ LOG_SWITCH_BOARD = {
     "updateIndividualProfileFromBatchSavedTxt": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "genAdsProfileBatchs": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "serveCommander": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
-    "runAllSteps": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
+    "rpaRunAllSteps": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "servePlatoons": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "assignWork": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
     "gatherFingerPrints": {"log": True, "py_console": True, "win_console": True, "range": "lan"},
