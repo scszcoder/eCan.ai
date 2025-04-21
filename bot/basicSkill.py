@@ -6765,8 +6765,7 @@ def processECBUpdateMissions(step, i):
 def processECBDeleteMissions(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    global login
-    mainWin = login.get_mainwin()
+    mainwin = utils.logger_helper.login.get_mainwin()
 
     try:
         symTab[step["flag"]] = True
@@ -6784,12 +6783,10 @@ def processECBDeleteMissions(step, i):
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
 
-def processECBFetchDailySchedule(step, i):
+def processECBFetchDailySchedule(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    # global login
-
-    mainWin = utils.logger_helper.login.get_mainwin()
+    mainWin = mission.get_main_win()
 
     try:
         print("ecb step: fetch schedule....")
@@ -6810,10 +6807,10 @@ def processECBFetchDailySchedule(step, i):
     return (i + 1), DEFAULT_RUN_STATUS
 
 
-def processECBDispatchTroops(step, i):
+def processECBDispatchTroops(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = utils.logger_helper.login.get_mainwin()
+    mainWin = mission.get_main_win()
 
     try:
         symTab[step["flag"]] = True

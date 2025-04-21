@@ -18,8 +18,13 @@ from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
 from contextlib import AsyncExitStack
 import re
 import mcp.types as types
-# from mcp.server.lowlevel import Server
-from mcp.server import Server
+from mcp.server.lowlevel import Server
+
+from mcp.client.sse import sse_client
+from mcp.client.session import ClientSession
+from mcp.server.fastmcp.prompts import base
+from mcp.types import TextContent, Prompt, PromptMessage, Tool, ImageContent, EmbeddedResource, Resource, GetPromptResult, PromptArgument
+from pydantic import FileUrl
 from agent.a2a.common.types import AgentCard
 import json
 from dotenv import load_dotenv
@@ -82,8 +87,9 @@ mouse = Controller()
 
 load_dotenv()  # load environment variables from .env
 
-meca_mcp_server = FastMCP("E-Commerce Agents Service")
-meca_sse = SseServerTransport("/messages")
+# meca_mcp_server = FastMCP("E-Commerce Agents Service")
+meca_mcp_server = Server("E-Commerce Agents Service")
+meca_sse = SseServerTransport("/messages/")
 
 #MCP resource
 # [protocol]://[host]/[path]
@@ -92,25 +98,33 @@ meca_sse = SseServerTransport("/messages")
 # screen://localhost/display1
 # @mcp.resource("dir://desktop")
 
-@meca_mcp_server.resource("ar://roster")
+@meca_mcp_server.read_resource()
 def get_roster() -> [AgentCard]:
     """Provide the database schema as a resource"""
     all_cards = [a.get_card() for a in all_agents]
     return
 
-@meca_mcp_server.resource("config://app")
+@meca_mcp_server.read_resource()
 def get_config() -> dict:
     """Static configuration data"""
     return {}
 
 
-@meca_mcp_server.resource("hr://{agent_id}/profile")
+@meca_mcp_server.read_resource()
 def get_agent_profile(agent_id: str) -> dict:
     """Dynamic user data"""
     return {}
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
+async def say_hello(seconds: int = 3):
+    msg = f'Hi There!'
+    logger.info(msg)
+    return ActionResult(extracted_content=msg, include_in_memory=False)
+
+
+
+@meca_mcp_server.call_tool()
 async def wait(seconds: int = 3):
     msg = f'🕒  Waiting for {seconds} seconds'
     logger.info(msg)
@@ -118,7 +132,7 @@ async def wait(seconds: int = 3):
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_wait_for_element(params: WaitForElementAction, context_id: str):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
@@ -135,7 +149,7 @@ async def in_browser_wait_for_element(params: WaitForElementAction, context_id: 
 
 
 # Element Interaction Actions
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_click_element_by_index(params: ClickElementAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -175,7 +189,7 @@ async def in_browser_click_element_by_index(params: ClickElementAction, context_
         return ActionResult(error=str(e))
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_click_element_by_selector(params: ClickElementBySelectorAction, context_id: str):
     try:
         browser_context = login.main_win.getBrowserContextById(context_id)
@@ -199,7 +213,7 @@ async def in_browser_click_element_by_selector(params: ClickElementBySelectorAct
         return ActionResult(error=str(e))
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_click_element_by_xpath(params: ClickElementByXpathAction, context_id: str):
     try:
         browser_context = login.main_win.getBrowserContextById(context_id)
@@ -223,7 +237,7 @@ async def in_browser_click_element_by_xpath(params: ClickElementByXpathAction, c
         return ActionResult(error=str(e))
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_click_element_by_text(params: ClickElementByTextAction, context_id: str):
     try:
         browser_context = login.main_win.getBrowserContextById(context_id)
@@ -252,7 +266,7 @@ async def in_browser_click_element_by_text(params: ClickElementByTextAction, con
         return ActionResult(error=str(e))
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_input_text(params: InputTextAction, context_id: str, has_sensitive_data: bool = False):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -271,7 +285,7 @@ async def in_browser_input_text(params: InputTextAction, context_id: str, has_se
 
 
 # Save PDF
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_save_pdf(context_id: str):
     page = await browser.get_current_page()
     short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
@@ -286,7 +300,7 @@ async def in_browser_save_pdf(context_id: str):
 
 
 # Tab Management Actions
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_switch_tab(params: SwitchTabAction, context_id: str):
     await browser.switch_to_tab(params.page_id)
     # Wait for tab to be ready
@@ -297,7 +311,7 @@ async def in_browser_switch_tab(params: SwitchTabAction, context_id: str):
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_open_tab(params: OpenTabAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -307,7 +321,7 @@ async def in_browser_open_tab(params: OpenTabAction, context_id: str):
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_close_tab(params: CloseTabAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -357,7 +371,7 @@ async def in_browser_close_tab(params: CloseTabAction, context_id: str):
 
 
 # HTML Download
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_save_html_to_file(params: NoParamsAction, context_id: str) -> ActionResult:
     """Retrieves and returns the full HTML content of the current page to a file"""
     try:
@@ -386,7 +400,7 @@ async def in_browser_save_html_to_file(params: NoParamsAction, context_id: str) 
         return ActionResult(error=error_msg, extracted_content='')
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_scroll_down(params: ScrollAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -406,7 +420,7 @@ async def in_browser_scroll_down(params: ScrollAction, context_id: str):
 
 
 # scroll up
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_scroll_up(params: ScrollAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -426,7 +440,7 @@ async def in_browser_scroll_up(params: ScrollAction, context_id: str):
 
 
 # send keys
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_send_keys(params: SendKeysAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -450,7 +464,7 @@ async def in_browser_send_keys(params: SendKeysAction, context_id: str):
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_scroll_to_text(text: str, context_id: str):  # type: ignore
     page = await browser.get_current_page()
     try:
@@ -484,7 +498,7 @@ async def in_browser_scroll_to_text(text: str, context_id: str):  # type: ignore
         return ActionResult(error=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_get_dropdown_options(index: int, context_id: str) -> ActionResult:
     """Get all options from a native dropdown"""
     browser_context = login.main_win.getBrowserContextById(context_id)
@@ -555,7 +569,7 @@ async def in_browser_get_dropdown_options(index: int, context_id: str) -> Action
         return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_select_dropdown_option(
         index: int,
         text: str,
@@ -652,7 +666,7 @@ async def in_browser_select_dropdown_option(
         return ActionResult(error=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> ActionResult:
     """
     Performs a precise drag and drop operation between elements or coordinates.
@@ -867,7 +881,7 @@ async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> Actio
         return ActionResult(error=error_msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def mouse_click(params: MouseClickAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -883,7 +897,7 @@ async def mouse_click(params: MouseClickAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def mouse_move(params: MouseMoveAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -896,7 +910,7 @@ async def mouse_move(params: MouseMoveAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def mouse_drag_drop(params: MouseDragDropAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -910,7 +924,7 @@ async def mouse_drag_drop(params: MouseDragDropAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def mouse_scroll(params: MouseScrollAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -927,7 +941,7 @@ async def mouse_scroll(params: MouseScrollAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def text_input(params: TextInputAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -940,7 +954,7 @@ async def text_input(params: TextInputAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def keys_input(params: KeysAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -953,7 +967,7 @@ async def keys_input(params: KeysAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def call_api(params: CallAPIAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -966,7 +980,7 @@ async def call_api(params: CallAPIAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def open_app(params: OpenAppAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -982,7 +996,7 @@ async def open_app(params: OpenAppAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def close_app(params: CloseAppAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -996,7 +1010,7 @@ async def close_app(params: CloseAppAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def switch_to_app(params: SwitchToAppAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1013,7 +1027,7 @@ async def switch_to_app(params: SwitchToAppAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def wait(params: WaitAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1026,7 +1040,7 @@ async def wait(params: WaitAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def run_extern(params: RunExternAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1039,7 +1053,7 @@ async def run_extern(params: RunExternAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def make_dir(params: MakeDirAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1054,7 +1068,7 @@ async def make_dir(params: MakeDirAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def delete_dir(params: DeleteDirAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1069,7 +1083,7 @@ async def delete_dir(params: DeleteDirAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def delete_file(params: DeleteFileAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1084,7 +1098,7 @@ async def delete_file(params: DeleteFileAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def move_file(params: MoveFileAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1100,7 +1114,7 @@ async def move_file(params: MoveFileAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def copy_file_dir(params: CopyFileDirAction, context_id: str):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1113,7 +1127,7 @@ async def copy_file_dir(params: CopyFileDirAction, context_id: str):
     return ActionResult(extracted_content="", include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def screen_analyze(params: ScreenAnalyzeAction, context_id: str, has_sensitive_data: bool = False):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1133,7 +1147,7 @@ async def screen_analyze(params: ScreenAnalyzeAction, context_id: str, has_sensi
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def screen_capture(params: ScreenCaptureAction, context_id: str, has_sensitive_data: bool = False):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1151,7 +1165,7 @@ async def screen_capture(params: ScreenCaptureAction, context_id: str, has_sensi
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def seven_zip(params: SevenZipAction, context_id: str, has_sensitive_data: bool = False):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1164,7 +1178,7 @@ async def seven_zip(params: SevenZipAction, context_id: str, has_sensitive_data:
 
 
 
-@meca_mcp_server.tool()
+@meca_mcp_server.call_tool()
 async def kill_processes(params: KillProcessesAction, context_id: str, has_sensitive_data: bool = False):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -1179,7 +1193,7 @@ async def kill_processes(params: KillProcessesAction, context_id: str, has_sensi
 
 ######################### Prompts Section ##################################
 
-@meca_mcp_server.prompt()
+@meca_mcp_server.get_prompt()
 def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message]:
     return [
         base.UserMessage(f"I am running a robotic process automation (RPA) script automating ADS Power software and on this step where "),
@@ -1189,15 +1203,21 @@ def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message
         base.AssistantMessage("help me fix this error using the tools available, it could be a series of actions. Quite often it was due to ADS Power pops up an advertising banner and blocks its real contents, so you can use screen capture to confirm that and use mouse click action to close the banner, once done, please return a dict result with 'reason' which is a string, and 'fixed' which is a boolean flag in it."),
     ]
 
+@meca_mcp_server.get_prompt()
+def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message]:
+    return [
+        base.UserMessage(f"Say hello to me."),
+        ]
 
-@meca_mcp_server.tool()
+
+@meca_mcp_server.get_prompt()
 def create_thumbnail(image_path: str) -> Image:
     """Create a thumbnail from an image"""
     img = PILImage.open(image_path)
     img.thumbnail((100, 100))
     return Image(data=img.tobytes(), format="png")
 
-@meca_mcp_server.tool()
+@meca_mcp_server.get_prompt()
 async def long_task(files: list[str], ctx: Context) -> str:
     """Process multiple files with progress tracking"""
     for i, file in enumerate(files):
@@ -1207,7 +1227,8 @@ async def long_task(files: list[str], ctx: Context) -> str:
     return "Processing complete"
 
 
-async def sse_to_mcp(scope, receive, send):
+async def handle_sse(scope, receive, send):
+    print(">>> sse connected")
     async with meca_sse.connect_sse(scope, receive, send) as streams:
         await meca_mcp_server.run(streams[0], streams[1], meca_mcp_server.create_initialization_options())
 
