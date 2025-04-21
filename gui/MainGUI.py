@@ -87,10 +87,10 @@ import psutil
 from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 from langchain_openai import ChatOpenAI
-from agent.service import Agent
+from agent.ec_agent import EC_Agent
 from agent.runner.service import Runner
-from agent.skill import build_agent_skills
-from agent.a2a.langgraph_agent.utils import set_up_ecbot_helper_agent
+from agent.ec_skill import build_agent_skills
+from agent.a2a.langgraph_agent.utils import set_up_ec_helper_agent, set_up_ec_rpa_operator_agent, set_up_ec_rpa_supervisor_agent
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -1046,33 +1046,46 @@ class MainWindow(QMainWindow):
         self.llm = ChatOpenAI(model='gpt-4o')
         self.agents = []
         print("Building agent skills.....")
-        self.agent_skills = build_agent_skills(self.llm)
-        print("DONE build agent skills.....")
+        asyncio.create_task(self.async_init())
+
+
+    async def async_init(self):
+        self.agent_skills = await build_agent_skills(self)
+        print("DONE build agent skills.....", len(self.agent_skills))
         self.build_agents()
         print("DONE build agents.....")
-        self.launch_agents()
+        await self.launch_agents()
         print("DONE launch agents.....")
 
-    def launch_agents(self):
+    async def launch_agents(self):
         for agent in self.agents:
-            agent.start()
+            if agent:
+                print("KICKING OFF AGENT.....")
+                await agent.start()
+                print("AGENT STARTED.....")
+            else:
+                print("WARNING EMPTY AGENT .....")
 
     def get_free_agent_ports(self, n):
-        used_ports = [ag.get_a2a_server_port() for ag in self.agents]
+        used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]
+        print("port range:", self.local_agents_port_range)
         all_ports = range(self.local_agents_port_range[0], self.local_agents_port_range[1]+1)
         free_ports = [port for port in all_ports if port not in used_ports]
 
         if len(free_ports) < n:
             raise RuntimeError(f"Only {len(free_ports)} free ports available, but {n} requested.")
 
+        print("free ports", free_ports)
         return free_ports[:n]
 
     def build_agents(self):
         # for now just build a few agents.
         if "Platoon" in self.machine_role:
-            self.agents.append(set_up_ecbot_helper_agent(self))
+            self.agents.append(set_up_ec_helper_agent(self))
+            self.agents.append(set_up_ec_rpa_operator_agent(self))
         else:
-            self.agents.append(set_up_ecbot_helper_agent(self))
+            self.agents.append(set_up_ec_helper_agent(self))
+            self.agents.append(set_up_ec_rpa_supervisor_agent(self))
 
 
     # SC note - really need to have

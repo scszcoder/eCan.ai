@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 import os
+import socket
 import re
 import time
 from pathlib import Path
@@ -57,7 +58,7 @@ from browser.context import BrowserContext
 from agent.runner.context import RunnerContext
 
 from agent.base import GlobalContext, AppContext, Personality
-from agent.skill import Skill
+from agent.ec_skill import EC_Skill
 from browser.views import BrowserState, BrowserStateHistory
 from agent.runner.service import Runner
 from dom.history_tree_processor.service import (
@@ -73,7 +74,7 @@ from telemetry.views import (
 )
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
 from agent.runner.service import Runner
-from agent.tasks import TaskScheduler
+from agent.tasks import TaskRunner, ManagedTask
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -103,26 +104,27 @@ Context = TypeVar('Context')
 AgentHookFunc = Callable[['Agent'], None]
 
 
-class Agent(Generic[Context]):
+class EC_Agent(Generic[Context]):
 	@time_execution_sync('--init (agent)')
 	def __init__(
 		self,
-		task: str,
+		mainwin,
 		llm: BaseChatModel,
+		tasks: Optional[List[ManagedTask]] = None,
 		# Optional parameters
 		browser: Browser | None = None,
 		browser_context: BrowserContext | None = None,
 		global_context: GlobalContext | None = None,
 		runner_context: RunnerContext | None = None,
-		init_skill: Skill | None = None,
-		a2a_client: A2AClient | None = None,
-		a2a_server: A2AServer | None = None,
-		personality: Personality | None = None,
+		skill_set: Optional[List[EC_Skill]] = None,
+		card: AgentCard | None = None,
 		supervisors: Optional[List[str]] = None,
 		subordinates: Optional[List[str]] = None,
 		peers: Optional[List[str]] = None,
+		orgnizations: Optional[List[str]] = None,
+		job_descriptsion: Optional[List[str]] = None,
+		personality: Personality | None = None,
 		# runner: Runner[Context] = Runner(),
-		task_scheduler: TaskScheduler[Context] = TaskScheduler(),
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
@@ -183,12 +185,10 @@ class Agent(Generic[Context]):
 			page_extraction_llm = llm
 
 		# Core components
-		self.task = task
+		self.tasks = tasks
 		self.llm = llm
-		self.runner = runner
 		self.sensitive_data = sensitive_data
-
-		self.skills = [init_skill]
+		self.skill_set = skill_set
 
 		self.supervisors = supervisors if supervisors is not None else []
 		self.subordinates = subordinates if subordinates is not None else []
@@ -224,16 +224,16 @@ class Agent(Generic[Context]):
 		self.state = injected_agent_state or AgentState()
 
 		# Action setup
-		self._setup_action_models()
-		self._set_browser_use_version_and_source()
-		self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
+		# self._setup_action_models()
+		# self._set_browser_use_version_and_source()
+		# self.initial_actions = self._convert_initial_actions(initial_actions) if initial_actions else None
 
 		# Model setup
-		self._set_model_names()
-		logger.info(
-			f'🧠 Starting an agent with main_model={self.model_name}, planner_model={self.planner_model_name}, '
-			f'extraction_model={self.settings.page_extraction_llm.model_name if hasattr(self.settings.page_extraction_llm, "model_name") else None}'
-		)
+		# self._set_model_names()
+		# logger.info(
+		# 	f'🧠 Starting an agent with main_model={self.model_name}, planner_model={self.planner_model_name}, '
+		# 	f'extraction_model={self.settings.page_extraction_llm.model_name if hasattr(self.settings.page_extraction_llm, "model_name") else None}'
+		# )
 
 		# LLM API connection setup
 		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
@@ -241,10 +241,6 @@ class Agent(Generic[Context]):
 			logger.error(f'Environment variables not set for {self.llm.__class__.__name__}')
 			raise ValueError('Environment variables not set')
 
-
-		self.a2a_client = a2a_client
-		self.a2a_server = a2a_server
-		self.a2a_server.attach_agent(self)
 
 		# Start non-blocking LLM connection verification
 		print("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
@@ -255,55 +251,89 @@ class Agent(Generic[Context]):
 
 		# Initialize available actions for system prompt (only non-filtered actions)
 		# These will be used for the system prompt to maintain caching
-		self.unfiltered_actions = self.runner.registry.get_prompt_description()
+		# self.unfiltered_actions = self.runner.registry.get_prompt_description()
 
-		self.tool_calling_method = self._set_tool_calling_method()
-		self.settings.message_context = self._set_message_context()
+		# self.tool_calling_method = self._set_tool_calling_method()
+		# self.settings.message_context = self._set_message_context()
 
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
-		self._message_manager = MessageManager(
-			task=task,
-			system_message=SystemPrompt(
-				action_description=self.unfiltered_actions,
-				max_actions_per_step=self.settings.max_actions_per_step,
-				override_system_message=override_system_message,
-				extend_system_message=extend_system_message,
-			).get_system_message(),
-			settings=MessageManagerSettings(
-				max_input_tokens=self.settings.max_input_tokens,
-				include_attributes=self.settings.include_attributes,
-				message_context=self.settings.message_context,
-				sensitive_data=sensitive_data,
-				available_file_paths=self.settings.available_file_paths,
-			),
-			state=self.state.message_manager_state,
-		)
-
-		if self.settings.enable_memory:
-			memory_settings = MemorySettings(
-				agent_id=self.state.agent_id,
-				interval=self.settings.memory_interval,
-				config=self.settings.memory_config,
-			)
-
-			# Initialize memory
-			self.memory = Memory(
-				message_manager=self._message_manager,
-				llm=self.llm,
-				settings=memory_settings,
-			)
-		else:
-			self.memory = None
+		# self._message_manager = MessageManager(
+		# 	task=task,
+		# 	system_message=SystemPrompt(
+		# 		action_description=self.unfiltered_actions,
+		# 		max_actions_per_step=self.settings.max_actions_per_step,
+		# 		override_system_message=override_system_message,
+		# 		extend_system_message=extend_system_message,
+		# 	).get_system_message(),
+		# 	settings=MessageManagerSettings(
+		# 		max_input_tokens=self.settings.max_input_tokens,
+		# 		include_attributes=self.settings.include_attributes,
+		# 		message_context=self.settings.message_context,
+		# 		sensitive_data=sensitive_data,
+		# 		available_file_paths=self.settings.available_file_paths,
+		# 	),
+		# 	state=self.state.message_manager_state,
+		# )
+		#
+		# if self.settings.enable_memory:
+		# 	memory_settings = MemorySettings(
+		# 		agent_id=self.state.agent_id,
+		# 		interval=self.settings.memory_interval,
+		# 		config=self.settings.memory_config,
+		# 	)
+		#
+		# 	# Initialize memory
+		# 	self.memory = Memory(
+		# 		message_manager=self._message_manager,
+		# 		llm=self.llm,
+		# 		settings=memory_settings,
+		# 	)
+		# else:
+		# 	self.memory = None
 
 		# Browser setup
 		self.injected_browser = browser is not None
 		self.injected_browser_context = browser_context is not None
 		self.browser = browser or Browser()
-		self.browser_context = browser_context or BrowserContext(
-			browser=self.browser, config=self.browser.config.new_context_config
-		)
+		# self.browser_context = browser_context or BrowserContext(
+		# 	browser=self.browser, config=self.browser.config.new_context_config
+		# )
 		self.global_context = global_context or GlobalContext()
+
+		# =====================a2a client+server setup ==================================
+		capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+		def get_lan_ip():
+			try:
+				# Connect to an external address, but don't actually send anything
+				s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+				s.connect(("8.8.8.8", 80))  # Google's DNS IP
+				ip = s.getsockname()[0]
+				s.close()
+				return ip
+			except Exception:
+				return "127.0.0.1"  # fallback
+
+		host = get_lan_ip()
+		free_ports = mainwin.get_free_agent_ports(1)
+		if not free_ports:
+			return None
+		a2a_server_port = free_ports[0]
+		print("a2a server port:", a2a_server_port)
+		self.card = card
+		self.a2a_client = A2AClient(self.card)
+		notification_sender_auth = PushNotificationSenderAuth()
+		notification_sender_auth.generate_jwk()
+		self.a2a_server = A2AServer(
+			agent_card=self.card,
+			task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
+			host=host,
+			port=a2a_server_port,
+		)
+		self.a2a_server.attach_agent(self)
+
+		self.runner = TaskRunner(self)
+
 
 		# Callbacks
 		self.register_new_step_callback = register_new_step_callback
@@ -319,14 +349,26 @@ class Agent(Generic[Context]):
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
 
-		# kick off a2a server:
-		self.a2a_server.start()
+	def add_tasks(self, tasks):
+		self.tasks += tasks  # or: self.tasks.extend(tasks)
 
-	def set_runner(self, runner):
-		self.runner = runner
+	def remove_tasks(self, tasks):
+		self.tasks = [t for t in self.tasks if t not in tasks]
 
-	def set_task(self, task):
-		self.task = task
+	def update_tasks(self, tasks):
+		# Replace existing tasks with same ID or append if new
+		task_ids = {t.id for t in tasks}
+		self.tasks = [t for t in self.tasks if t.id not in task_ids] + tasks
+
+	def add_skills(self, skills):
+		self.skill_set += skills  # or: self.skill_set.extend(skills)
+
+	def remove_skills(self, skills):
+		self.skill_set = [s for s in self.skill_set if s not in skills]
+
+	def update_skills(self, skills):
+		skill_ids = {s.id for s in skills}
+		self.skill_set = [s for s in self.skill_set if s.id not in skill_ids] + skills
 
 	def set_llm(self, llm):
 		self.llm = llm
@@ -1526,7 +1568,7 @@ class Agent(Generic[Context]):
 		self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
 
 	def get_card(self):
-		return self.a2a_server.agent_card
+		return self.card
 
 	def get_a2a_server_port(self):
 		return int(self.a2a_server.agent_card.url.split(":")[-1])
@@ -1636,6 +1678,11 @@ class Agent(Generic[Context]):
 		# create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
 	async def start(self):
+		# kick off a2a server:
+		self.a2a_server.start()
+
+		# kick off TaskExecutor
+		self.runner.run_all_tasks()
 		runnable = self.skills[0].get_runnable()
 		response: dict[str, Any] = await self.mcp_agent.ainvoke(input_messages)
 		runnable.ainvoke()

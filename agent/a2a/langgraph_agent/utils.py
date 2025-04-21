@@ -1,15 +1,16 @@
 from agent.a2a.common.client import A2AClient
-from agent.service import Agent
+from agent.ec_agent import EC_Agent
 from agent.a2a.common.server import A2AServer
 from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
 from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
-from agent.tasks import TaskScheduler
+from agent.a2a.common.types import TaskStatus, TaskState
+from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.runner.service import Runner
 import traceback
 import socket
-
+import uuid
 
 def get_lan_ip():
     try:
@@ -22,52 +23,66 @@ def get_lan_ip():
     except Exception:
         return "127.0.0.1"  # fallback
 
+def get_a2a_server_url(mainwin):
+    try:
+        host = get_lan_ip()
+        free_ports = mainwin.get_free_agent_ports(1)
 
-def set_up_ecbot_helper_agent(mainwin):
+        if not free_ports:
+            return None
+        a2a_server_port = free_ports[0]
+        url=f"http://{host}:{a2a_server_port}"
+        print("a2a server url:", url)
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGetA2AServerURL:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGetA2AServerURL: traceback information not available:" + str(e)
+        mainwin.showMsg(ex_stat)
+        return ""
+    return url
+
+def set_up_ec_helper_agent(mainwin):
     try:
         llm = mainwin.llm
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        helper_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-
-        a2a_skill = AgentSkill(
-                id=helper_skill.id,
-                name=helper_skill.name,
-                description=helper_skill.description,
-                tags=["help fix errors", "help fix failure"],
-                examples=["Please help fix this RPA run failure"],
-        )
-        host = get_lan_ip()
-        free_ports = mainwin.get_free_agent_ports(1)
-        if free_ports:
-            return None
-        a2a_server_port = free_ports[0]
+        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
         agent_card = AgentCard(
                 name="ECBot Helper Agent",
                 description="Helps with ECBot RPA works",
-                url=f"http://{host}:{a2a_server_port}/",
+                url=get_a2a_server_url(mainwin) or "http://localhost:3600",
                 version="1.0.0",
                 defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
                 defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
                 capabilities=capabilities,
-                skills=[a2a_skill],
-        )
-        a2a_client = A2AClient(agent_card)
-        notification_sender_auth = PushNotificationSenderAuth()
-        notification_sender_auth.generate_jwk()
-        a2a_server = A2AServer(
-            agent_card=agent_card,
-            task_manager=AgentTaskManager( notification_sender_auth=notification_sender_auth),
-            host=host,
-            port=a2a_server_port,
+                skills=[agent_skill],
         )
 
-        task = ""
-        task_scheduler = TaskScheduler()
-        helper_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-        helper = Agent(task=task, llm=llm, a2a_client=a2a_client, a2a_server=a2a_server, task_scheduler=task_scheduler, init_skill=helper_skill)
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        task = ManagedTask(
+            id=task_id,
+            name="ECBot RPA Helper Task",
+            description="Help fix errors/failures during e-commerce RPA run",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=agent_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule"
+        )
+        helper = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
     except Exception as e:
         # Get the traceback information
@@ -88,47 +103,37 @@ def set_up_ec_customer_support_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        support_skill = next((sk for sk in agent_skills if sk.name == "ecbot customer support"), None)
-
-        a2a_skill = AgentSkill(
-            id=support_skill.id,
-            name=support_skill.name,
-            description=support_skill.description,
-            tags=["e-commerce customer support", "e-commerce after sale support"],
-            examples=["please take care of orders"],
-        )
-        host = get_lan_ip()
-        free_ports = mainwin.get_free_agent_ports(1)
-        if free_ports:
-            return None
-        a2a_server_port = free_ports[0]
+        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
         agent_card = AgentCard(
-            name="ECBot RPA Customer Support Agent",
-            description="Run E-Commerce After Sale works including order fullfill, Order Cancel, Return, Refund, Re-send, Answer Questions etc.",
-            url=f"http://{host}:{a2a_server_port}/",
+            name="ECBot Helper Agent",
+            description="Helps with ECBot RPA works",
+            url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            skills=[a2a_skill],
-        )
-        a2a_client = A2AClient(agent_card)
-        notification_sender_auth = PushNotificationSenderAuth()
-        notification_sender_auth.generate_jwk()
-        a2a_server = A2AServer(
-            agent_card=agent_card,
-            task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
-            host=host,
-            port=a2a_server_port,
+            skills=[agent_skill],
         )
 
-        task = ""
-        task_scheduler = TaskScheduler()
-        support_skill = next((sk for sk in agent_skills if sk.name == "ecbot customer support"), None)
-        customer_support = Agent(task=task, llm=llm, a2a_client=a2a_client, a2a_server=a2a_server,
-                         task_scheduler=task_scheduler,
-                         init_skill=support_skill)
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        task = ManagedTask(
+            id=task_id,
+            name="ECBot RPA Helper Task",
+            description="Help fix errors/failures during e-commerce RPA run",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=agent_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule"
+        )
+        customer_support = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
     except Exception as e:
         # Get the traceback information
@@ -149,46 +154,37 @@ def set_up_ec_rpa_operator_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        operator_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator"), None)
-
-        a2a_skill = AgentSkill(
-            id=operator_skill.id,
-            name=operator_skill.name,
-            description=operator_skill.description,
-            tags=["run RPA works", "run RPA missions"],
-            examples=["Please help operate these RPA missions"],
-        )
-        host = get_lan_ip()
-        free_ports = mainwin.get_free_agent_ports(1)
-        if free_ports:
-            return None
-        a2a_server_port = free_ports[0]
+        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
         agent_card = AgentCard(
-            name="ECBot RPA Operator Agent",
-            description="Run ECBot RPA works",
-            url=f"http://{host}:{a2a_server_port}/",
+            name="ECBot Helper Agent",
+            description="Helps with ECBot RPA works",
+            url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            skills=[a2a_skill],
-        )
-        a2a_client = A2AClient(agent_card)
-        notification_sender_auth = PushNotificationSenderAuth()
-        notification_sender_auth.generate_jwk()
-        a2a_server = A2AServer(
-            agent_card=agent_card,
-            task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
-            host=host,
-            port=a2a_server_port,
+            skills=[agent_skill],
         )
 
-        task = ""
-        task_scheduler = TaskScheduler()
-        operator_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator"), None)
-        operator = Agent(task=task, llm=llm, a2a_client=a2a_client, a2a_server=a2a_server, task_scheduler=task_scheduler,
-                       init_skill=operator_skill)
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        task = ManagedTask(
+            id=task_id,
+            name="ECBot RPA Helper Task",
+            description="Help fix errors/failures during e-commerce RPA run",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=agent_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule"
+        )
+        operator = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
     except Exception as e:
         # Get the traceback information
@@ -209,46 +205,37 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        supervisor_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor"), None)
-
-        a2a_skill = AgentSkill(
-            id=supervisor_skill.id,
-            name=supervisor_skill.name,
-            description=supervisor_skill.description,
-            tags=["Supervise run RPA works", "Supervise run RPA missions"],
-            examples=["Please supervise this RPA run works"],
-        )
-        host = get_lan_ip()
-        free_ports = mainwin.get_free_agent_ports(1)
-        if free_ports:
-            return None
-        a2a_server_port = free_ports[0]
+        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
         agent_card = AgentCard(
-            name="ECBot Supervisor Agent",
-            description="ECBot RPA Supervisor",
-            url=f"http://{host}:{a2a_server_port}/",
+            name="ECBot Helper Agent",
+            description="Helps with ECBot RPA works",
+            url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            skills=[a2a_skill],
-        )
-        a2a_client = A2AClient(agent_card)
-        notification_sender_auth = PushNotificationSenderAuth()
-        notification_sender_auth.generate_jwk()
-        a2a_server = A2AServer(
-            agent_card=agent_card,
-            task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
-            host=host,
-            port=a2a_server_port,
+            skills=[agent_skill],
         )
 
-        task = ""
-        task_scheduler = TaskScheduler()
-        supervisor_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor"), None)
-        supervisor = Agent(task=task, llm=llm, a2a_client=a2a_client, a2a_server=a2a_server, task_scheduler=task_scheduler,
-                       init_skill=supervisor_skill)
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        task = ManagedTask(
+            id=task_id,
+            name="ECBot RPA Helper Task",
+            description="Help fix errors/failures during e-commerce RPA run",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=agent_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule"
+        )
+        supervisor = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
     except Exception as e:
         # Get the traceback information
@@ -263,108 +250,156 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
     return supervisor
 
 
+
 def set_up_ec_marketing_agent(mainwin):
-    # a2a client+server
-    capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-    a2a_skill = AgentSkill(
-			id="convert_currency",
-			name="Currency Exchange Rates Tool",
-			description="Helps with exchange values between various currencies",
-			tags=["currency conversion", "currency exchange"],
-			examples=["What is exchange rate between USD and GBP?"],
-    )
-    host = "127.0.0.1"
-    port = str(4668)
-    agent_card = AgentCard(
-			name="ECBot Helper Agent",
-			description="Helps with ECBot RPA works",
-			url=f"http://{host}:{port}/",
-			version="1.0.0",
-			defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-			defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-			capabilities=capabilities,
-			skills=[a2a_skill],
-		)
+    try:
+        llm = mainwin.llm
+        agent_skills = mainwin.agent_skills
+        # a2a client+server
+        capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
-    notification_sender_auth = PushNotificationSenderAuth()
-    notification_sender_auth.generate_jwk()
+        agent_card = AgentCard(
+            name="ECBot Helper Agent",
+            description="Helps with ECBot RPA works",
+            url=get_a2a_server_url(mainwin) or "http://localhost:3600",
+            version="1.0.0",
+            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            capabilities=capabilities,
+            skills=[agent_skill],
+        )
 
-    a2a_server_port = 3600
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        task = ManagedTask(
+            id=task_id,
+            name="ECBot RPA Helper Task",
+            description="Help fix errors/failures during e-commerce RPA run",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=agent_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule"
+        )
+        marketer = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
-    task = ""
-    runner = Runner()
-    marketer_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-    marketer = Agent(task=task, llm=llm, runner=runner, init_skill=helper_skill)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSetUpECBOTHelperAgent:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSetUpECBOTHelperAgent: traceback information not available:" + str(e)
+        mainwin.showMsg(ex_stat)
+        return None
 
     return marketer
 
 def set_up_ec_sales_agent(mainwin):
-    # a2a client+server
-    capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-    a2a_skill = AgentSkill(
-			id="convert_currency",
-			name="Currency Exchange Rates Tool",
-			description="Helps with exchange values between various currencies",
-			tags=["currency conversion", "currency exchange"],
-			examples=["What is exchange rate between USD and GBP?"],
-    )
-    host = "127.0.0.1"
-    port = str(4668)
-    agent_card = AgentCard(
-			name="ECBot Helper Agent",
-			description="Helps with ECBot RPA works",
-			url=f"http://{host}:{port}/",
-			version="1.0.0",
-			defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-			defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-			capabilities=capabilities,
-			skills=[a2a_skill],
-		)
+    try:
+        llm = mainwin.llm
+        agent_skills = mainwin.agent_skills
+        # a2a client+server
+        capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
-    notification_sender_auth = PushNotificationSenderAuth()
-    notification_sender_auth.generate_jwk()
+        agent_card = AgentCard(
+            name="ECBot Helper Agent",
+            description="Helps with ECBot RPA works",
+            url=get_a2a_server_url(mainwin) or "http://localhost:3600",
+            version="1.0.0",
+            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            capabilities=capabilities,
+            skills=[agent_skill],
+        )
 
-    a2a_server_port = 3600
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        task = ManagedTask(
+            id=task_id,
+            name="ECBot RPA Helper Task",
+            description="Help fix errors/failures during e-commerce RPA run",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=agent_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule"
+        )
+        sales = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
-    task = ""
-    runner = Runner()
-    sales_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-    sales = Agent(task=task, llm=llm, runner=runner, init_skill=sales_skill)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSetUpECBOTHelperAgent:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSetUpECBOTHelperAgent: traceback information not available:" + str(e)
+        mainwin.showMsg(ex_stat)
+        return None
 
     return sales
 
 
 def set_up_ec_research_agent(mainwin):
-    # a2a client+server
-    capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-    a2a_skill = AgentSkill(
-			id="convert_currency",
-			name="Currency Exchange Rates Tool",
-			description="Helps with exchange values between various currencies",
-			tags=["currency conversion", "currency exchange"],
-			examples=["What is exchange rate between USD and GBP?"],
-    )
-    host = "127.0.0.1"
-    port = str(4668)
-    agent_card = AgentCard(
-			name="ECBot Helper Agent",
-			description="Helps with ECBot RPA works",
-			url=f"http://{host}:{port}/",
-			version="1.0.0",
-			defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-			defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-			capabilities=capabilities,
-			skills=[a2a_skill],
-		)
+    try:
+        llm = mainwin.llm
+        agent_skills = mainwin.agent_skills
+        # a2a client+server
+        capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
+        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
-    notification_sender_auth = PushNotificationSenderAuth()
-    notification_sender_auth.generate_jwk()
+        agent_card = AgentCard(
+            name="ECBot Helper Agent",
+            description="Helps with ECBot RPA works",
+            url=get_a2a_server_url(mainwin) or "http://localhost:3600",
+            version="1.0.0",
+            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            capabilities=capabilities,
+            skills=[agent_skill],
+        )
 
-    a2a_server_port = 3600
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        task = ManagedTask(
+            id=task_id,
+            name="ECBot RPA Helper Task",
+            description="Help fix errors/failures during e-commerce RPA run",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=agent_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule"
+        )
+        marketing_researcher = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
-    task = ""
-    runner = Runner()
-    researcher_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-    marketing_researcher = Agent(task=task, llm=llm, runner=runner, init_skill=researcher_skill)
-
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSetUpECBOTHelperAgent:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSetUpECBOTHelperAgent: traceback information not available:" + str(e)
+        mainwin.showMsg(ex_stat)
+        return None
     return marketing_researcher

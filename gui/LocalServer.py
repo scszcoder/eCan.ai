@@ -5,7 +5,7 @@ import asyncio
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, FileResponse, StreamingResponse
 from starlette.staticfiles import StaticFiles
-from starlette.routing import Route, Mount
+from starlette.routing import Route, Mount, ASGIApp, Router
 from starlette.middleware.cors import CORSMiddleware
 import uvicorn
 import os
@@ -13,7 +13,7 @@ import time
 import uuid
 from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
-from agent.mcp.server.server import *
+from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse
 import traceback
 response_dict = {}
 
@@ -94,15 +94,36 @@ async def sync_bots_missions(request):
         print(ex_stat)
         return JSONResponse({"status": "failure", "result": ex_stat}, status_code=500)
 
+async def health_check(request):
+    print("health_check status returned................")
+    return JSONResponse({"status": "ok"})
+
+# Wrap the raw ASGI handler for POST
+messages_router = Router([
+    Route("/", endpoint=sse_handle_messages, methods=["POST"])
+])
+
+sse_router = Router([
+    Route("/", endpoint=handle_sse, methods=["GET"])
+])
+
 routes = [
+    Route("/healthz", health_check),
+    Mount("/sse", app=handle_sse),
+    Mount("/messages/", app=meca_sse.handle_post_message),
+    # Route("/sse", endpoint=handle_sse),
     Route('/api/gen_feedbacks', gen_feedbacks, methods=['GET']),
     Route('/api/get_mission_reports', get_mission_reports, methods=['GET']),
-    Route('/api/gen_feedbacks', post_data, methods=['POST']),
     Route('/api/stream', stream),
     Route('/api/sync_bots_missions', sync_bots_missions, methods=['POST']),
-    Route('/{filename:path}', serve_image),
-    Route("/sse2mcp", endpoint=sse_to_mcp),
-    Route("/messages", endpoint=sse_handle_messages, methods=["POST"]),
+    # Route('/{filename:path}', serve_image),
+    # Mount("/messages", app=sse_handle_messages),
+    # Mount("/sse", app=sse_router),
+    # Route("/sse", endpoint=handle_sse),
+    # Route("/messages", endpoint=sse_handle_messages, methods=["POST"]),
+    # Mount("/sse", sse_to_mcp),
+    # Mount("/sse2mcp", app=meca_mcp_server.sse_app()),
+    # Mount("/messages", app=sse_handle_messages),
     Mount('/', StaticFiles(directory='agent/agent_files', html=True), name='static'),
 ]
 
@@ -131,6 +152,7 @@ def start_local_server_in_thread(mwin):
     MainWin.local_server_thread = starlette_thread
     starlette_thread.daemon = True  # Allows the thread to exit when the main program exits
     starlette_thread.start()
+    print("local server kicked off....................")
 
 # if __name__ == '__main__':
 #     run_starlette()

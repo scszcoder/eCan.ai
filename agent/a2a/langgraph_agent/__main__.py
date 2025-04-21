@@ -33,7 +33,7 @@ def main(host, port):
         agent_card = AgentCard(
             name="Currency Agent",
             description="Helps with exchange rates for currencies",
-            url=f"http://{host}:{port}/",
+            url=f"http://{host}:{port}",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
