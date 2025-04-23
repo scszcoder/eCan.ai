@@ -6,13 +6,61 @@ from agent.a2a.common.types import *
 from agent.ec_skill import EC_Skill
 import os
 from datetime import datetime, timedelta
+import inspect
+import traceback
+from datetime import datetime, timedelta
+from calendar import monthrange
+# self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
+# self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
+# self.MONTH_TYPES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+class Priority_Types(str, Enum):
+    LOW = "low"
+    MID = "mid"
+    HIGH = "High"
+    URGENT = "Urgent"
+    ASAP = "ASAP"
+
+class Repeat_Types(str, Enum):
+    NONE = "none"
+    BY_SECONDS = "by seconds"
+    BY_MINUTES = "by minutes"
+    BY_HOURS = "by hours"
+    BY_DAYS = "by days"
+    BY_WEEKS = "by weeks"
+    BY_MONTHS = "by months"
+    BY_YEARS = "by years"
+
+class Week_Days_Types(str, Enum):
+    M = "M"
+    TU = "Tu"
+    W = "W"
+    TH = "Th"
+    F = "F"
+    SA = "by weeks"
+    SU = "by months"
+
+class Month_Types(str, Enum):
+    JAN = "Jan"
+    FEB = "Feb"
+    MAR = "Mar"
+    APR = "Apr"
+    MAY = "May"
+    JUN = "Jun"
+    JUL = "Jul"
+    AUG = "Aug"
+    SEP = "Sep"
+    OCT = "Oct"
+    NOV = "Nov"
+    DEC = "Dec"
 
 class TaskSchedule(BaseModel):
-    repeat_cycle: int
+    repeat_type: Repeat_Types
+    repeat_number: int
     repeat_unit: str
     start_date_time: str
     end_date_time: str
-    time_out: str
+    time_out: int                # seconds.
 
 
 class ManagedTask(Task):
@@ -23,16 +71,20 @@ class ManagedTask(Task):
     task: Optional[asyncio.Task] = None
     pause_event: asyncio.Event = asyncio.Event()
     schedule: Optional[TaskSchedule] = None
-    msg_queue: asyncio.Queue = asyncio.Queue()
     checkpoint_nodes: Optional[List[str]] = None
+    priority: Optional[Priority_Types] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.pause_event.set()
+        self.priority = Priority_Types.LOW
         if self.checkpoint_nodes is None:
             self.checkpoint_nodes = []
+
+    def set_priority(self, p):
+        self.priority = p
 
     def add_checkpoint_node(self, cp_name):
         if cp_name not in self.checkpoint_nodes:
@@ -51,26 +103,6 @@ class ManagedTask(Task):
                 return
         self.status.state = TaskState.COMPLETED
 
-    async def scheduled_run(self):
-        while True:
-            print("listening to platoons")
-
-            if not self.msg_queue.empty():
-                try:
-                    msg = self.msg_queue.get_nowait()
-                    print("A2A message....", msg)
-                    self.msg_queue.task_done()
-
-                except asyncio.QueueEmpty:
-                    print("Queue unexpectedly empty when trying to get message.")
-                    pass
-                except Exception as e:
-                    print(f"Error processing Commander message: {e}")
-            else:
-                # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
-                if self.time_to_run():
-                    await self.astream_run()
-            await asyncio.sleep(1)  # Short sleep to avoid busy-waiting
 
     async def create_scheduler_task(self):
         self.task = asyncio.create_task(self.scheduled_run())
@@ -82,6 +114,94 @@ class ManagedTask(Task):
 from agent.a2a.common.types import TaskSendParams, TextPart
 Context = TypeVar('Context')
 
+def add_months(dt: datetime, months: int) -> datetime:
+    month = dt.month - 1 + months
+    year = dt.year + month // 12
+    month = month % 12 + 1
+    day = min(dt.day, monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+def add_years(dt: datetime, years: int) -> datetime:
+    try:
+        return dt.replace(year=dt.year + years)
+    except ValueError:
+        # handle Feb 29 -> Feb 28 on non-leap years
+        return dt.replace(month=2, day=28, year=dt.year + years)
+
+def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
+    fmt = "%Y-%m-%d %H:%M:%S:%f"
+    now = datetime.now()
+
+    start_time = datetime.strptime(schedule.start_date_time, fmt)
+    end_time = datetime.strptime(schedule.end_date_time, fmt)
+    repeat_number = int(schedule.repeat_number)
+
+    if schedule.repeat_type == Repeat_Types.NONE:
+        return start_time, False  # ⛔ Never auto-run
+    elif schedule.repeat_type == Repeat_Types.BY_SECONDS:
+        delta = timedelta(seconds=repeat_number)
+        elapsed = (now - start_time).total_seconds()
+        intervals = max(0, int(elapsed // delta.total_seconds()))
+        next_runtime = start_time + delta * (intervals + 1)
+    elif schedule.repeat_type == Repeat_Types.BY_MINUTES:
+        delta = timedelta(minutes=repeat_number)
+        elapsed = (now - start_time).total_seconds()
+        intervals = max(0, int(elapsed // delta.total_seconds()))
+        next_runtime = start_time + delta * (intervals + 1)
+    elif schedule.repeat_type == Repeat_Types.BY_HOURS:
+        delta = timedelta(hours=repeat_number)
+        elapsed = (now - start_time).total_seconds()
+        intervals = max(0, int(elapsed // delta.total_seconds()))
+        next_runtime = start_time + delta * (intervals + 1)
+    elif schedule.repeat_type == Repeat_Types.BY_DAYS:
+        delta = timedelta(days=repeat_number)
+        elapsed = (now - start_time).total_seconds()
+        intervals = max(0, int(elapsed // delta.total_seconds()))
+        next_runtime = start_time + delta * (intervals + 1)
+    elif schedule.repeat_type == Repeat_Types.BY_WEEKS:
+        delta = timedelta(weeks=repeat_number)
+        elapsed = (now - start_time).total_seconds()
+        intervals = max(0, int(elapsed // delta.total_seconds()))
+        next_runtime = start_time + delta * (intervals + 1)
+    elif schedule.repeat_type == Repeat_Types.BY_MONTHS:
+        next_runtime = start_time
+        while next_runtime <= now:
+            next_runtime = add_months(next_runtime, repeat_number)
+    elif schedule.repeat_type == Repeat_Types.BY_YEARS:
+        next_runtime = start_time
+        while next_runtime <= now:
+            next_runtime = add_years(next_runtime, repeat_number)
+    else:
+        raise ValueError(f"Unsupported repeat type: {schedule.repeat_type}")
+
+    # Clamp to end_time
+    if next_runtime > end_time:
+        next_runtime = end_time
+
+    should_run_now = now >= next_runtime
+    return next_runtime, should_run_now
+
+# sort t2rs by start time, the earliest will be run first.
+def time_to_run(agent):
+    t2r = None
+    t2rs = []
+    for task in agent.tasks:
+        next_run_time, should_run = get_next_runtime(task.schedule)
+        if should_run:
+            t2rs.append({"rt": next_run_time, "task": task})
+
+    if not t2rs:
+        return None  # no tasks ready to run
+
+    # ✅ Sort the list by run time (earliest first)
+    t2rs.sort(key=lambda x: x["rt"])
+
+    now = datetime.now()
+    if now >= t2rs[0]["rt"]:
+        return t2rs[0]
+
+    return None
+
 class TaskRunner(Generic[Context]):
     def __init__(self, agent):  # includes persistence methods
         self.agent = agent
@@ -89,7 +209,9 @@ class TaskRunner(Generic[Context]):
         self.running_tasks = []
         self.save_dir = "./task_saves"
         os.makedirs(self.save_dir, exist_ok=True)
-        self.agent = None
+        self.msg_queue = asyncio.Queue()
+        self._stop_event = asyncio.Event()
+
 
     def assign_agent(self, agent):
         self.agent = agent
@@ -109,9 +231,39 @@ class TaskRunner(Generic[Context]):
         return task_id
 
 
+    async def run_task(self, task_id):
+        tbr_task = next((task for task in self.agent.tasks if task and task.id == task_id), None)
+        if tbr_task:
+            if tbr_task.status.state != TaskState.WORKING and tbr_task.status.state != TaskState.INPUT_REQUIRED :
+                print("start to run task: ", tbr_task.status.state)
+                await tbr_task.astream()
+            else:
+                print("WARNING: no running tasks....")
+
+
     async def run_all_tasks(self):
-        self.running_tasks = [task.task for task in self.agent.tasks]
-        await asyncio.gather(*self.running_tasks)
+        self.running_tasks = []
+
+        for t in self.agent.tasks:
+            if t and callable(t.task):
+                try:
+                    coro = t.task()  # Try calling it with no arguments
+                    if inspect.isawaitable(coro):
+                        self.running_tasks.append(coro)
+                    else:
+                        print(f"⚠️ Task returned non-awaitable: {coro}")
+                except TypeError:
+                    print(f"⚠️ Task {t.task} requires arguments — please invoke it properly.")
+            elif inspect.isawaitable(t.task):
+                self.running_tasks.append(t.task)
+            else:
+                print(f"⚠️ Task is not callable or awaitable: {t.task}")
+
+        if self.running_tasks:
+            print("# of running tasks: ", len(self.running_tasks))
+            await asyncio.gather(*self.running_tasks)
+        else:
+            print("WARNING: no running tasks....")
 
 
     async def step_task(self, task_id: str):
@@ -183,6 +335,52 @@ class TaskRunner(Generic[Context]):
         if task.status.message:
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))
         await self.resume_task(task_id)
+
+    async def wait_in_line(self, request):
+        try:
+            print("waiting in line.....")
+            await self.msg_queue.put(request)
+            print("now in line....")
+        except Exception as e:
+            ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
+    async def launch_scheduled_run(self):
+        while not self._stop_event.is_set():
+            try:
+                print("checking a2a queue....")
+
+                if not self.msg_queue.empty():
+                    try:
+                        msg = self.msg_queue.get_nowait()
+                        print("A2A message....", msg)
+                        self.msg_queue.task_done()
+
+                        # process msg here and the msg could be start a task run.
+                    except asyncio.QueueEmpty:
+                        print("Queue unexpectedly empty when trying to get message.")
+                        pass
+                    except Exception as e:
+                        print(f"Error processing Commander message: {e}")
+                else:
+                    # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
+                    print("Checking schedule.....")
+                    task2run = time_to_run(self.agent)
+                    print("len task2run", task2run)
+                    if task2run:
+                        response = await task2run.astream_run()
+                        if response:
+                            self.agent.a2a_server.task_manager.set_result(task2run.id, response)
+                        else:
+                            self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
+                    else:
+                        print("nothing 2 run")
+
+            except Exception as e:
+                ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+                print(f"{ex_stat}")
+
+            await asyncio.sleep(1)  # the loop goes on.....
 
 # Remaining application code continues here...
 # (not repeating routing/app setup for brevity)

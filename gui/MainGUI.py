@@ -1056,6 +1056,7 @@ class MainWindow(QMainWindow):
         print("DONE build agents.....")
         await self.launch_agents()
         print("DONE launch agents.....")
+        await self.test_a2a()
 
     async def launch_agents(self):
         for agent in self.agents:
@@ -1065,6 +1066,15 @@ class MainWindow(QMainWindow):
                 print("AGENT STARTED.....")
             else:
                 print("WARNING EMPTY AGENT .....")
+
+    async def test_a2a(self):
+        # let supervisor agent sends a message to agent
+        supervisor = next((ag for ag in self.agents if "Helper" not in ag.card.name), None)
+        if supervisor:
+            print("found supervisor:", supervisor.card.name)
+            await supervisor.request_local_help()
+        else:
+            print("Warning, supervisor not found...")
 
     def get_free_agent_ports(self, n):
         used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]

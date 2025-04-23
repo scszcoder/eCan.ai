@@ -32,7 +32,7 @@ class A2AServer:
         self,
         host="0.0.0.0",
         port=5000,
-        endpoint="/",
+        endpoint="/a2a/",
         agent_card: AgentCard = None,
         task_manager: TaskManager = None,
     ):

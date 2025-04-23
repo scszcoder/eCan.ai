@@ -75,6 +75,8 @@ from telemetry.views import (
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
 from agent.runner.service import Runner
 from agent.tasks import TaskRunner, ManagedTask
+import threading
+
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -189,7 +191,7 @@ class EC_Agent(Generic[Context]):
 		self.llm = llm
 		self.sensitive_data = sensitive_data
 		self.skill_set = skill_set
-
+		self._stop_event = asyncio.Event()
 		self.supervisors = supervisors if supervisors is not None else []
 		self.subordinates = subordinates if subordinates is not None else []
 		self.peers = peers if peers is not None else []
@@ -244,7 +246,8 @@ class EC_Agent(Generic[Context]):
 
 		# Start non-blocking LLM connection verification
 		print("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
-		self.llm._verified_api_keys = self._verify_llm_connection(self.llm)
+		# self.llm._verified_api_keys = self._verify_llm_connection(self.llm)
+		self.llm._verified_api_keys = asyncio.create_task(self._verify_llm_connection(self.llm))
 		print("VERIFIED OPENAI API KEY IS::::::::", self.llm._verified_api_keys)
 
 		# self.mcp_agent = create_react_agent(self.llm, self.mcp_client.get_tools())
@@ -329,7 +332,9 @@ class EC_Agent(Generic[Context]):
 			task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
 			host=host,
 			port=a2a_server_port,
+			endpoint="/a2a/",
 		)
+		print("host:", host, "a2a server port:", a2a_server_port)
 		self.a2a_server.attach_agent(self)
 
 		self.runner = TaskRunner(self)
@@ -1677,30 +1682,53 @@ class EC_Agent(Generic[Context]):
 
 		# create_history_gif(task=self.task, history=self.state.history, output_path=output_path)
 
+	def start_a2a_server_in_thread(self, a2a_server):
+		def run_server():
+			a2a_server.start()  # this is the uvicorn.run(...) call
+
+		self.a2a_server_thread = threading.Thread(target=run_server)
+		self.a2a_server_thread.daemon = True
+		self.a2a_server_thread.start()
+
+	def exit_a2a_server_in_thread(self):
+		if self.a2a_server_thread and self.a2a_server_thread.is_alive():
+			self.a2a_server_thread.join(timeout=5)
+
 	async def start(self):
 		# kick off a2a server:
-		self.a2a_server.start()
-
+		self.start_a2a_server_in_thread(self.a2a_server)
+		print("A2A server started....")
 		# kick off TaskExecutor
-		self.runner.run_all_tasks()
-		runnable = self.skills[0].get_runnable()
-		response: dict[str, Any] = await self.mcp_agent.ainvoke(input_messages)
-		runnable.ainvoke()
+		asyncio.create_task(self.runner.launch_scheduled_run())
+		# runnable = self.skill_set[0].get_runnable()
+		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
+		# runnable.ainvoke()
+		print("Ready to A2A chat....")
 
 	async def hone_skills(self):
 		print("hone skills...")
 
+	def get_task_id_from_request(self, req):
+		task_id = req.params.id
+		print(f"TASK ID IN QUERY:{task_id}.")
+		return task_id
+
 	@time_execution_async('--request_local_help (agent)')
-	async def request_local_help(self, recipient_agent):
+	async def request_local_help(self, recipient_agent=None):
 		# this is only available if myself is not a helper agent
+		print("client card:", self.get_card().name.lower())
 		if "helper" not in self.get_card().name.lower():
-			self.a2a_client.set_recipient(url="127.0.0.1:3600")
+			self.a2a_client.set_recipient(url="http://192.168.0.10:3600/a2a/")
 			payload = {
-				"id": "task-001",
+				"id": "task-001X",
 				"sessionId": "sess-abc",
 				"message": Message(role="user", parts=[TextPart(type="text", text="Summarize this report")]),
 				"acceptedOutputModes": ["json"],
 				"skill": "resolve_rpa_failure"  # Or whatever your agent expects
 			}
 
+			print("client payload:", payload["id"])
 			response = await self.a2a_client.send_task(payload)
+			print("A2A RESPONSE:", response)
+		else:
+			print("client err:", self.get_card().name.lower())

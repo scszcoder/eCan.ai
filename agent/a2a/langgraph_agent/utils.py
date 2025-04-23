@@ -8,6 +8,7 @@ from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.runner.service import Runner
+from agent.tasks import Repeat_Types
 import traceback
 import socket
 import uuid
@@ -65,6 +66,15 @@ def set_up_ec_helper_agent(mainwin):
                 skills=[agent_skill],
         )
 
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.NONE,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120  # seconds.
+        )
+
         task_id = str(uuid.uuid4())
         session_id = ""
         resume_from = ""
@@ -80,7 +90,8 @@ def set_up_ec_helper_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule"
+            trigger="schedule",
+            schedule=task_schedule
         )
         helper = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
@@ -116,6 +127,15 @@ def set_up_ec_customer_support_agent(mainwin):
             skills=[agent_skill],
         )
 
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120  # seconds.
+        )
+
         task_id = str(uuid.uuid4())
         session_id = ""
         resume_from = ""
@@ -131,7 +151,8 @@ def set_up_ec_customer_support_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule"
+            trigger="schedule",
+            schedule=task_schedule
         )
         customer_support = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
@@ -157,14 +178,23 @@ def set_up_ec_rpa_operator_agent(mainwin):
         agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
         agent_card = AgentCard(
-            name="ECBot Helper Agent",
-            description="Helps with ECBot RPA works",
+            name="ECBot RPA Operator Agent",
+            description="Run and operates ECBot RPA bots to do their scheduled work",
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=[agent_skill],
+        )
+
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.NONE,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120                # seconds.
         )
 
         task_id = str(uuid.uuid4())
@@ -182,7 +212,8 @@ def set_up_ec_rpa_operator_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule"
+            trigger="schedule",
+            schedule=task_schedule
         )
         operator = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
@@ -208,14 +239,24 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
 
         agent_card = AgentCard(
-            name="ECBot Helper Agent",
-            description="Helps with ECBot RPA works",
+            name="ECBot RPA Supervisor Agent",
+            description="Obtain Daily Run Task Schedule and Dispatches Tasks To Operators To Run",
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=[agent_skill],
+        )
+
+
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120                # seconds.
         )
 
         task_id = str(uuid.uuid4())
@@ -233,7 +274,8 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule"
+            trigger="schedule",
+            schedule=task_schedule
         )
         supervisor = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
@@ -270,6 +312,15 @@ def set_up_ec_marketing_agent(mainwin):
             skills=[agent_skill],
         )
 
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120                # seconds.
+        )
+
         task_id = str(uuid.uuid4())
         session_id = ""
         resume_from = ""
@@ -285,7 +336,8 @@ def set_up_ec_marketing_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule"
+            trigger="schedule",
+            schedule=task_schedule
         )
         marketer = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
@@ -321,6 +373,15 @@ def set_up_ec_sales_agent(mainwin):
             skills=[agent_skill],
         )
 
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120                # seconds.
+        )
+
         task_id = str(uuid.uuid4())
         session_id = ""
         resume_from = ""
@@ -336,7 +397,8 @@ def set_up_ec_sales_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule"
+            trigger="schedule",
+            schedule=task_schedule
         )
         sales = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
@@ -373,6 +435,15 @@ def set_up_ec_research_agent(mainwin):
             skills=[agent_skill],
         )
 
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120                # seconds.
+        )
+
         task_id = str(uuid.uuid4())
         session_id = ""
         resume_from = ""
@@ -385,10 +456,12 @@ def set_up_ec_research_agent(mainwin):
             status=status,  # or whatever default status you need
             sessionId=session_id,
             skill=agent_skill,
+            task=agent_skill.runnable,
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule"
+            trigger="schedule",
+            schedule=task_schedule
         )
         marketing_researcher = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 

@@ -1,4 +1,4 @@
-from typing import AsyncIterable
+from typing import AsyncIterable, Dict
 from agent.a2a.common.types import (
     SendTaskRequest,
     TaskSendParams,
@@ -31,6 +31,7 @@ from typing import Union
 import asyncio
 import logging
 import traceback
+from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class AgentTaskManager(InMemoryTaskManager):
     def __init__(self, notification_sender_auth: PushNotificationSenderAuth):
         super().__init__()
         self._agent = None
+        self._futures: Dict[str, asyncio.Future] = {}
         self.notification_sender_auth = notification_sender_auth
 
     def attach_agent(self, agent):
@@ -122,6 +124,15 @@ class AgentTaskManager(InMemoryTaskManager):
         
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         """Handles the 'send task' request."""
+        print("INCOMING REQUEST:", request)
+        # INCOMING
+        # REQUEST: jsonrpc = '2.0'
+        # id = 'f4c7470def10498d9963b2b85bd16c62'
+        # method = 'tasks/send'
+        # params = TaskSendParams(id='task-001X', sessionId='sess-abc', message=Message(role='user', parts=[
+        #     TextPart(type='text', text='Summarize this report', metadata=None)], metadata=None),
+        #                         acceptedOutputModes=['json'], pushNotification=None, historyLength=None, metadata=None)
+        print("task id:", request.params.id, request.params.sessionId, request.params.metadata)
         validation_error = self._validate_request(request)
         if validation_error:
             return SendTaskResponse(id=request.id, error=validation_error.error)
@@ -139,8 +150,21 @@ class AgentTaskManager(InMemoryTaskManager):
         task_send_params: TaskSendParams = request.params
         query = self._get_user_query(task_send_params)
         try:
-            task_id = self._agent.get_task_id_from_query(query)
-            agent_response = await self._agent.scheduler.run_task(task_id)
+            task_id = request.params.id
+
+            waiter = self.create_waiter(task_id)
+            print("created waiter....")
+            agent_wait_response = await self._agent.runner.wait_in_line(request)
+            print("waiting for runner response......")
+            try:
+                # 2. Wait with timeout
+                result = await asyncio.wait_for(waiter, timeout=10)
+                return JSONResponse({"result": result})
+            except asyncio.TimeoutError:
+                return JSONResponse({"error": "Timeout waiting for task result"}, status_code=504)
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
+
 
             # Notify
             # task = self._agent.scheduler.tasks[task_id]
@@ -173,7 +197,7 @@ class AgentTaskManager(InMemoryTaskManager):
 
 
             task_id = self._agent.get_task_id_from_request(request.params)
-            agent_response = await self._agent.scheduler.run_task(task_id)
+            agent_response = await self._agent.runner.run_task(task_id)
             # asyncio.create_task(self._run_streaming_agent(request))
 
             task_send_params: TaskSendParams = request.params
@@ -231,6 +255,10 @@ class AgentTaskManager(InMemoryTaskManager):
         return SendTaskResponse(id=request.id, result=task_result)
     
     def _get_user_query(self, task_send_params: TaskSendParams) -> str:
+        # params = TaskSendParams(id='task-001X', sessionId='sess-abc', message=Message(role='user', parts=[
+        #     TextPart(type='text', text='Summarize this report', metadata=None)], metadata=None),
+        #                         acceptedOutputModes=['json'], pushNotification=None, historyLength=None, metadata=None)
+        # so in this case, it would return 'Summerize this report'
         part = task_send_params.message.parts[0]
         if not isinstance(part, TextPart):
             raise ValueError("Only text parts are supported")
@@ -272,3 +300,18 @@ class AgentTaskManager(InMemoryTaskManager):
         
         await super().set_push_notification_info(task_id, push_notification_config)
         return True
+
+    def create_waiter(self, task_id: str) -> asyncio.Future:
+        fut = asyncio.get_event_loop().create_future()
+        self._futures[task_id] = fut
+        return fut
+
+    def set_result(self, task_id: str, result):
+        fut = self._futures.pop(task_id, None)
+        if fut and not fut.done():
+            fut.set_result(result)
+
+    def set_exception(self, task_id: str, exc: Exception):
+        fut = self._futures.pop(task_id, None)
+        if fut and not fut.done():
+            fut.set_exception(exc)
