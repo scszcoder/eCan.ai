@@ -23,7 +23,8 @@ from mcp.server.lowlevel import Server
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 from mcp.server.fastmcp.prompts import base
-from mcp.types import TextContent, Prompt, PromptMessage, Tool, ImageContent, EmbeddedResource, Resource, GetPromptResult, PromptArgument
+from mcp.types import CallToolResult, TextContent, Prompt, PromptMessage, Tool, ImageContent, EmbeddedResource, Resource, GetPromptResult, PromptArgument
+from agent.mcp.server.tool_schemas import *
 from pydantic import FileUrl
 from agent.a2a.common.types import AgentCard
 import json
@@ -98,6 +99,7 @@ meca_sse = SseServerTransport("/messages/")
 # screen://localhost/display1
 # @mcp.resource("dir://desktop")
 
+# ========================== resource section =============================================
 @meca_mcp_server.read_resource()
 def get_roster() -> [AgentCard]:
     """Provide the database schema as a resource"""
@@ -115,13 +117,32 @@ def get_agent_profile(agent_id: str) -> dict:
     """Dynamic user data"""
     return {}
 
+# ================= tools section ============================================
+@meca_mcp_server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    all_tools = get_tool_schemas()
+    return [
+        types.Tool(
+            name="fetch",
+            description="Fetches a website and returns its content",
+            inputSchema={
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch",
+                    }
+                },
+            },
+        )
+    ]
 
 @meca_mcp_server.call_tool()
 async def say_hello(seconds: int = 3):
     msg = f'Hi There!'
     logger.info(msg)
-    return ActionResult(extracted_content=msg, include_in_memory=False)
-
+    return CallToolResult(content=[msg], meta={"# bots": len(login.main_win.bots)}, include_in_memory=False)
 
 
 @meca_mcp_server.call_tool()
@@ -129,7 +150,7 @@ async def wait(seconds: int = 3):
     msg = f'🕒  Waiting for {seconds} seconds'
     logger.info(msg)
     await asyncio.sleep(seconds)
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -141,7 +162,7 @@ async def in_browser_wait_for_element(params: WaitForElementAction, context_id: 
         await browser.wait_for_element(params.selector, params.timeout)
         msg = f'👀  Element with selector "{params.selector}" became visible within {params.timeout}ms.'
         logger.info(msg)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
     except Exception as e:
         err_msg = f'❌  Failed to wait for element "{params.selector}" within {params.timeout}ms: {str(e)}'
         logger.error(err_msg)
@@ -165,7 +186,7 @@ async def in_browser_click_element_by_index(params: ClickElementAction, context_
     if await browser.is_file_uploader(element_node):
         msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
         logger.info(msg)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
 
     msg = None
 
@@ -183,10 +204,10 @@ async def in_browser_click_element_by_index(params: ClickElementAction, context_
             msg += f' - {new_tab_msg}'
             logger.info(new_tab_msg)
             await browser.switch_to_tab(-1)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
     except Exception as e:
         logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
-        return ActionResult(error=str(e))
+        return CallToolResult(error=str(e))
 
 
 @meca_mcp_server.call_tool()
@@ -205,12 +226,12 @@ async def in_browser_click_element_by_selector(params: ClickElementBySelectorAct
                     await element_node.evaluate('el => el.click()')
                 except Exception as e:
                     logger.warning(f"Element not clickable with css selector '{params.css_selector}' - {e}")
-                    return ActionResult(error=str(e))
+                    return CallToolResult(error=str(e))
             msg = f'🖱️  Clicked on element with text "{params.css_selector}"'
-            return ActionResult(extracted_content=msg, include_in_memory=True)
+            return CallToolResult(content=[msg], isError=False)
     except Exception as e:
         logger.warning(f'Element not clickable with selector {params.css_selector} - most likely the page changed')
-        return ActionResult(error=str(e))
+        return CallToolResult(error=str(e))
 
 
 @meca_mcp_server.call_tool()
@@ -229,12 +250,12 @@ async def in_browser_click_element_by_xpath(params: ClickElementByXpathAction, c
                     await element_node.evaluate('el => el.click()')
                 except Exception as e:
                     logger.warning(f"Element not clickable with xpath '{params.xpath}' - {e}")
-                    return ActionResult(error=str(e))
+                    return CallToolResult(error=str(e))
             msg = f'🖱️  Clicked on element with text "{params.xpath}"'
-            return ActionResult(extracted_content=msg, include_in_memory=True)
+            return CallToolResult(content=[msg], isError=False)
     except Exception as e:
         logger.warning(f'Element not clickable with xpath {params.xpath} - most likely the page changed')
-        return ActionResult(error=str(e))
+        return CallToolResult(error=str(e))
 
 
 @meca_mcp_server.call_tool()
@@ -256,14 +277,14 @@ async def in_browser_click_element_by_text(params: ClickElementByTextAction, con
                     await element_node.evaluate('el => el.click()')
                 except Exception as e:
                     logger.warning(f"Element not clickable with text '{params.text}' - {e}")
-                    return ActionResult(error=str(e))
+                    return CallToolResult(error=str(e))
             msg = f'🖱️  Clicked on element with text "{params.text}"'
-            return ActionResult(extracted_content=msg, include_in_memory=True)
+            return CallToolResult(content=[msg], isError=False)
         else:
-            return ActionResult(error=f"No element found for text '{params.text}'")
+            return CallToolResult(error=f"No element found for text '{params.text}'")
     except Exception as e:
         logger.warning(f"Element not clickable with text '{params.text}' - {e}")
-        return ActionResult(error=str(e))
+        return CallToolResult(error=str(e))
 
 
 @meca_mcp_server.call_tool()
@@ -281,7 +302,7 @@ async def in_browser_input_text(params: InputTextAction, context_id: str, has_se
         msg = f'⌨️  Input sensitive data into index {params.index}'
     logger.info(msg)
     logger.debug(f'Element xpath: {element_node.xpath}')
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 # Save PDF
@@ -296,7 +317,7 @@ async def in_browser_save_pdf(context_id: str):
     await page.pdf(path=sanitized_filename, format='A4', print_background=False)
     msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
     logger.info(msg)
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 # Tab Management Actions
@@ -308,7 +329,7 @@ async def in_browser_switch_tab(params: SwitchTabAction, context_id: str):
     await page.wait_for_load_state()
     msg = f'🔄  Switched to tab {params.page_id}'
     logger.info(msg)
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -318,7 +339,7 @@ async def in_browser_open_tab(params: OpenTabAction, context_id: str):
     await browser.create_new_tab(params.url)
     msg = f'🔗  Opened new tab with {params.url}'
     logger.info(msg)
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -331,7 +352,7 @@ async def in_browser_close_tab(params: CloseTabAction, context_id: str):
     await page.close()
     msg = f'❌  Closed tab #{params.page_id} with url {url}'
     logger.info(msg)
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 # Content Actions
@@ -362,17 +383,17 @@ async def in_browser_close_tab(params: CloseTabAction, context_id: str):
 #         output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
 #         msg = f'📄  Extracted from page\n: {output.content}\n'
 #         logger.info(msg)
-#         return ActionResult(extracted_content=msg, include_in_memory=True)
+#         return CallToolResult(content=[msg], isError=False)
 #     except Exception as e:
 #         logger.debug(f'Error extracting content: {e}')
 #         msg = f'📄  Extracted from page\n: {content}\n'
 #         logger.info(msg)
-#         return ActionResult(extracted_content=msg)
+#         return CallToolResult(content=[msg])
 
 
 # HTML Download
 @meca_mcp_server.call_tool()
-async def in_browser_save_html_to_file(params: NoParamsAction, context_id: str) -> ActionResult:
+async def in_browser_save_html_to_file(params: NoParamsAction, context_id: str) -> CallToolResult:
     """Retrieves and returns the full HTML content of the current page to a file"""
     try:
         browser_context = login.main_win.getBrowserContextById(context_id)
@@ -393,11 +414,11 @@ async def in_browser_save_html_to_file(params: NoParamsAction, context_id: str) 
         msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
 
         logger.info(msg)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
     except Exception as e:
         error_msg = f'Failed to save HTML content: {str(e)}'
         logger.error(error_msg)
-        return ActionResult(error=error_msg, extracted_content='')
+        return CallToolResult(error=error_msg, content='')
 
 
 @meca_mcp_server.call_tool()
@@ -413,9 +434,9 @@ async def in_browser_scroll_down(params: ScrollAction, context_id: str):
     amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
     msg = f'🔍  Scrolled down the page by {amount}'
     logger.info(msg)
-    return ActionResult(
-        extracted_content=msg,
-        include_in_memory=True,
+    return CallToolResult(
+        content=[msg],
+        isError=False,
     )
 
 
@@ -433,9 +454,9 @@ async def in_browser_scroll_up(params: ScrollAction, context_id: str):
     amount = f'{params.amount} pixels' if params.amount is not None else 'one page'
     msg = f'🔍  Scrolled up the page by {amount}'
     logger.info(msg)
-    return ActionResult(
-        extracted_content=msg,
-        include_in_memory=True,
+    return CallToolResult(
+        content=[msg],
+        isError=False,
     )
 
 
@@ -461,7 +482,7 @@ async def in_browser_send_keys(params: SendKeysAction, context_id: str):
             raise e
     msg = f'⌨️  Sent keys: {params.keys}'
     logger.info(msg)
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -483,23 +504,23 @@ async def in_browser_scroll_to_text(text: str, context_id: str):  # type: ignore
                     await asyncio.sleep(0.5)  # Wait for scroll to complete
                     msg = f'🔍  Scrolled to text: {text}'
                     logger.info(msg)
-                    return ActionResult(extracted_content=msg, include_in_memory=True)
+                    return CallToolResult(content=[msg], isError=False)
             except Exception as e:
                 logger.debug(f'Locator attempt failed: {str(e)}')
                 continue
 
         msg = f"Text '{text}' not found or not visible on page"
         logger.info(msg)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
 
     except Exception as e:
         msg = f"Failed to scroll to text '{text}': {str(e)}"
         logger.error(msg)
-        return ActionResult(error=msg, include_in_memory=True)
+        return CallToolResult(error=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
-async def in_browser_get_dropdown_options(index: int, context_id: str) -> ActionResult:
+async def in_browser_get_dropdown_options(index: int, context_id: str) -> CallToolResult:
     """Get all options from a native dropdown"""
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -556,17 +577,17 @@ async def in_browser_get_dropdown_options(index: int, context_id: str) -> Action
             msg = '\n'.join(all_options)
             msg += '\nUse the exact text string in select_dropdown_option'
             logger.info(msg)
-            return ActionResult(extracted_content=msg, include_in_memory=True)
+            return CallToolResult(content=[msg], isError=False)
         else:
             msg = 'No options found in any frame for dropdown'
             logger.info(msg)
-            return ActionResult(extracted_content=msg, include_in_memory=True)
+            return CallToolResult(content=[msg], isError=False)
 
     except Exception as e:
         logger.error(f'Failed to get dropdown options: {str(e)}')
         msg = f'Error getting options: {str(e)}'
         logger.info(msg)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -574,7 +595,7 @@ async def in_browser_select_dropdown_option(
         index: int,
         text: str,
         context_id: str,
-) -> ActionResult:
+) -> CallToolResult:
     """Select dropdown option by the text of the option you want to select"""
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
@@ -586,7 +607,7 @@ async def in_browser_select_dropdown_option(
     if dom_element.tag_name != 'select':
         logger.error(f'Element is not a select! Tag: {dom_element.tag_name}, Attributes: {dom_element.attributes}')
         msg = f'Cannot select option: Element with index {index} is a {dom_element.tag_name}, not a select'
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
 
     logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
     logger.debug(f'Element attributes: {dom_element.attributes}')
@@ -647,7 +668,7 @@ async def in_browser_select_dropdown_option(
                     msg = f'selected option {text} with value {selected_option_values}'
                     logger.info(msg + f' in frame {frame_index}')
 
-                    return ActionResult(extracted_content=msg, include_in_memory=True)
+                    return CallToolResult(content=[msg], isError=False)
 
             except Exception as frame_e:
                 logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
@@ -658,16 +679,16 @@ async def in_browser_select_dropdown_option(
 
         msg = f"Could not select option '{text}' in any frame"
         logger.info(msg)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
 
     except Exception as e:
         msg = f'Selection failed: {str(e)}'
         logger.error(msg)
-        return ActionResult(error=msg, include_in_memory=True)
+        return CallToolResult(error=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
-async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> ActionResult:
+async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> CallToolResult:
     """
     Performs a precise drag and drop operation between elements or coordinates.
     """
@@ -818,7 +839,7 @@ async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> Actio
 
             if not source_element or not target_element:
                 error_msg = f'Failed to find {"source" if not source_element else "target"} element'
-                return ActionResult(error=error_msg, include_in_memory=True)
+                return CallToolResult(error=error_msg, isError=False)
 
             source_coords, target_coords = await get_element_coordinates(
                 source_element, target_element, params.element_source_offset, params.element_target_offset
@@ -826,7 +847,7 @@ async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> Actio
 
             if not source_coords or not target_coords:
                 error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
-                return ActionResult(error=error_msg, include_in_memory=True)
+                return CallToolResult(error=error_msg, isError=False)
 
             source_x, source_y = source_coords
             target_x, target_y = target_coords
@@ -844,12 +865,12 @@ async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> Actio
             target_y = params.coord_target_y
         else:
             error_msg = 'Must provide either source/target selectors or source/target coordinates'
-            return ActionResult(error=error_msg, include_in_memory=True)
+            return CallToolResult(error=error_msg, isError=False)
 
         # Validate coordinates
         if any(coord is None for coord in [source_x, source_y, target_x, target_y]):
             error_msg = 'Failed to determine source or target coordinates'
-            return ActionResult(error=error_msg, include_in_memory=True)
+            return CallToolResult(error=error_msg, isError=False)
 
         # Perform the drag operation
         success, message = await execute_drag_operation(
@@ -864,7 +885,7 @@ async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> Actio
 
         if not success:
             logger.error(f'Drag operation failed: {message}')
-            return ActionResult(error=message, include_in_memory=True)
+            return CallToolResult(error=message, isError=False)
 
         # Create descriptive message
         if params.element_source and params.element_target:
@@ -873,12 +894,12 @@ async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> Actio
             msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
 
         logger.info(msg)
-        return ActionResult(extracted_content=msg, include_in_memory=True)
+        return CallToolResult(content=[msg], isError=False)
 
     except Exception as e:
         error_msg = f'Failed to perform drag and drop: {str(e)}'
         logger.error(error_msg)
-        return ActionResult(error=error_msg, include_in_memory=True)
+        return CallToolResult(error=error_msg, isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -894,7 +915,7 @@ async def mouse_click(params: MouseClickAction, context_id: str):
     pyautogui.click(clicks=nClicks, interval=interval)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -907,7 +928,7 @@ async def mouse_move(params: MouseMoveAction, context_id: str):
     pyautogui.moveTo(params.loc.x, params.loc.y)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -921,7 +942,7 @@ async def mouse_drag_drop(params: MouseDragDropAction, context_id: str):
     pyautogui.dragTo(params.drop_loc.x, params.drop_loc.y, duration=params.duration)
 
     logger.debug(f'dragNdrop: {params.pick_loc.x}, {params.pick_loc.y} to {params.drop_loc.x}, {params.drop_loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -938,7 +959,7 @@ async def mouse_scroll(params: MouseScrollAction, context_id: str):
     mouse.scroll(0, scroll_amount)
 
     logger.debug(f'Element xpath: {scroll_amount}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -951,7 +972,7 @@ async def text_input(params: TextInputAction, context_id: str):
     pyautogui.write(params.text, interval=params.interval)
 
     logger.debug(f'Element xpath: {params.text},  {params.interval}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -964,7 +985,7 @@ async def keys_input(params: KeysAction, context_id: str):
     pyautogui.hotkey(*params.combo)
 
     logger.debug(f'hot keys: {params.combo[0]}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -977,7 +998,7 @@ async def call_api(params: CallAPIAction, context_id: str):
     pyautogui.moveTo(params.loc.x, params.loc.y)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -993,7 +1014,7 @@ async def open_app(params: OpenAppAction, context_id: str):
                      stderr=subprocess.PIPE)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1007,7 +1028,7 @@ async def close_app(params: CloseAppAction, context_id: str):
     app_window.close()
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1024,7 +1045,7 @@ async def switch_to_app(params: SwitchToAppAction, context_id: str):
     target_window.activate()
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1037,7 +1058,7 @@ async def wait(params: WaitAction, context_id: str):
     time.sleep(params.time)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1050,7 +1071,7 @@ async def run_extern(params: RunExternAction, context_id: str):
     time.sleep(params.time)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1065,7 +1086,7 @@ async def make_dir(params: MakeDirAction, context_id: str):
         os.makedirs(params.dir_path)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1080,7 +1101,7 @@ async def delete_dir(params: DeleteDirAction, context_id: str):
         os.remove(params.dir_path)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1095,7 +1116,7 @@ async def delete_file(params: DeleteFileAction, context_id: str):
         os.remove(params.file)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1111,7 +1132,7 @@ async def move_file(params: MoveFileAction, context_id: str):
     shutil.move(params.src, params.dest)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1124,7 +1145,7 @@ async def copy_file_dir(params: CopyFileDirAction, context_id: str):
     shutil.copy(params.src, params.dest)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return ActionResult(extracted_content="", include_in_memory=True)
+    return CallToolResult(content="", isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1144,11 +1165,11 @@ async def screen_analyze(params: ScreenAnalyzeAction, context_id: str, has_sensi
         msg = f'⌨️  Input sensitive data into index {params.index}'
     logger.info(msg)
     logger.debug(f'Element xpath: {element_node.xpath}')
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
-async def screen_capture(params: ScreenCaptureAction, context_id: str, has_sensitive_data: bool = False):
+async def screen_capture(params: dict, context_id: str, has_sensitive_data: bool = False):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1162,7 +1183,7 @@ async def screen_capture(params: ScreenCaptureAction, context_id: str, has_sensi
 
     logger.debug(f'Element xpath: {params.win_title_kw}')
     msg = ""
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
 @meca_mcp_server.call_tool()
@@ -1174,7 +1195,7 @@ async def seven_zip(params: SevenZipAction, context_id: str, has_sensitive_data:
 
     logger.debug(f'Element xpath: {params.file}')
     msg = ""
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], meta={}, isError=False)
 
 
 
@@ -1187,9 +1208,73 @@ async def kill_processes(params: KillProcessesAction, context_id: str, has_sensi
 
     logger.debug(f'Kill Processes: {params.pids[0]}')
     msg = ""
-    return ActionResult(extracted_content=msg, include_in_memory=True)
+    return CallToolResult(content=[msg], isError=False)
 
 
+# Element Interaction Actions
+@meca_mcp_server.call_tool()
+async def rpa_supervisor_scheduling_work(params: ClickElementAction, context_id: str):
+    # call mainwin to fetch schedule and ran team prep hook and dispatch works.
+    try:
+        print(f"there are total # of bots:{len(login.main_win.bots)}")
+        schedule = login.main_win.fetchSchedule("", login.main_win.get_vehicle_settings())
+        workable = login.main_win.runTeamPrepHook(schedule)
+        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        msg = "Here are works to be dispatched to the troops."
+        return CallToolResult(content=[msg], meta=works_to_be_dispatched, isError=False)
+    except Exception as e:
+        logger.warning(f'RPA Supervisor Work failure')
+        return CallToolResult(error=str(e))
+
+
+@meca_mcp_server.call_tool()
+async def rpa_operator_dispatch_works(workable: list, context_id: str):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        return CallToolResult(content="works dispatched.", isError=False)
+    except Exception as e:
+        logger.warning(f'RPA Supervisor Work failure')
+        return CallToolResult(error=str(e))
+
+
+@meca_mcp_server.call_tool()
+async def rpa_supervisor_process_work_results(workable: list, context_id: str):
+    # handle RPA work results from a platoon host.
+    # mostly bookkeeping.
+    try:
+        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        return CallToolResult(content="works dispatched.", isError=False)
+    except Exception as e:
+        logger.warning(f'RPA Supervisor Work failure')
+        return CallToolResult(error=str(e))
+
+
+@meca_mcp_server.call_tool()
+async def rpa_supervisor_run_daily_housekeeping(workable: list, context_id: str):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        return CallToolResult(content="works dispatched.", isError=False)
+    except Exception as e:
+        logger.warning(f'RPA Supervisor Work failure')
+        return CallToolResult(error=str(e))
+
+@meca_mcp_server.call_tool()
+async def rpa_operator_report_work_results(workable: list, context_id: str):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        return CallToolResult(content="works dispatched.", isError=False)
+    except Exception as e:
+        logger.warning(f'RPA Supervisor Work failure')
+        return CallToolResult(error=str(e))
 
 ######################### Prompts Section ##################################
 
@@ -1228,7 +1313,7 @@ async def long_task(files: list[str], ctx: Context) -> str:
 
 
 async def handle_sse(scope, receive, send):
-    print(">>> sse connected")
+    # print(">>> sse connected")
     async with meca_sse.connect_sse(scope, receive, send) as streams:
         await meca_mcp_server.run(streams[0], streams[1], meca_mcp_server.create_initialization_options())
 
