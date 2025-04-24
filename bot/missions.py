@@ -250,6 +250,7 @@ class M_Pub_Attributes():
         self.as_server = False
         self.error = ""
         self.intermediate_data = None
+        self.agent_id = ""
 
     def getAsServer(self):
         return self.as_server
@@ -314,6 +315,9 @@ class M_Pub_Attributes():
     def setRepeatLast(self, rl):
         self.repeat_last = rl
 
+    def setAgentId(self, aid):
+        self.agent_id = aid
+
     def getRepeatType(self):
         return self.repeat_type
 
@@ -331,6 +335,9 @@ class M_Pub_Attributes():
 
     def getRepeatLast(self):
         return self.repeat_last
+
+    def getAgentId(self):
+        return self.agent_id
 
     def loadJson(self, dj):
         self.missionId = dj.get("missionId", 0)
@@ -1322,6 +1329,12 @@ class EBMISSION(QStandardItem):
 
     def getFailureContext(self):
         return self.failure_context
+
+    def getAgentId(self):
+        return self.pubAttributes.agent_id
+
+    def setAgentId(self, aid):
+        self.pubAttributes.agent_id = aid
 
     # self.
     def setJsonData(self, ppJson):

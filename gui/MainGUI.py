@@ -5949,6 +5949,22 @@ class MainWindow(QMainWindow):
 
         return acctRows
 
+    def runTeamPrepHook(self):
+        try:
+            params = {"all": True}      # this will get all rows in accounts table.
+            runStat = self.runExternalHook("team_prep_hook", params)
+            # runStat = self.runExternalHook("get_accounts_hook", params)
+            print("runStat:", runStat)
+            if "Complete" in runStat:
+                runnable_work = symTab["hook_result"]["candidates"]
+
+        except Exception as e:
+            # Log and skip errors gracefully
+            ex_stat = f"Error in runTeamPrepHook: {traceback.format_exc()} {str(e)}"
+            print(f"{ex_stat}")
+
+        return runnable_work
+
     def runUpdateBotAccountsHook(self, rows):
         try:
             params = {"rows": rows}

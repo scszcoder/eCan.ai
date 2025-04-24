@@ -345,6 +345,7 @@ class BOT_PUB_PROFILE():
         self.levelStart = ""
         self.vid = ""
         self.vehicle = ""
+        self.agent_id = ""
 
 
 
@@ -449,6 +450,12 @@ class BOT_PUB_PROFILE():
 
     def getVehicle(self):
         return self.vehicle
+
+    def getAgentId(self):
+        return self.agent_id
+
+    def setAgentId(self, aid):
+        self.agent_id = aid
 
 
     def loadJson(self, dj):
@@ -885,6 +892,12 @@ class EBBOT(QStandardItem):
 
     def setVehicle(self, v):
         self.pubProfile.vehicle = v
+
+    def getAgentId(self):
+        return self.pubProfile.agent_id
+
+    def setAgentId(self, aid):
+        self.pubProfile.agent_id = aid
 
     def setAddr(self, l1, l2, city, state, zip):
         self.privateProfile.setAddr(l1, l2, city, state, zip)
