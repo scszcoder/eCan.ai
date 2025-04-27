@@ -73,6 +73,8 @@ class ManagedTask(Task):
     schedule: Optional[TaskSchedule] = None
     checkpoint_nodes: Optional[List[str]] = None
     priority: Optional[Priority_Types] = None
+    last_run_datetime: Optional[datetime] = None
+    already_run_flag: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -95,9 +97,13 @@ class ManagedTask(Task):
             self.checkpoint_nodes.remove(cp_name)
 
     async def astream_run(self):
+        print("running skill:", self.skill.name)
         async for step in self.skill.runnable.astream(self.metadata.get("state", {})):
             await self.pause_event.wait()
-            self.status.message = Message(role="agent", parts=[Part(type="text", text=str(step))])
+            self.status.message = Message(
+                role="agent",
+                parts=[TextPart(type="text", text=str(step))]
+            )
             if step.get("require_user_input") or step.get("await_agent"):
                 self.status.state = TaskState.INPUT_REQUIRED
                 return
@@ -131,7 +137,7 @@ def add_years(dt: datetime, years: int) -> datetime:
 def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
     fmt = "%Y-%m-%d %H:%M:%S:%f"
     now = datetime.now()
-
+    print("checking start time:", schedule.start_date_time)
     start_time = datetime.strptime(schedule.start_date_time, fmt)
     end_time = datetime.strptime(schedule.end_date_time, fmt)
     repeat_number = int(schedule.repeat_number)
@@ -154,6 +160,7 @@ def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
         intervals = max(0, int(elapsed // delta.total_seconds()))
         next_runtime = start_time + delta * (intervals + 1)
     elif schedule.repeat_type == Repeat_Types.BY_DAYS:
+        print("Checking dailly schedule", repeat_number)
         delta = timedelta(days=repeat_number)
         elapsed = (now - start_time).total_seconds()
         intervals = max(0, int(elapsed // delta.total_seconds()))
@@ -181,26 +188,136 @@ def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
     should_run_now = now >= next_runtime
     return next_runtime, should_run_now
 
+
+def get_runtime_bounds(schedule: TaskSchedule) -> Tuple[datetime, datetime]:
+    fmt = "%Y-%m-%d %H:%M:%S:%f"
+    now = datetime.now()
+    start_time = datetime.strptime(schedule.start_date_time, fmt)
+    end_time = datetime.strptime(schedule.end_date_time, fmt)
+    repeat_number = int(schedule.repeat_number)
+
+    if schedule.repeat_type == Repeat_Types.NONE:
+        return start_time, start_time  # one-time tasks
+
+    if schedule.repeat_type in (
+        Repeat_Types.BY_SECONDS,
+        Repeat_Types.BY_MINUTES,
+        Repeat_Types.BY_HOURS,
+        Repeat_Types.BY_DAYS,
+        Repeat_Types.BY_WEEKS,
+    ):
+        unit_seconds = {
+            Repeat_Types.BY_SECONDS: 1,
+            Repeat_Types.BY_MINUTES: 60,
+            Repeat_Types.BY_HOURS: 3600,
+            Repeat_Types.BY_DAYS: 86400,
+            Repeat_Types.BY_WEEKS: 7 * 86400,
+        }[schedule.repeat_type]
+
+        delta_seconds = unit_seconds * repeat_number
+        elapsed = (now - start_time).total_seconds()
+        intervals = max(0, int(elapsed // delta_seconds))
+        last_runtime = start_time + timedelta(seconds=delta_seconds * intervals)
+        next_runtime = last_runtime + timedelta(seconds=delta_seconds)
+
+    elif schedule.repeat_type == Repeat_Types.BY_MONTHS:
+        last_runtime = start_time
+        while last_runtime <= now:
+            future = add_months(last_runtime, repeat_number)
+            if future > now:
+                next_runtime = future
+                break
+            last_runtime = future
+    elif schedule.repeat_type == Repeat_Types.BY_YEARS:
+        last_runtime = start_time
+        while last_runtime <= now:
+            future = add_years(last_runtime, repeat_number)
+            if future > now:
+                next_runtime = future
+                break
+            last_runtime = future
+    else:
+        raise ValueError(f"Unsupported repeat type: {schedule.repeat_type}")
+
+    # Clamp next runtime to end time
+    if next_runtime > end_time:
+        next_runtime = end_time
+    if last_runtime > end_time:
+        last_runtime = end_time
+
+    return last_runtime, next_runtime
+
+
+def get_repeat_interval_seconds(schedule: TaskSchedule) -> int:
+    repeat_number = schedule.repeat_number
+
+    if schedule.repeat_type == Repeat_Types.BY_SECONDS:
+        return repeat_number
+    elif schedule.repeat_type == Repeat_Types.BY_MINUTES:
+        return repeat_number * 60
+    elif schedule.repeat_type == Repeat_Types.BY_HOURS:
+        return repeat_number * 3600
+    elif schedule.repeat_type == Repeat_Types.BY_DAYS:
+        return repeat_number * 86400
+    elif schedule.repeat_type == Repeat_Types.BY_WEEKS:
+        return repeat_number * 7 * 86400
+    elif schedule.repeat_type == Repeat_Types.BY_MONTHS:
+        # Rough average, for simplicity
+        return repeat_number * 30 * 86400
+    elif schedule.repeat_type == Repeat_Types.BY_YEARS:
+        return repeat_number * 365 * 86400
+    else:
+        raise ValueError(f"Unsupported repeat type: {schedule.repeat_type}")
+
+
 # sort t2rs by start time, the earliest will be run first.
 def time_to_run(agent):
-    t2r = None
     t2rs = []
+    now = datetime.now()
+
     for task in agent.tasks:
-        next_run_time, should_run = get_next_runtime(task.schedule)
-        if should_run:
-            t2rs.append({"rt": next_run_time, "task": task})
+        # 🚨 Skip tasks without schedule or non-time-based tasks
+        if not task.schedule or task.schedule.repeat_type == Repeat_Types.NONE:
+            continue
+
+        last_runtime, next_runtime = get_runtime_bounds(task.schedule)
+
+        # Calculate elapsed time since last task run
+        if task.last_run_datetime:
+            elapsed_since_last_run = (now - task.last_run_datetime).total_seconds()
+        else:
+            elapsed_since_last_run = float('inf')  # If never ran before
+
+        repeat_seconds = get_repeat_interval_seconds(task.schedule)
+
+        overdue_time = (now - last_runtime).total_seconds()
+        print("overdue:", overdue_time, repeat_seconds, elapsed_since_last_run)
+        # 🧠 Main logic: should we run now?
+        if (now >= last_runtime and
+            elapsed_since_last_run > repeat_seconds / 2 and
+            not task.already_run_flag):
+            t2rs.append({
+                "overdue": overdue_time,
+                "task": task
+            })
+
+        # 🕒 Reset already_run_flag if now is close to the next scheduled run time
+        if abs((next_runtime - now).total_seconds()) <= 30 * 60:
+            task.already_run_flag = False
 
     if not t2rs:
-        return None  # no tasks ready to run
+        return None
 
-    # ✅ Sort the list by run time (earliest first)
-    t2rs.sort(key=lambda x: x["rt"])
+    # 🥇 Sort tasks: run the most overdue task first
+    t2rs.sort(key=lambda x: x["overdue"], reverse=True)
 
-    now = datetime.now()
-    if now >= t2rs[0]["rt"]:
-        return t2rs[0]
+    selected_task = t2rs[0]["task"]
+    selected_task.last_run_datetime = now
+    selected_task.already_run_flag = True
 
-    return None
+    return selected_task
+
+
 
 class TaskRunner(Generic[Context]):
     def __init__(self, agent):  # includes persistence methods
@@ -348,7 +465,7 @@ class TaskRunner(Generic[Context]):
     async def launch_scheduled_run(self):
         while not self._stop_event.is_set():
             try:
-                print("checking a2a queue....")
+                print("checking a2a queue....", self.agent.card.name)
 
                 if not self.msg_queue.empty():
                     try:
@@ -366,8 +483,11 @@ class TaskRunner(Generic[Context]):
                     # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
                     print("Checking schedule.....")
                     task2run = time_to_run(self.agent)
-                    print("len task2run", task2run)
+                    print(f"len task2run, {task2run}, {self.agent.card.name}")
                     if task2run:
+                        task2run.metadata["state"] = {
+                            "messages": [self.agent]
+                        }
                         response = await task2run.astream_run()
                         if response:
                             self.agent.a2a_server.task_manager.set_result(task2run.id, response)

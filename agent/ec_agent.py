@@ -318,6 +318,7 @@ class EC_Agent(Generic[Context]):
 				return "127.0.0.1"  # fallback
 
 		host = get_lan_ip()
+		self.mainwin = mainwin
 		free_ports = mainwin.get_free_agent_ports(1)
 		if not free_ports:
 			return None

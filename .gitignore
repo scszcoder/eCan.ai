@@ -6,6 +6,7 @@
 /dist
 *.spec
 test.py
+/resource/skills/public/*/*.psk
 *.psk
 *.pyc
 /songc_yahoo_com/

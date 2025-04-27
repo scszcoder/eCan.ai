@@ -14,6 +14,8 @@ import uuid
 from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
 from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
 import traceback
 response_dict = {}
 
@@ -156,3 +158,17 @@ def start_local_server_in_thread(mwin):
 
 # if __name__ == '__main__':
 #     run_starlette()
+# ============================= now create global client ===========================
+async def create_mcp_client():
+    mcp_client = MultiServerMCPClient(
+            {
+                "E-Commerce Agents Service": {
+                    # make sure you start your weather server on port 8000
+                    "url": "http://localhost:4668/sse/",
+                    "transport": "sse",
+                }
+            }
+    )
+    await mcp_client.__aenter__()
+    return mcp_client
+

@@ -4,7 +4,7 @@ import json
 from common.models import VehicleModel
 from utils.server import HttpServer
 from utils.time_util import TimeUtil
-from gui.LocalServer import start_local_server_in_thread
+from gui.LocalServer import start_local_server_in_thread, create_mcp_client
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -91,6 +91,8 @@ from agent.ec_agent import EC_Agent
 from agent.runner.service import Runner
 from agent.ec_skill import build_agent_skills
 from agent.a2a.langgraph_agent.utils import set_up_ec_helper_agent, set_up_ec_rpa_operator_agent, set_up_ec_rpa_supervisor_agent
+from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
+from agent.mcp.server.server import set_server_main_win
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -987,6 +989,8 @@ class MainWindow(QMainWindow):
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
         # setup local web server including MCP server.
+
+        set_server_main_win(self)
         start_local_server_in_thread(self)
 
         # async def setupAsyncTasks(self):
@@ -1045,18 +1049,22 @@ class MainWindow(QMainWindow):
         # before this.
         self.llm = ChatOpenAI(model='gpt-4o')
         self.agents = []
+        build_agent_mcp_tools_schemas()
         print("Building agent skills.....")
-        asyncio.create_task(self.async_init())
+        asyncio.create_task(self.async_agents_init())
 
 
-    async def async_init(self):
+    async def async_agents_init(self):
+        self.mcp_client = await create_mcp_client()
+        print("MCP client created....", len(self.mcp_client.get_tools()))
+
         self.agent_skills = await build_agent_skills(self)
         print("DONE build agent skills.....", len(self.agent_skills))
         self.build_agents()
         print("DONE build agents.....")
         await self.launch_agents()
         print("DONE launch agents.....")
-        await self.test_a2a()
+        # await self.test_a2a()
 
     async def launch_agents(self):
         for agent in self.agents:
@@ -1087,6 +1095,9 @@ class MainWindow(QMainWindow):
 
         print("free ports", free_ports)
         return free_ports[:n]
+
+    def get_local_server_port(self):
+        return self.general_settings["local_server_port"]
 
     def build_agents(self):
         # for now just build a few agents.
