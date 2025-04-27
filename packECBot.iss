@@ -298,6 +298,15 @@ begin
 
 end;
 
+function RegKeyExists(): Boolean;
+var
+  s: String;
+begin
+  Result := RegQueryStringValue(HKEY_CURRENT_USER,
+    'Software\Microsoft\Windows\CurrentVersion\Run', 'ECBot', s);
+end;
+
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Value: string;
@@ -307,6 +316,16 @@ begin
     Log('Writing "' + Value + '" to file...');
     RoleLine := '{"machine_role":"'+Role+'"}';
     SaveStringToFile(UserDataDir+'\role.json', RoleLine, False);
+
+    if not RegKeyExists() then begin
+      appPath := ExpandConstant('{app}\ECBot.exe');
+      RegWriteStringValue(HKEY_CURRENT_USER,
+        'Software\Microsoft\Windows\CurrentVersion\Run', 'ECBot', appPath);
+      Log('Startup registry key written: ' + appPath);
+    end else begin
+      Log('Startup registry key already exists, skipping write.');
+    end;
+
   end;
 end;
 
