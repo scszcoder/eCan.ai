@@ -8,7 +8,7 @@ def get_tool_schemas():
 def add_tool_schema(new_schema):
     tool_schemas.append(new_schema)
 
-def build_tool_schemas():
+def build_agent_mcp_tools_schemas():
     tool_schema = types.Tool(
             name="rpa_supervisor_scheduling_work",
             description="As a RPA supervisor, fetches daily work schedule and run team prep and get ready to dispatch the work to the operator agents on the remote hosts to work on.",
@@ -632,11 +632,11 @@ def build_tool_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["tab_title", "post_wait"],
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
+                "tab_title": {
+                    "type": "string",
+                    "description": "title text of the tab to switch to.",
                 },
                 "post_wait": {
                     "type": "int",
@@ -654,11 +654,11 @@ def build_tool_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["url", "post_wait"],
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
+                "url": {
+                    "type": "string",
+                    "description": "the url of the new tab page.",
                 },
                 "post_wait": {
                     "type": "int",
@@ -676,11 +676,11 @@ def build_tool_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["tab_title", "post_wait"],
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
+                "tab_title": {
+                    "type": "string",
+                    "description": "title text of the tab to close.",
                 },
                 "post_wait": {
                     "type": "int",
@@ -746,6 +746,28 @@ def build_tool_schemas():
                 "file": {
                     "type": "string",
                     "description": "path of the file that contains the js code.",
+                },
+                "post_wait": {
+                    "type": "int",
+                    "description": "wait number of seconds after attempting to open the url site",
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+
+    tool_schema = types.Tool(
+        name="reconnect_wifi",
+        description="use shell command to reconnect wifi (assume wifi access point porfiles exist).",
+        inputSchema={
+            "type": "object",
+            "required": ["wifi_name", "post_wait"],
+            "properties": {
+                "wifi_name": {
+                    "type": "string",
+                    "description": "name of the wifi access point.",
                 },
                 "post_wait": {
                     "type": "int",

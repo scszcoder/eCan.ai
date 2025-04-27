@@ -17,9 +17,10 @@ import asyncio
 from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
 from contextlib import AsyncExitStack
 import re
+import subprocess
 import mcp.types as types
 from mcp.server.lowlevel import Server
-
+import traceback
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 from mcp.server.fastmcp.prompts import base
@@ -79,7 +80,7 @@ from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImag
 from utils.logger_helper import login
 from langchain_core.language_models.chat_models import BaseChatModel
 
-
+server_main_win = None
 logger = logging.getLogger(__name__)
 
 Context = TypeVar('Context')
@@ -101,63 +102,70 @@ meca_sse = SseServerTransport("/messages/")
 
 # ========================== resource section =============================================
 @meca_mcp_server.read_resource()
-def get_roster() -> [AgentCard]:
+def read_resource() -> dict:
     """Provide the database schema as a resource"""
-    all_cards = [a.get_card() for a in all_agents]
-    return
-
-@meca_mcp_server.read_resource()
-def get_config() -> dict:
-    """Static configuration data"""
-    return {}
+    all_resources = {}
+    return all_resources
 
 
-@meca_mcp_server.read_resource()
-def get_agent_profile(agent_id: str) -> dict:
-    """Dynamic user data"""
-    return {}
 
 # ================= tools section ============================================
 @meca_mcp_server.list_tools()
 async def list_tools() -> list[types.Tool]:
     all_tools = get_tool_schemas()
-    return [
-        types.Tool(
-            name="fetch",
-            description="Fetches a website and returns its content",
-            inputSchema={
-                "type": "object",
-                "required": ["url"],
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL to fetch",
-                    }
-                },
-            },
-        )
-    ]
+    print(f"# of listed mcp tools:{len(all_tools)}, {all_tools[-1]}")
+    return all_tools
+
+
 
 @meca_mcp_server.call_tool()
-async def say_hello(seconds: int = 3):
+async def unified_tool_handler(tool_name, args):
+    if tool_name in tool_function_mapping:
+        try:
+            result = await tool_function_mapping[tool_name](args)
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
+            result  = CallToolResult(content=[ex_stat], isError=False)
+    else:
+        result = CallToolResult(content=['ErrorCallTool: tool NOT found!'], isError=False)
+    return result
+
+######################### Prompts Section ##################################
+
+@meca_mcp_server.get_prompt()
+def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message]:
+    return [
+        base.UserMessage(f"I am running a robotic process automation (RPA) script automating ADS Power software and on this step where "),
+        base.UserMessage(step_description),
+        base.UserMessage(f" I got this failure:"),
+        base.UserMessage(failure),
+        base.AssistantMessage("help me fix this error using the tools available, it could be a series of actions. Quite often it was due to ADS Power pops up an advertising banner and blocks its real contents, so you can use screen capture to confirm that and use mouse click action to close the banner, once done, please return a dict result with 'reason' which is a string, and 'fixed' which is a boolean flag in it."),
+    ]
+
+
+async def say_hello(params):
     msg = f'Hi There!'
     logger.info(msg)
     return CallToolResult(content=[msg], meta={"# bots": len(login.main_win.bots)}, include_in_memory=False)
 
 
-@meca_mcp_server.call_tool()
-async def wait(seconds: int = 3):
-    msg = f'🕒  Waiting for {seconds} seconds'
+async def wait(params):
+    msg = f'🕒  Waiting for {params["seconds"]} seconds'
     logger.info(msg)
-    await asyncio.sleep(seconds)
+    await asyncio.sleep(params["seconds"])
     return CallToolResult(content=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_wait_for_element(params: WaitForElementAction, context_id: str):
+async def in_browser_wait_for_element(params):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
-        browser_context = login.main_win.getBrowserContextById(context_id)
+        browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
         await browser.wait_for_element(params.selector, params.timeout)
         msg = f'👀  Element with selector "{params.selector}" became visible within {params.timeout}ms.'
@@ -170,9 +178,8 @@ async def in_browser_wait_for_element(params: WaitForElementAction, context_id: 
 
 
 # Element Interaction Actions
-@meca_mcp_server.call_tool()
-async def in_browser_click_element_by_index(params: ClickElementAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def in_browser_click_element_by_index(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     session = await browser.get_session()
 
@@ -210,10 +217,9 @@ async def in_browser_click_element_by_index(params: ClickElementAction, context_
         return CallToolResult(error=str(e))
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_click_element_by_selector(params: ClickElementBySelectorAction, context_id: str):
+async def in_browser_click_element_by_selector(params):
     try:
-        browser_context = login.main_win.getBrowserContextById(context_id)
+        browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
         element_node = await browser.get_locate_element_by_css_selector(params.css_selector)
         if element_node:
@@ -234,10 +240,9 @@ async def in_browser_click_element_by_selector(params: ClickElementBySelectorAct
         return CallToolResult(error=str(e))
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_click_element_by_xpath(params: ClickElementByXpathAction, context_id: str):
+async def in_browser_click_element_by_xpath(params):
     try:
-        browser_context = login.main_win.getBrowserContextById(context_id)
+        browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
         element_node = await browser.get_locate_element_by_xpath(params.xpath)
         if element_node:
@@ -258,10 +263,9 @@ async def in_browser_click_element_by_xpath(params: ClickElementByXpathAction, c
         return CallToolResult(error=str(e))
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_click_element_by_text(params: ClickElementByTextAction, context_id: str):
+async def in_browser_click_element_by_text(params):
     try:
-        browser_context = login.main_win.getBrowserContextById(context_id)
+        browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
         element_node = await browser.get_locate_element_by_text(
             text=params.text, nth=params.nth, element_type=params.element_type
@@ -287,9 +291,8 @@ async def in_browser_click_element_by_text(params: ClickElementByTextAction, con
         return CallToolResult(error=str(e))
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_input_text(params: InputTextAction, context_id: str, has_sensitive_data: bool = False):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def in_browser_input_text(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -306,8 +309,7 @@ async def in_browser_input_text(params: InputTextAction, context_id: str, has_se
 
 
 # Save PDF
-@meca_mcp_server.call_tool()
-async def in_browser_save_pdf(context_id: str):
+async def in_browser_save_pdf(params):
     page = await browser.get_current_page()
     short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
     slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
@@ -321,8 +323,7 @@ async def in_browser_save_pdf(context_id: str):
 
 
 # Tab Management Actions
-@meca_mcp_server.call_tool()
-async def in_browser_switch_tab(params: SwitchTabAction, context_id: str):
+async def in_browser_switch_tab(params):
     await browser.switch_to_tab(params.page_id)
     # Wait for tab to be ready
     page = await browser.get_current_page()
@@ -332,9 +333,8 @@ async def in_browser_switch_tab(params: SwitchTabAction, context_id: str):
     return CallToolResult(content=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_open_tab(params: OpenTabAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def in_browser_open_tab(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     await browser.create_new_tab(params.url)
     msg = f'🔗  Opened new tab with {params.url}'
@@ -342,9 +342,8 @@ async def in_browser_open_tab(params: OpenTabAction, context_id: str):
     return CallToolResult(content=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_close_tab(params: CloseTabAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def in_browser_close_tab(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     await browser.switch_to_tab(params.page_id)
     page = await browser.get_current_page()
@@ -356,47 +355,43 @@ async def in_browser_close_tab(params: CloseTabAction, context_id: str):
 
 
 # Content Actions
-# @meca_mcp_server.tool()
-# async def in_browser_extract_content(
-#         goal: str, should_strip_link_urls: bool, context_id: str, page_extraction_llm: BaseChatModel
-# ):
-#     browser_context = login.main_win.getBrowserContextById(context_id)
-#     browser = browser_context.browser
-#     page = await browser.get_current_page()
-#     import markdownify
-#
-#     strip = []
-#     if should_strip_link_urls:
-#         strip = ['a', 'img']
-#
-#     content = markdownify.markdownify(await page.content(), strip=strip)
-#
-#     # manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
-#     for iframe in page.frames:
-#         if iframe.url != page.url and not iframe.url.startswith('data:'):
-#             content += f'\n\nIFRAME {iframe.url}:\n'
-#             content += markdownify.markdownify(await iframe.content())
-#
-#     prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
-#     template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
-#     try:
-#         output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
-#         msg = f'📄  Extracted from page\n: {output.content}\n'
-#         logger.info(msg)
-#         return CallToolResult(content=[msg], isError=False)
-#     except Exception as e:
-#         logger.debug(f'Error extracting content: {e}')
-#         msg = f'📄  Extracted from page\n: {content}\n'
-#         logger.info(msg)
-#         return CallToolResult(content=[msg])
+async def in_browser_extract_content(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser = browser_context.browser
+    page = await browser.get_current_page()
+    import markdownify
+
+    strip = []
+    if should_strip_link_urls:
+        strip = ['a', 'img']
+
+    content = markdownify.markdownify(await page.content(), strip=strip)
+
+    # manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
+    for iframe in page.frames:
+        if iframe.url != page.url and not iframe.url.startswith('data:'):
+            content += f'\n\nIFRAME {iframe.url}:\n'
+            content += markdownify.markdownify(await iframe.content())
+
+    prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
+    template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
+    try:
+        output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
+        msg = f'📄  Extracted from page\n: {output.content}\n'
+        logger.info(msg)
+        return CallToolResult(content=[msg], isError=False)
+    except Exception as e:
+        logger.debug(f'Error extracting content: {e}')
+        msg = f'📄  Extracted from page\n: {content}\n'
+        logger.info(msg)
+        return CallToolResult(content=[msg])
 
 
 # HTML Download
-@meca_mcp_server.call_tool()
-async def in_browser_save_html_to_file(params: NoParamsAction, context_id: str) -> CallToolResult:
+async def in_browser_save_html_to_file(params) -> CallToolResult:
     """Retrieves and returns the full HTML content of the current page to a file"""
     try:
-        browser_context = login.main_win.getBrowserContextById(context_id)
+        browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
         page = await browser.get_current_page()
         html_content = await page.content()
@@ -421,9 +416,8 @@ async def in_browser_save_html_to_file(params: NoParamsAction, context_id: str) 
         return CallToolResult(error=error_msg, content='')
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_scroll_down(params: ScrollAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def in_browser_scroll_down(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
     if params.amount is not None:
@@ -441,9 +435,8 @@ async def in_browser_scroll_down(params: ScrollAction, context_id: str):
 
 
 # scroll up
-@meca_mcp_server.call_tool()
-async def in_browser_scroll_up(params: ScrollAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def in_browser_scroll_up(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
     if params.amount is not None:
@@ -461,9 +454,8 @@ async def in_browser_scroll_up(params: ScrollAction, context_id: str):
 
 
 # send keys
-@meca_mcp_server.call_tool()
-async def in_browser_send_keys(params: SendKeysAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def in_browser_send_keys(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
 
@@ -485,8 +477,7 @@ async def in_browser_send_keys(params: SendKeysAction, context_id: str):
     return CallToolResult(content=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_scroll_to_text(text: str, context_id: str):  # type: ignore
+async def in_browser_scroll_to_text(params):  # type: ignore
     page = await browser.get_current_page()
     try:
         # Try different locator strategies
@@ -519,10 +510,9 @@ async def in_browser_scroll_to_text(text: str, context_id: str):  # type: ignore
         return CallToolResult(error=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_get_dropdown_options(index: int, context_id: str) -> CallToolResult:
+async def in_browser_get_dropdown_options(params) -> CallToolResult:
     """Get all options from a native dropdown"""
-    browser_context = login.main_win.getBrowserContextById(context_id)
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
     selector_map = await browser.get_selector_map()
@@ -590,14 +580,9 @@ async def in_browser_get_dropdown_options(index: int, context_id: str) -> CallTo
         return CallToolResult(content=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_select_dropdown_option(
-        index: int,
-        text: str,
-        context_id: str,
-) -> CallToolResult:
+async def in_browser_select_dropdown_option(params) -> CallToolResult:
     """Select dropdown option by the text of the option you want to select"""
-    browser_context = login.main_win.getBrowserContextById(context_id)
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
     selector_map = await browser.get_selector_map()
@@ -687,8 +672,7 @@ async def in_browser_select_dropdown_option(
         return CallToolResult(error=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> CallToolResult:
+async def in_browser_drag_drop(params) -> CallToolResult:
     """
     Performs a precise drag and drop operation between elements or coordinates.
     """
@@ -902,8 +886,7 @@ async def in_browser_drag_drop(params: DragDropAction, context_id: str) -> CallT
         return CallToolResult(error=error_msg, isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def mouse_click(params: MouseClickAction, context_id: str):
+async def mouse_click(params):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -918,9 +901,8 @@ async def mouse_click(params: MouseClickAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def mouse_move(params: MouseMoveAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def mouse_move(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -931,9 +913,8 @@ async def mouse_move(params: MouseMoveAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def mouse_drag_drop(params: MouseDragDropAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def mouse_drag_drop(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -945,9 +926,8 @@ async def mouse_drag_drop(params: MouseDragDropAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def mouse_scroll(params: MouseScrollAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def mouse_scroll(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -962,9 +942,8 @@ async def mouse_scroll(params: MouseScrollAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def text_input(params: TextInputAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def text_input(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -975,9 +954,8 @@ async def text_input(params: TextInputAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def keys_input(params: KeysAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def keys_input(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -988,9 +966,8 @@ async def keys_input(params: KeysAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def call_api(params: CallAPIAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def call_api(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1001,9 +978,8 @@ async def call_api(params: CallAPIAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def open_app(params: OpenAppAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def open_app(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1017,9 +993,8 @@ async def open_app(params: OpenAppAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def close_app(params: CloseAppAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def close_app(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1031,9 +1006,8 @@ async def close_app(params: CloseAppAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def switch_to_app(params: SwitchToAppAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def switch_to_app(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1048,9 +1022,8 @@ async def switch_to_app(params: SwitchToAppAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def wait(params: WaitAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def run_extern(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1061,22 +1034,8 @@ async def wait(params: WaitAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def run_extern(params: RunExternAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
-    browser = browser_context.browser
-    if params.index not in await browser.get_selector_map():
-        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
-
-    time.sleep(params.time)
-
-    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
-
-
-@meca_mcp_server.call_tool()
-async def make_dir(params: MakeDirAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def make_dir(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1089,9 +1048,8 @@ async def make_dir(params: MakeDirAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def delete_dir(params: DeleteDirAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def delete_dir(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1104,9 +1062,8 @@ async def delete_dir(params: DeleteDirAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def delete_file(params: DeleteFileAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def delete_file(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1119,9 +1076,8 @@ async def delete_file(params: DeleteFileAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def move_file(params: MoveFileAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def move_file(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1135,9 +1091,8 @@ async def move_file(params: MoveFileAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def copy_file_dir(params: CopyFileDirAction, context_id: str):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def copy_file_dir(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1148,9 +1103,8 @@ async def copy_file_dir(params: CopyFileDirAction, context_id: str):
     return CallToolResult(content="", isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def screen_analyze(params: ScreenAnalyzeAction, context_id: str, has_sensitive_data: bool = False):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def screen_analyze(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1168,9 +1122,8 @@ async def screen_analyze(params: ScreenAnalyzeAction, context_id: str, has_sensi
     return CallToolResult(content=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def screen_capture(params: dict, context_id: str, has_sensitive_data: bool = False):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def screen_capture(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1186,8 +1139,7 @@ async def screen_capture(params: dict, context_id: str, has_sensitive_data: bool
     return CallToolResult(content=[msg], isError=False)
 
 
-@meca_mcp_server.call_tool()
-async def seven_zip(params: SevenZipAction, context_id: str, has_sensitive_data: bool = False):
+async def seven_zip(params):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1199,9 +1151,8 @@ async def seven_zip(params: SevenZipAction, context_id: str, has_sensitive_data:
 
 
 
-@meca_mcp_server.call_tool()
-async def kill_processes(params: KillProcessesAction, context_id: str, has_sensitive_data: bool = False):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+async def kill_processes(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1212,23 +1163,31 @@ async def kill_processes(params: KillProcessesAction, context_id: str, has_sensi
 
 
 # Element Interaction Actions
-@meca_mcp_server.call_tool()
-async def rpa_supervisor_scheduling_work(params: ClickElementAction, context_id: str):
-    # call mainwin to fetch schedule and ran team prep hook and dispatch works.
+async def rpa_supervisor_scheduling_work(params):
+    print("INPUT:", params)
+    # if tool_name != "rpa_supervisor_scheduling_work":
+    #     raise ValueError(f"Unexpected tool name: {tool_name}")
+    global server_main_win
     try:
-        print(f"there are total # of bots:{len(login.main_win.bots)}")
-        schedule = login.main_win.fetchSchedule("", login.main_win.get_vehicle_settings())
-        workable = login.main_win.runTeamPrepHook(schedule)
-        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        # mainwin = params["agent"].mainwin
+        print(f"[MCP] Running supervisor scheduler tool... ")
+        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
+        schedule = server_main_win.fetchSchedule("", server_main_win.get_vehicle_settings())
+        workable = server_main_win.runTeamPrepHook(schedule)
+        works_to_be_dispatched = server_main_win.handleCloudScheduledWorks(workable)
         msg = "Here are works to be dispatched to the troops."
-        return CallToolResult(content=[msg], meta=works_to_be_dispatched, isError=False)
+        return [types.TextContent(type="text", text=msg)]
     except Exception as e:
-        logger.warning(f'RPA Supervisor Work failure')
-        return CallToolResult(error=str(e))
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
+        return [types.TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
 
 
-@meca_mcp_server.call_tool()
-async def rpa_operator_dispatch_works(workable: list, context_id: str):
+async def rpa_operator_dispatch_works(params):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
@@ -1240,8 +1199,7 @@ async def rpa_operator_dispatch_works(workable: list, context_id: str):
         return CallToolResult(error=str(e))
 
 
-@meca_mcp_server.call_tool()
-async def rpa_supervisor_process_work_results(workable: list, context_id: str):
+async def rpa_supervisor_process_work_results(params):
     # handle RPA work results from a platoon host.
     # mostly bookkeeping.
     try:
@@ -1252,8 +1210,7 @@ async def rpa_supervisor_process_work_results(workable: list, context_id: str):
         return CallToolResult(error=str(e))
 
 
-@meca_mcp_server.call_tool()
-async def rpa_supervisor_run_daily_housekeeping(workable: list, context_id: str):
+async def rpa_supervisor_run_daily_housekeeping(params):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
@@ -1264,8 +1221,7 @@ async def rpa_supervisor_run_daily_housekeeping(workable: list, context_id: str)
         logger.warning(f'RPA Supervisor Work failure')
         return CallToolResult(error=str(e))
 
-@meca_mcp_server.call_tool()
-async def rpa_operator_report_work_results(workable: list, context_id: str):
+async def rpa_operator_report_work_results(params):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
@@ -1276,40 +1232,71 @@ async def rpa_operator_report_work_results(workable: list, context_id: str):
         logger.warning(f'RPA Supervisor Work failure')
         return CallToolResult(error=str(e))
 
-######################### Prompts Section ##################################
 
-@meca_mcp_server.get_prompt()
-def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message]:
-    return [
-        base.UserMessage(f"I am running a robotic process automation (RPA) script automating ADS Power software and on this step where "),
-        base.UserMessage(step_description),
-        base.UserMessage(f" I got this failure:"),
-        base.UserMessage(failure),
-        base.AssistantMessage("help me fix this error using the tools available, it could be a series of actions. Quite often it was due to ADS Power pops up an advertising banner and blocks its real contents, so you can use screen capture to confirm that and use mouse click action to close the banner, once done, please return a dict result with 'reason' which is a string, and 'fixed' which is a boolean flag in it."),
-    ]
+async def reconnect_wifi(params):
+    # Disconnect current Wi-Fi
+    subprocess.run(["netsh", "wlan", "disconnect"])
+    time.sleep(2)
 
-@meca_mcp_server.get_prompt()
-def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message]:
-    return [
-        base.UserMessage(f"Say hello to me."),
-        ]
+    # Reconnect to a specific network
+    cmd = ["netsh", "wlan", "connect", f"name={params['network_name']}"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(result.stdout)
 
 
-@meca_mcp_server.get_prompt()
-def create_thumbnail(image_path: str) -> Image:
-    """Create a thumbnail from an image"""
-    img = PILImage.open(image_path)
-    img.thumbnail((100, 100))
-    return Image(data=img.tobytes(), format="png")
+tool_function_mapping = {
+        "say_hello": say_hello,
+        "wait": wait,
+        "in_browser_wait_for_element": in_browser_wait_for_element,
+        "in_browser_click_element_by_index": in_browser_click_element_by_index,
+        "in_browser_click_element_by_selector": in_browser_click_element_by_selector,
+        "in_browser_click_element_by_xpath": in_browser_click_element_by_xpath,
+        "in_browser_click_element_by_text": in_browser_click_element_by_text,
+        "in_browser_input_text": in_browser_input_text,
+        "in_browser_save_pdf": in_browser_save_pdf,
+        "in_browser_switch_tab": in_browser_switch_tab,
+        "in_browser_open_tab": in_browser_open_tab,
+        "in_browser_close_tab": in_browser_close_tab,
+        "in_browser_extract_content": in_browser_extract_content,
+        "in_browser_save_html_to_file": in_browser_save_html_to_file,
+        "in_browser_scroll_down": in_browser_scroll_down,
+        "in_browser_scroll_up": in_browser_scroll_up,
+        "in_browser_send_keys": in_browser_send_keys,
+        "in_browser_scroll_to_text": in_browser_scroll_to_text,
+        "in_browser_get_dropdown_options": in_browser_get_dropdown_options,
+        "in_browser_select_dropdown_option": in_browser_select_dropdown_option,
+        "in_browser_drag_drop": in_browser_drag_drop,
+        "mouse_click": mouse_click,
+        "mouse_move": mouse_move,
+        "mouse_drag_drop": mouse_drag_drop,
+        "mouse_scroll": mouse_scroll,
+        "text_input": text_input,
+        "keys_input": keys_input,
+        "call_api": call_api,
+        "open_app": open_app,
+        "close_app": close_app,
+        "switch_to_app": switch_to_app,
+        "run_extern": run_extern,
+        "make_dir": make_dir,
+        "delete_dir": delete_dir,
+        "delete_file": delete_file,
+        "move_file": move_file,
+        "copy_file_dir": copy_file_dir,
+        "screen_analyze": screen_analyze,
+        "screen_capture": screen_capture,
+        "seven_zip": seven_zip,
+        "kill_processes": kill_processes,
+        "rpa_supervisor_scheduling_work": rpa_supervisor_scheduling_work,
+        "rpa_operator_dispatch_works": rpa_operator_dispatch_works,
+        "rpa_supervisor_process_work_results": rpa_supervisor_process_work_results,
+        "rpa_supervisor_run_daily_housekeeping": rpa_supervisor_run_daily_housekeeping,
+        "rpa_operator_report_work_results": rpa_operator_report_work_results,
+        "reconnect_wifi": reconnect_wifi
+    }
 
-@meca_mcp_server.get_prompt()
-async def long_task(files: list[str], ctx: Context) -> str:
-    """Process multiple files with progress tracking"""
-    for i, file in enumerate(files):
-        ctx.info(f"Processing {file}")
-        await ctx.report_progress(i, len(files))
-        data, mime_type = await ctx.read_resource(f"file://{file}")
-    return "Processing complete"
+def set_server_main_win(mw):
+    global server_main_win
+    server_main_win = mw
 
 
 async def handle_sse(scope, receive, send):
