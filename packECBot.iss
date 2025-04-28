@@ -110,19 +110,19 @@ type
 procedure InitializeWizard;
 begin
   { Create the pages }
-  UserPrompt := 'Please specify your name and the company for whom you work, then click Next.'#13#10'ÇëÊäÈëÄúµÄÐÅÏ¢£¬È»ºóµã»÷NextÏÂÒ»²½¡£';
+  UserPrompt := 'Please specify your name and the company for whom you work, then click Next.'#13#10'ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½È»ï¿½ï¿½ï¿½ï¿½Nextï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½';
   UserPage := CreateInputQueryPage(wpWelcome,
-    'Personal Information(ÓÃ»§ÐÅÏ¢)', '', UserPrompt);
-  UserPage.Add('Name(ÓÃ»§Ãû):', False);
-  UserPage.Add('Company(¹«Ë¾Ãû):', False);
+    'Personal Information(ï¿½Ã»ï¿½ï¿½ï¿½Ï¢)', '', UserPrompt);
+  UserPage.Add('Name(ï¿½Ã»ï¿½ï¿½ï¿½):', False);
+  UserPage.Add('Company(ï¿½ï¿½Ë¾ï¿½ï¿½):', False);
 
   UsagePage := CreateInputOptionPage(UserPage.ID,
     'Personal Information', 'This Computer''s role ?',
     'Please specify how you would like to use current computer for automation, then click Next.',
     True, False);
-  UsagePage.Add('Commander (Command Only, No mission Execution)Ö¸»Ó¹Ù-½öÅÉ·¢ÈÎÎñ');
-  UsagePage.Add('Commander (Command and Execute Mission)Ö¸»Ó¹Ù - ÅÉ·¢ÇÒÖ´ÐÐÈÎÎñ');
-  UsagePage.Add('Platoon (Execute Mission Only) Ð¡·Ö¶Ó-½öÖ´ÐÐÈÎÎñ');
+  UsagePage.Add('Commander (Command Only, No mission Execution)Ö¸ï¿½Ó¹ï¿½-ï¿½ï¿½ï¿½É·ï¿½ï¿½ï¿½ï¿½ï¿½');
+  UsagePage.Add('Commander (Command and Execute Mission)Ö¸ï¿½Ó¹ï¿½ - ï¿½É·ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½');
+  UsagePage.Add('Platoon (Execute Mission Only) Ð¡ï¿½Ö¶ï¿½-ï¿½ï¿½Ö´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½');
 
   LightMsgPage := CreateOutputMsgPage(UsagePage.ID,
     'Personal Information', 'How will you use My Program?',
@@ -310,6 +310,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Value: string;
+  appPath: string;
 begin
   if CurStep = ssPostInstall then
   begin
