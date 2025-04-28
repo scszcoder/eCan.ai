@@ -15,7 +15,7 @@ from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
 from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse
 from langchain_mcp_adapters.client import MultiServerMCPClient
-
+import sys
 import traceback
 response_dict = {}
 
@@ -23,7 +23,9 @@ response_dict = {}
 # CORS(mecaLocalServer)
 MainWin = None
 IMAGE_FOLDER = os.path.abspath("run_images")  # Ensure this is your intended path
+base_dir = getattr(sys, '_MEIPASS', os.getcwd())
 
+static_dir = os.path.join(base_dir, 'agent', 'agent_files')
 # Endpoint to serve images
 async def serve_image(request):
     filename = request.path_params['filename']
@@ -126,7 +128,7 @@ routes = [
     # Mount("/sse", sse_to_mcp),
     # Mount("/sse2mcp", app=meca_mcp_server.sse_app()),
     # Mount("/messages", app=sse_handle_messages),
-    Mount('/', StaticFiles(directory='agent/agent_files', html=True), name='static'),
+    Mount('/', StaticFiles(directory=static_dir, html=True), name='static'),
 ]
 
 
