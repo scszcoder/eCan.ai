@@ -21,6 +21,8 @@ import botocore
 import locale
 
 from gui.MainGUI import MainWindow
+from gui.BrowserGUI import BrowserWindow
+
 from bot.signio import CLIENT_ID, USER_POOL_ID, CLIENT_SECRET
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
@@ -168,7 +170,8 @@ class Login(QDialog):
         # self.buttonLogin = QPushButton(QPushButton.tr('Login'), self)
         self.buttonLogin = QPushButton('Login', self)
 
-        self.buttonLogin.clicked.connect(self.handleLogin)
+        # self.buttonLogin.clicked.connect(self.handleLogin)
+        self.buttonLogin.clicked.connect(self.fakeLogin)
 
         self.forget_label = QLabel(QApplication.translate("QLabel", "Forgot Password?"))
         self.forget_label.setFont(self.linkFont)
@@ -497,6 +500,7 @@ class Login(QDialog):
         return self.current_user
 
     def getLogUser(self):
+        print("current user:", self.current_user)
         return self.current_user.split("@")[0] + "_" + self.current_user.split("@")[1].replace(".", "_")
 
     def decode_jwt(self, token):
@@ -617,11 +621,18 @@ class Login(QDialog):
                 self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip,
                                            self.textName.text(), ecbhomepath,
                                            self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
+                self.new_main_win = BrowserWindow()
+                gui_port = 4000
+                new_gui_url = f"http://localhost:{gui_port}"
+                self.new_main_win.loadURL(new_gui_url)
+                self.new_main_win.show()        #coment this out if using old GUI
+
                 print("Running as a commander...", commanderServer)
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
-                self.main_win.show()
+
+                self.main_win.show()            #comment this out if using new GUI
             else:
                 # global commanderXport
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
@@ -731,6 +742,9 @@ class Login(QDialog):
 
         print(self.tokens)
         main_key = ""
+        self.current_user = self.textName.text()
+        self.current_user_pw = self.textPass.text()
+        print("faking...", main_key, self.tokens, self.ip, self.textName, ecbhomepath, self.machine_role, self.schedule_mode, self.lang)
         self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip,
                                    self.textName.text(),  ecbhomepath,
                                    self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
@@ -738,6 +752,13 @@ class Login(QDialog):
         print("faker...")
         self.main_win.setOwner("Nobody")
         self.main_win.show()
+
+        # using new GUI
+        self.new_main_win = BrowserWindow()
+        gui_port = 4000
+        new_gui_url = f"http://localhost:{gui_port}"
+        self.new_main_win.loadURL(new_gui_url)
+        self.new_main_win.show()
 
     def get_mainwin(self):
         return self.main_win

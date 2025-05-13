@@ -11,6 +11,7 @@ import uvicorn
 import os
 import time
 import uuid
+import json
 from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
 from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse
@@ -102,6 +103,31 @@ async def health_check(request):
     print("health_check status returned................")
     return JSONResponse({"status": "ok"})
 
+async def get_skill_graph(skg_file):
+    skill_graph = None
+    if os.path.exists(skg_file):
+        with open(skg_file, "r", encoding="utf-8") as skf:
+            skill_graph = json.load(skf)
+    return skill_graph
+
+async def save_skill_graph(skill_graph, skg_file):
+    saved = False
+    try:
+        with open(skg_file, "w") as outfile:
+            json.dump(skill_graph, outfile, indent=4)
+        outfile.close()
+        saved = True
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorSaveSkillGraph:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorSaveSkillGraph: traceback information not available:" + str(e)
+        saved = False
+    return saved
+
 # Wrap the raw ASGI handler for POST
 messages_router = Router([
     Route("/", endpoint=sse_handle_messages, methods=["POST"])
@@ -118,8 +144,10 @@ routes = [
     # Route("/sse", endpoint=handle_sse),
     Route('/api/gen_feedbacks', gen_feedbacks, methods=['GET']),
     Route('/api/get_mission_reports', get_mission_reports, methods=['GET']),
+    Route('/api/load_graph', get_skill_graph, methods=['GET']),
     Route('/api/stream', stream),
     Route('/api/sync_bots_missions', sync_bots_missions, methods=['POST']),
+    Route('/api/save_graph', save_skill_graph, methods=['POST']),
     # Route('/{filename:path}', serve_image),
     # Mount("/messages", app=sse_handle_messages),
     # Mount("/sse", app=sse_router),
@@ -142,9 +170,9 @@ mecaLocalServer.add_middleware(
     allow_headers=['*']
 )
 
-def run_starlette():
-    print("Starting Starlette server....")
-    uvicorn.run(mecaLocalServer, host='0.0.0.0', port=4668)
+def run_starlette(port=4668):
+    print(f"Starting Starlette server....on port {port}")
+    uvicorn.run(mecaLocalServer, host='0.0.0.0', port=port)
 
 # Start Starlette server in a separate thread
 def start_local_server_in_thread(mwin):
@@ -152,7 +180,8 @@ def start_local_server_in_thread(mwin):
     MainWin = mwin
     MainWin.mcp_server = meca_mcp_server
     MainWin.sse_server = meca_sse
-    starlette_thread = threading.Thread(target=run_starlette)
+    port = int(MainWin.get_local_server_port())
+    starlette_thread = threading.Thread(target=run_starlette, args=(port,))
     MainWin.local_server_thread = starlette_thread
     starlette_thread.daemon = True  # Allows the thread to exit when the main program exits
     starlette_thread.start()

@@ -46,6 +46,8 @@ class A2AServer:
         self.app.add_route(
             "/.well-known/agent.json", self._get_agent_card, methods=["GET"]
         )
+        # 🔽 Add this route
+        self.app.add_route("/ping", self._health_check, methods=["GET"])
 
     def start(self):
         if self.agent_card is None:
@@ -57,6 +59,9 @@ class A2AServer:
         import uvicorn
 
         uvicorn.run(self.app, host=self.host, port=self.port)
+
+    def _health_check(self, request: Request) -> JSONResponse:
+        return JSONResponse({"status": "ok"})
 
     def _get_agent_card(self, request: Request) -> JSONResponse:
         return JSONResponse(self.agent_card.model_dump(exclude_none=True))

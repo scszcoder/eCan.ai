@@ -323,7 +323,6 @@ class EC_Agent(Generic[Context]):
 		if not free_ports:
 			return None
 		a2a_server_port = free_ports[0]
-		print("a2a server port:", a2a_server_port)
 		self.card = card
 		self.a2a_client = A2AClient(self.card)
 		notification_sender_auth = PushNotificationSenderAuth()
@@ -1577,6 +1576,7 @@ class EC_Agent(Generic[Context]):
 		return self.card
 
 	def get_a2a_server_port(self):
+		print(f"a2a server port: {self.a2a_server.agent_card.url.split(':')[-1]}")
 		return int(self.a2a_server.agent_card.url.split(":")[-1])
 
 	def is_busy(self):
@@ -1717,9 +1717,10 @@ class EC_Agent(Generic[Context]):
 	@time_execution_async('--request_local_help (agent)')
 	async def request_local_help(self, recipient_agent=None):
 		# this is only available if myself is not a helper agent
+		helper = next((ag for ag in self.mainwin.agents if "helper" in self.get_card().name.lower()), None)
 		print("client card:", self.get_card().name.lower())
-		if "helper" not in self.get_card().name.lower():
-			self.a2a_client.set_recipient(url="http://192.168.0.10:3600/a2a/")
+		if helper:
+			self.a2a_client.set_recipient(helper.get_card())
 			payload = {
 				"id": "task-001X",
 				"sessionId": "sess-abc",
@@ -1733,3 +1734,37 @@ class EC_Agent(Generic[Context]):
 			print("A2A RESPONSE:", response)
 		else:
 			print("client err:", self.get_card().name.lower())
+
+	# class Message(BaseModel):
+	# 	role: Literal["user", "agent"]
+	# 	parts: List[Part]
+	# 	metadata: dict[str, Any] | None = None
+	@time_execution_async('--a2a_send_message (agent, message)')
+	async def a2a_send_message(self, recipient_agent, message):
+		# this is only available if myself is not a helper agent
+		print("recipient card:", recipient_agent.get_card().name.lower())
+
+		try:
+			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
+			print("a2a end point: ", a2a_end_point)
+			self.a2a_client.set_recipient(url=a2a_end_point)
+			payload = {
+				"id": "task-001X",
+				"sessionId": "sess-abc",
+				"message": message,
+				"acceptedOutputModes": ["json"],
+				"skill": "resolve_rpa_failure"  # Or whatever your agent expects
+			}
+
+			print("client payload:", payload)
+			response = await self.a2a_client.send_task(payload)
+			print("A2A RESPONSE:", response)
+		except Exception as e:
+			# Get the traceback information
+			traceback_info = traceback.extract_tb(e.__traceback__)
+			# Extract the file name and line number from the last entry in the traceback
+			if traceback_info:
+				ex_stat = "ErrorA2ASend:" + traceback.format_exc() + " " + str(e)
+			else:
+				ex_stat = "ErrorA2ASend: traceback information not available:" + str(e)
+			print(ex_stat)

@@ -312,7 +312,7 @@ class MainWindow(QMainWindow):
         self.BotNewWin = None
         self.missionWin = None
         self.chatWin = None
-        self.gradioWin = BrowserWindow(self)
+        self.newGui = BrowserWindow(self)
 
         self.trainNewSkillWin = None
         self.reminderWin = None
@@ -989,7 +989,7 @@ class MainWindow(QMainWindow):
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
         # setup local web server including MCP server.
-
+        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
         set_server_main_win(self)
         start_local_server_in_thread(self)
 
@@ -1004,7 +1004,8 @@ class MainWindow(QMainWindow):
             self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
             # self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self))
             self.showMsg("spawned wan chat task")
-        else:
+
+        if self.host_role == "Platoon":
             self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
             self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
             # self.wan_sub_task = asyncio.create_task(self.wait_forever())
@@ -1066,11 +1067,30 @@ class MainWindow(QMainWindow):
         print("DONE launch agents.....")
         # await self.test_a2a()
 
+    def wait_for_server(self, agent, timeout: float = 10.0):
+        url = agent.get_card().url+'/ping'
+        print("agent card url:", url)
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                response = requests.get(url)
+                if response.status_code == 200:
+                    print("✅ Server is up!")
+                    return True
+            except requests.ConnectionError:
+                pass
+            time.sleep(1)
+        raise RuntimeError(f"❌ Server did not start within {timeout} seconds")
+
+
     async def launch_agents(self):
+        print(f"launching agents:{len(self.agents)}")
         for agent in self.agents:
             if agent:
                 print("KICKING OFF AGENT.....")
                 await agent.start()
+                print("checking a2a server status....")
+                self.wait_for_server(agent)
                 print("AGENT STARTED.....")
             else:
                 print("WARNING EMPTY AGENT .....")
@@ -1107,7 +1127,15 @@ class MainWindow(QMainWindow):
         else:
             self.agents.append(set_up_ec_helper_agent(self))
             self.agents.append(set_up_ec_rpa_supervisor_agent(self))
+            if "ONLY" not in self.machine_role:
+                self.agents.append(set_up_ec_rpa_operator_agent(self))
 
+    def get_vehicle_ecbot_op_agent(self, v):
+        # obtain agents on a vehicle.
+        print(f"{len(self.agents)}")
+        ecb_op_agent = next((ag for ag in self.agents if "ECBot RPA Operator Agent" in ag.card.name), None)
+        print("FOUND Operator......", ecb_op_agent.card.name)
+        return ecb_op_agent
 
     # SC note - really need to have
     async def run_async_tasks(self):
@@ -1126,8 +1154,11 @@ class MainWindow(QMainWindow):
     # 3) regenerate psk files for each skill
     # 4) build up skill_table (a look up table)
     def dailySkillsetUpdate(self):
-        cloud_skills_results = self.SkillManagerWin.fetchMySkills()
-        print("DAILY SKILL FETCH:", cloud_skills_results)
+        if self.general_settings["schedule_mode"] != "test":
+            cloud_skills_results = self.SkillManagerWin.fetchMySkills()
+            print("DAILY SKILL FETCH:", cloud_skills_results)
+        else:
+            cloud_skills_results = {"body": "{}"}
         existing_skids = [sk.getSkid() for sk in self.skills]
         print("EXISTING SKIDS:", existing_skids)
 
@@ -1144,8 +1175,6 @@ class MainWindow(QMainWindow):
                     cloud_work_skill.loadJson(cloud_skill)
 
                     # now read the cloud skill's local definition file to get
-
-
                     self.skills.append(cloud_work_skill)
 
             # this will handle all skill bundled into software itself.
@@ -2120,9 +2149,10 @@ class MainWindow(QMainWindow):
                     else:
                         log3("debug mode, using test vector....", "fetchSchedule", self)
                         # file = 'C:/software/scheduleResultTest7.json'
+                        file = 'C:/temp/scheduleResultTest1.json'
                         # file = 'C:/temp/scheduleResultTest5.json'             # ads ebay sell test
                         # file = 'C:/temp/scheduleResultTest7.json'             # ads amz browse test
-                        file = 'C:/temp/scheduleResultTest10_9_3.json'             # ads ebay amz etsy sell test.
+                        # file = 'C:/temp/scheduleResultTest10_9_3.json'             # ads ebay amz etsy sell test.
                         # file = 'C:/temp/scheduleResultTest999.json'
                         # file = 'C:/temp/scheduleResult Test6.json'               # ads amz buy test.
                         if exists(file):
@@ -2141,7 +2171,7 @@ class MainWindow(QMainWindow):
                     json.dump(bodyobj, sf, indent=4)
                 sf.close()
 
-            print("time stamp " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] + " done with fetch schedule....", list(bodyobj.keys()), len(bodyobj["added_missions"]))
+            print("fetch schedule time stamp " + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] + " done with fetch schedule....", list(bodyobj.keys()), len(bodyobj["added_missions"]))
             self.todaysSchedule = bodyobj
             return bodyobj
         # ni is already incremented by processExtract(), so simply return it.
@@ -7968,6 +7998,25 @@ class MainWindow(QMainWindow):
         return none2do
 
 
+    async def todo_wait_in_line(self, request):
+        try:
+            print("task waiting in line.....")
+            await self.gui_net_msg_queue.put(request)
+            print("now in line....")
+        except Exception as e:
+            ex_stat = "ErrorPlatoonWaitInLine:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
+
+    async def rpa_wait_in_line(self, request):
+        try:
+            print("task waiting in line.....")
+            await self.gui_rpa_msg_queue.put(request)
+            print("now in line....")
+        except Exception as e:
+            ex_stat = "ErrorRPAWaitInLine:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
 
     async def serveCommander(self, msgQueue):
         log3("starting serve Commanders", "serveCommander", self)
@@ -9515,7 +9564,8 @@ class MainWindow(QMainWindow):
             found_vehicle.setStatus("running_idle")       # this vehicle is ready to take more work if needed.
             vehicle_report = self.prepVehicleReportData(found_vehicle)
             log3("vehicle status report"+json.dumps(vehicle_report))
-            resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
+            if self.general_settings["schedule_mode"] != "test":
+                resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
                                                  vehicle_report, self.getWanApiEndpoint())
             self.saveVehiclesJsonFile()
 
@@ -9774,8 +9824,8 @@ class MainWindow(QMainWindow):
         mfiles = []
 
         if "new_orders_path" in self.general_settings:
-            log3("new_orders_path:" + self.general_settings["new_orders_path"])
-            mfiles = self.get_yesterday_orders_files(self.general_settings["new_orders_path"])
+            log3("new_orders_path:" + self.general_settings["new_orders_dir"])
+            mfiles = self.get_yesterday_orders_files(self.general_settings["new_orders_dir"])
             log3("New order files since yesterday" + json.dumps(mfiles))
 
         return mfiles

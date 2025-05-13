@@ -9,11 +9,13 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import TypedDict, List, Any
-
+import subprocess
 from langgraph.graph.graph import CompiledGraph
 from langgraph.graph.message import AnyMessage, add_messages, MessagesState, BaseMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
+from pyqtgraph.examples.MatrixDisplayExample import main_window
+from sqlalchemy.testing.suite.test_reflection import metadata
 
 from typing_extensions import TypedDict
 from langgraph.prebuilt import tools_condition
@@ -21,7 +23,7 @@ from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 from agent.mcp.client.client_manager import MCPClientSessionManager
 from agent.mcp.server.tool_schemas import tool_schemas
-from agent.a2a.common.types import AgentSkill
+from agent.a2a.common.types import AgentSkill, Message, TextPart
 import json
 import traceback
 import time
@@ -213,7 +215,7 @@ async def create_rpa_helper_skill(mainwin):
             async def node(state: AgentState) -> AgentState:
                 result = await session.invoke(
                     input=state["input"],
-                    messages=state["messages"],
+                    messages=state["messages"][-1],
                     tool_choice="auto"  # let the LLM decide
                 )
                 state["messages"].append(result)
@@ -288,6 +290,37 @@ async def create_rpa_helper_skill(mainwin):
     return helper_skill
 
 
+async def operator_message_handler(state: AgentState) -> AgentState:
+    end_state = {
+        "input": "",
+        "messages": ["task executed successfully!"],
+        "retries": 0,
+        "resolved": True
+    }
+
+    try:
+        print("operator_message_handler......", state)
+        if state:
+            agent = state["messages"][0]
+            a2a_task_req = state["messages"][1]
+            req2operator = a2a_task_req.params.message.metadata
+            msg_type = req2operator["msg_type"]
+            print("operator_message_handler......about to call func.", req2operator)
+            result = await operator_msg_function_mapping[msg_type](req2operator, agent)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
+        print(ex_stat)
+        end_state["messages"][0] = f"Task Error: {ex_stat}"
+
+    return end_state  # must return the new state
+
+
 async def create_rpa_operator_skill(mainwin):
     try:
         llm = mainwin.llm
@@ -306,24 +339,8 @@ async def create_rpa_operator_skill(mainwin):
         print("operator # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
 
 
-        # 2) ----- Make the work you want the node to do -----------------------------
-        async def operator_message_handler(state: AgentState) -> AgentState:
-            # handles these possible messages:
-            # from supervisor: rpa_assignment, rpa_control_action
-            # from helper: rpa_error_fix_result
-            # from rpa task: rpa_result_report, rpa_state_update, rpa_error_help_request
-            # to supervisor: (relay) rpa_result_report, rpa_state_update(in case of RPA require human/supervisor in the loop)
-            # to helper: (relay) rpa_error_help_request
-            text = state.get("text", None)
-            if text is None:
-                print("No 'text' found in state")
-            else:
-                print("Node saw:", text)
-
-            state["text"] = state["text"].upper()  # trivial “work”
-            return state  # must return the new state
-
         # 3) ----- Build a graph with ONE node ---------------------------------------
+
         workflow = StateGraph(AgentState)
         workflow.add_node("message_handler", operator_message_handler)
         workflow.set_entry_point("message_handler")  # where execution starts
@@ -362,7 +379,7 @@ async def supervisor_task_scheduler(state: AgentState) -> AgentState:
     all_tools = mcp_client.get_tools()
 
     session = mcp_client.sessions["E-Commerce Agents Service"]
-    print(" start to say hello")
+    print(" start to call mcp to fetch schedule......")
     # await session.call_tool("say_hello", {"seconds": 2})
     # print(" done to say hello")
     # await session.call_tool("rpa_supervisor_scheduling_work", {"id": "000"})
@@ -374,6 +391,24 @@ async def supervisor_task_scheduler(state: AgentState) -> AgentState:
     if supervisor_scheduler_tool:
         print("start to call supervisor scheduler MCP tool......", supervisor_scheduler_tool)
         result = await supervisor_scheduler_tool.ainvoke({"context_id": "111", "options": {}})
+        print("mcp tool call result.....", result)
+        # now that work schedule is obtained, find out which agent to send the work to, and
+        # then send to work to the assigned agents.(this is per vehicle, each vehicle will have
+        # an operator agent on it.
+        per_vehicle_works = json.loads(result[1])
+        print("per_vehicle_works:", per_vehicle_works)
+        for v in per_vehicle_works:
+            vehicle_operator_agent = this_agent.mainwin.get_vehicle_ecbot_op_agent(v)
+            # setup a2a client to send the work to this agent.
+            req_data = {"msg_type": "rpa_tasks", "rpa_tasks": per_vehicle_works[v]}
+            rpa_task_request = Message(role="user", parts=[TextPart(type="text", text="Here are the RPA work to run")], metadata=req_data)
+            rpa_task_reponse = await this_agent.a2a_send_message(vehicle_operator_agent, rpa_task_request)
+            if "error" in rpa_task_reponse:
+                print("rpa_task_reponse", rpa_task_reponse)
+            else:
+                print("rpa_task_reponse", rpa_task_reponse)
+
+        print("scheduling done......")
         end_state["messages"].append(result)
     else:
         end_state["messages"][0] = "ERROR: no supervisor scheduler found!"
@@ -392,10 +427,6 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
 
         await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
-
-
-
-
 
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
@@ -424,6 +455,110 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
 
 
 
+async def reconnect_wifi(params):
+    # Disconnect current Wi-Fi
+    subprocess.run(["netsh", "wlan", "disconnect"])
+    time.sleep(2)
+
+    # Reconnect to a specific network
+    cmd = ["netsh", "wlan", "connect", f"name={params['network_name']}"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(result.stdout)
+
+
+async def supervisor_handle_rpa_task_report(mainwin, agent, req_data):
+    print("supervisor_handle_rpa_task_report")
+    await mainwin.todo_wait_in_line.put(req_data)
+
+
+async def supervisor_handle_rpa_completion_report(mainwin, agent, req_data):
+    print("supervisor_handle_rpa_completion_report")
+    await mainwin.todo_wait_in_line.put(req_data)
+
+
+async def supervisor_handle_rpa_status(mainwin, agent, req_data):
+    print("supervisor_handle_rpa_status")
+    await mainwin.todo_wait_in_line.put(req_data)
+
+
+async def supervisor_handle_human_in_loop_request(mainwin, agent, req_data):
+    print("supervisor_handle_human_in_loop_request")
+    await mainwin.todo_wait_in_line.put(req_data)
+
+
+async def supervisor_handle_agent_in_loop_request(mainwin, agent, req_data):
+    print("supervisor_handle_agent_in_loop_request")
+    await mainwin.todo_wait_in_line.put(req_data)
+
+supervisor_msg_function_mapping = {
+        "rpa_task_report": supervisor_handle_rpa_task_report,
+        "rpa_completion_report": supervisor_handle_rpa_completion_report,
+        "rpa_status": supervisor_handle_rpa_status,
+        "human_in_loop_request": supervisor_handle_human_in_loop_request,
+        "agent_in_loop_request": supervisor_handle_agent_in_loop_request
+    }
+
+async def operaor_handle_rpa_tasks(req_data, agent):
+    print("operaor_handle_rpa_tasks", req_data, "simply enqueue")
+    print("mainwin # of agents:", len(agent.mainwin.bots))    # enqueue
+    asyncio.ensure_future(agent.mainwin.todo_wait_in_line(req_data))
+
+
+async def operaor_handle_run_control(mainwin, agent, req_data):
+    print("operaor_handle_run_control")
+    # enqueue
+    await mainwin.rpa_wait_in_line.put(req_data)
+
+async def operaor_handle_human_in_loop_response(mainwin, agent, req_data):
+    print("operaor_handle_human_in_loop_response")
+    asyncio.ensure_future(mainwin.rpa_wait_in_line.put(req_data))
+
+async def operaor_handle_agent_in_loop_response(mainwin, agent, req_data):
+    print("operaor_handle_agent_in_loop_response")
+    mainwin.rpa_wait_in_line(req_data)
+
+async def operaor_handle_help_response(mainwin, agent, req_data):
+    print("operaor_handle_help_response")
+    mainwin.rpa_wait_in_line(req_data)
+
+operator_msg_function_mapping = {
+        "rpa_tasks": operaor_handle_rpa_tasks,
+        "run_control": operaor_handle_run_control,
+        "human_in_loop_response": operaor_handle_human_in_loop_response,
+        "agent_in_loop_response": operaor_handle_agent_in_loop_response,
+        "help_response": operaor_handle_help_response
+    }
+
+
+async def supervisor_message_handler(state: AgentState) -> AgentState:
+    end_state = {
+        "input": "",
+        "messages": ["task executed successfully!"],
+        "retries": 0,
+        "resolved": True
+    }
+
+    try:
+        print("running supervisor_message_handler....")
+        msg_type = state["input"]
+        agent = state["messages"][-1]
+        mainwin = agent.mainwin
+        req_data = state["messages"][-2]
+        result = await supervisor_msg_function_mapping[msg_type](mainwin, agent, req_data)
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
+        end_state["messages"][0] = f"Task Error: {ex_stat}"
+
+    return end_state  # must return the new state
+
+
+
 async def create_rpa_supervisor_serve_requests_skill(mainwin):
     try:
         llm = mainwin.llm
@@ -441,20 +576,6 @@ async def create_rpa_supervisor_serve_requests_skill(mainwin):
         helper_tools = [t for t in all_tools if t.name in help_tool_names]
         print("serve # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
 
-        async def supervisor_message_handler(state: AgentState) -> AgentState:
-            # handles these possible messages:
-            # from supervisor: rpa_assignment, rpa_control_action
-            # from helper: rpa_error_fix_result
-            # from rpa task: rpa_result_report, rpa_state_update, rpa_error_help_request
-            # to supervisor: (relay) rpa_result_report, rpa_state_update(in case of RPA require human/supervisor in the loop)
-            # to helper: (relay) rpa_error_help_request
-            text = state.get("text", None)
-            if text is None:
-                print("No 'text' found in state")
-            else:
-                print("Node saw:", text)
-            state["text"] = state["text"].upper()  # trivial “work”
-            return state  # must return the new state
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
         workflow = StateGraph(AgentState)

@@ -159,6 +159,7 @@ class AgentTaskManager(InMemoryTaskManager):
             try:
                 # 2. Wait with timeout
                 result = await asyncio.wait_for(waiter, timeout=10)
+                print("waiter run result......", result)
                 return JSONResponse({"result": result})
             except asyncio.TimeoutError:
                 return JSONResponse({"error": "Timeout waiting for task result"}, status_code=504)
