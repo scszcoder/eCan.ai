@@ -66,6 +66,7 @@ class TaskSchedule(BaseModel):
 class ManagedTask(Task):
     skill: EC_Skill
     state: dict
+    name: str
     resume_from: Optional[str] = None
     trigger: Optional[str] = None
     task: Optional[asyncio.Task] = None
@@ -96,19 +97,30 @@ class ManagedTask(Task):
         if cp_name in self.checkpoint_nodes:
             self.checkpoint_nodes.remove(cp_name)
 
-    async def astream_run(self):
-        print("running skill:", self.skill.name)
-        async for step in self.skill.runnable.astream(self.metadata.get("state", {})):
-            await self.pause_event.wait()
-            self.status.message = Message(
-                role="agent",
-                parts=[TextPart(type="text", text=str(step))]
-            )
-            if step.get("require_user_input") or step.get("await_agent"):
-                self.status.state = TaskState.INPUT_REQUIRED
-                return
-        self.status.state = TaskState.COMPLETED
+    async def astream_run(self, in_msg=""):
+        try:
+            print("running skill:", self.skill.name, in_msg)
+            if not in_msg:
+                in_args = self.metadata.get("state", {})
+            else:
+                in_args = in_msg
+            print("in_args:", in_args)
+            async for step in self.skill.runnable.astream(in_args):
+                await self.pause_event.wait()
+                self.status.message = Message(
+                    role="agent",
+                    parts=[TextPart(type="text", text=str(step))]
+                )
+                if step.get("require_user_input") or step.get("await_agent"):
+                    self.status.state = TaskState.INPUT_REQUIRED
+                    return
 
+            print("task completed...")
+            self.status.state = TaskState.COMPLETED
+
+        except Exception as e:
+            ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
 
     async def create_scheduler_task(self):
         self.task = asyncio.create_task(self.scheduled_run())
@@ -453,6 +465,11 @@ class TaskRunner(Generic[Context]):
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))
         await self.resume_task(task_id)
 
+    def find_suitable_tasks(self, msg):
+        # for now, for the simplicity just find the task that's not scheduled.
+        found = [task for task in self.agent.tasks if "operates daily routine task" in task.name.lower()]
+        return found
+
     async def wait_in_line(self, request):
         try:
             print("waiting in line.....")
@@ -471,6 +488,19 @@ class TaskRunner(Generic[Context]):
                     try:
                         msg = self.msg_queue.get_nowait()
                         print("A2A message....", msg)
+                        # a message could be handled by different task, so first find
+                        # a task that that's suitable to handle this message,
+                        matched_tasks = self.find_suitable_tasks(msg)
+                        print("matched task....", len(matched_tasks))
+                        # then run this skill's runnable with the msg
+                        if matched_tasks:
+                            task2run = matched_tasks[0]
+                            task2run.metadata["state"] = {
+                                "messages": [self.agent, msg]
+                            }
+                            print("ready to run the right task", task2run.name, msg)
+                            response = await task2run.astream_run()
+
                         self.msg_queue.task_done()
 
                         # process msg here and the msg could be start a task run.

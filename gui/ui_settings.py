@@ -116,9 +116,9 @@ class SettingsWidget(QMainWindow):
             traceback_info = traceback.extract_tb(e.__traceback__)
             # Extract the file name and line number from the last entry in the traceback
             if traceback_info:
-                ex_stat = "ErrorCheckCloudWorkQueue:" + traceback.format_exc() + " " + str(e)
+                ex_stat = "ErrorSettingsWidgetInit:" + traceback.format_exc() + " " + str(e)
             else:
-                ex_stat = "ErrorCheckCloudWorkQueue: traceback information not available:" + str(e)
+                ex_stat = "ErrorSettingsWidgetInit: traceback information not available:" + str(e)
             print(ex_stat)
     def save_settings(self):
         self.commander_run = (self.commander_run_cb.checkState() == Qt.Checked)
@@ -131,9 +131,19 @@ class SettingsWidget(QMainWindow):
         self.close()
 
     def list_printers(self):
-        printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
-        self.printers = printers
-        print([p[2] for p in self.printers])
+        try:
+            printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
+            self.printers = printers
+            print([p[2] for p in self.printers])
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorListPrinters:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorListPrinters: traceback information not available:" + str(e)
+            print(ex_stat)
 
     def list_wifi_networks(self):
         for i in range(3):  # Try scanning multiple times

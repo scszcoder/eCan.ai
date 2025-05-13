@@ -123,6 +123,7 @@ async def unified_tool_handler(tool_name, args):
     if tool_name in tool_function_mapping:
         try:
             result = await tool_function_mapping[tool_name](args)
+            print("unified_tool_handler after call", type(result), result)
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -131,9 +132,11 @@ async def unified_tool_handler(tool_name, args):
                 ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
-            result  = CallToolResult(content=[ex_stat], isError=False)
+            result  = CallToolResult(content=[TextContent(type="text", text=ex_stat)], isError=True)
     else:
-        result = CallToolResult(content=['ErrorCallTool: tool NOT found!'], isError=False)
+        result = CallToolResult(content=[TextContent(type="text", text="ErrorCallTool: tool NOT found!")], isError=False)
+
+    print("unified_tool_handler.......", type(result), result)
     return result
 
 ######################### Prompts Section ##################################
@@ -152,14 +155,14 @@ def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message
 async def say_hello(params):
     msg = f'Hi There!'
     logger.info(msg)
-    return CallToolResult(content=[msg], meta={"# bots": len(login.main_win.bots)}, include_in_memory=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], meta={"# bots": len(login.main_win.bots)}, include_in_memory=False)
 
 
 async def wait(params):
     msg = f'🕒  Waiting for {params["seconds"]} seconds'
     logger.info(msg)
     await asyncio.sleep(params["seconds"])
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def in_browser_wait_for_element(params):
@@ -170,7 +173,7 @@ async def in_browser_wait_for_element(params):
         await browser.wait_for_element(params.selector, params.timeout)
         msg = f'👀  Element with selector "{params.selector}" became visible within {params.timeout}ms.'
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
         err_msg = f'❌  Failed to wait for element "{params.selector}" within {params.timeout}ms: {str(e)}'
         logger.error(err_msg)
@@ -193,7 +196,7 @@ async def in_browser_click_element_by_index(params):
     if await browser.is_file_uploader(element_node):
         msg = f'Index {params.index} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
     msg = None
 
@@ -211,7 +214,7 @@ async def in_browser_click_element_by_index(params):
             msg += f' - {new_tab_msg}'
             logger.info(new_tab_msg)
             await browser.switch_to_tab(-1)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
         logger.warning(f'Element not clickable with index {params.index} - most likely the page changed')
         return CallToolResult(error=str(e))
@@ -234,7 +237,7 @@ async def in_browser_click_element_by_selector(params):
                     logger.warning(f"Element not clickable with css selector '{params.css_selector}' - {e}")
                     return CallToolResult(error=str(e))
             msg = f'🖱️  Clicked on element with text "{params.css_selector}"'
-            return CallToolResult(content=[msg], isError=False)
+            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
         logger.warning(f'Element not clickable with selector {params.css_selector} - most likely the page changed')
         return CallToolResult(error=str(e))
@@ -257,7 +260,7 @@ async def in_browser_click_element_by_xpath(params):
                     logger.warning(f"Element not clickable with xpath '{params.xpath}' - {e}")
                     return CallToolResult(error=str(e))
             msg = f'🖱️  Clicked on element with text "{params.xpath}"'
-            return CallToolResult(content=[msg], isError=False)
+            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
         logger.warning(f'Element not clickable with xpath {params.xpath} - most likely the page changed')
         return CallToolResult(error=str(e))
@@ -283,7 +286,7 @@ async def in_browser_click_element_by_text(params):
                     logger.warning(f"Element not clickable with text '{params.text}' - {e}")
                     return CallToolResult(error=str(e))
             msg = f'🖱️  Clicked on element with text "{params.text}"'
-            return CallToolResult(content=[msg], isError=False)
+            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
         else:
             return CallToolResult(error=f"No element found for text '{params.text}'")
     except Exception as e:
@@ -305,7 +308,7 @@ async def in_browser_input_text(params):
         msg = f'⌨️  Input sensitive data into index {params.index}'
     logger.info(msg)
     logger.debug(f'Element xpath: {element_node.xpath}')
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 # Save PDF
@@ -319,7 +322,7 @@ async def in_browser_save_pdf(params):
     await page.pdf(path=sanitized_filename, format='A4', print_background=False)
     msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
     logger.info(msg)
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 # Tab Management Actions
@@ -330,7 +333,7 @@ async def in_browser_switch_tab(params):
     await page.wait_for_load_state()
     msg = f'🔄  Switched to tab {params.page_id}'
     logger.info(msg)
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def in_browser_open_tab(params):
@@ -339,7 +342,7 @@ async def in_browser_open_tab(params):
     await browser.create_new_tab(params.url)
     msg = f'🔗  Opened new tab with {params.url}'
     logger.info(msg)
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def in_browser_close_tab(params):
@@ -351,7 +354,7 @@ async def in_browser_close_tab(params):
     await page.close()
     msg = f'❌  Closed tab #{params.page_id} with url {url}'
     logger.info(msg)
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 # Content Actions
@@ -379,12 +382,12 @@ async def in_browser_extract_content(params):
         output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
         msg = f'📄  Extracted from page\n: {output.content}\n'
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
         logger.debug(f'Error extracting content: {e}')
         msg = f'📄  Extracted from page\n: {content}\n'
         logger.info(msg)
-        return CallToolResult(content=[msg])
+        return CallToolResult(content=[TextContent(type="text", text=msg)])
 
 
 # HTML Download
@@ -409,7 +412,7 @@ async def in_browser_save_html_to_file(params) -> CallToolResult:
         msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
 
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
         error_msg = f'Failed to save HTML content: {str(e)}'
         logger.error(error_msg)
@@ -495,19 +498,19 @@ async def in_browser_scroll_to_text(params):  # type: ignore
                     await asyncio.sleep(0.5)  # Wait for scroll to complete
                     msg = f'🔍  Scrolled to text: {text}'
                     logger.info(msg)
-                    return CallToolResult(content=[msg], isError=False)
+                    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
             except Exception as e:
                 logger.debug(f'Locator attempt failed: {str(e)}')
                 continue
 
         msg = f"Text '{text}' not found or not visible on page"
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
     except Exception as e:
         msg = f"Failed to scroll to text '{text}': {str(e)}"
         logger.error(msg)
-        return CallToolResult(error=[msg], isError=False)
+        return CallToolResult(error=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def in_browser_get_dropdown_options(params) -> CallToolResult:
@@ -567,17 +570,17 @@ async def in_browser_get_dropdown_options(params) -> CallToolResult:
             msg = '\n'.join(all_options)
             msg += '\nUse the exact text string in select_dropdown_option'
             logger.info(msg)
-            return CallToolResult(content=[msg], isError=False)
+            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
         else:
             msg = 'No options found in any frame for dropdown'
             logger.info(msg)
-            return CallToolResult(content=[msg], isError=False)
+            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
     except Exception as e:
         logger.error(f'Failed to get dropdown options: {str(e)}')
         msg = f'Error getting options: {str(e)}'
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def in_browser_select_dropdown_option(params) -> CallToolResult:
@@ -592,8 +595,9 @@ async def in_browser_select_dropdown_option(params) -> CallToolResult:
     if dom_element.tag_name != 'select':
         logger.error(f'Element is not a select! Tag: {dom_element.tag_name}, Attributes: {dom_element.attributes}')
         msg = f'Cannot select option: Element with index {index} is a {dom_element.tag_name}, not a select'
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
+    text = ""
     logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
     logger.debug(f'Element attributes: {dom_element.attributes}')
     logger.debug(f'Element tag: {dom_element.tag_name}')
@@ -642,7 +646,7 @@ async def in_browser_select_dropdown_option(params) -> CallToolResult:
                         continue
 
                     logger.debug(f'Found dropdown in frame {frame_index}: {dropdown_info}')
-
+                    text = ""
                     # "label" because we are selecting by text
                     # nth(0) to disable error thrown by strict mode
                     # timeout=1000 because we are already waiting for all network events, therefore ideally we don't need to wait a lot here (default 30s)
@@ -653,7 +657,7 @@ async def in_browser_select_dropdown_option(params) -> CallToolResult:
                     msg = f'selected option {text} with value {selected_option_values}'
                     logger.info(msg + f' in frame {frame_index}')
 
-                    return CallToolResult(content=[msg], isError=False)
+                    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
             except Exception as frame_e:
                 logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
@@ -664,12 +668,12 @@ async def in_browser_select_dropdown_option(params) -> CallToolResult:
 
         msg = f"Could not select option '{text}' in any frame"
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
     except Exception as e:
         msg = f'Selection failed: {str(e)}'
         logger.error(msg)
-        return CallToolResult(error=[msg], isError=False)
+        return CallToolResult(error=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def in_browser_drag_drop(params) -> CallToolResult:
@@ -823,7 +827,7 @@ async def in_browser_drag_drop(params) -> CallToolResult:
 
             if not source_element or not target_element:
                 error_msg = f'Failed to find {"source" if not source_element else "target"} element'
-                return CallToolResult(error=error_msg, isError=False)
+                return CallToolResult(content = [TextContent(type="text", text=error_msg)], isError=False)
 
             source_coords, target_coords = await get_element_coordinates(
                 source_element, target_element, params.element_source_offset, params.element_target_offset
@@ -831,7 +835,7 @@ async def in_browser_drag_drop(params) -> CallToolResult:
 
             if not source_coords or not target_coords:
                 error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
-                return CallToolResult(error=error_msg, isError=False)
+                return CallToolResult(content = [TextContent(type="text", text=error_msg)], isError=False)
 
             source_x, source_y = source_coords
             target_x, target_y = target_coords
@@ -849,12 +853,13 @@ async def in_browser_drag_drop(params) -> CallToolResult:
             target_y = params.coord_target_y
         else:
             error_msg = 'Must provide either source/target selectors or source/target coordinates'
-            return CallToolResult(error=error_msg, isError=False)
+
+            return CallToolResult(content=[TextContent(type="text", text=error_msg)], isError=False)
 
         # Validate coordinates
         if any(coord is None for coord in [source_x, source_y, target_x, target_y]):
             error_msg = 'Failed to determine source or target coordinates'
-            return CallToolResult(error=error_msg, isError=False)
+            return CallToolResult(content=[TextContent(type="text", text=error_msg)], isError=False)
 
         # Perform the drag operation
         success, message = await execute_drag_operation(
@@ -869,7 +874,7 @@ async def in_browser_drag_drop(params) -> CallToolResult:
 
         if not success:
             logger.error(f'Drag operation failed: {message}')
-            return CallToolResult(error=message, isError=False)
+            return CallToolResult(content=[TextContent(type="text", text=message)], isError=True)
 
         # Create descriptive message
         if params.element_source and params.element_target:
@@ -878,12 +883,12 @@ async def in_browser_drag_drop(params) -> CallToolResult:
             msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
 
         logger.info(msg)
-        return CallToolResult(content=[msg], isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
     except Exception as e:
         error_msg = f'Failed to perform drag and drop: {str(e)}'
         logger.error(error_msg)
-        return CallToolResult(error=error_msg, isError=False)
+        return CallToolResult(content=[TextContent(type="text", text=error_msg)], isError=True)
 
 
 async def mouse_click(params):
@@ -898,7 +903,8 @@ async def mouse_click(params):
     pyautogui.click(clicks=nClicks, interval=interval)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def mouse_move(params):
@@ -910,7 +916,8 @@ async def mouse_move(params):
     pyautogui.moveTo(params.loc.x, params.loc.y)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def mouse_drag_drop(params):
@@ -923,7 +930,8 @@ async def mouse_drag_drop(params):
     pyautogui.dragTo(params.drop_loc.x, params.drop_loc.y, duration=params.duration)
 
     logger.debug(f'dragNdrop: {params.pick_loc.x}, {params.pick_loc.y} to {params.drop_loc.x}, {params.drop_loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def mouse_scroll(params):
@@ -939,7 +947,8 @@ async def mouse_scroll(params):
     mouse.scroll(0, scroll_amount)
 
     logger.debug(f'Element xpath: {scroll_amount}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def text_input(params):
@@ -951,7 +960,8 @@ async def text_input(params):
     pyautogui.write(params.text, interval=params.interval)
 
     logger.debug(f'Element xpath: {params.text},  {params.interval}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def keys_input(params):
@@ -963,7 +973,8 @@ async def keys_input(params):
     pyautogui.hotkey(*params.combo)
 
     logger.debug(f'hot keys: {params.combo[0]}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def call_api(params):
@@ -975,7 +986,8 @@ async def call_api(params):
     pyautogui.moveTo(params.loc.x, params.loc.y)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def open_app(params):
@@ -990,7 +1002,8 @@ async def open_app(params):
                      stderr=subprocess.PIPE)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def close_app(params):
@@ -1003,7 +1016,8 @@ async def close_app(params):
     app_window.close()
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def switch_to_app(params):
@@ -1019,7 +1033,8 @@ async def switch_to_app(params):
     target_window.activate()
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def run_extern(params):
@@ -1031,7 +1046,8 @@ async def run_extern(params):
     time.sleep(params.time)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def make_dir(params):
@@ -1045,7 +1061,8 @@ async def make_dir(params):
         os.makedirs(params.dir_path)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def delete_dir(params):
@@ -1059,7 +1076,8 @@ async def delete_dir(params):
         os.remove(params.dir_path)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def delete_file(params):
@@ -1073,7 +1091,8 @@ async def delete_file(params):
         os.remove(params.file)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def move_file(params):
@@ -1088,7 +1107,9 @@ async def move_file(params):
     shutil.move(params.src, params.dest)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def copy_file_dir(params):
@@ -1100,7 +1121,8 @@ async def copy_file_dir(params):
     shutil.copy(params.src, params.dest)
 
     logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    return CallToolResult(content="", isError=False)
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def screen_analyze(params):
@@ -1119,7 +1141,7 @@ async def screen_analyze(params):
         msg = f'⌨️  Input sensitive data into index {params.index}'
     logger.info(msg)
     logger.debug(f'Element xpath: {element_node.xpath}')
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def screen_capture(params):
@@ -1136,7 +1158,7 @@ async def screen_capture(params):
 
     logger.debug(f'Element xpath: {params.win_title_kw}')
     msg = ""
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def seven_zip(params):
@@ -1147,7 +1169,7 @@ async def seven_zip(params):
 
     logger.debug(f'Element xpath: {params.file}')
     msg = ""
-    return CallToolResult(content=[msg], meta={}, isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], meta={}, isError=False)
 
 
 
@@ -1159,11 +1181,11 @@ async def kill_processes(params):
 
     logger.debug(f'Kill Processes: {params.pids[0]}')
     msg = ""
-    return CallToolResult(content=[msg], isError=False)
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 # Element Interaction Actions
-async def rpa_supervisor_scheduling_work(params):
+async def rpa_supervisor_scheduling_work(params) -> CallToolResult:
     print("INPUT:", params)
     # if tool_name != "rpa_supervisor_scheduling_work":
     #     raise ValueError(f"Unexpected tool name: {tool_name}")
@@ -1173,10 +1195,24 @@ async def rpa_supervisor_scheduling_work(params):
         print(f"[MCP] Running supervisor scheduler tool... ")
         print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
         schedule = server_main_win.fetchSchedule("", server_main_win.get_vehicle_settings())
-        workable = server_main_win.runTeamPrepHook(schedule)
-        works_to_be_dispatched = server_main_win.handleCloudScheduledWorks(workable)
+        print("MCP fetched schedule.......", schedule)
+        # workable = server_main_win.runTeamPrepHook(schedule)
+        # works_to_be_dispatched = server_main_win.handleCloudScheduledWorks(workable)
+        workable = schedule
         msg = "Here are works to be dispatched to the troops."
-        return [types.TextContent(type="text", text=msg)]
+        print("MCP MSG:", msg, workable)
+        # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
+        ctr = CallToolResult(content=[TextContent(type="text", text=msg)])
+        print("ABOUT TO return call tool result", type(ctr), ctr)
+        print("ABOUT CTR Type", ctr.model_dump(by_alias=True, exclude_none=True, mode="json"))
+        tool_result =  {
+            "content": [{"type": "text", "text": msg}],
+            # "meta": workable,
+            "isError": False
+        }
+        print("[DEBUG] Returning result:", json.dumps(tool_result, indent=2))
+        # return ctr.model_dump(by_alias=True, exclude_none=True, mode="json", round_trip=False)
+        return [TextContent(type="text", text=msg), TextContent(type="text", text=json.dumps(workable))]
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
@@ -1184,19 +1220,38 @@ async def rpa_supervisor_scheduling_work(params):
             ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
-        return [types.TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
+        print("ex_stat:", ex_stat)
+        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
+        return CallToolResult(content=err_text_content, isError=True)
 
 
+# class Result(BaseModel):
+#     """Base class for JSON-RPC results."""
+#
+#     model_config = ConfigDict(extra="allow")
+#
+#     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+#     """
+#     This result property is reserved by the protocol to allow clients and servers to
+#     attach additional metadata to their responses.
+#     """
+# class CallToolResult(Result):
+#     """The server's response to a tool call."""
+#
+#     content: list[TextContent | ImageContent | EmbeddedResource]
+#     isError: bool = False
 async def rpa_operator_dispatch_works(params):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
         works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
-        return CallToolResult(content="works dispatched.", isError=False)
+        text_content = [TextContent(type="text", text=f"works dispatched")]
+        return CallToolResult(content=text_content, isError=False)
     except Exception as e:
         logger.warning(f'RPA Supervisor Work failure')
-        return CallToolResult(error=str(e))
+        text_content = [TextContent(type="text", text=str(e))]
+        return CallToolResult(content=text_content, isError=False)
 
 
 async def rpa_supervisor_process_work_results(params):
@@ -1204,10 +1259,12 @@ async def rpa_supervisor_process_work_results(params):
     # mostly bookkeeping.
     try:
         works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
-        return CallToolResult(content="works dispatched.", isError=False)
+        text_content = [TextContent(type="text", text=f"works dispatched")]
+        return CallToolResult(content=text_content, isError=False)
     except Exception as e:
         logger.warning(f'RPA Supervisor Work failure')
-        return CallToolResult(error=str(e))
+        text_content = [TextContent(type="text", text=str(e))]
+        return CallToolResult(content=text_content, isError=False)
 
 
 async def rpa_supervisor_run_daily_housekeeping(params):
@@ -1216,10 +1273,12 @@ async def rpa_supervisor_run_daily_housekeeping(params):
     # including put reactive work into it.
     try:
         works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
-        return CallToolResult(content="works dispatched.", isError=False)
+        text_content = [TextContent(type="text", text=f"works dispatched")]
+        return CallToolResult(content=text_content, isError=False)
     except Exception as e:
         logger.warning(f'RPA Supervisor Work failure')
-        return CallToolResult(error=str(e))
+        text_content = [TextContent(type="text", text=str(e))]
+        return CallToolResult(content=text_content, isError=False)
 
 async def rpa_operator_report_work_results(params):
     # call put work received from A2A channel, put into today's work data structure
@@ -1227,10 +1286,12 @@ async def rpa_operator_report_work_results(params):
     # including put reactive work into it.
     try:
         works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
-        return CallToolResult(content="works dispatched.", isError=False)
+        text_content = [TextContent(type="text", text=f"works dispatched")]
+        return CallToolResult(content=text_content, isError=False)
     except Exception as e:
         logger.warning(f'RPA Supervisor Work failure')
-        return CallToolResult(error=str(e))
+        text_content = [TextContent(type="text", text=str(e))]
+        return CallToolResult(content=text_content, isError=True)
 
 
 async def reconnect_wifi(params):

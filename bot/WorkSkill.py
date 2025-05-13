@@ -174,8 +174,8 @@ class PROCEDURAL_SKILL(QStandardItem):
         return self.runConfig
 
     def loadJson(self,jd):
-        self.runConfig = jd["runConfig"]
-        self.runStepsFile = jd["runStepsFile"]
+        self.runConfig = jd.get("runConfig", {})
+        self.runStepsFile = jd.get("runStepsFile", "")
 
 
 class CLOUD_SKILL(QStandardItem):
@@ -425,33 +425,30 @@ class WORKSKILL(QStandardItem):
             self.setFont(qfont)
 
     def loadJson(self, jd):
-        self.name = jd["name"]
-        self.skid = jd["skid"]
-        self.owner = jd["owner"]
-        self.createdOn = jd["createdOn"]
-        self.platform = jd["platform"]
-        self.app = jd["app"]
-        self.site_name = jd["site_name"]
-        self.site = jd["site"]
-        self.page = jd["page"]
+        self.name = jd.get("name", "")
+        self.skid = jd.get("skid", 0)
+        self.owner = jd.get("owner", "")
+        self.createdOn = jd.get("createdOn", "2000-01-01")
+        self.platform = jd.get("platform", "win")
+        self.app = jd.get("app", "chrome")
+        self.site_name = jd.get("site_name", "amz")
+        self.site = jd.get("site", "https://www.amazon.com")
+        self.page = jd.get("page", "top")
         self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
-        self.main = jd["main"]
+        self.main = jd.get("main", False)
 
-        self.privacy = jd["privacy"]
-        self.price_model = jd["price_model"]
-        self.price = jd["price"]
-        self.path = jd["path"]
-        self.description = jd["description"]
+        self.privacy = jd.get("privacy", "public")
+        self.price_model = jd.get("price_model", "free")
+        self.price = jd.get("price", 0)
+        self.path = jd.get("path", "")
+        self.description = jd.get("description", "")
         self.dependencies = jd.get("dependencies", [])
 
-        if "site_link" in jd:
-            self.site = jd["site_link"]
+        self.site = jd.get("site_link", "http://www.amazon.com")
 
-        if "app_link" in jd:
-            self.app_link = jd["app_link"]
+        self.app_link = jd.get("app_link", "")
 
-        if "app_args" in jd:
-            self.app_args = jd["app_args"]
+        self.app_args = jd.get("app_args", "")
 
         if "procedural_skill" in jd:
             self.procedural_skill.loadJson(jd["procedural_skill"])

@@ -28,7 +28,7 @@ def get_a2a_server_url(mainwin):
     try:
         host = get_lan_ip()
         free_ports = mainwin.get_free_agent_ports(1)
-
+        print("getting a2a  serer ports:", host, free_ports)
         if not free_ports:
             return None
         a2a_server_port = free_ports[0]
@@ -65,7 +65,7 @@ def set_up_ec_helper_agent(mainwin):
                 capabilities=capabilities,
                 skills=[agent_skill],
         )
-
+        print("agent card created:", agent_card.name, agent_card.url)
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.NONE,
             repeat_number=1,
@@ -126,6 +126,7 @@ def set_up_ec_customer_support_agent(mainwin):
             capabilities=capabilities,
             skills=[agent_skill],
         )
+        print("agent card created:", agent_card.name, agent_card.url)
 
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,
@@ -175,8 +176,8 @@ def set_up_ec_rpa_operator_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-
+        agent_skill = next((sk for sk in agent_skills if "ecbot rpa operator" in sk.name), None)
+        print("agent_skill", agent_skill.name)
         agent_card = AgentCard(
             name="ECBot RPA Operator Agent",
             description="Run and operates ECBot RPA bots to do their scheduled work",
@@ -187,6 +188,7 @@ def set_up_ec_rpa_operator_agent(mainwin):
             capabilities=capabilities,
             skills=[agent_skill],
         )
+        print("agent card created:", agent_card.name, agent_card.url)
 
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.NONE,
@@ -204,7 +206,7 @@ def set_up_ec_rpa_operator_agent(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Helper Task",
+            name="ECBot RPA operates daily routine task",
             description="Help fix errors/failures during e-commerce RPA run",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -249,7 +251,7 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
             capabilities=capabilities,
             skills=[schedule_skill, serve_request_skill],
         )
-
+        print("agent card created:", agent_card.name, agent_card.url)
 
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,
@@ -267,7 +269,7 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         daily_task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Supervisor Daily Routine Task",
+            name="ECBot RPA Supervise Daily Routine Task",
             description="Do any routine like fetch todays work schedule, prepare operators team and dispatch work to the operators to do.",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -335,6 +337,7 @@ def set_up_ec_marketing_agent(mainwin):
             capabilities=capabilities,
             skills=[agent_skill],
         )
+        print("agent card created:", agent_card.name, agent_card.url)
 
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,
@@ -352,7 +355,7 @@ def set_up_ec_marketing_agent(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Helper Task",
+            name="ECBot Marketing Director",
             description="Help fix errors/failures during e-commerce RPA run",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -396,6 +399,7 @@ def set_up_ec_sales_agent(mainwin):
             capabilities=capabilities,
             skills=[agent_skill],
         )
+        print("agent card created:", agent_card.name, agent_card.url)
 
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,
@@ -413,7 +417,7 @@ def set_up_ec_sales_agent(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Helper Task",
+            name="ECBot Sales",
             description="Help fix errors/failures during e-commerce RPA run",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -450,7 +454,7 @@ def set_up_ec_research_agent(mainwin):
 
         agent_card = AgentCard(
             name="ECBot Helper Agent",
-            description="Helps with ECBot RPA works",
+            description="ECBot Market Research",
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
@@ -458,6 +462,7 @@ def set_up_ec_research_agent(mainwin):
             capabilities=capabilities,
             skills=[agent_skill],
         )
+        print("agent card created:", agent_card.name, agent_card.url)
 
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,

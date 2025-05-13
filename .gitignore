@@ -1,3 +1,9 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.sqlite3
+.venv/
+.env
 /resource/data/myecb.db
 /resource/data/myecb.db-journal
 /runlogs/
@@ -10,3 +16,8 @@ test.py
 *.psk
 *.pyc
 /songc_yahoo_com/
+# React GUI inside gui_v2
+gui_v2/node_modules/
+gui_v2/build/
+gui_v2/dist/
+gui_v2/coverage/
