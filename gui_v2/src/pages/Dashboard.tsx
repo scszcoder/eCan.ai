@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, Statistic, Alert, Spin } from 'antd';
 import { useAppStore } from '../store/appStore';
-import { ipcClient } from '../services/ipc';
 
 const Dashboard: React.FC = () => {
     const { systemInfo, setSystemInfo } = useAppStore();
@@ -13,11 +12,19 @@ const Dashboard: React.FC = () => {
             setLoading(true);
             setError(null);
             try {
-                const info = await ipcClient.getSystemInfo();
-                setSystemInfo(info);
+                // 使用模拟数据
+                const mockInfo = {
+                    version: '1.0.0',
+                    platform: navigator.platform,
+                    memory: {
+                        total: 16 * 1024 * 1024 * 1024, // 16GB
+                        used: 8 * 1024 * 1024 * 1024,   // 8GB
+                    }
+                };
+                setSystemInfo(mockInfo);
             } catch (error) {
                 console.error('Failed to load system info:', error);
-                setError('无法连接到服务器，请确保后端服务正在运行');
+                setError('加载系统信息失败');
             } finally {
                 setLoading(false);
             }
@@ -38,7 +45,7 @@ const Dashboard: React.FC = () => {
     if (error) {
         return (
             <Alert
-                message="连接错误"
+                message="加载错误"
                 description={error}
                 type="error"
                 showIcon

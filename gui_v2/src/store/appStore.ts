@@ -1,5 +1,19 @@
 import { create } from 'zustand';
-import type { SystemInfo, AppSettings } from '../types/ipc';
+
+interface SystemInfo {
+    version: string;
+    platform: string;
+    memory: {
+        total: number;
+        used: number;
+    };
+}
+
+interface AppSettings {
+    theme: 'light' | 'dark';
+    language: string;
+    autoStart: boolean;
+}
 
 interface AppState {
     systemInfo: SystemInfo | null;

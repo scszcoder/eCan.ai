@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Card, Button, Space, message } from 'antd';
-import { ipcClient } from '../services/ipc';
 
 const Tools: React.FC = () => {
     const [loading, setLoading] = useState(false);
@@ -8,12 +7,9 @@ const Tools: React.FC = () => {
     const handleProcessData = async () => {
         setLoading(true);
         try {
-            const result = await ipcClient.processData({ test: 'data' });
-            if (result.success) {
-                message.success('数据处理成功');
-            } else {
-                message.error(result.message || '数据处理失败');
-            }
+            // 模拟数据处理
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            message.success('数据处理成功');
         } catch (error) {
             message.error('操作失败');
         } finally {
