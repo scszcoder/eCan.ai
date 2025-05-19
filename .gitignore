@@ -17,6 +17,7 @@ test.py
 *.psk
 *.pyc
 /songc_yahoo_com/
+/249511118_qq_com/
 # React GUI inside gui_v2
 gui_v2/node_modules/
 gui_v2/build/
