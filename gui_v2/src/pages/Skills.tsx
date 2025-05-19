@@ -1,70 +1,209 @@
 import React from 'react';
-import { Layout, Typography, Card } from 'antd';
+import { List, Tag, Typography, Space, Button, Progress, Tooltip, Card } from 'antd';
+import { 
+    RobotOutlined, 
+    ThunderboltOutlined, 
+    CheckCircleOutlined,
+    ClockCircleOutlined,
+    StarOutlined,
+    EditOutlined,
+    HistoryOutlined
+} from '@ant-design/icons';
 import styled from '@emotion/styled';
+import DetailLayout from '../components/Layout/DetailLayout';
+import { useDetailView } from '../hooks/useDetailView';
 
-const { Content } = Layout;
-const { Title } = Typography;
+const { Text, Title } = Typography;
 
-const SkillsContainer = styled(Layout)`
-  height: calc(100vh - 112px);
-  background: transparent;
+const SkillItem = styled.div`
+    padding: 12px;
+    border-bottom: 1px solid #f0f0f0;
+    &:last-child {
+        border-bottom: none;
+    }
+    cursor: pointer;
+    transition: background-color 0.3s;
+    &:hover {
+        background-color: #f5f5f5;
+    }
 `;
 
-const SkillsContent = styled(Content)`
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+const SkillProgress = styled.div`
+    margin-top: 8px;
 `;
 
-const SkillsHeader = styled.div`
-  padding: 16px;
-  background: #fff;
-  border-radius: 4px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-`;
+interface Skill {
+    id: number;
+    name: string;
+    description: string;
+    category: string;
+    level: number;
+    status: 'active' | 'learning' | 'planned';
+    lastUsed: string;
+    usageCount: number;
+}
 
-const SkillsMain = styled.div`
-  flex: 1;
-  display: flex;
-  gap: 16px;
-  min-height: 0;
-`;
+const getStatusColor = (status: Skill['status']): string => {
+    switch (status) {
+        case 'active':
+            return 'success';
+        case 'learning':
+            return 'processing';
+        case 'planned':
+            return 'default';
+        default:
+            return 'default';
+    }
+};
 
-const SkillsList = styled(Card)`
-  width: 280px;
-  .ant-card-body {
-    padding: 0;
-    height: 100%;
-  }
-`;
-
-const SkillsDetails = styled(Card)`
-  flex: 1;
-  .ant-card-body {
-    padding: 0;
-    height: 100%;
-  }
-`;
+const initialSkills: Skill[] = [
+    {
+        id: 1,
+        name: 'Natural Language Processing',
+        description: 'Advanced NLP capabilities for text understanding and generation',
+        category: 'AI',
+        level: 85,
+        status: 'active',
+        lastUsed: '2 hours ago',
+        usageCount: 156,
+    },
+    {
+        id: 2,
+        name: 'Image Recognition',
+        description: 'Computer vision and image processing capabilities',
+        category: 'AI',
+        level: 70,
+        status: 'learning',
+        lastUsed: '1 day ago',
+        usageCount: 89,
+    },
+    {
+        id: 3,
+        name: 'Data Analysis',
+        description: 'Statistical analysis and data visualization',
+        category: 'Analytics',
+        level: 90,
+        status: 'active',
+        lastUsed: '5 minutes ago',
+        usageCount: 234,
+    },
+];
 
 const Skills: React.FC = () => {
-  return (
-    <SkillsContainer>
-      <SkillsContent>
-        <SkillsHeader>
-          <Title level={4} style={{ margin: 0 }}>Skills</Title>
-        </SkillsHeader>
-        <SkillsMain>
-          <SkillsList title="Skills List" variant="borderless">
-            {/* Skills list will be implemented here */}
-          </SkillsList>
-          <SkillsDetails variant="borderless">
-            {/* Skills details will be implemented here */}
-          </SkillsDetails>
-        </SkillsMain>
-      </SkillsContent>
-    </SkillsContainer>
-  );
+    const {
+        selectedItem: selectedSkill,
+        items: skills,
+        selectItem,
+        updateItem,
+    } = useDetailView<Skill>(initialSkills);
+
+    const handleLevelUp = (id: number) => {
+        const skill = skills.find(s => s.id === id);
+        if (skill && skill.level < 100) {
+            updateItem(id, {
+                level: Math.min(skill.level + 5, 100),
+                lastUsed: 'Just now',
+                usageCount: skill.usageCount + 1,
+            });
+        }
+    };
+
+    const renderListContent = () => (
+        <List
+            dataSource={skills}
+            renderItem={skill => (
+                <SkillItem onClick={() => selectItem(skill)}>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                        <Space>
+                            <RobotOutlined />
+                            <Text strong>{skill.name}</Text>
+                        </Space>
+                        <Space>
+                            <Tag color={getStatusColor(skill.status)}>{skill.status}</Tag>
+                            <Tag color="blue">{skill.category}</Tag>
+                        </Space>
+                        <SkillProgress>
+                            <Tooltip title={`Level: ${skill.level}%`}>
+                                <Progress 
+                                    percent={skill.level} 
+                                    size="small"
+                                    status={skill.status === 'learning' ? 'active' : 'normal'}
+                                />
+                            </Tooltip>
+                        </SkillProgress>
+                    </Space>
+                </SkillItem>
+            )}
+        />
+    );
+
+    const renderDetailsContent = () => {
+        if (!selectedSkill) {
+            return <Text type="secondary">Select a skill to view details</Text>;
+        }
+
+        return (
+            <Space direction="vertical" style={{ width: '100%' }}>
+                <Title level={4}>{selectedSkill.name}</Title>
+                <Text>{selectedSkill.description}</Text>
+                <Space>
+                    <Tag color={getStatusColor(selectedSkill.status)}>
+                        <CheckCircleOutlined /> Status: {selectedSkill.status}
+                    </Tag>
+                    <Tag color="blue">
+                        <ThunderboltOutlined /> Category: {selectedSkill.category}
+                    </Tag>
+                </Space>
+                <Space>
+                    <Tag>
+                        <ClockCircleOutlined /> Last Used: {selectedSkill.lastUsed}
+                    </Tag>
+                    <Tag>
+                        <StarOutlined /> Usage Count: {selectedSkill.usageCount}
+                    </Tag>
+                </Space>
+                <Card>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                        <Text strong>Skill Level</Text>
+                        <Progress 
+                            percent={selectedSkill.level} 
+                            status={selectedSkill.status === 'learning' ? 'active' : 'normal'}
+                        />
+                        <Text type="secondary">
+                            {selectedSkill.level === 100 
+                                ? 'Mastered' 
+                                : `${selectedSkill.level}% Complete`}
+                        </Text>
+                    </Space>
+                </Card>
+                <Space>
+                    <Button 
+                        type="primary" 
+                        icon={<ThunderboltOutlined />}
+                        onClick={() => handleLevelUp(selectedSkill.id)}
+                        disabled={selectedSkill.level === 100}
+                    >
+                        Level Up
+                    </Button>
+                    <Button icon={<EditOutlined />}>
+                        Edit Skill
+                    </Button>
+                    <Button icon={<HistoryOutlined />}>
+                        View History
+                    </Button>
+                </Space>
+            </Space>
+        );
+    };
+
+    return (
+        <DetailLayout
+            listTitle="Skills"
+            detailsTitle="Skill Details"
+            listContent={renderListContent()}
+            detailsContent={renderDetailsContent()}
+        />
+    );
 };
 
 export default Skills; 
