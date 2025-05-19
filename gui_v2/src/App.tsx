@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import MainLayout from './components/Layout/MainLayout';
@@ -9,7 +9,7 @@ import Settings from './pages/Settings';
 function App() {
     return (
         <ConfigProvider locale={zhCN}>
-            <BrowserRouter>
+            <HashRouter>
                 <Routes>
                     <Route path="/" element={<MainLayout />}>
                         <Route index element={<Navigate to="/dashboard" replace />} />
@@ -18,7 +18,7 @@ function App() {
                         <Route path="settings" element={<Settings />} />
                     </Route>
                 </Routes>
-            </BrowserRouter>
+            </HashRouter>
         </ConfigProvider>
     );
 }
