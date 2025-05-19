@@ -12,6 +12,8 @@ import {
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
 import { useDetailView } from '../hooks/useDetailView';
+import { useTranslation } from 'react-i18next';
+import ActionButtons from '../components/Common/ActionButtons';
 
 const { Text, Title } = Typography;
 
@@ -90,6 +92,7 @@ const initialSkills: Skill[] = [
 ];
 
 const Skills: React.FC = () => {
+    const { t } = useTranslation();
     const {
         selectedItem: selectedSkill,
         items: skills,
@@ -119,11 +122,11 @@ const Skills: React.FC = () => {
                             <Text strong>{skill.name}</Text>
                         </Space>
                         <Space>
-                            <Tag color={getStatusColor(skill.status)}>{skill.status}</Tag>
+                            <Tag color={getStatusColor(skill.status)}>{t(`pages.skills.status.${skill.status}`)}</Tag>
                             <Tag color="blue">{skill.category}</Tag>
                         </Space>
                         <SkillProgress>
-                            <Tooltip title={`Level: ${skill.level}%`}>
+                            <Tooltip title={t('pages.skills.level', { level: skill.level })}>
                                 <Progress 
                                     percent={skill.level} 
                                     size="small"
@@ -139,7 +142,7 @@ const Skills: React.FC = () => {
 
     const renderDetailsContent = () => {
         if (!selectedSkill) {
-            return <Text type="secondary">Select a skill to view details</Text>;
+            return <Text type="secondary">{t('pages.skills.selectSkill')}</Text>;
         }
 
         return (
@@ -148,31 +151,31 @@ const Skills: React.FC = () => {
                 <Text>{selectedSkill.description}</Text>
                 <Space>
                     <Tag color={getStatusColor(selectedSkill.status)}>
-                        <CheckCircleOutlined /> Status: {selectedSkill.status}
+                        <CheckCircleOutlined /> {t('pages.skills.status')}: {t(`pages.skills.status.${selectedSkill.status}`)}
                     </Tag>
                     <Tag color="blue">
-                        <ThunderboltOutlined /> Category: {selectedSkill.category}
+                        <ThunderboltOutlined /> {t('pages.skills.category')}: {selectedSkill.category}
                     </Tag>
                 </Space>
                 <Space>
                     <Tag>
-                        <ClockCircleOutlined /> Last Used: {selectedSkill.lastUsed}
+                        <ClockCircleOutlined /> {t('pages.skills.lastUsed')}: {selectedSkill.lastUsed}
                     </Tag>
                     <Tag>
-                        <StarOutlined /> Usage Count: {selectedSkill.usageCount}
+                        <StarOutlined /> {t('pages.skills.usageCount')}: {selectedSkill.usageCount}
                     </Tag>
                 </Space>
                 <Card>
                     <Space direction="vertical" style={{ width: '100%' }}>
-                        <Text strong>Skill Level</Text>
+                        <Text strong>{t('pages.skills.skillLevel')}</Text>
                         <Progress 
                             percent={selectedSkill.level} 
                             status={selectedSkill.status === 'learning' ? 'active' : 'normal'}
                         />
                         <Text type="secondary">
                             {selectedSkill.level === 100 
-                                ? 'Mastered' 
-                                : `${selectedSkill.level}% Complete`}
+                                ? t('pages.skills.mastered')
+                                : t('pages.skills.complete', { level: selectedSkill.level })}
                         </Text>
                     </Space>
                 </Card>
@@ -183,23 +186,39 @@ const Skills: React.FC = () => {
                         onClick={() => handleLevelUp(selectedSkill.id)}
                         disabled={selectedSkill.level === 100}
                     >
-                        Level Up
+                        {t('pages.skills.levelUp')}
                     </Button>
                     <Button icon={<EditOutlined />}>
-                        Edit Skill
+                        {t('pages.skills.editSkill')}
                     </Button>
                     <Button icon={<HistoryOutlined />}>
-                        View History
+                        {t('pages.skills.viewHistory')}
                     </Button>
                 </Space>
+                <ActionButtons
+                    onAdd={() => {}}
+                    onEdit={() => {}}
+                    onDelete={() => {}}
+                    onRefresh={() => {}}
+                    onExport={() => {}}
+                    onImport={() => {}}
+                    onSettings={() => {}}
+                    addText={t('pages.skills.addSkill')}
+                    editText={t('pages.skills.editSkill')}
+                    deleteText={t('pages.skills.deleteSkill')}
+                    refreshText={t('pages.skills.refreshSkills')}
+                    exportText={t('pages.skills.exportSkills')}
+                    importText={t('pages.skills.importSkills')}
+                    settingsText={t('pages.skills.skillSettings')}
+                />
             </Space>
         );
     };
 
     return (
         <DetailLayout
-            listTitle="Skills"
-            detailsTitle="Skill Details"
+            listTitle={t('pages.skills.title')}
+            detailsTitle={t('pages.skills.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />

@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { Line, Bar, Pie } from '@ant-design/plots';
+import { useTranslation } from 'react-i18next';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
@@ -28,6 +29,8 @@ const StatisticCard = styled(Card)`
 `;
 
 const Analytics: React.FC = () => {
+    const { t } = useTranslation();
+
     // Task completion data
     const taskData = [
         { date: '2024-01', value: 350 },
@@ -58,10 +61,10 @@ const Analytics: React.FC = () => {
             <Space style={{ marginBottom: 24 }} size="large">
                 <RangePicker />
                 <Select defaultValue="week" style={{ width: 120 }}>
-                    <Option value="day">Today</Option>
-                    <Option value="week">This Week</Option>
-                    <Option value="month">This Month</Option>
-                    <Option value="year">This Year</Option>
+                    <Option value="day">{t('pages.analytics.today')}</Option>
+                    <Option value="week">{t('pages.analytics.thisWeek')}</Option>
+                    <Option value="month">{t('pages.analytics.thisMonth')}</Option>
+                    <Option value="year">{t('pages.analytics.thisYear')}</Option>
                 </Select>
             </Space>
 
@@ -69,7 +72,7 @@ const Analytics: React.FC = () => {
                 <Col span={6}>
                     <StatisticCard variant="borderless">
                         <Statistic
-                            title="Total Tasks"
+                            title={t('pages.analytics.totalTasks')}
                             value={1560}
                             prefix={<CheckCircleOutlined />}
                             valueStyle={{ color: '#3f8600' }}
@@ -79,7 +82,7 @@ const Analytics: React.FC = () => {
                                 <ArrowUpOutlined /> 12%
                             </span>
                             <span style={{ marginLeft: 8, color: '#999' }}>
-                                vs last month
+                                {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
                     </StatisticCard>
@@ -87,7 +90,7 @@ const Analytics: React.FC = () => {
                 <Col span={6}>
                     <StatisticCard variant="borderless">
                         <Statistic
-                            title="Active Agents"
+                            title={t('pages.analytics.activeAgents')}
                             value={12}
                             prefix={<RobotOutlined />}
                             valueStyle={{ color: '#1890ff' }}
@@ -97,7 +100,7 @@ const Analytics: React.FC = () => {
                                 <ArrowUpOutlined /> 8%
                             </span>
                             <span style={{ marginLeft: 8, color: '#999' }}>
-                                vs last month
+                                {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
                     </StatisticCard>
@@ -105,7 +108,7 @@ const Analytics: React.FC = () => {
                 <Col span={6}>
                     <StatisticCard variant="borderless">
                         <Statistic
-                            title="Active Vehicles"
+                            title={t('pages.analytics.activeVehicles')}
                             value={8}
                             prefix={<CarOutlined />}
                             valueStyle={{ color: '#722ed1' }}
@@ -115,7 +118,7 @@ const Analytics: React.FC = () => {
                                 <ArrowDownOutlined /> 3%
                             </span>
                             <span style={{ marginLeft: 8, color: '#999' }}>
-                                vs last month
+                                {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
                     </StatisticCard>
@@ -123,7 +126,7 @@ const Analytics: React.FC = () => {
                 <Col span={6}>
                     <StatisticCard variant="borderless">
                         <Statistic
-                            title="System Users"
+                            title={t('pages.analytics.systemUsers')}
                             value={45}
                             prefix={<UserOutlined />}
                             valueStyle={{ color: '#fa8c16' }}
@@ -133,7 +136,7 @@ const Analytics: React.FC = () => {
                                 <ArrowUpOutlined /> 15%
                             </span>
                             <span style={{ marginLeft: 8, color: '#999' }}>
-                                vs last month
+                                {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
                     </StatisticCard>
@@ -142,7 +145,7 @@ const Analytics: React.FC = () => {
 
             <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
                 <Col span={16}>
-                    <ChartCard variant="borderless" title="Task Completion Trend">
+                    <ChartCard variant="borderless" title={t('pages.analytics.taskCompletionTrend')}>
                         <Line
                             data={taskData}
                             xField="date"
@@ -156,7 +159,7 @@ const Analytics: React.FC = () => {
                     </ChartCard>
                 </Col>
                 <Col span={8}>
-                    <ChartCard variant="borderless" title="Resource Utilization">
+                    <ChartCard variant="borderless" title={t('pages.analytics.resourceUtilization')}>
                         <Pie
                             data={resourceData}
                             angleField="value"
@@ -172,7 +175,7 @@ const Analytics: React.FC = () => {
 
             <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
                 <Col span={24}>
-                    <ChartCard variant="borderless" title="Agent Performance">
+                    <ChartCard variant="borderless" title={t('pages.analytics.agentPerformance')}>
                         <Bar
                             data={agentData}
                             xField="agent"

@@ -10,7 +10,8 @@ import {
     MoreOutlined,
     SmileOutlined,
     PaperClipOutlined,
-    AudioOutlined
+    AudioOutlined,
+    TeamOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
@@ -19,6 +20,7 @@ import SearchFilter from '../components/Common/SearchFilter';
 import ActionButtons from '../components/Common/ActionButtons';
 import StatusTag from '../components/Common/StatusTag';
 import DetailCard from '../components/Common/DetailCard';
+import { useTranslation } from 'react-i18next';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -132,6 +134,7 @@ const initialMessages: Message[] = [
 ];
 
 const Chat: React.FC = () => {
+    const { t } = useTranslation();
     const {
         selectedItem: selectedChat,
         items: chats,
@@ -210,6 +213,7 @@ const Chat: React.FC = () => {
 
     const renderListContent = () => (
         <>
+            <Title level={2}>{t('pages.chat.title')}</Title>
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}
@@ -217,24 +221,24 @@ const Chat: React.FC = () => {
                 filterOptions={[
                     {
                         key: 'type',
-                        label: 'Type',
+                        label: t('pages.chat.type'),
                         options: [
-                            { label: 'User', value: 'user' },
-                            { label: 'Bot', value: 'bot' },
-                            { label: 'Group', value: 'group' },
+                            { label: t('pages.chat.user'), value: 'user' },
+                            { label: t('pages.chat.bot'), value: 'bot' },
+                            { label: t('pages.chat.group'), value: 'group' },
                         ],
                     },
                     {
                         key: 'status',
-                        label: 'Status',
+                        label: t('pages.chat.status'),
                         options: [
-                            { label: 'Online', value: 'online' },
-                            { label: 'Offline', value: 'offline' },
-                            { label: 'Busy', value: 'busy' },
+                            { label: t('pages.chat.online'), value: 'online' },
+                            { label: t('pages.chat.offline'), value: 'offline' },
+                            { label: t('pages.chat.busy'), value: 'busy' },
                         ],
                     },
                 ]}
-                placeholder="Search chats..."
+                placeholder={t('pages.chat.searchPlaceholder')}
             />
             <ActionButtons
                 onAdd={() => {}}
@@ -244,6 +248,13 @@ const Chat: React.FC = () => {
                 onExport={() => {}}
                 onImport={() => {}}
                 onSettings={() => {}}
+                addText={t('pages.chat.addChat')}
+                editText={t('pages.chat.editChat')}
+                deleteText={t('pages.chat.deleteChat')}
+                refreshText={t('pages.chat.refreshChat')}
+                exportText={t('pages.chat.exportChat')}
+                importText={t('pages.chat.importChat')}
+                settingsText={t('pages.chat.chatSettings')}
             />
             <List
                 dataSource={chats}
@@ -251,20 +262,22 @@ const Chat: React.FC = () => {
                     <ChatItem onClick={() => selectItem(chat)}>
                         <Space direction="vertical" style={{ width: '100%' }}>
                             <Space>
-                                <StatusTag status={chat.status} />
-                                {chat.type === 'bot' ? <RobotOutlined /> : <UserOutlined />}
+                                <Badge status={
+                                    chat.status === 'online' ? 'success' :
+                                    chat.status === 'busy' ? 'warning' : 'default'
+                                } />
+                                <Avatar icon={
+                                    chat.type === 'user' ? <UserOutlined /> :
+                                    chat.type === 'bot' ? <RobotOutlined /> : <TeamOutlined />
+                                } />
                                 <Text strong>{chat.name}</Text>
                                 {chat.unreadCount > 0 && (
                                     <Badge count={chat.unreadCount} />
                                 )}
                             </Space>
-                            <Space direction="vertical" size={0}>
-                                <Text type="secondary" ellipsis>
-                                    {chat.lastMessage}
-                                </Text>
-                                <Text type="secondary" style={{ fontSize: '12px' }}>
-                                    {chat.lastMessageTime}
-                                </Text>
+                            <Space>
+                                <Text type="secondary">{chat.lastMessage}</Text>
+                                <Text type="secondary">{chat.lastMessageTime}</Text>
                             </Space>
                         </Space>
                     </ChatItem>
@@ -275,95 +288,98 @@ const Chat: React.FC = () => {
 
     const renderDetailsContent = () => {
         if (!selectedChat) {
-            return <Text type="secondary">Select a chat to start messaging</Text>;
+            return <Text type="secondary">{t('pages.chat.selectChat')}</Text>;
         }
 
         return (
             <Space direction="vertical" style={{ width: '100%', height: '100%' }}>
-                <DetailCard
-                    title="Chat Information"
-                    items={[
-                        {
-                            label: 'Name',
-                            value: selectedChat.name,
-                            icon: selectedChat.type === 'bot' ? <RobotOutlined /> : <UserOutlined />,
-                        },
-                        {
-                            label: 'Type',
-                            value: selectedChat.type,
-                            icon: <MessageOutlined />,
-                        },
-                        {
-                            label: 'Status',
-                            value: <StatusTag status={selectedChat.status} />,
-                            icon: <CheckCircleOutlined />,
-                        },
-                    ]}
-                />
                 <Card
-                    style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
-                    bodyStyle={{ flex: 1, overflow: 'auto', padding: '16px' }}
+                    title={
+                        <Space>
+                            <Badge status={
+                                selectedChat.status === 'online' ? 'success' :
+                                selectedChat.status === 'busy' ? 'warning' : 'default'
+                            } />
+                            <Avatar icon={
+                                selectedChat.type === 'user' ? <UserOutlined /> :
+                                selectedChat.type === 'bot' ? <RobotOutlined /> : <TeamOutlined />
+                            } />
+                            <Text strong>{selectedChat.name}</Text>
+                            <Tag color={
+                                selectedChat.type === 'user' ? 'blue' :
+                                selectedChat.type === 'bot' ? 'green' : 'purple'
+                            }>
+                                {t(`pages.chat.${selectedChat.type}`)}
+                            </Tag>
+                        </Space>
+                    }
+                    extra={
+                        <Button icon={<MoreOutlined />} />
+                    }
                 >
-                    {messages.map(message => (
-                        <MessageItem key={message.id} isUser={message.sender === 'You'}>
-                            <Avatar icon={message.sender === 'You' ? <UserOutlined /> : <RobotOutlined />} />
-                            <Space direction="vertical" size={0}>
-                                <MessageContent isUser={message.sender === 'You'}>
-                                    {message.content}
-                                </MessageContent>
-                                <Space size={4}>
-                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                        {message.timestamp}
-                                    </Text>
-                                    {message.sender === 'You' && (
-                                        <Tooltip title={
-                                            message.status === 'sending' ? 'Sending...' :
-                                            message.status === 'sent' ? 'Sent' :
-                                            message.status === 'delivered' ? 'Delivered' : 'Read'
-                                        }>
-                                            {message.status === 'sending' ? <ClockCircleOutlined /> :
-                                             message.status === 'sent' ? <CheckCircleOutlined /> :
-                                             message.status === 'delivered' ? <CheckCircleOutlined /> :
-                                             <CheckCircleOutlined style={{ color: '#1890ff' }} />}
-                                        </Tooltip>
-                                    )}
+                    <div style={{ height: 'calc(100vh - 300px)', overflowY: 'auto' }}>
+                        {messages.map(message => (
+                            <MessageItem key={message.id} isUser={message.sender === 'You'}>
+                                <Avatar icon={
+                                    message.sender === 'You' ? <UserOutlined /> :
+                                    message.sender === 'Support Bot' ? <RobotOutlined /> : <TeamOutlined />
+                                } />
+                                <Space direction="vertical" style={{ maxWidth: '70%' }}>
+                                    <MessageContent isUser={message.sender === 'You'}>
+                                        {message.content}
+                                    </MessageContent>
+                                    <Space size={4}>
+                                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                                            {message.timestamp}
+                                        </Text>
+                                        {message.sender === 'You' && (
+                                            <Tooltip title={t(`pages.chat.${message.status}`)}>
+                                                {message.status === 'sending' ? <ClockCircleOutlined /> :
+                                                 message.status === 'sent' ? <CheckCircleOutlined /> :
+                                                 message.status === 'delivered' ? <CheckCircleOutlined style={{ color: '#1890ff' }} /> :
+                                                 <CheckCircleOutlined style={{ color: '#52c41a' }} />}
+                                            </Tooltip>
+                                        )}
+                                    </Space>
                                 </Space>
-                            </Space>
-                        </MessageItem>
-                    ))}
-                    <div ref={messagesEndRef} />
+                            </MessageItem>
+                        ))}
+                        <div ref={messagesEndRef} />
+                    </div>
+                    <MessageToolbar>
+                        <Button icon={<SmileOutlined />} />
+                        <Button icon={<PaperClipOutlined />} />
+                        <Button icon={<AudioOutlined />} />
+                        <TextArea
+                            value={newMessage}
+                            onChange={e => setNewMessage(e.target.value)}
+                            placeholder={t('pages.chat.typeMessage')}
+                            autoSize={{ minRows: 1, maxRows: 4 }}
+                            onPressEnter={e => {
+                                if (!e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSendMessage();
+                                }
+                            }}
+                        />
+                        <Button
+                            type="primary"
+                            icon={<SendOutlined />}
+                            onClick={handleSendMessage}
+                            disabled={!newMessage.trim()}
+                        >
+                            {t('pages.chat.send')}
+                        </Button>
+                    </MessageToolbar>
                 </Card>
-                <MessageToolbar>
-                    <Button icon={<SmileOutlined />} />
-                    <Button icon={<PaperClipOutlined />} />
-                    <Button icon={<AudioOutlined />} />
-                    <TextArea
-                        value={newMessage}
-                        onChange={e => setNewMessage(e.target.value)}
-                        placeholder="Type a message..."
-                        autoSize={{ minRows: 1, maxRows: 4 }}
-                        onPressEnter={e => {
-                            if (!e.shiftKey) {
-                                e.preventDefault();
-                                handleSendMessage();
-                            }
-                        }}
-                    />
-                    <Button
-                        type="primary"
-                        icon={<SendOutlined />}
-                        onClick={handleSendMessage}
-                        disabled={!newMessage.trim()}
-                    />
-                </MessageToolbar>
             </Space>
         );
     };
 
     return (
         <DetailLayout
-            listTitle="Chats"
-            detailsTitle="Chat Details"
+            listTitle={t('pages.chat.title')}
+            detailsTitle={t('pages.chat.chatDetails')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />
