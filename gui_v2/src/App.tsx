@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Chat from './pages/Chat';
 import Schedule from './pages/Schedule';
 import Skills from './pages/Skills';
+import SkillEditor from './pages/SkillEditor';
 import Agents from './pages/Agents';
 import Vehicles from './pages/Vehicles';
 import Settings from './pages/Settings';
@@ -22,6 +23,7 @@ const App: React.FC = () => {
                     <Route path="chat" element={<Chat />} />
                     <Route path="schedule" element={<Schedule />} />
                     <Route path="skills" element={<Skills />} />
+                    <Route path="skill-editor" element={<SkillEditor />} />
                     <Route path="agents" element={<Agents />} />
                     <Route path="vehicles" element={<Vehicles />} />
                     <Route path="settings" element={<Settings />} />

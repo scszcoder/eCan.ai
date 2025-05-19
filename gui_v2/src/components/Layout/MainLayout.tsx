@@ -15,6 +15,7 @@ import {
     BarChartOutlined,
     AppstoreOutlined,
     ToolOutlined,
+    EditOutlined,
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
@@ -92,6 +93,11 @@ const menuItems = [
         key: 'skills',
         icon: <RobotOutlined />,
         label: 'Skills',
+    },
+    {
+        key: 'skill-editor',
+        icon: <EditOutlined />,
+        label: 'SkillEditor',
     },
     {
         key: 'agents',
