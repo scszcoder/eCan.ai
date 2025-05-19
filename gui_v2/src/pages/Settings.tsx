@@ -1,7 +1,6 @@
 import React from 'react';
 import { Card, Form, Switch, Select, Button, message } from 'antd';
 import { useAppStore } from '../store/appStore';
-import { ipcClient } from '../services/ipc';
 
 const Settings: React.FC = () => {
     const { settings, setSettings } = useAppStore();
@@ -9,7 +8,8 @@ const Settings: React.FC = () => {
 
     const handleSave = async (values: any) => {
         try {
-            await ipcClient.updateSettings(values);
+            // 保存到本地存储
+            localStorage.setItem('appSettings', JSON.stringify(values));
             setSettings(values);
             message.success('设置已保存');
         } catch (error) {

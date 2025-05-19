@@ -4,6 +4,7 @@ __pycache__/
 *.sqlite3
 .venv/
 .env
+venv/
 /resource/data/myecb.db
 /resource/data/myecb.db-journal
 /runlogs/
