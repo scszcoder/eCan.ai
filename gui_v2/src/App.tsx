@@ -1,34 +1,38 @@
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
-import zhCN from 'antd/locale/zh_CN';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from './components/Layout/MainLayout';
-import Dashboard from './pages/Dashboard';
-import Tools from './pages/Tools';
+import Login from './pages/Login';
+import Chat from './pages/Chat';
+import Schedule from './pages/Schedule';
+import Skills from './pages/Skills';
+import Agents from './pages/Agents';
+import Vehicles from './pages/Vehicles';
 import Settings from './pages/Settings';
+import Analytics from './pages/Analytics';
+import Apps from './pages/Apps';
+import Tools from './pages/Tools';
 
-// 配置 React Router future flags
-const router = {
-    future: {
-        v7_startTransition: true,
-        v7_relativeSplatPath: true
-    }
-};
-
-function App() {
+const App: React.FC = () => {
     return (
-        <ConfigProvider locale={zhCN}>
-            <HashRouter future={router.future}>
-                <Routes>
-                    <Route path="/" element={<MainLayout />}>
-                        <Route index element={<Navigate to="/dashboard" replace />} />
-                        <Route path="dashboard" element={<Dashboard />} />
-                        <Route path="tools" element={<Tools />} />
-                        <Route path="settings" element={<Settings />} />
-                    </Route>
-                </Routes>
-            </HashRouter>
-        </ConfigProvider>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/main" element={<MainLayout />}>
+                    <Route index element={<Navigate to="/main/chat" replace />} />
+                    <Route path="chat" element={<Chat />} />
+                    <Route path="schedule" element={<Schedule />} />
+                    <Route path="skills" element={<Skills />} />
+                    <Route path="agents" element={<Agents />} />
+                    <Route path="vehicles" element={<Vehicles />} />
+                    <Route path="settings" element={<Settings />} />
+                    <Route path="analytics" element={<Analytics />} />
+                    <Route path="apps" element={<Apps />} />
+                    <Route path="tools" element={<Tools />} />
+                </Route>
+                <Route path="*" element={<Navigate to="/login" replace />} />
+            </Routes>
+        </Router>
     );
-}
+};
 
 export default App;
