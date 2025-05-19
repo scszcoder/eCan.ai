@@ -39,6 +39,13 @@ interface ActionButtonsProps {
     onExport?: () => void;
     onImport?: () => void;
     onSettings?: () => void;
+    addText?: string;
+    editText?: string;
+    deleteText?: string;
+    refreshText?: string;
+    exportText?: string;
+    importText?: string;
+    settingsText?: string;
 }
 
 const ActionButtons: React.FC<ActionButtonsProps> = ({
@@ -52,24 +59,31 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
     onExport,
     onImport,
     onSettings,
+    addText = 'Add',
+    editText = 'Edit',
+    deleteText = 'Delete',
+    refreshText = 'Refresh',
+    exportText = 'Export',
+    importText = 'Import',
+    settingsText = 'Settings',
 }) => {
     const defaultLeftButtons: ActionButton[] = showDefaultButtons ? [
         {
             key: 'add',
-            label: 'Add',
+            label: addText,
             icon: <PlusOutlined />,
             type: 'primary',
             onClick: onAdd || (() => {}),
         },
         {
             key: 'edit',
-            label: 'Edit',
+            label: editText,
             icon: <EditOutlined />,
             onClick: onEdit || (() => {}),
         },
         {
             key: 'delete',
-            label: 'Delete',
+            label: deleteText,
             icon: <DeleteOutlined />,
             danger: true,
             onClick: onDelete || (() => {}),
@@ -79,25 +93,25 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
     const defaultRightButtons: ActionButton[] = showDefaultButtons ? [
         {
             key: 'refresh',
-            label: 'Refresh',
+            label: refreshText,
             icon: <ReloadOutlined />,
             onClick: onRefresh || (() => {}),
         },
         {
             key: 'export',
-            label: 'Export',
+            label: exportText,
             icon: <ExportOutlined />,
             onClick: onExport || (() => {}),
         },
         {
             key: 'import',
-            label: 'Import',
+            label: importText,
             icon: <ImportOutlined />,
             onClick: onImport || (() => {}),
         },
         {
             key: 'settings',
-            label: 'Settings',
+            label: settingsText,
             icon: <SettingOutlined />,
             onClick: onSettings || (() => {}),
         },

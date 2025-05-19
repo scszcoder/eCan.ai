@@ -18,6 +18,7 @@ import SearchFilter from '../components/Common/SearchFilter';
 import ActionButtons from '../components/Common/ActionButtons';
 import StatusTag from '../components/Common/StatusTag';
 import DetailCard from '../components/Common/DetailCard';
+import { useTranslation } from 'react-i18next';
 
 const { Text, Title } = Typography;
 
@@ -85,6 +86,7 @@ const initialVehicles: Vehicle[] = [
 ];
 
 const Vehicles: React.FC = () => {
+    const { t } = useTranslation();
     const {
         selectedItem: selectedVehicle,
         items: vehicles,
@@ -140,6 +142,7 @@ const Vehicles: React.FC = () => {
 
     const renderListContent = () => (
         <>
+            <Title level={2}>{t('pages.vehicles.title')}</Title>
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}
@@ -147,23 +150,23 @@ const Vehicles: React.FC = () => {
                 filterOptions={[
                     {
                         key: 'status',
-                        label: 'Status',
+                        label: t('pages.vehicles.status'),
                         options: [
-                            { label: 'Active', value: 'active' },
-                            { label: 'Maintenance', value: 'maintenance' },
-                            { label: 'Offline', value: 'offline' },
+                            { label: t('common.active'), value: 'active' },
+                            { label: t('common.maintenance'), value: 'maintenance' },
+                            { label: t('common.offline'), value: 'offline' },
                         ],
                     },
                     {
                         key: 'type',
-                        label: 'Type',
+                        label: t('pages.vehicles.type'),
                         options: [
-                            { label: 'Ground Vehicle', value: 'Ground Vehicle' },
-                            { label: 'Aerial Vehicle', value: 'Aerial Vehicle' },
+                            { label: t('pages.vehicles.groundVehicle'), value: 'Ground Vehicle' },
+                            { label: t('pages.vehicles.aerialVehicle'), value: 'Aerial Vehicle' },
                         ],
                     },
                 ]}
-                placeholder="Search vehicles..."
+                placeholder={t('pages.vehicles.searchPlaceholder')}
             />
             <ActionButtons
                 onAdd={() => {}}
@@ -187,7 +190,7 @@ const Vehicles: React.FC = () => {
                             <Space>
                                 <Tag color="blue">{vehicle.type}</Tag>
                                 {vehicle.currentTask && (
-                                    <Tag color="processing">Task: {vehicle.currentTask}</Tag>
+                                    <Tag color="processing">{t('pages.vehicles.task')}: {vehicle.currentTask}</Tag>
                                 )}
                             </Space>
                             <Space>
@@ -208,100 +211,72 @@ const Vehicles: React.FC = () => {
 
     const renderDetailsContent = () => {
         if (!selectedVehicle) {
-            return <Text type="secondary">Select a vehicle to view details</Text>;
+            return <Text type="secondary">{t('pages.vehicles.selectVehicle')}</Text>;
         }
 
         return (
             <Space direction="vertical" style={{ width: '100%' }}>
                 <DetailCard
-                    title="Vehicle Information"
+                    title={t('pages.vehicles.vehicleInformation')}
                     items={[
                         {
-                            label: 'Name',
+                            label: t('common.name'),
                             value: selectedVehicle.name,
                             icon: <CarOutlined />,
                         },
                         {
-                            label: 'Type',
+                            label: t('pages.vehicles.type'),
                             value: selectedVehicle.type,
                             icon: <CarOutlined />,
                         },
                         {
-                            label: 'Status',
+                            label: t('pages.vehicles.status'),
                             value: <StatusTag status={selectedVehicle.status} />,
                             icon: <CheckCircleOutlined />,
                         },
                         {
-                            label: 'Location',
+                            label: t('pages.vehicles.location'),
                             value: selectedVehicle.location,
                             icon: <EnvironmentOutlined />,
                         },
                     ]}
                 />
                 <DetailCard
-                    title="Performance Metrics"
+                    title={t('pages.vehicles.performanceMetrics')}
                     items={[
                         {
-                            label: 'Battery Level',
+                            label: t('pages.vehicles.batteryLevel'),
                             value: (
                                 <Statistic
                                     value={selectedVehicle.battery}
                                     suffix="%"
                                     prefix={<ThunderboltOutlined />}
-                                    valueStyle={{ 
-                                        color: selectedVehicle.battery < 20 ? '#cf1322' : 
-                                               selectedVehicle.battery < 50 ? '#faad14' : '#3f8600'
-                                    }}
                                 />
                             ),
+                            icon: <ThunderboltOutlined />,
                         },
                         {
-                            label: 'Total Distance',
+                            label: t('pages.vehicles.totalDistance'),
                             value: (
                                 <Statistic
                                     value={selectedVehicle.totalDistance}
                                     suffix="km"
-                                    prefix={<CarOutlined />}
                                 />
                             ),
+                            icon: <CarOutlined />,
                         },
-                    ]}
-                />
-                <DetailCard
-                    title="Maintenance Information"
-                    items={[
                         {
-                            label: 'Last Maintenance',
+                            label: t('pages.vehicles.lastMaintenance'),
                             value: selectedVehicle.lastMaintenance,
-                            icon: <ClockCircleOutlined />,
+                            icon: <ToolOutlined />,
                         },
                         {
-                            label: 'Next Maintenance',
+                            label: t('pages.vehicles.nextMaintenance'),
                             value: selectedVehicle.nextMaintenance,
                             icon: <ClockCircleOutlined />,
                         },
                     ]}
                 />
-                {selectedVehicle.currentTask && (
-                    <DetailCard
-                        title="Current Task"
-                        items={[
-                            {
-                                label: 'Task',
-                                value: selectedVehicle.currentTask,
-                                span: 24,
-                            },
-                        ]}
-                        extra={
-                            <Button 
-                                type="primary"
-                                onClick={() => handleTaskComplete(selectedVehicle.id)}
-                            >
-                                Mark as Complete
-                            </Button>
-                        }
-                    />
-                )}
                 <Space>
                     <Button 
                         type="primary" 
@@ -332,8 +307,8 @@ const Vehicles: React.FC = () => {
 
     return (
         <DetailLayout
-            listTitle="Vehicles"
-            detailsTitle="Vehicle Details"
+            listTitle={t('pages.vehicles.title')}
+            detailsTitle={t('pages.vehicles.vehicleDetails')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />

@@ -1,6 +1,8 @@
 import React from 'react';
 import { Layout, Typography, Card } from 'antd';
 import styled from '@emotion/styled';
+import { useTranslation } from 'react-i18next';
+import ActionButtons from '../components/Common/ActionButtons';
 
 const { Content } = Layout;
 const { Title } = Typography;
@@ -48,18 +50,36 @@ const ToolsDetails = styled(Card)`
 `;
 
 const Tools: React.FC = () => {
+  const { t } = useTranslation();
+
   return (
     <ToolsContainer>
       <ToolsContent>
         <ToolsHeader>
-          <Title level={4} style={{ margin: 0 }}>Tools</Title>
+          <Title level={4} style={{ margin: 0 }}>{t('pages.tools.title')}</Title>
         </ToolsHeader>
         <ToolsMain>
-          <ToolsList title="Tools List" variant="borderless">
+          <ToolsList title={t('pages.tools.list')} variant="borderless">
             {/* Tools list will be implemented here */}
           </ToolsList>
           <ToolsDetails variant="borderless">
             {/* Tools details will be implemented here */}
+            <ActionButtons
+                onAdd={() => {}}
+                onEdit={() => {}}
+                onDelete={() => {}}
+                onRefresh={() => {}}
+                onExport={() => {}}
+                onImport={() => {}}
+                onSettings={() => {}}
+                addText={t('pages.tools.addTool')}
+                editText={t('pages.tools.editTool')}
+                deleteText={t('pages.tools.deleteTool')}
+                refreshText={t('pages.tools.refreshTools')}
+                exportText={t('pages.tools.exportTools')}
+                importText={t('pages.tools.importTools')}
+                settingsText={t('pages.tools.toolSettings')}
+            />
           </ToolsDetails>
         </ToolsMain>
       </ToolsContent>

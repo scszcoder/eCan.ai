@@ -14,6 +14,8 @@ import {
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
 import { useDetailView } from '../hooks/useDetailView';
+import { useTranslation } from 'react-i18next';
+import ActionButtons from '../components/Common/ActionButtons';
 
 const { Text, Title } = Typography;
 
@@ -92,6 +94,7 @@ const initialAgents: Agent[] = [
 ];
 
 const Agents: React.FC = () => {
+    const { t } = useTranslation();
     const {
         selectedItem: selectedAgent,
         items: agents,
@@ -133,7 +136,7 @@ const Agents: React.FC = () => {
                         <Space>
                             <Tag color="blue">{agent.role}</Tag>
                             {agent.currentTask && (
-                                <Tag color="processing">Task: {agent.currentTask}</Tag>
+                                <Tag color="processing">{t('pages.agents.currentTask')}: {agent.currentTask}</Tag>
                             )}
                         </Space>
                         <Space wrap>
@@ -152,7 +155,7 @@ const Agents: React.FC = () => {
 
     const renderDetailsContent = () => {
         if (!selectedAgent) {
-            return <Text type="secondary">Select an agent to view details</Text>;
+            return <Text type="secondary">{t('pages.agents.selectAgent')}</Text>;
         }
 
         return (
@@ -166,13 +169,13 @@ const Agents: React.FC = () => {
                 </Space>
                 <Space>
                     <Tag color={getStatusColor(selectedAgent.status)}>
-                        <CheckCircleOutlined /> Status: {selectedAgent.status}
+                        <CheckCircleOutlined /> {t('pages.agents.status')}: {t(`pages.agents.status.${selectedAgent.status}`)}
                     </Tag>
                     <Tag>
-                        <ClockCircleOutlined /> Last Active: {selectedAgent.lastActive}
+                        <ClockCircleOutlined /> {t('pages.agents.lastActive')}: {selectedAgent.lastActive}
                     </Tag>
                 </Space>
-                <Title level={5}>Skills</Title>
+                <Title level={5}>{t('pages.agents.skills')}</Title>
                 <Space wrap>
                     {selectedAgent.skills.map(skill => (
                         <Tag key={skill} color="green">
@@ -184,7 +187,7 @@ const Agents: React.FC = () => {
                     <Col span={12}>
                         <Card>
                             <Statistic
-                                title="Tasks Completed"
+                                title={t('pages.agents.tasksCompleted')}
                                 value={selectedAgent.tasksCompleted}
                                 prefix={<StarOutlined />}
                             />
@@ -193,7 +196,7 @@ const Agents: React.FC = () => {
                     <Col span={12}>
                         <Card>
                             <Statistic
-                                title="Efficiency"
+                                title={t('pages.agents.efficiency')}
                                 value={selectedAgent.efficiency}
                                 suffix="%"
                                 prefix={<ThunderboltOutlined />}
@@ -204,13 +207,13 @@ const Agents: React.FC = () => {
                 {selectedAgent.currentTask && (
                     <Card>
                         <Space direction="vertical" style={{ width: '100%' }}>
-                            <Text strong>Current Task</Text>
+                            <Text strong>{t('pages.agents.currentTask')}</Text>
                             <Text>{selectedAgent.currentTask}</Text>
                             <Button 
                                 type="primary"
                                 onClick={() => handleTaskComplete(selectedAgent.id)}
                             >
-                                Mark as Complete
+                                {t('pages.agents.markComplete')}
                             </Button>
                         </Space>
                     </Card>
@@ -222,31 +225,47 @@ const Agents: React.FC = () => {
                         onClick={() => handleStatusChange(selectedAgent.id, 'active')}
                         disabled={selectedAgent.status === 'active'}
                     >
-                        Activate
+                        {t('pages.agents.activate')}
                     </Button>
                     <Button 
                         icon={<EditOutlined />}
                         onClick={() => handleStatusChange(selectedAgent.id, 'busy')}
                         disabled={selectedAgent.status === 'busy'}
                     >
-                        Set Busy
+                        {t('pages.agents.setBusy')}
                     </Button>
                     <Button 
                         icon={<HistoryOutlined />}
                         onClick={() => handleStatusChange(selectedAgent.id, 'offline')}
                         disabled={selectedAgent.status === 'offline'}
                     >
-                        Set Offline
+                        {t('pages.agents.setOffline')}
                     </Button>
                 </Space>
+                <ActionButtons
+                    onAdd={() => {}}
+                    onEdit={() => {}}
+                    onDelete={() => {}}
+                    onRefresh={() => {}}
+                    onExport={() => {}}
+                    onImport={() => {}}
+                    onSettings={() => {}}
+                    addText={t('pages.agents.addAgent')}
+                    editText={t('pages.agents.editAgent')}
+                    deleteText={t('pages.agents.deleteAgent')}
+                    refreshText={t('pages.agents.refreshAgents')}
+                    exportText={t('pages.agents.exportAgents')}
+                    importText={t('pages.agents.importAgents')}
+                    settingsText={t('pages.agents.agentSettings')}
+                />
             </Space>
         );
     };
 
     return (
         <DetailLayout
-            listTitle="Agents"
-            detailsTitle="Agent Details"
+            listTitle={t('pages.agents.title')}
+            detailsTitle={t('pages.agents.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />

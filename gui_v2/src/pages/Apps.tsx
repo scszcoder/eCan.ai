@@ -12,6 +12,8 @@ import {
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
 import { useDetailView } from '../hooks/useDetailView';
+import { useTranslation } from 'react-i18next';
+import ActionButtons from '../components/Common/ActionButtons';
 
 const { Text, Title } = Typography;
 
@@ -94,6 +96,7 @@ const initialApps: App[] = [
 ];
 
 const Apps: React.FC = () => {
+    const { t } = useTranslation();
     const {
         selectedItem: selectedApp,
         items: apps,
@@ -129,7 +132,7 @@ const Apps: React.FC = () => {
                             <Text strong>{app.name}</Text>
                         </Space>
                         <Space>
-                            <Tag color={getStatusColor(app.status)}>{app.status}</Tag>
+                            <Tag color={getStatusColor(app.status)}>{t(`pages.apps.status.${app.status}`)}</Tag>
                             <Tag color="blue">{app.category}</Tag>
                         </Space>
                         <Space>
@@ -144,7 +147,7 @@ const Apps: React.FC = () => {
 
     const renderDetailsContent = () => {
         if (!selectedApp) {
-            return <Text type="secondary">Select an application to view details</Text>;
+            return <Text type="secondary">{t('pages.apps.selectApp')}</Text>;
         }
 
         return (
@@ -153,27 +156,27 @@ const Apps: React.FC = () => {
                     <Avatar size={64} icon={<AppstoreOutlined />} />
                     <div>
                         <Title level={4} style={{ margin: 0 }}>{selectedApp.name}</Title>
-                        <Text type="secondary">Version {selectedApp.version}</Text>
+                        <Text type="secondary">{t('pages.apps.version', { version: selectedApp.version })}</Text>
                     </div>
                 </Space>
                 <Space>
                     <Tag color={getStatusColor(selectedApp.status)}>
-                        <CheckCircleOutlined /> Status: {selectedApp.status}
+                        <CheckCircleOutlined /> {t('pages.apps.status')}: {t(`pages.apps.status.${selectedApp.status}`)}
                     </Tag>
                     <Tag>
-                        <ClockCircleOutlined /> Last Updated: {selectedApp.lastUpdated}
+                        <ClockCircleOutlined /> {t('pages.apps.lastUpdated')}: {selectedApp.lastUpdated}
                     </Tag>
                     <Tag>
-                        <StarOutlined /> Rating: {selectedApp.rating}/5
+                        <StarOutlined /> {t('pages.apps.rating')}: {selectedApp.rating}/5
                     </Tag>
                 </Space>
                 <div>
-                    <Text strong>Description</Text>
+                    <Text strong>{t('pages.apps.description')}</Text>
                     <br />
                     <Text>{selectedApp.description}</Text>
                 </div>
                 <div>
-                    <Text strong>Features</Text>
+                    <Text strong>{t('pages.apps.features')}</Text>
                     <br />
                     <Space wrap>
                         {selectedApp.features.map(feature => (
@@ -185,7 +188,7 @@ const Apps: React.FC = () => {
                     <Col span={12}>
                         <Card>
                             <Space direction="vertical" style={{ width: '100%' }}>
-                                <Text>Storage Usage</Text>
+                                <Text>{t('pages.apps.storageUsage')}</Text>
                                 <Progress percent={75} />
                                 <Text type="secondary">{selectedApp.size}</Text>
                             </Space>
@@ -194,7 +197,7 @@ const Apps: React.FC = () => {
                     <Col span={12}>
                         <Card>
                             <Space direction="vertical" style={{ width: '100%' }}>
-                                <Text>User Rating</Text>
+                                <Text>{t('pages.apps.userRating')}</Text>
                                 <Progress percent={selectedApp.rating * 20} />
                                 <Text type="secondary">{selectedApp.rating}/5</Text>
                             </Space>
@@ -208,27 +211,43 @@ const Apps: React.FC = () => {
                         onClick={() => handleUpdate(selectedApp.id)}
                         loading={selectedApp.status === 'updating'}
                     >
-                        Update
+                        {t('pages.apps.update')}
                     </Button>
                     <Button icon={<SettingOutlined />}>
-                        Settings
+                        {t('pages.apps.settings')}
                     </Button>
                     <Button 
                         danger 
                         icon={<DeleteOutlined />}
                         onClick={() => handleUninstall(selectedApp.id)}
                     >
-                        Uninstall
+                        {t('pages.apps.uninstall')}
                     </Button>
                 </Space>
+                <ActionButtons
+                    onAdd={() => {}}
+                    onEdit={() => {}}
+                    onDelete={() => {}}
+                    onRefresh={() => {}}
+                    onExport={() => {}}
+                    onImport={() => {}}
+                    onSettings={() => {}}
+                    addText={t('pages.apps.addApp')}
+                    editText={t('pages.apps.editApp')}
+                    deleteText={t('pages.apps.deleteApp')}
+                    refreshText={t('pages.apps.refreshApps')}
+                    exportText={t('pages.apps.exportApps')}
+                    importText={t('pages.apps.importApps')}
+                    settingsText={t('pages.apps.appSettings')}
+                />
             </Space>
         );
     };
 
     return (
         <DetailLayout
-            listTitle="Applications"
-            detailsTitle="Application Details"
+            listTitle={t('pages.apps.title')}
+            detailsTitle={t('pages.apps.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />

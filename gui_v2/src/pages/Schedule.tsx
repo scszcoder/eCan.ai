@@ -18,6 +18,7 @@ import SearchFilter from '../components/Common/SearchFilter';
 import ActionButtons from '../components/Common/ActionButtons';
 import StatusTag from '../components/Common/StatusTag';
 import DetailCard from '../components/Common/DetailCard';
+import { useTranslation } from 'react-i18next';
 
 const { Text, Title } = Typography;
 
@@ -87,6 +88,7 @@ const initialSchedules: Schedule[] = [
 ];
 
 const Schedule: React.FC = () => {
+    const { t } = useTranslation();
     const {
         selectedItem: selectedSchedule,
         items: schedules,
@@ -119,6 +121,7 @@ const Schedule: React.FC = () => {
 
     const renderListContent = () => (
         <>
+            <Title level={2}>{t('pages.schedule.title')}</Title>
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}
@@ -126,34 +129,34 @@ const Schedule: React.FC = () => {
                 filterOptions={[
                     {
                         key: 'status',
-                        label: 'Status',
+                        label: t('pages.schedule.status'),
                         options: [
-                            { label: 'Scheduled', value: 'scheduled' },
-                            { label: 'In Progress', value: 'in-progress' },
-                            { label: 'Completed', value: 'completed' },
-                            { label: 'Cancelled', value: 'cancelled' },
+                            { label: t('pages.schedule.scheduled'), value: 'scheduled' },
+                            { label: t('pages.schedule.inProgress'), value: 'in-progress' },
+                            { label: t('pages.schedule.completed'), value: 'completed' },
+                            { label: t('pages.schedule.cancelled'), value: 'cancelled' },
                         ],
                     },
                     {
                         key: 'type',
-                        label: 'Type',
+                        label: t('pages.schedule.type'),
                         options: [
-                            { label: 'Meeting', value: 'meeting' },
-                            { label: 'Task', value: 'task' },
-                            { label: 'Maintenance', value: 'maintenance' },
+                            { label: t('pages.schedule.meeting'), value: 'meeting' },
+                            { label: t('pages.schedule.task'), value: 'task' },
+                            { label: t('pages.schedule.maintenance'), value: 'maintenance' },
                         ],
                     },
                     {
                         key: 'priority',
-                        label: 'Priority',
+                        label: t('pages.schedule.priority'),
                         options: [
-                            { label: 'High', value: 'high' },
-                            { label: 'Medium', value: 'medium' },
-                            { label: 'Low', value: 'low' },
+                            { label: t('pages.schedule.high'), value: 'high' },
+                            { label: t('pages.schedule.medium'), value: 'medium' },
+                            { label: t('pages.schedule.low'), value: 'low' },
                         ],
                     },
                 ]}
-                placeholder="Search schedules..."
+                placeholder={t('pages.schedule.searchPlaceholder')}
             />
             <ActionButtons
                 onAdd={() => {}}
@@ -163,6 +166,13 @@ const Schedule: React.FC = () => {
                 onExport={() => {}}
                 onImport={() => {}}
                 onSettings={() => {}}
+                addText={t('pages.schedule.addSchedule')}
+                editText={t('pages.schedule.editSchedule')}
+                deleteText={t('pages.schedule.deleteSchedule')}
+                refreshText={t('pages.schedule.refreshSchedule')}
+                exportText={t('pages.schedule.exportSchedule')}
+                importText={t('pages.schedule.importSchedule')}
+                settingsText={t('pages.schedule.scheduleSettings')}
             />
             <List
                 dataSource={schedules}
@@ -175,12 +185,12 @@ const Schedule: React.FC = () => {
                                 <Text strong>{schedule.title}</Text>
                             </Space>
                             <Space>
-                                <Tag color="blue">{schedule.type}</Tag>
+                                <Tag color="blue">{t(`pages.schedule.${schedule.type}`)}</Tag>
                                 <Tag color={
                                     schedule.priority === 'high' ? 'red' :
                                     schedule.priority === 'medium' ? 'orange' : 'green'
                                 }>
-                                    {schedule.priority} priority
+                                    {t(`pages.schedule.${schedule.priority}`)} {t('pages.schedule.priority')}
                                 </Tag>
                             </Space>
                             <Space>
@@ -192,7 +202,7 @@ const Schedule: React.FC = () => {
                             <Space>
                                 <TeamOutlined />
                                 <Text type="secondary">
-                                    {schedule.participants.length} participants
+                                    {schedule.participants.length} {t('pages.schedule.participants')}
                                 </Text>
                             </Space>
                         </Space>
@@ -204,37 +214,37 @@ const Schedule: React.FC = () => {
 
     const renderDetailsContent = () => {
         if (!selectedSchedule) {
-            return <Text type="secondary">Select a schedule to view details</Text>;
+            return <Text type="secondary">{t('pages.schedule.selectSchedule')}</Text>;
         }
 
         return (
             <Space direction="vertical" style={{ width: '100%' }}>
                 <DetailCard
-                    title="Schedule Information"
+                    title={t('pages.schedule.scheduleInformation')}
                     items={[
                         {
-                            label: 'Title',
+                            label: t('common.title'),
                             value: selectedSchedule.title,
                             icon: <CalendarOutlined />,
                         },
                         {
-                            label: 'Type',
-                            value: selectedSchedule.type,
+                            label: t('pages.schedule.type'),
+                            value: t(`pages.schedule.${selectedSchedule.type}`),
                             icon: <CalendarOutlined />,
                         },
                         {
-                            label: 'Status',
+                            label: t('pages.schedule.status'),
                             value: <StatusTag status={selectedSchedule.status} />,
                             icon: <CheckCircleOutlined />,
                         },
                         {
-                            label: 'Priority',
+                            label: t('pages.schedule.priority'),
                             value: (
                                 <Tag color={
                                     selectedSchedule.priority === 'high' ? 'red' :
                                     selectedSchedule.priority === 'medium' ? 'orange' : 'green'
                                 }>
-                                    {selectedSchedule.priority}
+                                    {t(`pages.schedule.${selectedSchedule.priority}`)}
                                 </Tag>
                             ),
                             icon: <ClockCircleOutlined />,
@@ -242,76 +252,74 @@ const Schedule: React.FC = () => {
                     ]}
                 />
                 <DetailCard
-                    title="Time and Location"
+                    title={t('pages.schedule.timeAndLocation')}
                     items={[
                         {
-                            label: 'Start Time',
+                            label: t('pages.schedule.startTime'),
                             value: selectedSchedule.startTime,
                             icon: <ClockCircleOutlined />,
                         },
                         {
-                            label: 'End Time',
+                            label: t('pages.schedule.endTime'),
                             value: selectedSchedule.endTime,
                             icon: <ClockCircleOutlined />,
                         },
                         {
-                            label: 'Location',
+                            label: t('pages.schedule.location'),
                             value: selectedSchedule.location,
                             icon: <CarOutlined />,
-                            span: 24,
                         },
                     ]}
                 />
                 <DetailCard
-                    title="Description"
+                    title={t('pages.schedule.participants')}
                     items={[
                         {
-                            label: 'Details',
+                            label: t('pages.schedule.participants'),
+                            value: selectedSchedule.participants.join(', '),
+                            icon: <TeamOutlined />,
+                        },
+                    ]}
+                />
+                <DetailCard
+                    title={t('pages.schedule.description')}
+                    items={[
+                        {
+                            label: t('pages.schedule.description'),
                             value: selectedSchedule.description,
-                            span: 24,
-                        },
-                    ]}
-                />
-                <DetailCard
-                    title="Participants"
-                    items={[
-                        {
-                            label: 'Team',
-                            value: (
-                                <Space wrap>
-                                    {selectedSchedule.participants.map(participant => (
-                                        <Tag key={participant} icon={<TeamOutlined />}>
-                                            {participant}
-                                        </Tag>
-                                    ))}
-                                </Space>
-                            ),
-                            span: 24,
+                            icon: <EditOutlined />,
                         },
                     ]}
                 />
                 <Space>
                     <Button 
                         type="primary" 
-                        icon={<CheckCircleOutlined />}
-                        onClick={() => handleStatusChange(selectedSchedule.id, 'completed')}
-                        disabled={selectedSchedule.status === 'completed'}
+                        icon={<PlusOutlined />}
+                        onClick={() => handleStatusChange(selectedSchedule.id, 'scheduled')}
+                        disabled={selectedSchedule.status === 'scheduled'}
                     >
-                        Mark as Completed
+                        {t('pages.schedule.schedule')}
                     </Button>
                     <Button 
                         icon={<ClockCircleOutlined />}
                         onClick={() => handleStatusChange(selectedSchedule.id, 'in-progress')}
                         disabled={selectedSchedule.status === 'in-progress'}
                     >
-                        Start
+                        {t('pages.schedule.start')}
+                    </Button>
+                    <Button 
+                        icon={<CheckCircleOutlined />}
+                        onClick={() => handleStatusChange(selectedSchedule.id, 'completed')}
+                        disabled={selectedSchedule.status === 'completed'}
+                    >
+                        {t('pages.schedule.complete')}
                     </Button>
                     <Button 
                         danger
                         icon={<DeleteOutlined />}
                         onClick={() => handleDelete(selectedSchedule.id)}
                     >
-                        Delete
+                        {t('common.delete')}
                     </Button>
                 </Space>
             </Space>
@@ -320,8 +328,8 @@ const Schedule: React.FC = () => {
 
     return (
         <DetailLayout
-            listTitle="Schedule"
-            detailsTitle="Schedule Details"
+            listTitle={t('pages.schedule.title')}
+            detailsTitle={t('pages.schedule.scheduleDetails')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />
