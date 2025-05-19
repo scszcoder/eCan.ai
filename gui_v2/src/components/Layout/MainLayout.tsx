@@ -1,73 +1,178 @@
-import React from 'react';
-import { Layout, Menu, theme } from 'antd';
-import { Outlet, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Layout, Menu, Input, Button } from 'antd';
 import {
-    DashboardOutlined,
+    MenuFoldOutlined,
+    MenuUnfoldOutlined,
+    SearchOutlined,
+    PlusOutlined,
+    SyncOutlined,
+    MessageOutlined,
+    ScheduleOutlined,
+    RobotOutlined,
+    TeamOutlined,
+    CarOutlined,
     SettingOutlined,
+    BarChartOutlined,
+    AppstoreOutlined,
     ToolOutlined,
 } from '@ant-design/icons';
+import styled from '@emotion/styled';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
 const { Header, Sider, Content } = Layout;
 
-const MainLayout: React.FC = () => {
-    const navigate = useNavigate();
-    const {
-        token: { colorBgContainer, borderRadiusLG },
-    } = theme.useToken();
+const StyledLayout = styled(Layout)`
+    min-height: 100vh;
+    background: #f0f2f5;
+`;
 
-    const menuItems = [
-        {
-            key: 'dashboard',
-            icon: <DashboardOutlined />,
-            label: '仪表盘',
-        },
-        {
-            key: 'tools',
-            icon: <ToolOutlined />,
-            label: '工具',
-        },
-        {
-            key: 'settings',
-            icon: <SettingOutlined />,
-            label: '设置',
-        },
-    ];
+const StyledHeader = styled(Header)`
+    padding: 0 16px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid #e8e8e8;
+    height: 48px;
+    line-height: 48px;
+`;
+
+const SearchInput = styled(Input)`
+    width: 300px;
+    border-radius: 4px;
+    .ant-input {
+        background: #f5f5f5;
+        border: 1px solid #d9d9d9;
+        &:hover, &:focus {
+            background: #fff;
+        }
+    }
+`;
+
+const StyledSider = styled(Sider)`
+    background: #fff;
+    border-right: 1px solid #e8e8e8;
+    .ant-menu {
+        border-right: none;
+    }
+    .ant-menu-item {
+        margin: 4px 8px;
+        border-radius: 4px;
+        &:hover {
+            background: #f5f5f5;
+        }
+        &.ant-menu-item-selected {
+            background: #e6f7ff;
+            color: #1890ff;
+        }
+    }
+`;
+
+const StyledContent = styled(Content)`
+    margin: 16px;
+    padding: 16px;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    min-height: calc(100vh - 80px);
+`;
+
+const menuItems = [
+    {
+        key: 'chat',
+        icon: <MessageOutlined />,
+        label: 'Chat',
+    },
+    {
+        key: 'schedule',
+        icon: <ScheduleOutlined />,
+        label: 'Schedule',
+    },
+    {
+        key: 'skills',
+        icon: <RobotOutlined />,
+        label: 'Skills',
+    },
+    {
+        key: 'agents',
+        icon: <TeamOutlined />,
+        label: 'Agents',
+    },
+    {
+        key: 'vehicles',
+        icon: <CarOutlined />,
+        label: 'Vehicles',
+    },
+    {
+        key: 'settings',
+        icon: <SettingOutlined />,
+        label: 'Settings',
+    },
+    {
+        key: 'analytics',
+        icon: <BarChartOutlined />,
+        label: 'Analytics',
+    },
+    {
+        key: 'apps',
+        icon: <AppstoreOutlined />,
+        label: 'Apps',
+    },
+    {
+        key: 'tools',
+        icon: <ToolOutlined />,
+        label: 'Tools',
+    },
+];
+
+const MainLayout: React.FC = () => {
+    const [collapsed, setCollapsed] = useState(false);
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    const handleMenuClick = (key: string) => {
+        navigate(`/main/${key}`);
+    };
 
     return (
-        <Layout style={{ height: '100vh', width: '100vw' }}>
-            <Sider
-                theme="light"
-                breakpoint="lg"
-                collapsedWidth="0"
-                style={{ height: '100vh' }}
-            >
-                <div style={{ height: 32, margin: 16, background: 'rgba(0, 0, 0, 0.2)' }} />
-                <Menu
-                    mode="inline"
-                    defaultSelectedKeys={['dashboard']}
-                    items={menuItems}
-                    onClick={({ key }) => navigate(key)}
+        <StyledLayout>
+            <StyledHeader>
+                <Button
+                    type="text"
+                    icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                    onClick={() => setCollapsed(!collapsed)}
+                    style={{ fontSize: '16px' }}
                 />
-            </Sider>
-            <Layout style={{ height: '100vh' }}>
-                <Header style={{ 
-                    padding: 0, 
-                    background: colorBgContainer,
-                    height: '64px',
-                    lineHeight: '64px'
-                }} />
-                <Content style={{ 
-                    margin: '24px 16px',
-                    padding: '24px',
-                    background: colorBgContainer,
-                    borderRadius: borderRadiusLG,
-                    minHeight: 'calc(100vh - 112px)',
-                    overflow: 'auto'
-                }}>
+                <SearchInput
+                    placeholder="Search..."
+                    prefix={<SearchOutlined />}
+                />
+                <Button
+                    type="text"
+                    icon={<PlusOutlined />}
+                    style={{ fontSize: '16px' }}
+                />
+                <Button
+                    type="text"
+                    icon={<SyncOutlined />}
+                    style={{ fontSize: '16px' }}
+                />
+            </StyledHeader>
+            <Layout>
+                <StyledSider trigger={null} collapsible collapsed={collapsed} width={200}>
+                    <Menu
+                        theme="light"
+                        mode="inline"
+                        selectedKeys={[location.pathname.split('/')[2] || 'chat']}
+                        items={menuItems}
+                        onClick={({ key }) => handleMenuClick(key)}
+                    />
+                </StyledSider>
+                <StyledContent>
                     <Outlet />
-                </Content>
+                </StyledContent>
             </Layout>
-        </Layout>
+        </StyledLayout>
     );
 };
 
