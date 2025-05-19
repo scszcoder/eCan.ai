@@ -1,7 +1,6 @@
-import React from 'react';
-import { Card, Form, Input, Switch, Select, Button, Space, Typography } from 'antd';
+import React, { useEffect } from 'react';
+import { Card, Form, Input, Switch, Select, Button, Space, Typography, message } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { useLanguage } from '../contexts/LanguageContext';
 import styled from '@emotion/styled';
 
 const { Title } = Typography;
@@ -16,12 +15,30 @@ const StyledCard = styled(Card)`
 `;
 
 const Settings: React.FC = () => {
-    const { t } = useTranslation();
-    const { currentLanguage, changeLanguage } = useLanguage();
+    const { t, i18n } = useTranslation();
     const [form] = Form.useForm();
+
+    // 初始化表单值
+    useEffect(() => {
+        form.setFieldsValue({
+            language: i18n.language,
+            theme: 'light',
+            notifications: true,
+            sound: true,
+            email: true
+        });
+    }, [form, i18n.language]);
+
+    const handleLanguageChange = (value: string) => {
+        i18n.changeLanguage(value);
+        localStorage.setItem('i18nextLng', value);
+        localStorage.setItem('language', value);
+        message.success(t('settings.languageChanged'));
+    };
 
     const onFinish = (values: any) => {
         console.log('Settings values:', values);
+        message.success(t('settings.saved'));
     };
 
     return (
@@ -32,20 +49,13 @@ const Settings: React.FC = () => {
                 form={form}
                 layout="vertical"
                 onFinish={onFinish}
-                initialValues={{
-                    language: currentLanguage,
-                    theme: 'light',
-                    notifications: true,
-                    sound: true,
-                    email: true
-                }}
             >
                 <StyledCard title={t('settings.general')}>
                     <Form.Item
                         name="language"
                         label={t('settings.language')}
                     >
-                        <Select onChange={changeLanguage}>
+                        <Select onChange={handleLanguageChange}>
                             <Option value="en">{t('languages.en')}</Option>
                             <Option value="zh">{t('languages.zh')}</Option>
                         </Select>

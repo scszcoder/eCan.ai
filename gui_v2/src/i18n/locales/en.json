@@ -29,7 +29,21 @@
     "error": "Error",
     "warning": "Warning",
     "info": "Info",
-    "role": "Role"
+    "role": "Role",
+    "profile": "Profile",
+    "user": "User"
+  },
+  "menu": {
+    "dashboard": "Dashboard",
+    "vehicles": "Vehicles",
+    "schedule": "Schedule",
+    "chat": "Chat",
+    "skills": "Skills",
+    "agents": "Agents",
+    "analytics": "Analytics",
+    "apps": "Apps",
+    "tools": "Tools",
+    "settings": "Settings"
   },
   "login": {
     "title": "Welcome Back",
@@ -38,7 +52,10 @@
     "forgotPassword": "Forgot password?",
     "loginButton": "Sign In",
     "selectLanguage": "Select Language",
-    "selectRole": "Select Role"
+    "selectRole": "Select Role",
+    "success": "Login successful",
+    "invalidCredentials": "Invalid username or password",
+    "error": "Login failed"
   },
   "roles": {
     "commander": "Commander",
@@ -59,7 +76,9 @@
     "system": "System",
     "account": "Account",
     "security": "Security",
-    "about": "About"
+    "about": "About",
+    "languageChanged": "Language changed",
+    "saved": "Settings saved"
   },
   "languages": {
     "en": "English",
