@@ -3,10 +3,17 @@ from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QDockWidget,
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import QUrl, Qt, Signal, Slot
 from PySide6.QtGui import QAction, QKeySequence, QTextCursor
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInterceptor
 from pathlib import Path
 import os
 import datetime
+import sys
+import logging
+
+# 配置日志以抑制 macOS IMK 警告
+if sys.platform == 'darwin':
+    os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+    logging.getLogger('PySide6').setLevel(logging.ERROR)
 
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper
@@ -96,6 +103,14 @@ class DevToolsWindow(QDockWidget):
         self.network.clear()
         self.elements.clear()
 
+class RequestInterceptor(QWebEngineUrlRequestInterceptor):
+    def interceptRequest(self, info):
+        # 添加 CORS 头
+        info.setHttpHeader(b"Access-Control-Allow-Origin", b"*")
+        info.setHttpHeader(b"Access-Control-Allow-Methods", b"GET, POST, PUT, DELETE, OPTIONS")
+        info.setHttpHeader(b"Access-Control-Allow-Headers", b"Content-Type, Authorization")
+        info.setHttpHeader(b"Access-Control-Allow-Credentials", b"true")
+
 class WebGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -132,12 +147,18 @@ class WebGUI(QMainWindow):
         profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
         profile.setHttpCacheType(QWebEngineProfile.NoCache)
         
+        # 设置请求拦截器
+        interceptor = RequestInterceptor()
+        profile.setUrlRequestInterceptor(interceptor)
+        
         # 允许本地文件访问
         settings = page.settings()
         settings.setAttribute(QWebEngineSettings.LocalContentCanAccessFileUrls, True)
         settings.setAttribute(QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
         settings.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
         settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+        settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
+        settings.setAttribute(QWebEngineSettings.AllowGeolocationOnInsecureOrigins, True)
         
         # 连接 JavaScript 控制台消息
         page.javaScriptConsoleMessage = self.on_console_message
@@ -242,6 +263,22 @@ class WebGUI(QMainWindow):
                             originalError('React is not loaded');
                         }
                     });
+                    
+                    // 添加跨域请求测试
+                    window.testCrossOrigin = async function() {
+                        try {
+                            const response = await fetch('https://api.example.com/data', {
+                                method: 'GET',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                }
+                            });
+                            const data = await response.json();
+                            originalLog('Cross-origin request successful:', data);
+                        } catch (error) {
+                            originalError('Cross-origin request failed:', error);
+                        }
+                    };
                 </script>
                 """
                 
