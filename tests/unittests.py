@@ -1,11 +1,13 @@
 import json
 import os
+import sys
 import re
 import subprocess
 import time
 from datetime import datetime, timezone
-import win32print
-import win32api
+if sys.platform == "win32":
+    import win32print
+    import win32api
 import pytz
 import socket
 from io import BytesIO
