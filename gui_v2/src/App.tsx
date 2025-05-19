@@ -6,10 +6,18 @@ import Dashboard from './pages/Dashboard';
 import Tools from './pages/Tools';
 import Settings from './pages/Settings';
 
+// 配置 React Router future flags
+const router = {
+    future: {
+        v7_startTransition: true,
+        v7_relativeSplatPath: true
+    }
+};
+
 function App() {
     return (
         <ConfigProvider locale={zhCN}>
-            <HashRouter>
+            <HashRouter future={router.future}>
                 <Routes>
                     <Route path="/" element={<MainLayout />}>
                         <Route index element={<Navigate to="/dashboard" replace />} />
