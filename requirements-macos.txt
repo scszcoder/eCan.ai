@@ -1,0 +1,6 @@
+# macOS specific dependencies
+-r requirements-base.txt
+
+# macOS specific packages
+pyobjc~=9.2; platform_system == "Darwin"
+pyobjc-framework-Quartz~=9.2; platform_system == "Darwin" 
