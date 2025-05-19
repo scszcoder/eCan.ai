@@ -1,0 +1,68 @@
+{
+  "common": {
+    "login": "Login",
+    "logout": "Logout",
+    "username": "Username",
+    "password": "Password",
+    "language": "Language",
+    "settings": "Settings",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search",
+    "filter": "Filter",
+    "reset": "Reset",
+    "refresh": "Refresh",
+    "export": "Export",
+    "import": "Import",
+    "email": "Email",
+    "status": "Status",
+    "type": "Type",
+    "description": "Description",
+    "actions": "Actions",
+    "loading": "Loading...",
+    "noData": "No Data",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Info",
+    "role": "Role"
+  },
+  "login": {
+    "title": "Welcome Back",
+    "subtitle": "Please login to your account",
+    "rememberMe": "Remember me",
+    "forgotPassword": "Forgot password?",
+    "loginButton": "Sign In",
+    "selectLanguage": "Select Language",
+    "selectRole": "Select Role"
+  },
+  "roles": {
+    "commander": "Commander",
+    "platoon": "Platoon",
+    "staff_office": "Staff Office"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "language": "Language",
+    "theme": "Theme",
+    "notifications": "Notifications",
+    "enableNotifications": "Enable Notifications",
+    "sound": "Sound",
+    "email": "Email Notifications",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "account": "Account",
+    "security": "Security",
+    "about": "About"
+  },
+  "languages": {
+    "en": "English",
+    "zh": "Chinese"
+  }
+} 
