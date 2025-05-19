@@ -1,182 +1,209 @@
-import React, { useState } from 'react';
-import { Layout, Menu, Input, Button } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Layout, Menu, Button, Avatar, Dropdown, Space, Badge, Typography } from 'antd';
+import type { MenuProps } from 'antd';
 import {
     MenuFoldOutlined,
     MenuUnfoldOutlined,
-    SearchOutlined,
-    PlusOutlined,
-    SyncOutlined,
+    DashboardOutlined,
+    CarOutlined,
+    CalendarOutlined,
     MessageOutlined,
-    ScheduleOutlined,
     RobotOutlined,
     TeamOutlined,
-    CarOutlined,
-    SettingOutlined,
     BarChartOutlined,
     AppstoreOutlined,
     ToolOutlined,
-    EditOutlined,
+    SettingOutlined,
+    BellOutlined,
+    UserOutlined,
+    LogoutOutlined,
 } from '@ant-design/icons';
+import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 const { Header, Sider, Content } = Layout;
+const { Title } = Typography;
 
 const StyledLayout = styled(Layout)`
     min-height: 100vh;
-    background: #f0f2f5;
 `;
 
 const StyledHeader = styled(Header)`
-    padding: 0 16px;
+    padding: 0 24px;
     background: #fff;
     display: flex;
     align-items: center;
-    gap: 16px;
-    border-bottom: 1px solid #e8e8e8;
-    height: 48px;
-    line-height: 48px;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 `;
 
-const SearchInput = styled(Input)`
-    width: 300px;
-    border-radius: 4px;
-    .ant-input {
-        background: #f5f5f5;
-        border: 1px solid #d9d9d9;
-        &:hover, &:focus {
-            background: #fff;
-        }
-    }
-`;
-
-const StyledSider = styled(Sider)`
-    background: #fff;
-    border-right: 1px solid #e8e8e8;
-    .ant-menu {
-        border-right: none;
-    }
-    .ant-menu-item {
-        margin: 4px 8px;
-        border-radius: 4px;
-        &:hover {
-            background: #f5f5f5;
-        }
-        &.ant-menu-item-selected {
-            background: #e6f7ff;
-            color: #1890ff;
-        }
-    }
+const Logo = styled.div`
+    height: 32px;
+    margin: 16px;
+    background: rgba(255, 255, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
 `;
 
 const StyledContent = styled(Content)`
-    margin: 16px;
-    padding: 16px;
+    margin: 24px 16px;
+    padding: 24px;
     background: #fff;
-    border-radius: 4px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-    min-height: calc(100vh - 80px);
+    min-height: 280px;
+    border-radius: 8px;
 `;
 
-const menuItems = [
-    {
-        key: 'chat',
-        icon: <MessageOutlined />,
-        label: 'Chat',
-    },
-    {
-        key: 'schedule',
-        icon: <ScheduleOutlined />,
-        label: 'Schedule',
-    },
-    {
-        key: 'skills',
-        icon: <RobotOutlined />,
-        label: 'Skills',
-    },
-    {
-        key: 'skill-editor',
-        icon: <EditOutlined />,
-        label: 'SkillEditor',
-    },
-    {
-        key: 'agents',
-        icon: <TeamOutlined />,
-        label: 'Agents',
-    },
-    {
-        key: 'vehicles',
-        icon: <CarOutlined />,
-        label: 'Vehicles',
-    },
-    {
-        key: 'settings',
-        icon: <SettingOutlined />,
-        label: 'Settings',
-    },
-    {
-        key: 'analytics',
-        icon: <BarChartOutlined />,
-        label: 'Analytics',
-    },
-    {
-        key: 'apps',
-        icon: <AppstoreOutlined />,
-        label: 'Apps',
-    },
-    {
-        key: 'tools',
-        icon: <ToolOutlined />,
-        label: 'Tools',
-    },
-];
+const HeaderRight = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 16px;
+`;
 
-const MainLayout: React.FC = () => {
+const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [collapsed, setCollapsed] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
+    const { t, i18n } = useTranslation();
 
-    const handleMenuClick = (key: string) => {
-        navigate(`/main/${key}`);
+    useEffect(() => {
+        const savedLanguage = localStorage.getItem('i18nextLng');
+        if (savedLanguage && savedLanguage !== i18n.language) {
+            i18n.changeLanguage(savedLanguage);
+        }
+    }, [i18n]);
+
+    const handleLogout = () => {
+        localStorage.removeItem('isAuthenticated');
+        localStorage.removeItem('userRole');
+        
+        window.location.replace('/login');
     };
+
+    const menuItems = React.useMemo<MenuProps['items']>(() => [
+        {
+            key: '/',
+            icon: <DashboardOutlined />,
+            label: t('menu.dashboard'),
+        },
+        {
+            key: '/vehicles',
+            icon: <CarOutlined />,
+            label: t('menu.vehicles'),
+        },
+        {
+            key: '/schedule',
+            icon: <CalendarOutlined />,
+            label: t('menu.schedule'),
+        },
+        {
+            key: '/chat',
+            icon: <MessageOutlined />,
+            label: t('menu.chat'),
+        },
+        {
+            key: '/skills',
+            icon: <RobotOutlined />,
+            label: t('menu.skills'),
+        },
+        {
+            key: '/agents',
+            icon: <TeamOutlined />,
+            label: t('menu.agents'),
+        },
+        {
+            key: '/analytics',
+            icon: <BarChartOutlined />,
+            label: t('menu.analytics'),
+        },
+        {
+            key: '/apps',
+            icon: <AppstoreOutlined />,
+            label: t('menu.apps'),
+        },
+        {
+            key: '/tools',
+            icon: <ToolOutlined />,
+            label: t('menu.tools'),
+        },
+        {
+            key: '/settings',
+            icon: <SettingOutlined />,
+            label: t('menu.settings'),
+        },
+    ], [t]);
+
+    const userMenuItems = React.useMemo<MenuProps['items']>(() => [
+        {
+            key: 'profile',
+            icon: <UserOutlined />,
+            label: t('common.profile'),
+        },
+        {
+            key: 'settings',
+            icon: <SettingOutlined />,
+            label: t('common.settings'),
+        },
+        {
+            type: 'divider',
+        },
+        {
+            key: 'logout',
+            icon: <LogoutOutlined />,
+            label: t('common.logout'),
+            onClick: handleLogout,
+        },
+    ], [t]);
 
     return (
         <StyledLayout>
-            <StyledHeader>
-                <Button
-                    type="text"
-                    icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                    onClick={() => setCollapsed(!collapsed)}
-                    style={{ fontSize: '16px' }}
+            <Sider trigger={null} collapsible collapsed={collapsed}>
+                <Logo>ECBOT</Logo>
+                <Menu
+                    theme="dark"
+                    mode="inline"
+                    selectedKeys={[location.pathname]}
+                    items={menuItems}
+                    onClick={({ key }) => navigate(key)}
                 />
-                <SearchInput
-                    placeholder="Search..."
-                    prefix={<SearchOutlined />}
-                />
-                <Button
-                    type="text"
-                    icon={<PlusOutlined />}
-                    style={{ fontSize: '16px' }}
-                />
-                <Button
-                    type="text"
-                    icon={<SyncOutlined />}
-                    style={{ fontSize: '16px' }}
-                />
-            </StyledHeader>
+            </Sider>
             <Layout>
-                <StyledSider trigger={null} collapsible collapsed={collapsed} width={200}>
-                    <Menu
-                        theme="light"
-                        mode="inline"
-                        selectedKeys={[location.pathname.split('/')[2] || 'chat']}
-                        items={menuItems}
-                        onClick={({ key }) => handleMenuClick(key)}
+                <StyledHeader>
+                    <Button
+                        type="text"
+                        icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                        onClick={() => setCollapsed(!collapsed)}
+                        style={{
+                            fontSize: '16px',
+                            width: 64,
+                            height: 64,
+                        }}
                     />
-                </StyledSider>
-                <StyledContent>
-                    <Outlet />
-                </StyledContent>
+                    <HeaderRight>
+                        <Badge count={5}>
+                            <Button
+                                type="text"
+                                icon={<BellOutlined />}
+                                style={{ fontSize: '16px' }}
+                            />
+                        </Badge>
+                        <Dropdown
+                            menu={{
+                                items: userMenuItems,
+                            }}
+                        >
+                            <Space style={{ cursor: 'pointer' }}>
+                                <Avatar icon={<UserOutlined />} />
+                                <span>{t('common.username')}</span>
+                            </Space>
+                        </Dropdown>
+                    </HeaderRight>
+                </StyledHeader>
+                <StyledContent>{children}</StyledContent>
             </Layout>
         </StyledLayout>
     );

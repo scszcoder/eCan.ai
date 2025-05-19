@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Checkbox, Select, Space, Typography } from 'antd';
-import { UserOutlined, LockOutlined, GlobalOutlined } from '@ant-design/icons';
-import styled from '@emotion/styled';
-import { useTranslation } from 'react-i18next';
-import { useLanguage } from '../contexts/LanguageContext';
+import React, { useEffect } from 'react';
+import { Form, Input, Button, Card, Select, Typography, message } from 'antd';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import styled from '@emotion/styled';
+import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
 
 const LoginContainer = styled.div`
     display: flex;
@@ -15,15 +14,17 @@ const LoginContainer = styled.div`
     align-items: center;
     min-height: 100vh;
     background: #f0f2f5;
+    position: relative;
 `;
 
-const LoginForm = styled.div`
-    width: 100%;
-    max-width: 400px;
-    padding: 40px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+const LoginCard = styled(Card)`
+    width: 400px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+`;
+
+const LoginTitle = styled.div`
+    text-align: center;
+    margin-bottom: 24px;
 `;
 
 const SelectContainer = styled.div`
@@ -32,94 +33,135 @@ const SelectContainer = styled.div`
     right: 20px;
     display: flex;
     gap: 12px;
+    z-index: 10;
 `;
 
-const LanguageSelect = styled(Select)`
+const Logo = styled.img`
+    display: block;
     width: 120px;
-`;
-
-const RoleSelect = styled(Select)`
-    width: 140px;
+    height: auto;
+    margin: 0 auto 32px;
 `;
 
 const Login: React.FC = () => {
-    const { t } = useTranslation();
-    const { currentLanguage, changeLanguage } = useLanguage();
     const navigate = useNavigate();
-    const [role, setRole] = useState('commander');
+    const { t, i18n } = useTranslation();
+    const [form] = Form.useForm();
 
-    const onFinish = (values: any) => {
-        console.log('Success:', values);
-        navigate('/main/chat');
+    useEffect(() => {
+        // 确保初始时角色为 commander
+        form.setFieldsValue({ role: 'commander' });
+    }, [form]);
+
+    const handleSubmit = async (values: any) => {
+        try {
+            // 模拟登录验证
+            if (values.username === 'admin' && values.password === 'admin123#') {
+                // 保存登录状态和角色
+                localStorage.setItem('isAuthenticated', 'true');
+                localStorage.setItem('userRole', values.role);
+                
+                // 显示成功消息
+                message.success(t('login.success'));
+                
+                // 使用 replace 进行导航
+                navigate('/', { replace: true });
+            } else {
+                message.error(t('login.invalidCredentials'));
+            }
+        } catch (error) {
+            message.error(t('login.error'));
+        }
     };
+
+    const handleLanguageChange = (value: string) => {
+        i18n.changeLanguage(value);
+        localStorage.setItem('i18nextLng', value);
+        localStorage.setItem('language', value);
+    };
+
+    const handleRoleChange = (value: string) => {
+        form.setFieldsValue({ role: value });
+    };
+
+    const languageOptions = [
+        { value: 'en', label: t('languages.en') },
+        { value: 'zh', label: t('languages.zh') },
+    ];
+
+    const roleOptions = [
+        { value: 'commander', label: t('roles.commander') },
+        { value: 'platoon', label: t('roles.platoon') },
+        { value: 'staff_office', label: t('roles.staff_office') },
+    ];
 
     return (
         <LoginContainer>
             <SelectContainer>
-                <LanguageSelect
-                    value={currentLanguage}
-                    onChange={(value) => changeLanguage(value as string)}
-                    prefix={<GlobalOutlined />}
-                >
-                    <Option value="en">{t('languages.en')}</Option>
-                    <Option value="zh">{t('languages.zh')}</Option>
-                </LanguageSelect>
-                <RoleSelect
-                    value={role}
-                    onChange={(value) => setRole(value as string)}
-                >
-                    <Option value="commander">{t('roles.commander')}</Option>
-                    <Option value="platoon">{t('roles.platoon')}</Option>
-                    <Option value="staff_office">{t('roles.staff_office')}</Option>
-                </RoleSelect>
+                <Select
+                    value={i18n.language}
+                    style={{ width: 120 }}
+                    onChange={handleLanguageChange}
+                    options={languageOptions}
+                />
+                <Select
+                    value={form.getFieldValue('role') || 'commander'}
+                    style={{ width: 140 }}
+                    onChange={handleRoleChange}
+                    options={roleOptions}
+                />
             </SelectContainer>
-            <LoginForm>
-                <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                    <div>
-                        <Title level={2}>{t('login.title')}</Title>
-                        <Text type="secondary">{t('login.subtitle')}</Text>
-                    </div>
-                    <Form
-                        name="login"
-                        initialValues={{
-                            remember: true,
-                            username: 'admin',
-                            password: 'admin123*'
-                        }}
-                        onFinish={onFinish}
-                        size="large"
+
+            <LoginCard>
+                <Logo src={logo} alt="ECBOT" />
+                <LoginTitle>
+                    <Title level={2}>{t('login.title')}</Title>
+                    <Text type="secondary">{t('login.subtitle')}</Text>
+                </LoginTitle>
+
+                <Form
+                    form={form}
+                    name="login"
+                    onFinish={handleSubmit}
+                    initialValues={{
+                        username: 'admin',
+                        password: 'admin123#',
+                        role: 'commander',
+                    }}
+                    size="large"
+                >
+                    <Form.Item
+                        name="username"
+                        rules={[{ required: true, message: t('common.username') }]}
                     >
-                        <Form.Item
-                            name="username"
-                            rules={[{ required: true, message: t('common.username') }]}
-                        >
-                            <Input prefix={<UserOutlined />} placeholder={t('common.username')} />
-                        </Form.Item>
+                        <Input
+                            prefix={<UserOutlined />}
+                            placeholder={t('common.username')}
+                        />
+                    </Form.Item>
 
-                        <Form.Item
-                            name="password"
-                            rules={[{ required: true, message: t('common.password') }]}
-                        >
-                            <Input.Password prefix={<LockOutlined />} placeholder={t('common.password')} />
-                        </Form.Item>
+                    <Form.Item
+                        name="password"
+                        rules={[{ required: true, message: t('common.password') }]}
+                    >
+                        <Input.Password
+                            prefix={<LockOutlined />}
+                            placeholder={t('common.password')}
+                        />
+                    </Form.Item>
 
-                        <Form.Item>
-                            <Form.Item name="remember" valuePropName="checked" noStyle>
-                                <Checkbox>{t('login.rememberMe')}</Checkbox>
-                            </Form.Item>
-                            <a style={{ float: 'right' }} href="#">
-                                {t('login.forgotPassword')}
-                            </a>
-                        </Form.Item>
+                    {/* 隐藏的角色表单项，确保表单能收集到角色 */}
+                    <Form.Item name="role" style={{ display: 'none' }}>
+                        <Input type="hidden" />
+                    </Form.Item>
 
-                        <Form.Item>
-                            <Button type="primary" htmlType="submit" block>
-                                {t('login.loginButton')}
-                            </Button>
-                        </Form.Item>
-                    </Form>
-                </Space>
-            </LoginForm>
+                    <Form.Item>
+                        <Button type="primary" htmlType="submit" block>
+                            {t('common.login')}
+                        </Button>
+                    </Form.Item>
+                </Form>
+            </LoginCard>
         </LoginContainer>
     );
 };

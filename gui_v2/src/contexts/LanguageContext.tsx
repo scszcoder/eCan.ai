@@ -15,20 +15,34 @@ export const useLanguage = () => useContext(LanguageContext);
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { i18n } = useTranslation();
-    const [currentLanguage, setCurrentLanguage] = useState(i18n.language || 'en');
+    const [currentLanguage, setCurrentLanguage] = useState(i18n.language);
 
     useEffect(() => {
+        // 初始化时从 localStorage 获取语言设置
         const savedLanguage = localStorage.getItem('language');
-        if (savedLanguage) {
-            setCurrentLanguage(savedLanguage);
+        if (savedLanguage && savedLanguage !== i18n.language) {
             i18n.changeLanguage(savedLanguage);
+            setCurrentLanguage(savedLanguage);
         }
     }, [i18n]);
 
+    useEffect(() => {
+        // 监听语言变化
+        const handleLanguageChange = (lng: string) => {
+            setCurrentLanguage(lng);
+            localStorage.setItem('language', lng);
+            document.documentElement.lang = lng;
+        };
+
+        i18n.on('languageChanged', handleLanguageChange);
+
+        return () => {
+            i18n.off('languageChanged', handleLanguageChange);
+        };
+    }, [i18n]);
+
     const changeLanguage = (lang: string) => {
-        setCurrentLanguage(lang);
         i18n.changeLanguage(lang);
-        localStorage.setItem('language', lang);
     };
 
     return (
