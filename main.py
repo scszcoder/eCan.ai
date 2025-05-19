@@ -12,6 +12,7 @@ from setproctitle import setproctitle
 from config.app_settings import app_settings
 from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
+from gui.WebGUI import WebGUI
 from bot.network import runCommanderLAN, runPlatoonLAN
 # from utils.logger_helper import logger_helper, login
 import utils.logger_helper
@@ -51,6 +52,18 @@ def main():
     #     loop.run_forever()
 
     utils.logger_helper.login.setLoop(loop)
+    
+    # 打印当前运行模式
+    if app_settings.is_dev_mode:
+        print("Running in development mode (Vite dev server)")
+    else:
+        print("Running in production mode (built files)")
+    
+    # 创建并显示 Web GUI
+    web_gui = WebGUI()
+    web_gui.show()
+    
+    # 显示登录界面
     utils.logger_helper.login.show()
     loop.run_forever()
 

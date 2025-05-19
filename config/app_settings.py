@@ -6,6 +6,7 @@ from config.constants import RESOURCE, FOLDER_SKILLS, FOLDER_SETTINGS, FOLDER_RU
 from config.app_info import app_info
 from utils.logger_helper import logger_helper
 from bot.envi import getECBotDataHome
+from pathlib import Path
 
 ecb_data_homepath = getECBotDataHome()
 runlogs_dir = ecb_data_homepath + "/runlogs"
@@ -84,6 +85,14 @@ def init_settings_files():
 
 class AppSettings:
     def __init__(self):
+        self.root_dir = Path(__file__).parent.parent
+        self.gui_v2_dir = self.root_dir / "gui_v2"
+        self.dist_dir = self.gui_v2_dir / "dist"
+        
+        # Web 模式配置
+        self.web_mode = os.getenv('ECBOT_WEB_MODE', 'dev')  # 默认开发模式
+        self.vite_dev_server = "http://localhost:5173"
+        
         print("init app settings")
         # init application some settings, include create some folder and copy some static files, etc. logs, skill files
         # logger_helper.setup(APP_NAME, app_info.app_home_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
@@ -95,6 +104,24 @@ class AppSettings:
             copy_skills_file()
         else:
             print('debug mode version so not need init some appdata config files')
+
+    @property
+    def is_dev_mode(self):
+        return self.web_mode.lower() == 'dev'
+    
+    @property
+    def is_prod_mode(self):
+        return self.web_mode.lower() == 'prod'
+    
+    def get_web_url(self):
+        """获取 Web 页面的 URL"""
+        if self.is_dev_mode:
+            return self.vite_dev_server
+        else:
+            index_path = self.dist_dir / "index.html"
+            if index_path.exists():
+                return f"file://{index_path}"
+            return None
 
 
 app_settings = AppSettings()
