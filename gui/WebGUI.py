@@ -3,7 +3,8 @@ from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QDockWidget,
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import QUrl, Qt, Signal, Slot, QObject, Property
 from PySide6.QtGui import QAction, QKeySequence, QTextCursor
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInterceptor, QWebChannel
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInterceptor
+from PySide6.QtWebChannel import QWebChannel
 from pathlib import Path
 import os
 import datetime
@@ -213,16 +214,13 @@ class WebGUI(QMainWindow):
                     // 初始化 WebChannel
                     new QWebChannel(qt.webChannelTransport, function(channel) {
                         window.bridge = channel.objects.bridge;
+                        console.log('WebChannel initialized successfully');
                         
                         // 监听来自 Python 的消息
                         bridge.dataReceived.connect(function(message) {
                             try {
                                 const data = JSON.parse(message);
                                 console.log('Received from Python:', data);
-                                // 处理来自 Python 的消息
-                                if (data.type === 'response') {
-                                    handlePythonResponse(data);
-                                }
                             } catch (e) {
                                 console.error('Error parsing message from Python:', e);
                             }
@@ -235,21 +233,6 @@ class WebGUI(QMainWindow):
                             }
                             bridge.sendToPython(message);
                         };
-                        
-                        // 处理来自 Python 的响应
-                        function handlePythonResponse(data) {
-                            // 根据响应类型处理数据
-                            switch(data.responseType) {
-                                case 'command_result':
-                                    console.log('Command result:', data.result);
-                                    break;
-                                case 'request_result':
-                                    console.log('Request result:', data.result);
-                                    break;
-                                default:
-                                    console.log('Unknown response type:', data);
-                            }
-                        }
                     });
                 </script>
                 """
@@ -265,14 +248,11 @@ class WebGUI(QMainWindow):
                 self.web_view.page().setHtml(html_content, base_url)
                 logger_helper.info(f"Production mode: Loading from {index_path}, {base_url}")
                 
-                # 检查资源文件是否存在
-                assets_dir = app_settings.dist_dir / "assets"
-                if assets_dir.exists():
-                    logger_helper.info(f"Assets directory exists at: {assets_dir}")
-                    for item in assets_dir.iterdir():
-                        logger_helper.info(f"Found asset: {item.name}")
-                else:
-                    logger_helper.error(f"Assets directory not found at: {assets_dir}")
+                # 重新初始化 WebChannel
+                page = self.web_view.page()
+                channel = QWebChannel(page)
+                channel.registerObject("bridge", self.ipc_handler)
+                page.setWebChannel(channel)
                 
             except Exception as e:
                 logger_helper.error(f"Error loading HTML file: {str(e)}")
@@ -331,6 +311,12 @@ class WebGUI(QMainWindow):
                 self.dev_tools.append_log(f"Page title: {title}", "INFO")
                 self.dev_tools.append_log(f"Current URL: {url}", "INFO")
             
+            # 初始化 WebChannel
+            page = self.web_view.page()
+            channel = QWebChannel(page)
+            channel.registerObject("bridge", self.ipc_handler)
+            page.setWebChannel(channel)
+            
             # 执行额外的检查
             self.web_view.page().runJavaScript("""
                 (function() {
@@ -338,6 +324,13 @@ class WebGUI(QMainWindow):
                     console.log('Root element:', document.getElementById('root'));
                     console.log('React version:', window.React?.version);
                     console.log('ReactDOM version:', window.ReactDOM?.version);
+                    
+                    // 确保 WebChannel 已初始化
+                    if (window.bridge) {
+                        console.log('WebChannel initialized successfully');
+                    } else {
+                        console.error('WebChannel not initialized');
+                    }
                 })();
             """)
         else:
