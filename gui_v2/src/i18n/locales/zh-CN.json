@@ -87,7 +87,13 @@
     "themeChanged": "主题已更改",
     "saved": "设置已保存",
     "autoUpdate": "自动更新",
-    "saveError": "保存设置失败：{{error}}"
+    "saveError": "保存设置失败：{{error}}",
+    "loadError": "加载设置失败",
+    "saveSuccess": "设置保存成功",
+    "notificationsChanged": "通知设置已更新",
+    "soundChanged": "声音设置已更新",
+    "emailChanged": "邮件通知设置已更新",
+    "autoUpdateChanged": "自动更新设置已更新"
   },
   "languages": {
     "en-US": "English",

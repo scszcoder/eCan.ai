@@ -87,7 +87,13 @@
     "themeChanged": "Theme changed",
     "saved": "Settings saved",
     "autoUpdate": "Auto Update",
-    "saveError": "Failed to save settings: {{error}}"
+    "saveError": "Failed to save settings: {{error}}",
+    "loadError": "Failed to load settings",
+    "saveSuccess": "Settings saved successfully",
+    "notificationsChanged": "Notification settings updated",
+    "soundChanged": "Sound settings updated",
+    "emailChanged": "Email notification settings updated",
+    "autoUpdateChanged": "Auto update settings updated"
   },
   "languages": {
     "en-US": "English",

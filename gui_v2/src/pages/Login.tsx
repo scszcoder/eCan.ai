@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Form, Input, Button, Card, Select, Typography, message } from 'antd';
+import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -7,10 +7,11 @@ import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
 
-const Login: React.FC = () => {
+const LoginContent: React.FC = () => {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const [form] = Form.useForm();
+    const { message } = App.useApp();
 
     useEffect(() => {
         // 确保初始时角色为 commander
@@ -139,6 +140,14 @@ const Login: React.FC = () => {
                 </Form>
             </Card>
         </div>
+    );
+};
+
+const Login: React.FC = () => {
+    return (
+        <App>
+            <LoginContent />
+        </App>
     );
 };
 
