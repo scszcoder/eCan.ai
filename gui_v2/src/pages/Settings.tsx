@@ -48,21 +48,31 @@ const Settings: React.FC = () => {
         message.success(t('settings.saved'));
     };
 
+    const handleDropdownClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+    };
+
     return (
-        <SettingsContainer>
+        <div className="page-container">
             <Title level={2}>{t('settings.title')}</Title>
             
             <Form
                 form={form}
                 layout="vertical"
                 onFinish={onFinish}
+                className="settings-form"
             >
-                <StyledCard title={t('settings.general')}>
+                <Card className="settings-card" title={t('settings.general')}>
                     <Form.Item
                         name="language"
                         label={t('settings.language')}
                     >
-                        <Select onChange={handleLanguageChange}>
+                        <Select
+                            className="settings-select"
+                            onChange={handleLanguageChange}
+                            onClick={handleDropdownClick}
+                            getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                        >
                             <Option value="en-US">{t('languages.en-US')}</Option>
                             <Option value="zh-CN">{t('languages.zh-CN')}</Option>
                         </Select>
@@ -72,15 +82,20 @@ const Settings: React.FC = () => {
                         name="theme"
                         label={t('settings.theme')}
                     >
-                        <Select onChange={handleThemeChange}>
+                        <Select
+                            className="settings-select"
+                            onChange={handleThemeChange}
+                            onClick={handleDropdownClick}
+                            getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+                        >
                             <Option value="light">{t('settings.light')}</Option>
                             <Option value="dark">{t('settings.dark')}</Option>
                             <Option value="system">{t('settings.system')}</Option>
                         </Select>
                     </Form.Item>
-                </StyledCard>
+                </Card>
 
-                <StyledCard title={t('settings.notifications')}>
+                <Card className="settings-card" title={t('settings.notifications')}>
                     <Form.Item
                         name="notifications"
                         label={t('settings.enableNotifications')}
@@ -104,7 +119,7 @@ const Settings: React.FC = () => {
                     >
                         <Switch />
                     </Form.Item>
-                </StyledCard>
+                </Card>
 
                 <Form.Item>
                     <Space>
@@ -117,7 +132,7 @@ const Settings: React.FC = () => {
                     </Space>
                 </Form.Item>
             </Form>
-        </SettingsContainer>
+        </div>
     );
 };
 
