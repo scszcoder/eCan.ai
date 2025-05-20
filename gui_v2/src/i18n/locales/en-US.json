@@ -85,7 +85,9 @@
     "about": "About",
     "languageChanged": "Language changed",
     "themeChanged": "Theme changed",
-    "saved": "Settings saved"
+    "saved": "Settings saved",
+    "autoUpdate": "Auto Update",
+    "saveError": "Failed to save settings: {{error}}"
   },
   "languages": {
     "en-US": "English",

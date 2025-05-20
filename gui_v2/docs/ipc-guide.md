@@ -319,4 +319,197 @@ class CustomWebGUI(QMainWindow):
     def process_command(self, params):
         # 实现命令处理逻辑
         return {'processed': True}
-``` 
+```
+
+# IPC 通信指南
+
+## 概述
+
+IPC（进程间通信）系统支持两种主要的通信类型：Command（命令）和 Request（请求）。这两种类型的设计目的是为了满足不同的通信需求，使代码更加清晰和易于维护。
+
+## Command（命令）
+
+### 定义
+Command 是一种单向通信方式，用于执行不需要返回结果的操作。
+
+### 特点
+- 单向操作，不需要等待响应
+- 适合执行动作
+- 通常用于不需要返回数据的场景
+- 可以异步执行
+
+### 使用场景
+- 保存设置
+- 刷新页面
+- 清除日志
+- 切换主题
+- 其他不需要返回结果的操作
+
+### 示例代码
+
+#### Python 端（后端）
+```python
+# 注册命令处理器
+def register_default_handlers(self):
+    self.register_command('save_settings', self.handle_save_settings)
+    self.register_command('reload', self.handle_reload)
+    self.register_command('clear_logs', self.handle_clear_logs)
+
+# 命令处理器示例
+def handle_save_settings(self, data: Dict[str, Any]):
+    logger_helper.info(f"Save settings received with data: {data}")
+    self.send_response('command_result', {
+        'result': 'Settings received',
+        'data': data
+    })
+```
+
+#### React 端（前端）
+```typescript
+// 使用 useIPC hook
+const { sendCommand } = useIPC();
+
+// 发送命令
+const handleSaveSettings = async (settings: Settings) => {
+  try {
+    await sendCommand('save_settings', settings);
+    message.success('Settings saved');
+  } catch (error) {
+    message.error('Failed to save settings');
+  }
+};
+```
+
+## Request（请求）
+
+### 定义
+Request 是一种双向通信方式，用于需要返回数据的操作。
+
+### 特点
+- 需要等待响应
+- 适合查询操作
+- 返回数据
+- 同步执行
+
+### 使用场景
+- 获取页面信息
+- 获取日志
+- 获取设置
+- 其他需要返回数据的操作
+
+### 示例代码
+
+#### Python 端（后端）
+```python
+# 注册请求处理器
+def register_default_handlers(self):
+    self.register_request('get_settings', self.handle_get_settings)
+    self.register_request('get_logs', self.handle_get_logs)
+
+# 请求处理器示例
+def handle_get_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    logger_helper.info(f"Get settings request received")
+    return {
+        'settings': {
+            'theme': 'dark',
+            'language': 'zh',
+            'notifications': True
+        }
+    }
+```
+
+#### React 端（前端）
+```typescript
+// 使用 useIPC hook
+const { sendRequest } = useIPC();
+
+// 发送请求
+const fetchSettings = async () => {
+  try {
+    const result = await sendRequest('get_settings');
+    setSettings(result.settings);
+  } catch (error) {
+    message.error('Failed to fetch settings');
+  }
+};
+```
+
+## 最佳实践
+
+### 何时使用 Command
+- 执行不需要返回结果的操作
+- 执行可能耗时的操作
+- 执行状态改变的操作
+- 执行不需要立即反馈的操作
+
+### 何时使用 Request
+- 需要获取数据
+- 需要等待操作结果
+- 需要同步执行的操作
+- 需要立即反馈的操作
+
+### 错误处理
+```typescript
+// Command 错误处理
+try {
+  await sendCommand('save_settings', settings);
+} catch (error) {
+  console.error('Command failed:', error);
+}
+
+// Request 错误处理
+try {
+  const result = await sendRequest('get_settings');
+} catch (error) {
+  console.error('Request failed:', error);
+}
+```
+
+### 类型安全
+```typescript
+// 定义命令类型
+interface CommandTypes {
+  save_settings: Settings;
+  reload: void;
+  clear_logs: void;
+}
+
+// 定义请求类型
+interface RequestTypes {
+  get_settings: Settings;
+  get_logs: Log[];
+}
+
+// 使用类型
+const { sendCommand, sendRequest } = useIPC<CommandTypes, RequestTypes>();
+```
+
+## 注意事项
+
+1. **性能考虑**
+   - Command 适合异步操作
+   - Request 适合同步操作
+   - 避免在 Request 中执行耗时操作
+
+2. **错误处理**
+   - 始终处理可能的错误
+   - 提供用户友好的错误信息
+   - 记录错误日志
+
+3. **类型安全**
+   - 使用 TypeScript 类型定义
+   - 确保前后端类型一致
+   - 使用类型检查
+
+4. **调试**
+   - 使用日志记录通信过程
+   - 在开发工具中监控通信
+   - 使用错误追踪
+
+## 总结
+
+- Command 和 Request 的区分使得 IPC 通信更加清晰和易于维护
+- 根据具体需求选择合适的通信类型
+- 遵循最佳实践确保代码质量和性能
+- 使用类型系统确保类型安全
+- 正确处理错误和异常情况 

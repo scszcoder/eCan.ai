@@ -54,4 +54,5 @@ i18n.on('languageChanged', (lng) => {
   document.documentElement.lang = lng;
 });
 
+// 导出 i18n 实例
 export default i18n; 

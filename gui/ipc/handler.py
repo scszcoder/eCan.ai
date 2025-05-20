@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, Optional, Callable
 from utils.logger_helper import logger_helper
 import datetime
+from config.app_settings import app_settings
 
 class IPCHandler(QObject):
     """统一的 IPC 处理类，用于管理所有的 IPC 通信"""
@@ -37,6 +38,9 @@ class IPCHandler(QObject):
         
         # 注册一个示例请求处理器
         self.register_request('test_request', self.handle_test_request)
+        
+        # 注册设置处理器
+        self.register_command('save_settings', self.handle_save_settings)
     
     def register_command(self, command: str, handler: Callable):
         """注册命令处理器"""
@@ -107,17 +111,26 @@ class IPCHandler(QObject):
     # 示例命令处理器
     def handle_test_command(self, data: Dict[str, Any]):
         """处理测试命令"""
-        message = data.get('message', '')
+        logger_helper.info(f"Test command received with data: {data}")
         self.send_response('command_result', {
-            'result': f'Command received: {message}',
-            'timestamp': str(datetime.datetime.now())
+            'result': 'Command received',
+            'data': data
         })
     
     # 示例请求处理器
     def handle_test_request(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """处理测试请求"""
-        message = data.get('message', '')
+        logger_helper.info(f"Test request received with data: {data}")
         return {
-            'message': f'Request received: {message}',
-            'timestamp': str(datetime.datetime.now())
-        } 
+            'message': 'Request received',
+            'data': data
+        }
+    
+    # 设置处理器
+    def handle_save_settings(self, data: Dict[str, Any]):
+        """处理保存设置命令"""
+        logger_helper.info(f"Save settings received with data: {data}")
+        self.send_response('command_result', {
+            'result': 'Settings received',
+            'data': data
+        }) 
