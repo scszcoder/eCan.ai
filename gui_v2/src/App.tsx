@@ -9,7 +9,7 @@ import { routes } from './routes';
 
 const App: React.FC = () => {
   const { i18n: i18nInstance } = useTranslation();
-  const currentLocale = i18nInstance.language === 'zh' ? zhCN : enUS;
+  const currentLocale = i18nInstance.language === 'zh-CN' ? zhCN : enUS;
 
   return (
     <I18nextProvider i18n={i18n}>

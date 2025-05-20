@@ -3,8 +3,8 @@ import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
 
 // 导入翻译文件
-import enTranslations from './locales/en.json';
-import zhTranslations from './locales/zh.json';
+import enTranslations from './locales/en-US.json';
+import zhTranslations from './locales/zh-CN.json';
 
 // 获取保存的语言设置或浏览器语言
 const getInitialLanguage = () => {
@@ -12,8 +12,8 @@ const getInitialLanguage = () => {
     if (savedLanguage) {
         return savedLanguage;
     }
-    const browserLanguage = navigator.language.split('-')[0];
-    return ['en', 'zh'].includes(browserLanguage) ? browserLanguage : 'zh';
+    const browserLanguage = navigator.language;
+    return ['en-US', 'zh-CN'].includes(browserLanguage) ? browserLanguage : 'zh-CN';
 };
 
 i18n
@@ -21,15 +21,15 @@ i18n
   .use(initReactI18next)
   .init({
     resources: {
-      en: {
+      'en-US': {
         translation: enTranslations,
       },
-      zh: {
+      'zh-CN': {
         translation: zhTranslations,
       },
     },
     lng: getInitialLanguage(),
-    fallbackLng: 'zh',
+    fallbackLng: 'zh-CN',
     interpolation: {
       escapeValue: false,
     },
