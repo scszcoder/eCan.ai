@@ -48,45 +48,46 @@ interface Vehicle {
     nextMaintenance?: string;
 }
 
-const initialVehicles: Vehicle[] = [
-    {
-        id: 1,
-        name: 'Vehicle Alpha',
-        type: 'Ground Vehicle',
-        status: 'active',
-        battery: 85,
-        location: 'Zone A',
-        lastMaintenance: '2 weeks ago',
-        totalDistance: 1560,
-        currentTask: 'Delivery Task #123',
-        nextMaintenance: '2 weeks from now',
-    },
-    {
-        id: 2,
-        name: 'Vehicle Beta',
-        type: 'Aerial Vehicle',
-        status: 'maintenance',
-        battery: 45,
-        location: 'Maintenance Bay',
-        lastMaintenance: '1 day ago',
-        totalDistance: 2340,
-        nextMaintenance: '1 week from now',
-    },
-    {
-        id: 3,
-        name: 'Vehicle Gamma',
-        type: 'Ground Vehicle',
-        status: 'offline',
-        battery: 100,
-        location: 'Charging Station',
-        lastMaintenance: '1 month ago',
-        totalDistance: 890,
-        nextMaintenance: '3 weeks from now',
-    },
-];
-
 const Vehicles: React.FC = () => {
     const { t } = useTranslation();
+    
+    const initialVehicles: Vehicle[] = [
+        {
+            id: 1,
+            name: 'Vehicle Alpha',
+            type: t('pages.vehicles.groundVehicle'),
+            status: 'active',
+            battery: 85,
+            location: t('pages.vehicles.zoneA'),
+            lastMaintenance: t('pages.vehicles.lastMaintenance', { time: '2 weeks ago' }),
+            totalDistance: 1560,
+            currentTask: t('pages.vehicles.currentTask', { task: 'Delivery Task #123' }),
+            nextMaintenance: t('pages.vehicles.nextMaintenance', { time: '2 weeks from now' }),
+        },
+        {
+            id: 2,
+            name: 'Vehicle Beta',
+            type: t('pages.vehicles.aerialVehicle'),
+            status: 'maintenance',
+            battery: 45,
+            location: t('pages.vehicles.maintenanceBay'),
+            lastMaintenance: t('pages.vehicles.lastMaintenance', { time: '1 day ago' }),
+            totalDistance: 2340,
+            nextMaintenance: t('pages.vehicles.nextMaintenance', { time: '1 week from now' }),
+        },
+        {
+            id: 3,
+            name: 'Vehicle Gamma',
+            type: t('pages.vehicles.groundVehicle'),
+            status: 'offline',
+            battery: 100,
+            location: t('pages.vehicles.chargingStation'),
+            lastMaintenance: t('pages.vehicles.lastMaintenance', { time: '1 month ago' }),
+            totalDistance: 890,
+            nextMaintenance: t('pages.vehicles.nextMaintenance', { time: '3 weeks from now' }),
+        },
+    ];
+
     const {
         selectedItem: selectedVehicle,
         items: vehicles,
@@ -99,8 +100,8 @@ const Vehicles: React.FC = () => {
     const handleStatusChange = (id: number, newStatus: Vehicle['status']) => {
         updateItem(id, {
             status: newStatus,
-            location: newStatus === 'maintenance' ? 'Maintenance Bay' : 
-                     newStatus === 'offline' ? 'Charging Station' : 'Zone A',
+            location: newStatus === 'maintenance' ? t('pages.vehicles.maintenanceBay') : 
+                     newStatus === 'offline' ? t('pages.vehicles.chargingStation') : t('pages.vehicles.zoneA'),
         });
     };
 
@@ -121,9 +122,9 @@ const Vehicles: React.FC = () => {
         if (vehicle) {
             updateItem(id, {
                 status: 'maintenance',
-                location: 'Maintenance Bay',
-                lastMaintenance: 'Just now',
-                nextMaintenance: '2 weeks from now',
+                location: t('pages.vehicles.maintenanceBay'),
+                lastMaintenance: t('pages.vehicles.lastMaintenance', { time: t('pages.schedule.justNow') }),
+                nextMaintenance: t('pages.vehicles.nextMaintenance', { time: t('pages.schedule.twoWeeksFromNow') }),
             });
         }
     };
@@ -152,17 +153,17 @@ const Vehicles: React.FC = () => {
                         key: 'status',
                         label: t('pages.vehicles.status'),
                         options: [
-                            { label: t('common.active'), value: 'active' },
-                            { label: t('common.maintenance'), value: 'maintenance' },
-                            { label: t('common.offline'), value: 'offline' },
+                            { label: t('pages.vehicles.status.active'), value: 'active' },
+                            { label: t('pages.vehicles.status.maintenance'), value: 'maintenance' },
+                            { label: t('pages.vehicles.status.offline'), value: 'offline' },
                         ],
                     },
                     {
                         key: 'type',
                         label: t('pages.vehicles.type'),
                         options: [
-                            { label: t('pages.vehicles.groundVehicle'), value: 'Ground Vehicle' },
-                            { label: t('pages.vehicles.aerialVehicle'), value: 'Aerial Vehicle' },
+                            { label: t('pages.vehicles.groundVehicle'), value: t('pages.vehicles.groundVehicle') },
+                            { label: t('pages.vehicles.aerialVehicle'), value: t('pages.vehicles.aerialVehicle') },
                         ],
                     },
                 ]}
@@ -176,6 +177,13 @@ const Vehicles: React.FC = () => {
                 onExport={() => {}}
                 onImport={() => {}}
                 onSettings={() => {}}
+                addText={t('pages.vehicles.addVehicle')}
+                editText={t('pages.vehicles.editVehicle')}
+                deleteText={t('pages.vehicles.deleteVehicle')}
+                refreshText={t('pages.vehicles.refreshVehicles')}
+                exportText={t('pages.vehicles.exportVehicles')}
+                importText={t('pages.vehicles.importVehicles')}
+                settingsText={t('pages.vehicles.vehicleSettings')}
             />
             <List
                 dataSource={vehicles}
@@ -190,7 +198,7 @@ const Vehicles: React.FC = () => {
                             <Space>
                                 <Tag color="blue">{vehicle.type}</Tag>
                                 {vehicle.currentTask && (
-                                    <Tag color="processing">{t('pages.vehicles.task')}: {vehicle.currentTask}</Tag>
+                                    <Tag color="processing">{t('pages.vehicles.currentTask')}: {vehicle.currentTask}</Tag>
                                 )}
                             </Space>
                             <Space>
@@ -220,7 +228,7 @@ const Vehicles: React.FC = () => {
                     title={t('pages.vehicles.vehicleInformation')}
                     items={[
                         {
-                            label: t('common.name'),
+                            label: t('pages.vehicles.name'),
                             value: selectedVehicle.name,
                             icon: <CarOutlined />,
                         },
@@ -284,21 +292,21 @@ const Vehicles: React.FC = () => {
                         onClick={() => handleStatusChange(selectedVehicle.id, 'active')}
                         disabled={selectedVehicle.status === 'active'}
                     >
-                        Activate
+                        {t('pages.vehicles.activate')}
                     </Button>
                     <Button 
                         icon={<ToolOutlined />}
                         onClick={() => handleMaintenance(selectedVehicle.id)}
                         disabled={selectedVehicle.status === 'maintenance'}
                     >
-                        Schedule Maintenance
+                        {t('pages.vehicles.scheduleMaintenance')}
                     </Button>
                     <Button 
                         icon={<HistoryOutlined />}
                         onClick={() => handleStatusChange(selectedVehicle.id, 'offline')}
                         disabled={selectedVehicle.status === 'offline'}
                     >
-                        Set Offline
+                        {t('pages.vehicles.setOffline')}
                     </Button>
                 </Space>
             </Space>
@@ -308,7 +316,7 @@ const Vehicles: React.FC = () => {
     return (
         <DetailLayout
             listTitle={t('pages.vehicles.title')}
-            detailsTitle={t('pages.vehicles.vehicleDetails')}
+            detailsTitle={t('pages.vehicles.vehicleInformation')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />

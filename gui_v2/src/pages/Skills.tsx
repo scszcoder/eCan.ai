@@ -58,41 +58,42 @@ const getStatusColor = (status: Skill['status']): string => {
     }
 };
 
-const initialSkills: Skill[] = [
-    {
-        id: 1,
-        name: 'Natural Language Processing',
-        description: 'Advanced NLP capabilities for text understanding and generation',
-        category: 'AI',
-        level: 85,
-        status: 'active',
-        lastUsed: '2 hours ago',
-        usageCount: 156,
-    },
-    {
-        id: 2,
-        name: 'Image Recognition',
-        description: 'Computer vision and image processing capabilities',
-        category: 'AI',
-        level: 70,
-        status: 'learning',
-        lastUsed: '1 day ago',
-        usageCount: 89,
-    },
-    {
-        id: 3,
-        name: 'Data Analysis',
-        description: 'Statistical analysis and data visualization',
-        category: 'Analytics',
-        level: 90,
-        status: 'active',
-        lastUsed: '5 minutes ago',
-        usageCount: 234,
-    },
-];
-
 const Skills: React.FC = () => {
     const { t } = useTranslation();
+    
+    const initialSkills: Skill[] = [
+        {
+            id: 1,
+            name: t('pages.skills.categories.Natural Language Processing'),
+            description: 'Advanced NLP capabilities for text understanding and generation',
+            category: 'AI',
+            level: 85,
+            status: 'active',
+            lastUsed: t('pages.skills.time.hoursAgo', { hours: 2 }),
+            usageCount: 156,
+        },
+        {
+            id: 2,
+            name: t('pages.skills.categories.Image Recognition'),
+            description: 'Computer vision and image processing capabilities',
+            category: 'AI',
+            level: 70,
+            status: 'learning',
+            lastUsed: t('pages.skills.time.daysAgo', { days: 1 }),
+            usageCount: 89,
+        },
+        {
+            id: 3,
+            name: t('pages.skills.categories.Data Analysis'),
+            description: 'Statistical analysis and data visualization',
+            category: 'Analytics',
+            level: 90,
+            status: 'active',
+            lastUsed: t('pages.skills.time.minutesAgo', { minutes: 5 }),
+            usageCount: 234,
+        },
+    ];
+
     const {
         selectedItem: selectedSkill,
         items: skills,
@@ -105,7 +106,7 @@ const Skills: React.FC = () => {
         if (skill && skill.level < 100) {
             updateItem(id, {
                 level: Math.min(skill.level + 5, 100),
-                lastUsed: 'Just now',
+                lastUsed: t('pages.skills.time.justNow'),
                 usageCount: skill.usageCount + 1,
             });
         }
@@ -154,7 +155,7 @@ const Skills: React.FC = () => {
                         <CheckCircleOutlined /> {t('pages.skills.status')}: {t(`pages.skills.status.${selectedSkill.status}`)}
                     </Tag>
                     <Tag color="blue">
-                        <ThunderboltOutlined /> {t('pages.skills.category')}: {selectedSkill.category}
+                        <ThunderboltOutlined /> {t('pages.skills.category')}: {t(`pages.skills.categories.${selectedSkill.category}`)}
                     </Tag>
                 </Space>
                 <Space>
