@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Card, Form, Input, Switch, Select, Button, Space, Typography, message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -16,24 +17,30 @@ const StyledCard = styled(Card)`
 
 const Settings: React.FC = () => {
     const { t, i18n } = useTranslation();
+    const { theme: currentTheme, changeTheme } = useTheme();
     const [form] = Form.useForm();
 
     // 初始化表单值
     useEffect(() => {
         form.setFieldsValue({
             language: i18n.language,
-            theme: 'light',
+            theme: currentTheme,
             notifications: true,
             sound: true,
             email: true
         });
-    }, [form, i18n.language]);
+    }, [form, i18n.language, currentTheme]);
 
     const handleLanguageChange = (value: string) => {
         i18n.changeLanguage(value);
         localStorage.setItem('i18nextLng', value);
         localStorage.setItem('language', value);
         message.success(t('settings.languageChanged'));
+    };
+
+    const handleThemeChange = (value: string) => {
+        changeTheme(value as 'light' | 'dark' | 'system');
+        message.success(t('settings.themeChanged'));
     };
 
     const onFinish = (values: any) => {
@@ -65,7 +72,7 @@ const Settings: React.FC = () => {
                         name="theme"
                         label={t('settings.theme')}
                     >
-                        <Select>
+                        <Select onChange={handleThemeChange}>
                             <Option value="light">{t('settings.light')}</Option>
                             <Option value="dark">{t('settings.dark')}</Option>
                             <Option value="system">{t('settings.system')}</Option>

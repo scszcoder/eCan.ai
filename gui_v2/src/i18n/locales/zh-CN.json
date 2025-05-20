@@ -79,11 +79,12 @@
     "email": "邮件通知",
     "light": "浅色",
     "dark": "深色",
-    "system": "系统",
+    "system": "跟随系统",
     "account": "账户",
     "security": "安全",
     "about": "关于",
     "languageChanged": "语言已更改",
+    "themeChanged": "主题已更改",
     "saved": "设置已保存"
   },
   "languages": {
