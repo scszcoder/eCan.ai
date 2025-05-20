@@ -1,0 +1,462 @@
+:root {
+    --bg-color: #f0f2f5;
+    --text-color: rgba(0, 0, 0, 0.85);
+    --card-bg: #ffffff;
+    --border-color: #f0f0f0;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+/* 页面容器样式 */
+.ant-layout-content {
+    background-color: var(--bg-color) !important;
+    min-height: 100vh;
+}
+
+/* 页面内容区域样式 */
+.page-container {
+    background-color: var(--bg-color) !important;
+    min-height: 100vh;
+    padding: 24px;
+}
+
+/* 卡片样式 */
+.ant-card {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* 布局样式 */
+.ant-layout {
+    background-color: var(--bg-color) !important;
+}
+
+.ant-layout-sider {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-layout-header {
+    background-color: var(--card-bg) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* 菜单样式 */
+.ant-menu {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-menu-item {
+    color: var(--text-color) !important;
+}
+
+.ant-menu-item-selected {
+    background-color: var(--bg-color) !important;
+}
+
+/* 表格样式 */
+.ant-table {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-table-thead > tr > th {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+}
+
+.ant-table-tbody > tr > td {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+}
+
+/* 描述列表样式 */
+.ant-descriptions-item-label,
+.ant-descriptions-item-content {
+    color: var(--text-color) !important;
+}
+
+/* 标签样式 */
+.ant-tag {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* 下拉菜单样式 */
+.ant-select-dropdown {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-select-item {
+    color: var(--text-color) !important;
+}
+
+.ant-select-item-option-selected {
+    background-color: var(--bg-color) !important;
+}
+
+/* 模态框样式 */
+.ant-modal-content {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-modal-header {
+    background-color: var(--card-bg) !important;
+    border-bottom-color: var(--border-color) !important;
+}
+
+.ant-modal-title {
+    color: var(--text-color) !important;
+}
+
+/* 抽屉样式 */
+.ant-drawer-content {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-drawer-header {
+    background-color: var(--card-bg) !important;
+    border-bottom-color: var(--border-color) !important;
+}
+
+.ant-drawer-title {
+    color: var(--text-color) !important;
+}
+
+/* 表单样式 */
+.ant-form-item-label > label {
+    color: var(--text-color) !important;
+}
+
+/* 输入框样式 */
+.ant-input {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-input:hover,
+.ant-input:focus {
+    border-color: var(--primary-color) !important;
+}
+
+/* 按钮样式 */
+.ant-btn {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* 分割线样式 */
+.ant-divider {
+    border-color: var(--border-color) !important;
+}
+
+/* 列表样式 */
+.ant-list-item {
+    color: var(--text-color) !important;
+}
+
+/* 统计数值样式 */
+.ant-statistic-title {
+    color: var(--text-color) !important;
+}
+
+.ant-statistic-content {
+    color: var(--text-color) !important;
+}
+
+/* 空状态样式 */
+.ant-empty {
+    color: var(--text-color) !important;
+}
+
+/* 加载状态样式 */
+.ant-spin-dot-item {
+    background-color: var(--text-color) !important;
+}
+
+/* 分页样式 */
+.ant-pagination-item {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-pagination-item a {
+    color: var(--text-color) !important;
+}
+
+.ant-pagination-item-active {
+    border-color: var(--primary-color) !important;
+}
+
+.ant-pagination-item-active a {
+    color: var(--primary-color) !important;
+}
+
+/* 时间选择器样式 */
+.ant-picker {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-picker-input > input {
+    color: var(--text-color) !important;
+}
+
+/* 开关样式 */
+.ant-switch {
+    background-color: var(--border-color) !important;
+}
+
+.ant-switch-checked {
+    background-color: var(--primary-color) !important;
+}
+
+/* 单选框样式 */
+.ant-radio-wrapper {
+    color: var(--text-color) !important;
+}
+
+/* 复选框样式 */
+.ant-checkbox-wrapper {
+    color: var(--text-color) !important;
+}
+
+/* 进度条样式 */
+.ant-progress-text {
+    color: var(--text-color) !important;
+}
+
+/* 警告提示样式 */
+.ant-alert {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-alert-message {
+    color: var(--text-color) !important;
+}
+
+/* 气泡确认框样式 */
+.ant-popover-inner {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-popover-title {
+    color: var(--text-color) !important;
+}
+
+.ant-popover-inner-content {
+    color: var(--text-color) !important;
+}
+
+/* 工具提示样式 */
+.ant-tooltip-inner {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+}
+
+/* 消息通知样式 */
+.ant-message-notice-content {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+}
+
+/* 徽标样式 */
+.ant-badge-count {
+    background-color: var(--primary-color) !important;
+}
+
+/* 面包屑样式 */
+.ant-breadcrumb {
+    color: var(--text-color) !important;
+}
+
+.ant-breadcrumb-link {
+    color: var(--text-color) !important;
+}
+
+/* 步骤条样式 */
+.ant-steps-item-title {
+    color: var(--text-color) !important;
+}
+
+.ant-steps-item-description {
+    color: var(--text-color) !important;
+}
+
+/* 标签页样式 */
+.ant-tabs-tab {
+    color: var(--text-color) !important;
+}
+
+.ant-tabs-tab-active {
+    color: var(--primary-color) !important;
+}
+
+.ant-tabs-ink-bar {
+    background-color: var(--primary-color) !important;
+}
+
+/* 折叠面板样式 */
+.ant-collapse {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-collapse-header {
+    color: var(--text-color) !important;
+}
+
+.ant-collapse-content {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* 树形控件样式 */
+.ant-tree {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+}
+
+.ant-tree-node-content-wrapper {
+    color: var(--text-color) !important;
+}
+
+/* 级联选择器样式 */
+.ant-cascader-menu {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-cascader-menu-item {
+    color: var(--text-color) !important;
+}
+
+/* 日期选择器样式 */
+.ant-calendar {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-calendar-header {
+    color: var(--text-color) !important;
+}
+
+.ant-calendar-date {
+    color: var(--text-color) !important;
+}
+
+/* 时间轴样式 */
+.ant-timeline-item-content {
+    color: var(--text-color) !important;
+}
+
+/* 评论样式 */
+.ant-comment-content-author-name {
+    color: var(--text-color) !important;
+}
+
+.ant-comment-content-detail {
+    color: var(--text-color) !important;
+}
+
+/* 头像样式 */
+.ant-avatar {
+    background-color: var(--border-color) !important;
+}
+
+/* 上传组件样式 */
+.ant-upload {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-upload-drag {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* 评分组件样式 */
+.ant-rate {
+    color: var(--primary-color) !important;
+}
+
+/* 滑块样式 */
+.ant-slider-rail {
+    background-color: var(--border-color) !important;
+}
+
+.ant-slider-track {
+    background-color: var(--primary-color) !important;
+}
+
+.ant-slider-handle {
+    background-color: var(--card-bg) !important;
+    border-color: var(--primary-color) !important;
+}
+
+/* 穿梭框样式 */
+.ant-transfer {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-transfer-list {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-transfer-list-header {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+}
+
+.ant-transfer-list-content-item {
+    color: var(--text-color) !important;
+}
+
+/* 图片预览样式 */
+.ant-image-preview-mask {
+    background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+.ant-image-preview-operations {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-image-preview-operations-operation {
+    color: var(--text-color) !important;
+}
+
+/* 骨架屏样式 */
+.ant-skeleton {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-skeleton-title,
+.ant-skeleton-paragraph > li {
+    background-color: var(--border-color) !important;
+}
+
+/* 锚点样式 */
+.ant-anchor {
+    background-color: var(--card-bg) !important;
+}
+
+.ant-anchor-link-title {
+    color: var(--text-color) !important;
+}
+
+/* 回到顶部样式 */
+.ant-back-top {
+    background-color: var(--card-bg) !important;
+    color: var(--text-color) !important;
+}
+
+/* 全局过渡动画 */
+* {
+    transition: background-color 0.3s, color 0.3s, border-color 0.3s !important;
+} 
