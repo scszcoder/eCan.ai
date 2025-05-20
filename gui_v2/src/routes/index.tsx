@@ -1,5 +1,5 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
 import Login from '../pages/Login';
 import Dashboard from '../pages/Dashboard';
@@ -46,43 +46,53 @@ export const publicRoutes: RouteConfig[] = [
 export const protectedRoutes: RouteConfig[] = [
     {
         path: '/',
-        element: <ProtectedRoute><Dashboard /></ProtectedRoute>,
-    },
-    {
-        path: '/vehicles',
-        element: <ProtectedRoute><Vehicles /></ProtectedRoute>,
-    },
-    {
-        path: '/schedule',
-        element: <ProtectedRoute><Schedule /></ProtectedRoute>,
-    },
-    {
-        path: '/chat',
-        element: <ProtectedRoute><Chat /></ProtectedRoute>,
-    },
-    {
-        path: '/skills',
-        element: <ProtectedRoute><Skills /></ProtectedRoute>,
-    },
-    {
-        path: '/agents',
-        element: <ProtectedRoute><Agents /></ProtectedRoute>,
-    },
-    {
-        path: '/analytics',
-        element: <ProtectedRoute><Analytics /></ProtectedRoute>,
-    },
-    {
-        path: '/apps',
-        element: <ProtectedRoute><Apps /></ProtectedRoute>,
-    },
-    {
-        path: '/tools',
-        element: <ProtectedRoute><Tools /></ProtectedRoute>,
-    },
-    {
-        path: '/settings',
-        element: <ProtectedRoute><Settings /></ProtectedRoute>,
+        element: <ProtectedRoute><Outlet /></ProtectedRoute>,
+        children: [
+            {
+                path: '',
+                element: <Navigate to="/dashboard" replace />,
+            },
+            {
+                path: 'dashboard',
+                element: <Dashboard />,
+            },
+            {
+                path: 'vehicles',
+                element: <Vehicles />,
+            },
+            {
+                path: 'schedule',
+                element: <Schedule />,
+            },
+            {
+                path: 'chat',
+                element: <Chat />,
+            },
+            {
+                path: 'skills',
+                element: <Skills />,
+            },
+            {
+                path: 'agents',
+                element: <Agents />,
+            },
+            {
+                path: 'analytics',
+                element: <Analytics />,
+            },
+            {
+                path: 'apps',
+                element: <Apps />,
+            },
+            {
+                path: 'tools',
+                element: <Tools />,
+            },
+            {
+                path: 'settings',
+                element: <Settings />,
+            },
+        ],
     },
 ];
 
@@ -97,4 +107,58 @@ export const routes: RouteConfig[] = [
     ...publicRoutes,
     ...protectedRoutes,
     notFoundRoute,
+];
+
+// 菜单配置
+export const menuItems = [
+    {
+        key: '/dashboard',
+        icon: 'DashboardOutlined',
+        label: 'menu.dashboard',
+    },
+    {
+        key: '/vehicles',
+        icon: 'CarOutlined',
+        label: 'menu.vehicles',
+    },
+    {
+        key: '/schedule',
+        icon: 'CalendarOutlined',
+        label: 'menu.schedule',
+    },
+    {
+        key: '/chat',
+        icon: 'MessageOutlined',
+        label: 'menu.chat',
+    },
+    {
+        key: '/skills',
+        icon: 'RobotOutlined',
+        label: 'menu.skills',
+    },
+    {
+        key: '/agents',
+        icon: 'TeamOutlined',
+        label: 'menu.agents',
+    },
+    {
+        key: '/analytics',
+        icon: 'BarChartOutlined',
+        label: 'menu.analytics',
+    },
+    {
+        key: '/apps',
+        icon: 'AppstoreOutlined',
+        label: 'menu.apps',
+    },
+    {
+        key: '/tools',
+        icon: 'ToolOutlined',
+        label: 'menu.tools',
+    },
+    {
+        key: '/settings',
+        icon: 'SettingOutlined',
+        label: 'menu.settings',
+    },
 ]; 
