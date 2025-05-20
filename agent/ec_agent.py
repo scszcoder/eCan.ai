@@ -1759,6 +1759,7 @@ class EC_Agent(Generic[Context]):
 			print("client payload:", payload)
 			response = await self.a2a_client.send_task(payload)
 			print("A2A RESPONSE:", response)
+			return response
 		except Exception as e:
 			# Get the traceback information
 			traceback_info = traceback.extract_tb(e.__traceback__)

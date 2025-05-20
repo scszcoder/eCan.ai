@@ -6917,45 +6917,50 @@ class MainWindow(QMainWindow):
         self.showMsg("starting servePlatoons")
 
         while True:
-            print("listening to platoons")
+            print("listening to platoons", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
             if not msgQueue.empty():
                 try:
                     # Process all available messages in the queue
                     while not msgQueue.empty():
                         net_message = await msgQueue.get()
-                        if len(net_message) > 256:
-                            mlen = 256
-                        else:
-                            mlen = len(net_message)
-                        self.showMsg(
-                            "received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message[:mlen])
+                        print("received net message:", type(net_message), net_message)
+                        if isinstance(net_message, str):
+                            if len(net_message) > 256:
+                                mlen = 256
+                            else:
+                                mlen = len(net_message)
+                            self.showMsg(
+                                "received queued msg from platoon..... [" + str(msgQueue.qsize()) + "]" + net_message[:mlen])
 
-                        # Parse the message into parts
-                        msg_parts = net_message.split("!")
-                        if len(msg_parts) >= 3:  # Check for valid message structure
-                            if msg_parts[1] == "net data":
-                                await self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
-                            elif msg_parts[1] == "connection":
-                                print("received connection message: " + msg_parts[0] + " " + msg_parts[2])
-                                if self.platoonWin is None:
-                                    self.platoonWin = PlatoonWindow(self, "conn")
-                                addedV = self.addConnectingVehicle(msg_parts[2], msg_parts[0])
-                                # await asyncio.sleep(8)
-                                # if len(self.vehicles) > 0:
-                                #     print("pinging platoon: " + str(len(self.vehicles) - 1) + msg_parts[0])
-                                #     self.sendToVehicleByVip(msg_parts[0])
-                            elif msg_parts[1] == "net loss":
-                                print("received net loss")
-                                found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
-                                vehicle_report = self.prepVehicleReportData(found_vehicle)
-                                resp = send_report_vehicles_to_cloud(
-                                    self.session,
-                                    self.tokens['AuthenticationResult']['IdToken'],
-                                    vehicle_report,
-                                    self.getWanApiEndpoint()
-                                )
-                                self.saveVehiclesJsonFile()
+                            print("platoon server received message from queu...")
+                            # Parse the message into parts
+                            msg_parts = net_message.split("!")
+                            if len(msg_parts) >= 3:  # Check for valid message structure
+                                if msg_parts[1] == "net data":
+                                    await self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
+                                elif msg_parts[1] == "connection":
+                                    print("received connection message: " + msg_parts[0] + " " + msg_parts[2])
+                                    if self.platoonWin is None:
+                                        self.platoonWin = PlatoonWindow(self, "conn")
+                                    addedV = self.addConnectingVehicle(msg_parts[2], msg_parts[0])
+                                    # await asyncio.sleep(8)
+                                    # if len(self.vehicles) > 0:
+                                    #     print("pinging platoon: " + str(len(self.vehicles) - 1) + msg_parts[0])
+                                    #     self.sendToVehicleByVip(msg_parts[0])
+                                elif msg_parts[1] == "net loss":
+                                    print("received net loss")
+                                    found_vehicle = self.markVehicleOffline(msg_parts[0], msg_parts[2])
+                                    vehicle_report = self.prepVehicleReportData(found_vehicle)
+                                    resp = send_report_vehicles_to_cloud(
+                                        self.session,
+                                        self.tokens['AuthenticationResult']['IdToken'],
+                                        vehicle_report,
+                                        self.getWanApiEndpoint()
+                                    )
+                                    self.saveVehiclesJsonFile()
+                        elif isinstance(net_message, dict):
+                            print("process json from queue:")
 
                         msgQueue.task_done()
 
@@ -8000,19 +8005,21 @@ class MainWindow(QMainWindow):
 
     async def todo_wait_in_line(self, request):
         try:
-            print("task waiting in line.....")
+            print("task waiting in line.....", request)
             await self.gui_net_msg_queue.put(request)
-            print("now in line....")
+            print("todo now in line....", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+            return("rpa tasks queued")
         except Exception as e:
             ex_stat = "ErrorPlatoonWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
+            return (f"Error: {ex_stat}")
 
 
     async def rpa_wait_in_line(self, request):
         try:
             print("task waiting in line.....")
             await self.gui_rpa_msg_queue.put(request)
-            print("now in line....")
+            print("rpa tasks now in line....", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
         except Exception as e:
             ex_stat = "ErrorRPAWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
