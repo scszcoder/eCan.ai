@@ -17,7 +17,7 @@ interface SettingsFormData {
   [key: string]: string | boolean;
 }
 
-const Settings: React.FC = () => {
+const SettingsContent: React.FC = () => {
   const { t, i18n } = useTranslation();
   const { theme, changeTheme } = useTheme();
   const { changeLanguage } = useLanguage();
@@ -58,12 +58,14 @@ const Settings: React.FC = () => {
   const handleNotificationChange = (checked: boolean) => {
     localStorage.setItem('notifications', String(checked));
     form.setFieldsValue({ notifications: checked });
+    message.success(t('settings.notificationsChanged'));
   };
 
   // 自动更新设置切换处理
   const handleAutoUpdateChange = (checked: boolean) => {
     localStorage.setItem('autoUpdate', String(checked));
     form.setFieldsValue({ autoUpdate: checked });
+    message.success(t('settings.autoUpdateChanged'));
   };
 
   const onFinish = async (values: SettingsFormData) => {
@@ -145,6 +147,14 @@ const Settings: React.FC = () => {
         </Form>
       </Card>
     </div>
+  );
+};
+
+const Settings: React.FC = () => {
+  return (
+    <App>
+      <SettingsContent />
+    </App>
   );
 };
 
