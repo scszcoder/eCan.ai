@@ -61,7 +61,7 @@ const getStatusColor = (status: Agent['status']): string => {
 const initialAgents: Agent[] = [
     {
         id: 1,
-        name: 'Alpha Agent',
+        name: 'Task Coordinator',
         role: 'Task Coordinator',
         status: 'active',
         skills: ['Task Management', 'Communication', 'Problem Solving'],
@@ -72,7 +72,7 @@ const initialAgents: Agent[] = [
     },
     {
         id: 2,
-        name: 'Beta Agent',
+        name: 'Data Analyst',
         role: 'Data Analyst',
         status: 'busy',
         skills: ['Data Analysis', 'Reporting', 'Visualization'],
@@ -83,7 +83,7 @@ const initialAgents: Agent[] = [
     },
     {
         id: 3,
-        name: 'Gamma Agent',
+        name: 'Support Specialist',
         role: 'Support Specialist',
         status: 'offline',
         skills: ['Customer Support', 'Troubleshooting', 'Documentation'],
@@ -102,10 +102,42 @@ const Agents: React.FC = () => {
         updateItem,
     } = useDetailView<Agent>(initialAgents);
 
+    const translateAgent = (agent: Agent): Agent => {
+        if (agent.name.includes('协调员') || agent.name.includes('分析师') || agent.name.includes('专员')) {
+            return agent;
+        }
+
+        return {
+            ...agent,
+            name: t(`pages.agents.roles.${agent.role.replace(/\s+/g, '')}`),
+            role: t(`pages.agents.roles.${agent.role.replace(/\s+/g, '')}`),
+            skills: agent.skills.map(skill => {
+                if (skill.includes('管理') || skill.includes('通信') || skill.includes('解决')) {
+                    return skill;
+                }
+                return t(`pages.agents.skills.${skill.replace(/\s+/g, '')}`);
+            }),
+            currentTask: agent.currentTask ? 
+                (agent.currentTask.includes('规划') || agent.currentTask.includes('处理') ? 
+                    agent.currentTask : 
+                    t(`pages.agents.tasks.${agent.currentTask.replace(/\s+/g, '')}`)) 
+                : undefined,
+            lastActive: agent.lastActive === '2 minutes ago' 
+                ? t('pages.agents.time.minutesAgo', { minutes: 2 })
+                : agent.lastActive === '5 minutes ago'
+                ? t('pages.agents.time.minutesAgo', { minutes: 5 })
+                : agent.lastActive === '1 hour ago'
+                ? t('pages.agents.time.hoursAgo', { hours: 1 })
+                : agent.lastActive
+        };
+    };
+
+    const translatedAgents = agents.map(translateAgent);
+
     const handleStatusChange = (id: number, newStatus: Agent['status']) => {
         updateItem(id, {
             status: newStatus,
-            lastActive: 'Just now',
+            lastActive: t('pages.agents.time.justNow'),
         });
     };
 
@@ -117,14 +149,14 @@ const Agents: React.FC = () => {
                 efficiency: Math.min(agent.efficiency + 1, 100),
                 status: 'active',
                 currentTask: undefined,
-                lastActive: 'Just now',
+                lastActive: t('pages.agents.time.justNow'),
             });
         }
     };
 
     const renderListContent = () => (
         <List
-            dataSource={agents}
+            dataSource={translatedAgents}
             renderItem={agent => (
                 <AgentItem onClick={() => selectItem(agent)}>
                     <Space direction="vertical" style={{ width: '100%' }}>
@@ -158,26 +190,28 @@ const Agents: React.FC = () => {
             return <Text type="secondary">{t('pages.agents.selectAgent')}</Text>;
         }
 
+        const translatedAgent = translateAgent(selectedAgent);
+
         return (
             <Space direction="vertical" style={{ width: '100%' }}>
                 <Space>
                     <Avatar size={64} icon={<UserOutlined />} />
                     <div>
-                        <Title level={4} style={{ margin: 0 }}>{selectedAgent.name}</Title>
-                        <Text type="secondary">{selectedAgent.role}</Text>
+                        <Title level={4} style={{ margin: 0 }}>{translatedAgent.name}</Title>
+                        <Text type="secondary">{translatedAgent.role}</Text>
                     </div>
                 </Space>
                 <Space>
-                    <Tag color={getStatusColor(selectedAgent.status)}>
-                        <CheckCircleOutlined /> {t('pages.agents.status')}: {t(`pages.agents.status.${selectedAgent.status}`)}
+                    <Tag color={getStatusColor(translatedAgent.status)}>
+                        <CheckCircleOutlined /> {t('pages.agents.status')}: {t(`pages.agents.status.${translatedAgent.status}`)}
                     </Tag>
                     <Tag>
-                        <ClockCircleOutlined /> {t('pages.agents.lastActive')}: {selectedAgent.lastActive}
+                        <ClockCircleOutlined /> {t('pages.agents.lastActive')}: {translatedAgent.lastActive}
                     </Tag>
                 </Space>
                 <Title level={5}>{t('pages.agents.skills')}</Title>
                 <Space wrap>
-                    {selectedAgent.skills.map(skill => (
+                    {translatedAgent.skills.map(skill => (
                         <Tag key={skill} color="green">
                             <ThunderboltOutlined /> {skill}
                         </Tag>
@@ -188,7 +222,7 @@ const Agents: React.FC = () => {
                         <Card>
                             <Statistic
                                 title={t('pages.agents.tasksCompleted')}
-                                value={selectedAgent.tasksCompleted}
+                                value={translatedAgent.tasksCompleted}
                                 prefix={<StarOutlined />}
                             />
                         </Card>
@@ -197,21 +231,21 @@ const Agents: React.FC = () => {
                         <Card>
                             <Statistic
                                 title={t('pages.agents.efficiency')}
-                                value={selectedAgent.efficiency}
+                                value={translatedAgent.efficiency}
                                 suffix="%"
                                 prefix={<ThunderboltOutlined />}
                             />
                         </Card>
                     </Col>
                 </Row>
-                {selectedAgent.currentTask && (
+                {translatedAgent.currentTask && (
                     <Card>
                         <Space direction="vertical" style={{ width: '100%' }}>
                             <Text strong>{t('pages.agents.currentTask')}</Text>
-                            <Text>{selectedAgent.currentTask}</Text>
+                            <Text>{translatedAgent.currentTask}</Text>
                             <Button 
                                 type="primary"
-                                onClick={() => handleTaskComplete(selectedAgent.id)}
+                                onClick={() => handleTaskComplete(translatedAgent.id)}
                             >
                                 {t('pages.agents.markComplete')}
                             </Button>
@@ -222,22 +256,22 @@ const Agents: React.FC = () => {
                     <Button 
                         type="primary" 
                         icon={<PlusOutlined />}
-                        onClick={() => handleStatusChange(selectedAgent.id, 'active')}
-                        disabled={selectedAgent.status === 'active'}
+                        onClick={() => handleStatusChange(translatedAgent.id, 'active')}
+                        disabled={translatedAgent.status === 'active'}
                     >
                         {t('pages.agents.activate')}
                     </Button>
                     <Button 
                         icon={<EditOutlined />}
-                        onClick={() => handleStatusChange(selectedAgent.id, 'busy')}
-                        disabled={selectedAgent.status === 'busy'}
+                        onClick={() => handleStatusChange(translatedAgent.id, 'busy')}
+                        disabled={translatedAgent.status === 'busy'}
                     >
                         {t('pages.agents.setBusy')}
                     </Button>
                     <Button 
                         icon={<HistoryOutlined />}
-                        onClick={() => handleStatusChange(selectedAgent.id, 'offline')}
-                        disabled={selectedAgent.status === 'offline'}
+                        onClick={() => handleStatusChange(translatedAgent.id, 'offline')}
+                        disabled={translatedAgent.status === 'offline'}
                     >
                         {t('pages.agents.setOffline')}
                     </Button>

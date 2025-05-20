@@ -103,14 +103,40 @@
       "title": "车辆管理",
       "addVehicle": "添加车辆",
       "editVehicle": "编辑车辆",
-      "vehicleList": "车辆列表",
-      "vehicleDetails": "车辆详情",
+      "deleteVehicle": "删除车辆",
+      "refreshVehicles": "刷新车辆",
+      "exportVehicles": "导出车辆",
+      "importVehicles": "导入车辆",
+      "vehicleSettings": "车辆设置",
+      "vehicleInformation": "车辆信息",
+      "performanceMetrics": "性能指标",
       "status": "状态",
+      "status.active": "活跃",
+      "status.maintenance": "维护中",
+      "status.offline": "离线",
       "type": "类型",
       "location": "位置",
       "lastUpdate": "最后更新",
       "maintenance": "维护记录",
-      "assign": "分配任务"
+      "assign": "分配任务",
+      "groundVehicle": "地面车辆",
+      "aerialVehicle": "空中车辆",
+      "batteryLevel": "电池电量",
+      "totalDistance": "总里程",
+      "lastMaintenance": "上次维护",
+      "nextMaintenance": "下次维护",
+      "currentTask": "当前任务",
+      "activate": "激活",
+      "scheduleMaintenance": "安排维护",
+      "setOffline": "设为离线",
+      "maintenanceBay": "维护区",
+      "chargingStation": "充电站",
+      "zoneA": "区域A",
+      "searchPlaceholder": "搜索车辆...",
+      "selectVehicle": "选择一个车辆查看详情",
+      "name": "名称",
+      "justNow": "刚刚",
+      "twoWeeksFromNow": "两周后"
     },
     "schedule": {
       "title": "日程安排",
@@ -118,6 +144,10 @@
       "scheduleInformation": "日程信息",
       "timeAndLocation": "时间和地点",
       "status": "状态",
+      "status.scheduled": "已安排",
+      "status.inProgress": "进行中",
+      "status.completed": "已完成",
+      "status.cancelled": "已取消",
       "type": "类型",
       "priority": "优先级",
       "startTime": "开始时间",
@@ -125,10 +155,6 @@
       "location": "地点",
       "participants": "参与人员",
       "description": "描述",
-      "scheduled": "已安排",
-      "inProgress": "进行中",
-      "completed": "已完成",
-      "cancelled": "已取消",
       "meeting": "会议",
       "task": "任务",
       "maintenance": "维护",
@@ -180,20 +206,59 @@
     },
     "skills": {
       "title": "技能",
-      "addSkill": "添加技能",
-      "editSkill": "编辑技能",
-      "skillList": "技能列表",
-      "skillDetails": "技能详情",
+      "details": "技能详情",
+      "selectSkill": "选择一个技能查看详情",
+      "status": "状态",
+      "status.active": "活跃",
+      "status.learning": "学习中",
+      "status.planned": "计划中",
       "category": "类别",
-      "level": "等级",
-      "description": "描述",
-      "requirements": "要求",
-      "assign": "分配技能",
+      "lastUsed": "最后使用",
+      "usageCount": "使用次数",
+      "skillLevel": "技能等级",
+      "level": "等级 {{level}}",
+      "mastered": "已掌握",
+      "complete": "完成度 {{level}}%",
+      "levelUp": "提升等级",
+      "editSkill": "编辑技能",
+      "viewHistory": "查看历史",
+      "addSkill": "添加技能",
       "deleteSkill": "删除技能",
       "refreshSkills": "刷新技能",
       "exportSkills": "导出技能",
       "importSkills": "导入技能",
-      "skillSettings": "技能设置"
+      "skillSettings": "技能设置",
+      "time": {
+        "justNow": "刚刚",
+        "minutesAgo": "{{minutes}} 分钟前",
+        "hoursAgo": "{{hours}} 小时前",
+        "daysAgo": "{{days}} 天前",
+        "weeksAgo": "{{weeks}} 周前",
+        "monthsAgo": "{{months}} 个月前"
+      },
+      "categories": {
+        "AI": "人工智能",
+        "Analytics": "分析",
+        "Communication": "通信",
+        "Navigation": "导航",
+        "Maintenance": "维护",
+        "Natural Language Processing": "自然语言处理",
+        "Computer Vision": "计算机视觉",
+        "Machine Learning": "机器学习",
+        "Data Analysis": "数据分析",
+        "Predictive Analytics": "预测分析",
+        "Voice Recognition": "语音识别",
+        "Text Processing": "文本处理",
+        "Image Recognition": "图像识别",
+        "Object Detection": "物体检测",
+        "Pattern Recognition": "模式识别",
+        "Route Planning": "路径规划",
+        "Location Tracking": "位置追踪",
+        "Map Navigation": "地图导航",
+        "System Diagnostics": "系统诊断",
+        "Performance Optimization": "性能优化",
+        "Error Handling": "错误处理"
+      }
     },
     "agents": {
       "title": "代理",
@@ -218,7 +283,35 @@
       "refreshAgents": "刷新代理",
       "exportAgents": "导出代理",
       "importAgents": "导入代理",
-      "agentSettings": "代理设置"
+      "agentSettings": "代理设置",
+      "roles": {
+        "TaskCoordinator": "任务协调员",
+        "DataAnalyst": "数据分析师",
+        "SupportSpecialist": "支持专员"
+      },
+      "skills": {
+        "TaskManagement": "任务管理",
+        "Communication": "通信",
+        "ProblemSolving": "问题解决",
+        "DataAnalysis": "数据分析",
+        "Reporting": "报告",
+        "Visualization": "可视化",
+        "CustomerSupport": "客户支持",
+        "Troubleshooting": "故障排除",
+        "Documentation": "文档"
+      },
+      "time": {
+        "justNow": "刚刚",
+        "minutesAgo": "{{minutes}} 分钟前",
+        "hoursAgo": "{{hours}} 小时前",
+        "daysAgo": "{{days}} 天前",
+        "weeksAgo": "{{weeks}} 周前",
+        "monthsAgo": "{{months}} 个月前"
+      },
+      "tasks": {
+        "ProjectPlanning": "项目规划",
+        "DataProcessing": "数据处理"
+      }
     },
     "analytics": {
       "title": "数据分析",
@@ -272,7 +365,52 @@
       "refreshApps": "刷新应用",
       "exportApps": "导出应用",
       "importApps": "导入应用",
-      "appSettings": "应用设置"
+      "appSettings": "应用设置",
+      "categories": {
+        "Productivity": "生产力",
+        "Analytics": "分析",
+        "System": "系统"
+      },
+      "apps": {
+        "TaskManager": {
+          "name": "任务管理器",
+          "description": "一个全面的任务管理应用程序，用于组织和跟踪工作。",
+          "features": {
+            "TaskCreation": "任务创建",
+            "ProgressTracking": "进度跟踪",
+            "TeamCollaboration": "团队协作",
+            "FileSharing": "文件共享"
+          }
+        },
+        "DataAnalyzer": {
+          "name": "数据分析器",
+          "description": "用于商业智能的高级数据分析和可视化工具。",
+          "features": {
+            "DataImport": "数据导入",
+            "Visualization": "可视化",
+            "ReportGeneration": "报告生成",
+            "ExportOptions": "导出选项"
+          }
+        },
+        "SystemMonitor": {
+          "name": "系统监视器",
+          "description": "实时系统监控和性能跟踪工具。",
+          "features": {
+            "ResourceMonitoring": "资源监控",
+            "AlertSystem": "警报系统",
+            "PerformanceReports": "性能报告",
+            "LogAnalysis": "日志分析"
+          }
+        }
+      },
+      "time": {
+        "justNow": "刚刚",
+        "minutesAgo": "{{minutes}} 分钟前",
+        "hoursAgo": "{{hours}} 小时前",
+        "daysAgo": "{{days}} 天前",
+        "weeksAgo": "{{weeks}} 周前",
+        "monthsAgo": "{{months}} 个月前"
+      }
     },
     "tools": {
       "title": "工具",

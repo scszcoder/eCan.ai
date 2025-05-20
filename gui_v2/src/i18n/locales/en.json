@@ -103,14 +103,40 @@
       "title": "Vehicles",
       "addVehicle": "Add Vehicle",
       "editVehicle": "Edit Vehicle",
-      "vehicleList": "Vehicle List",
-      "vehicleDetails": "Vehicle Details",
+      "deleteVehicle": "Delete Vehicle",
+      "refreshVehicles": "Refresh Vehicles",
+      "exportVehicles": "Export Vehicles",
+      "importVehicles": "Import Vehicles",
+      "vehicleSettings": "Vehicle Settings",
+      "vehicleInformation": "Vehicle Information",
+      "performanceMetrics": "Performance Metrics",
       "status": "Status",
+      "status.active": "Active",
+      "status.maintenance": "In Maintenance",
+      "status.offline": "Offline",
       "type": "Type",
       "location": "Location",
       "lastUpdate": "Last Update",
-      "maintenance": "Maintenance Records",
-      "assign": "Assign Task"
+      "maintenance": "Maintenance",
+      "assign": "Assign Task",
+      "groundVehicle": "Ground Vehicle",
+      "aerialVehicle": "Aerial Vehicle",
+      "batteryLevel": "Battery Level",
+      "totalDistance": "Total Distance",
+      "lastMaintenance": "Last Maintenance",
+      "nextMaintenance": "Next Maintenance",
+      "currentTask": "Current Task",
+      "activate": "Activate",
+      "scheduleMaintenance": "Schedule Maintenance",
+      "setOffline": "Set Offline",
+      "maintenanceBay": "Maintenance Bay",
+      "chargingStation": "Charging Station",
+      "zoneA": "Zone A",
+      "searchPlaceholder": "Search vehicles...",
+      "selectVehicle": "Select a vehicle to view details",
+      "name": "Name",
+      "justNow": "Just now",
+      "twoWeeksFromNow": "2 weeks from now"
     },
     "schedule": {
       "title": "Schedule",
@@ -118,6 +144,10 @@
       "scheduleInformation": "Schedule Information",
       "timeAndLocation": "Time and Location",
       "status": "Status",
+      "status.scheduled": "Scheduled",
+      "status.inProgress": "In Progress",
+      "status.completed": "Completed",
+      "status.cancelled": "Cancelled",
       "type": "Type",
       "priority": "Priority",
       "startTime": "Start Time",
@@ -125,10 +155,6 @@
       "location": "Location",
       "participants": "Participants",
       "description": "Description",
-      "scheduled": "Scheduled",
-      "inProgress": "In Progress",
-      "completed": "Completed",
-      "cancelled": "Cancelled",
       "meeting": "Meeting",
       "task": "Task",
       "maintenance": "Maintenance",
@@ -190,9 +216,9 @@
       "lastUsed": "Last Used",
       "usageCount": "Usage Count",
       "skillLevel": "Skill Level",
-      "level": "Level: {{level}}%",
+      "level": "Level {{level}}",
       "mastered": "Mastered",
-      "complete": "Complete: {{level}}%",
+      "complete": "Complete {{level}}%",
       "levelUp": "Level Up",
       "editSkill": "Edit Skill",
       "viewHistory": "View History",
@@ -201,7 +227,38 @@
       "refreshSkills": "Refresh Skills",
       "exportSkills": "Export Skills",
       "importSkills": "Import Skills",
-      "skillSettings": "Skill Settings"
+      "skillSettings": "Skill Settings",
+      "time": {
+        "justNow": "Just now",
+        "minutesAgo": "{{minutes}} minutes ago",
+        "hoursAgo": "{{hours}} hours ago",
+        "daysAgo": "{{days}} days ago",
+        "weeksAgo": "{{weeks}} weeks ago",
+        "monthsAgo": "{{months}} months ago"
+      },
+      "categories": {
+        "AI": "AI",
+        "Analytics": "Analytics",
+        "Communication": "Communication",
+        "Navigation": "Navigation",
+        "Maintenance": "Maintenance",
+        "Natural Language Processing": "Natural Language Processing",
+        "Computer Vision": "Computer Vision",
+        "Machine Learning": "Machine Learning",
+        "Data Analysis": "Data Analysis",
+        "Predictive Analytics": "Predictive Analytics",
+        "Voice Recognition": "Voice Recognition",
+        "Text Processing": "Text Processing",
+        "Image Recognition": "Image Recognition",
+        "Object Detection": "Object Detection",
+        "Pattern Recognition": "Pattern Recognition",
+        "Route Planning": "Route Planning",
+        "Location Tracking": "Location Tracking",
+        "Map Navigation": "Map Navigation",
+        "System Diagnostics": "System Diagnostics",
+        "Performance Optimization": "Performance Optimization",
+        "Error Handling": "Error Handling"
+      }
     },
     "agents": {
       "title": "Agents",
@@ -226,7 +283,35 @@
       "refreshAgents": "Refresh Agents",
       "exportAgents": "Export Agents",
       "importAgents": "Import Agents",
-      "agentSettings": "Agent Settings"
+      "agentSettings": "Agent Settings",
+      "roles": {
+        "TaskCoordinator": "Task Coordinator",
+        "DataAnalyst": "Data Analyst",
+        "SupportSpecialist": "Support Specialist"
+      },
+      "skills": {
+        "TaskManagement": "Task Management",
+        "Communication": "Communication",
+        "ProblemSolving": "Problem Solving",
+        "DataAnalysis": "Data Analysis",
+        "Reporting": "Reporting",
+        "Visualization": "Visualization",
+        "CustomerSupport": "Customer Support",
+        "Troubleshooting": "Troubleshooting",
+        "Documentation": "Documentation"
+      },
+      "time": {
+        "justNow": "Just now",
+        "minutesAgo": "{{minutes}} minutes ago",
+        "hoursAgo": "{{hours}} hours ago",
+        "daysAgo": "{{days}} days ago",
+        "weeksAgo": "{{weeks}} weeks ago",
+        "monthsAgo": "{{months}} months ago"
+      },
+      "tasks": {
+        "ProjectPlanning": "Project Planning",
+        "DataProcessing": "Data Processing"
+      }
     },
     "analytics": {
       "title": "Analytics",
@@ -268,7 +353,52 @@
       "refreshApps": "Refresh Apps",
       "exportApps": "Export Apps",
       "importApps": "Import Apps",
-      "appSettings": "App Settings"
+      "appSettings": "App Settings",
+      "categories": {
+        "Productivity": "Productivity",
+        "Analytics": "Analytics",
+        "System": "System"
+      },
+      "apps": {
+        "TaskManager": {
+          "name": "Task Manager",
+          "description": "A comprehensive task management application for organizing and tracking work.",
+          "features": {
+            "TaskCreation": "Task Creation",
+            "ProgressTracking": "Progress Tracking",
+            "TeamCollaboration": "Team Collaboration",
+            "FileSharing": "File Sharing"
+          }
+        },
+        "DataAnalyzer": {
+          "name": "Data Analyzer",
+          "description": "Advanced data analysis and visualization tool for business intelligence.",
+          "features": {
+            "DataImport": "Data Import",
+            "Visualization": "Visualization",
+            "ReportGeneration": "Report Generation",
+            "ExportOptions": "Export Options"
+          }
+        },
+        "SystemMonitor": {
+          "name": "System Monitor",
+          "description": "Real-time system monitoring and performance tracking tool.",
+          "features": {
+            "ResourceMonitoring": "Resource Monitoring",
+            "AlertSystem": "Alert System",
+            "PerformanceReports": "Performance Reports",
+            "LogAnalysis": "Log Analysis"
+          }
+        }
+      },
+      "time": {
+        "justNow": "Just now",
+        "minutesAgo": "{{minutes}} minutes ago",
+        "hoursAgo": "{{hours}} hours ago",
+        "daysAgo": "{{days}} days ago",
+        "weeksAgo": "{{weeks}} weeks ago",
+        "monthsAgo": "{{months}} months ago"
+      }
     },
     "tools": {
       "title": "Tools",

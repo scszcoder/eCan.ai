@@ -2,6 +2,7 @@ import React from 'react';
 import { Tag, Tooltip } from 'antd';
 import { CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
+import { useTranslation } from 'react-i18next';
 
 const StyledTag = styled(Tag)`
     display: inline-flex;
@@ -26,57 +27,6 @@ export interface StatusConfig {
     color: string;
 }
 
-const defaultStatusConfigs: Record<string, StatusConfig> = {
-    active: {
-        type: 'success',
-        icon: <CheckCircleOutlined />,
-        text: 'Active',
-        color: '#52c41a',
-    },
-    inactive: {
-        type: 'default',
-        icon: <CloseCircleOutlined />,
-        text: 'Inactive',
-        color: '#d9d9d9',
-    },
-    pending: {
-        type: 'processing',
-        icon: <ClockCircleOutlined />,
-        text: 'Pending',
-        color: '#1890ff',
-    },
-    completed: {
-        type: 'success',
-        icon: <CheckCircleOutlined />,
-        text: 'Completed',
-        color: '#52c41a',
-    },
-    failed: {
-        type: 'error',
-        icon: <CloseCircleOutlined />,
-        text: 'Failed',
-        color: '#ff4d4f',
-    },
-    online: {
-        type: 'success',
-        icon: <CheckCircleOutlined />,
-        text: 'Online',
-        color: '#52c41a',
-    },
-    offline: {
-        type: 'default',
-        icon: <CloseCircleOutlined />,
-        text: 'Offline',
-        color: '#d9d9d9',
-    },
-    busy: {
-        type: 'warning',
-        icon: <ClockCircleOutlined />,
-        text: 'Busy',
-        color: '#faad14',
-    },
-};
-
 interface StatusTagProps {
     status: string;
     customConfigs?: Record<string, StatusConfig>;
@@ -88,6 +38,77 @@ const StatusTag: React.FC<StatusTagProps> = ({
     customConfigs = {},
     tooltip,
 }) => {
+    const { t } = useTranslation();
+
+    const defaultStatusConfigs: Record<string, StatusConfig> = {
+        active: {
+            type: 'success',
+            icon: <CheckCircleOutlined />,
+            text: t('pages.vehicles.status.active'),
+            color: '#52c41a',
+        },
+        inactive: {
+            type: 'default',
+            icon: <CloseCircleOutlined />,
+            text: t('pages.schedule.status.cancelled'),
+            color: '#d9d9d9',
+        },
+        pending: {
+            type: 'processing',
+            icon: <ClockCircleOutlined />,
+            text: t('pages.schedule.status.inProgress'),
+            color: '#1890ff',
+        },
+        'in-progress': {
+            type: 'processing',
+            icon: <ClockCircleOutlined />,
+            text: t('pages.schedule.status.inProgress'),
+            color: '#1890ff',
+        },
+        completed: {
+            type: 'success',
+            icon: <CheckCircleOutlined />,
+            text: t('pages.schedule.status.completed'),
+            color: '#52c41a',
+        },
+        failed: {
+            type: 'error',
+            icon: <CloseCircleOutlined />,
+            text: t('pages.schedule.status.cancelled'),
+            color: '#ff4d4f',
+        },
+        online: {
+            type: 'success',
+            icon: <CheckCircleOutlined />,
+            text: t('pages.chat.online'),
+            color: '#52c41a',
+        },
+        offline: {
+            type: 'default',
+            icon: <CloseCircleOutlined />,
+            text: t('pages.vehicles.status.offline'),
+            color: '#d9d9d9',
+        },
+        busy: {
+            type: 'warning',
+            icon: <ClockCircleOutlined />,
+            text: t('pages.chat.busy'),
+            color: '#faad14',
+        },
+        maintenance: {
+            type: 'processing',
+            icon: <ClockCircleOutlined />,
+            text: t('pages.vehicles.status.maintenance'),
+            color: '#1890ff',
+        },
+        scheduled: {
+            type: 'processing',
+            icon: <ClockCircleOutlined />,
+            text: t('pages.schedule.status.scheduled'),
+            color: '#1890ff',
+        },
+    };
+
     const config = customConfigs[status] || defaultStatusConfigs[status] || {
         type: 'default',
         icon: null,

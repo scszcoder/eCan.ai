@@ -59,39 +59,39 @@ const getStatusColor = (status: App['status']): string => {
 const initialApps: App[] = [
     {
         id: 1,
-        name: 'Task Manager',
+        name: 'TaskManager',
         version: '2.1.0',
         status: 'active',
         category: 'Productivity',
         size: '45MB',
         lastUpdated: '2 days ago',
         rating: 4.5,
-        description: 'A comprehensive task management application for organizing and tracking work.',
-        features: ['Task Creation', 'Progress Tracking', 'Team Collaboration', 'File Sharing'],
+        description: 'TaskManager',
+        features: ['TaskCreation', 'ProgressTracking', 'TeamCollaboration', 'FileSharing'],
     },
     {
         id: 2,
-        name: 'Data Analyzer',
+        name: 'DataAnalyzer',
         version: '1.5.2',
         status: 'updating',
         category: 'Analytics',
         size: '78MB',
         lastUpdated: '1 hour ago',
         rating: 4.2,
-        description: 'Advanced data analysis and visualization tool for business intelligence.',
-        features: ['Data Import', 'Visualization', 'Report Generation', 'Export Options'],
+        description: 'DataAnalyzer',
+        features: ['DataImport', 'Visualization', 'ReportGeneration', 'ExportOptions'],
     },
     {
         id: 3,
-        name: 'System Monitor',
+        name: 'SystemMonitor',
         version: '3.0.1',
         status: 'error',
         category: 'System',
         size: '32MB',
         lastUpdated: '1 week ago',
         rating: 4.8,
-        description: 'Real-time system monitoring and performance tracking tool.',
-        features: ['Resource Monitoring', 'Alert System', 'Performance Reports', 'Log Analysis'],
+        description: 'SystemMonitor',
+        features: ['ResourceMonitoring', 'AlertSystem', 'PerformanceReports', 'LogAnalysis'],
     },
 ];
 
@@ -105,6 +105,36 @@ const Apps: React.FC = () => {
         updateItem,
     } = useDetailView<App>(initialApps);
 
+    const translateApp = (app: App): App => {
+        // 如果已经是翻译后的文本（包含中文或特殊字符），直接返回
+        if (app.name.includes('管理器') || app.name.includes('分析器') || app.name.includes('监视器')) {
+            return app;
+        }
+
+        return {
+            ...app,
+            name: t(`pages.apps.apps.${app.name}.name`),
+            category: t(`pages.apps.categories.${app.category}`),
+            description: t(`pages.apps.apps.${app.name}.description`),
+            features: app.features.map(feature => {
+                // 如果功能名称已经是中文，直接返回
+                if (feature.includes('创建') || feature.includes('跟踪') || feature.includes('协作')) {
+                    return feature;
+                }
+                return t(`pages.apps.apps.${app.name}.features.${feature}`);
+            }),
+            lastUpdated: app.lastUpdated === '2 days ago'
+                ? t('pages.apps.time.daysAgo', { days: 2 })
+                : app.lastUpdated === '1 hour ago'
+                ? t('pages.apps.time.hoursAgo', { hours: 1 })
+                : app.lastUpdated === '1 week ago'
+                ? t('pages.apps.time.weeksAgo', { weeks: 1 })
+                : app.lastUpdated
+        };
+    };
+
+    const translatedApps = apps.map(translateApp);
+
     const handleUpdate = (id: number) => {
         updateItem(id, { status: 'updating' });
         // Simulate update process
@@ -112,7 +142,7 @@ const Apps: React.FC = () => {
             updateItem(id, { 
                 status: 'active',
                 version: (parseFloat(apps.find(app => app.id === id)?.version || '0') + 0.1).toFixed(1),
-                lastUpdated: 'Just now'
+                lastUpdated: t('pages.apps.time.justNow')
             });
         }, 2000);
     };
@@ -123,7 +153,7 @@ const Apps: React.FC = () => {
 
     const renderListContent = () => (
         <List
-            dataSource={apps}
+            dataSource={translatedApps}
             renderItem={app => (
                 <AppItem onClick={() => selectItem(app)}>
                     <Space direction="vertical" style={{ width: '100%' }}>
@@ -150,36 +180,38 @@ const Apps: React.FC = () => {
             return <Text type="secondary">{t('pages.apps.selectApp')}</Text>;
         }
 
+        const translatedApp = translateApp(selectedApp);
+
         return (
             <Space direction="vertical" style={{ width: '100%' }}>
                 <Space>
                     <Avatar size={64} icon={<AppstoreOutlined />} />
                     <div>
-                        <Title level={4} style={{ margin: 0 }}>{selectedApp.name}</Title>
-                        <Text type="secondary">{t('pages.apps.version', { version: selectedApp.version })}</Text>
+                        <Title level={4} style={{ margin: 0 }}>{translatedApp.name}</Title>
+                        <Text type="secondary">{t('pages.apps.version', { version: translatedApp.version })}</Text>
                     </div>
                 </Space>
                 <Space>
-                    <Tag color={getStatusColor(selectedApp.status)}>
-                        <CheckCircleOutlined /> {t('pages.apps.status')}: {t(`pages.apps.status.${selectedApp.status}`)}
+                    <Tag color={getStatusColor(translatedApp.status)}>
+                        <CheckCircleOutlined /> {t('pages.apps.status')}: {t(`pages.apps.status.${translatedApp.status}`)}
                     </Tag>
                     <Tag>
-                        <ClockCircleOutlined /> {t('pages.apps.lastUpdated')}: {selectedApp.lastUpdated}
+                        <ClockCircleOutlined /> {t('pages.apps.lastUpdated')}: {translatedApp.lastUpdated}
                     </Tag>
                     <Tag>
-                        <StarOutlined /> {t('pages.apps.rating')}: {selectedApp.rating}/5
+                        <StarOutlined /> {t('pages.apps.rating')}: {translatedApp.rating}/5
                     </Tag>
                 </Space>
                 <div>
                     <Text strong>{t('pages.apps.description')}</Text>
                     <br />
-                    <Text>{selectedApp.description}</Text>
+                    <Text>{translatedApp.description}</Text>
                 </div>
                 <div>
                     <Text strong>{t('pages.apps.features')}</Text>
                     <br />
                     <Space wrap>
-                        {selectedApp.features.map(feature => (
+                        {translatedApp.features.map(feature => (
                             <Tag key={feature} color="green">{feature}</Tag>
                         ))}
                     </Space>
@@ -190,7 +222,7 @@ const Apps: React.FC = () => {
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Text>{t('pages.apps.storageUsage')}</Text>
                                 <Progress percent={75} />
-                                <Text type="secondary">{selectedApp.size}</Text>
+                                <Text type="secondary">{translatedApp.size}</Text>
                             </Space>
                         </Card>
                     </Col>
@@ -198,8 +230,8 @@ const Apps: React.FC = () => {
                         <Card>
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Text>{t('pages.apps.userRating')}</Text>
-                                <Progress percent={selectedApp.rating * 20} />
-                                <Text type="secondary">{selectedApp.rating}/5</Text>
+                                <Progress percent={translatedApp.rating * 20} />
+                                <Text type="secondary">{translatedApp.rating}/5</Text>
                             </Space>
                         </Card>
                     </Col>
@@ -208,18 +240,21 @@ const Apps: React.FC = () => {
                     <Button 
                         type="primary" 
                         icon={<DownloadOutlined />}
-                        onClick={() => handleUpdate(selectedApp.id)}
-                        loading={selectedApp.status === 'updating'}
+                        onClick={() => handleUpdate(translatedApp.id)}
+                        disabled={translatedApp.status === 'updating'}
                     >
                         {t('pages.apps.update')}
                     </Button>
-                    <Button icon={<SettingOutlined />}>
+                    <Button 
+                        icon={<SettingOutlined />}
+                        onClick={() => {}}
+                    >
                         {t('pages.apps.settings')}
                     </Button>
                     <Button 
-                        danger 
+                        danger
                         icon={<DeleteOutlined />}
-                        onClick={() => handleUninstall(selectedApp.id)}
+                        onClick={() => handleUninstall(translatedApp.id)}
                     >
                         {t('pages.apps.uninstall')}
                     </Button>
