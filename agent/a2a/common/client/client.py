@@ -67,7 +67,9 @@ class A2AClient:
                 response = await client.post(
                     self.url, json=request.model_dump(), timeout=30
                 )
+                print("response recevied from server:", type(response), response)
                 response.raise_for_status()
+                print("etc response", response)
                 return response.json()
             except httpx.HTTPStatusError as e:
                 raise A2AClientHTTPError(e.response.status_code, str(e)) from e

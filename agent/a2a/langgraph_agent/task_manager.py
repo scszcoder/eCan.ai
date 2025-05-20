@@ -1,4 +1,4 @@
-from typing import AsyncIterable, Dict
+from typing import AsyncIterable, Dict, Any
 from agent.a2a.common.types import (
     SendTaskRequest,
     TaskSendParams,
@@ -32,6 +32,7 @@ import asyncio
 import logging
 import traceback
 from starlette.responses import JSONResponse
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,13 @@ class AgentTaskManager(InMemoryTaskManager):
             return JSONRPCResponse(id=request.id, error=InvalidParamsError(message="Push notification URL is missing"))
         
         return None
-        
+
+    def resolve_waiter(self, task_id: str, result: Any):
+        future = self._futures.pop(task_id, None)
+        if future and not future.done():
+            print("FUTURE COMPLETED....", result)
+            future.set_result(result)
+
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         """Handles the 'send task' request."""
         print("INCOMING REQUEST:", request)
@@ -159,12 +166,28 @@ class AgentTaskManager(InMemoryTaskManager):
             try:
                 # 2. Wait with timeout
                 result = await asyncio.wait_for(waiter, timeout=10)
-                print("waiter run result......", result)
-                return JSONResponse({"result": result})
+                print("waiter run result......", result, type(result))
+                task_stat = TaskStatus(
+                    state=TaskState.COMPLETED,
+                )
+                print("task_stat", task_stat, type(task_stat))
+                task_result = Task(
+                    id=str(),
+                    sessionId="",
+                    status=task_stat,
+                    artifacts=None,
+                    history=None,
+                    metadata=None
+                )
+                server_response = SendTaskResponse(id=request.params.id, result=task_result)
+                print("about to return server response", type(server_response), server_response)
+                return server_response
+
             except asyncio.TimeoutError:
                 return JSONResponse({"error": "Timeout waiting for task result"}, status_code=504)
             except Exception as e:
-                return JSONResponse({"error": str(e)}, status_code=500)
+                return SendTaskResponse(id=request.params.id, error=InternalError(message=str(e)))
+
 
 
             # Notify

@@ -5,6 +5,8 @@ import uuid
 from agent.a2a.common.types import *
 from agent.ec_skill import EC_Skill
 import os
+from fastapi.responses import JSONResponse
+
 from datetime import datetime, timedelta
 import inspect
 import traceback
@@ -117,10 +119,12 @@ class ManagedTask(Task):
 
             print("task completed...")
             self.status.state = TaskState.COMPLETED
+            return {"success": True}  # ✅ safe here
 
         except Exception as e:
             ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
+            return {"success": False, "Error": ex_stat}
 
     async def create_scheduler_task(self):
         self.task = asyncio.create_task(self.scheduled_run())
@@ -500,7 +504,9 @@ class TaskRunner(Generic[Context]):
                             }
                             print("ready to run the right task", task2run.name, msg)
                             response = await task2run.astream_run()
-
+                            print("task run response:", response)
+                            task_id = msg.params.id
+                            self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                         self.msg_queue.task_done()
 
                         # process msg here and the msg could be start a task run.
