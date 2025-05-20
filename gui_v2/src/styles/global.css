@@ -1275,4 +1275,138 @@ body {
 .ant-dropdown-menu,
 .ant-dropdown-menu-item {
     transition: none !important;
+}
+
+/* 登录页面样式 */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    width: 100%;
+    background: var(--bg-primary);
+    position: relative;
+    overflow: hidden;
+}
+
+.login-decoration {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle at 20% 20%, rgba(24, 144, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(24, 144, 255, 0.1) 0%, transparent 50%);
+    animation: backgroundShift 15s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+
+.login-card {
+    width: 400px !important;
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 24px !important;
+    position: relative;
+    z-index: 1;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.login-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
+}
+
+.login-title {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.login-title h2 {
+    margin-bottom: 8px !important;
+    background: linear-gradient(45deg, var(--primary-color), #40a9ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 600 !important;
+}
+
+.login-form {
+    width: 100%;
+}
+
+.login-form .ant-form-item {
+    margin-bottom: 24px;
+}
+
+.login-form .ant-input-affix-wrapper {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    transition: all 0.3s ease;
+}
+
+.login-form .ant-input-affix-wrapper:hover,
+.login-form .ant-input-affix-wrapper:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+}
+
+.login-form .ant-btn-primary {
+    height: 40px;
+    font-size: 16px;
+    background: linear-gradient(45deg, var(--primary-color), #40a9ff);
+    border: none;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+}
+
+.login-form .ant-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+}
+
+@keyframes backgroundShift {
+    0% {
+        background-position: 0% 0%;
+    }
+    100% {
+        background-position: 100% 100%;
+    }
+}
+
+/* 确保下拉菜单在登录页面正确显示 */
+.login-container .ant-select-dropdown {
+    z-index: 9999999 !important;
+}
+
+.login-container .ant-select-dropdown .ant-select-item {
+    background: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
+.login-container .ant-select-dropdown .ant-select-item-option-selected {
+    background: var(--primary-color) !important;
+    color: white !important;
+}
+
+.login-container .ant-select-dropdown .ant-select-item-option-active {
+    background: var(--hover-color) !important;
+}
+
+/* 确保语言和角色选择器样式正确 */
+.login-container .ant-select {
+    background: var(--bg-secondary) !important;
+}
+
+.login-container .ant-select-selector {
+    background: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+
+.login-container .ant-select-arrow {
+    color: var(--text-secondary) !important;
 } 

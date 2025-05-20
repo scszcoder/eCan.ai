@@ -3,45 +3,9 @@ import { Form, Input, Button, Card, Select, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import styled from '@emotion/styled';
 import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
-
-const LoginContainer = styled.div`
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    background: #f0f2f5;
-    position: relative;
-`;
-
-const LoginCard = styled(Card)`
-    width: 400px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-`;
-
-const LoginTitle = styled.div`
-    text-align: center;
-    margin-bottom: 24px;
-`;
-
-const SelectContainer = styled.div`
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    gap: 12px;
-    z-index: 10;
-`;
-
-const Logo = styled.img`
-    display: block;
-    width: 120px;
-    height: auto;
-    margin: 0 auto 32px;
-`;
 
 const Login: React.FC = () => {
     const navigate = useNavigate();
@@ -104,8 +68,9 @@ const Login: React.FC = () => {
     ];
 
     return (
-        <LoginContainer>
-            <SelectContainer>
+        <div className="login-container">
+            <div className="login-decoration" />
+            <div style={{ position: 'absolute', top: 20, right: 20, display: 'flex', gap: 12, zIndex: 10 }}>
                 <Select
                     value={currentLanguage}
                     style={{ width: 120 }}
@@ -120,14 +85,14 @@ const Login: React.FC = () => {
                     onChange={handleRoleChange}
                     options={roleOptions}
                 />
-            </SelectContainer>
+            </div>
 
-            <LoginCard>
-                <Logo src={logo} alt="ECBOT" />
-                <LoginTitle>
+            <Card className="login-card" style={{ width: 400 }}>
+                <img src={logo} alt="ECBOT" style={{ display: 'block', width: 120, height: 'auto', margin: '0 auto 32px' }} />
+                <div className="login-title">
                     <Title level={2}>{t('login.title')}</Title>
                     <Text type="secondary">{t('login.subtitle')}</Text>
-                </LoginTitle>
+                </div>
 
                 <Form
                     form={form}
@@ -139,6 +104,7 @@ const Login: React.FC = () => {
                         role: 'commander',
                     }}
                     size="large"
+                    className="login-form"
                 >
                     <Form.Item
                         name="username"
@@ -171,8 +137,8 @@ const Login: React.FC = () => {
                         </Button>
                     </Form.Item>
                 </Form>
-            </LoginCard>
-        </LoginContainer>
+            </Card>
+        </div>
     );
 };
 
