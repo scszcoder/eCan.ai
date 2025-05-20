@@ -1,14 +1,15 @@
 from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QDockWidget, 
                              QTextEdit, QTabWidget, QSplitter)
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtCore import QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QUrl, Qt, Signal, Slot, QObject, Property
 from PySide6.QtGui import QAction, QKeySequence, QTextCursor
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInterceptor
+from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings, QWebEngineUrlRequestInterceptor, QWebChannel
 from pathlib import Path
 import os
 import datetime
 import sys
 import logging
+import json
 
 # 配置日志以抑制 macOS IMK 警告
 if sys.platform == 'darwin':
@@ -17,6 +18,7 @@ if sys.platform == 'darwin':
 
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper
+from gui.ipc import IPCHandler, WebRequestHandler
 
 class DevToolsWindow(QDockWidget):
     def __init__(self, parent=None):
@@ -130,16 +132,17 @@ class WebGUI(QMainWindow):
         self.addDockWidget(Qt.BottomDockWidgetArea, self.dev_tools)
         self.dev_tools.hide()  # 默认隐藏
         
-        # 连接信号
-        self.web_view.loadStarted.connect(self.on_load_started)
-        self.web_view.loadProgress.connect(self.on_load_progress)
-        self.web_view.loadFinished.connect(self.on_load_finished)
-        self.web_view.loadStarted.connect(lambda: logger_helper.info("Page load started"))
-        self.web_view.loadFinished.connect(lambda ok: logger_helper.info(f"Page load finished: {'success' if ok else 'failed'}"))
+        # 创建 IPC 处理器
+        self.ipc_handler = IPCHandler(self)
+        
+        # 创建 Web 请求处理器
+        self.web_request = WebRequestHandler(self.ipc_handler)
         
         # 设置页面
         page = self.web_view.page()
-        page.setWebChannel(None)  # 禁用 WebChannel
+        channel = QWebChannel(page)
+        channel.registerObject("bridge", self.ipc_handler)
+        page.setWebChannel(channel)
         page.setBackgroundColor(Qt.white)  # 设置背景色
         
         # 配置 WebEngine 设置
@@ -160,8 +163,12 @@ class WebGUI(QMainWindow):
         settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
         settings.setAttribute(QWebEngineSettings.AllowGeolocationOnInsecureOrigins, True)
         
-        # 连接 JavaScript 控制台消息
-        page.javaScriptConsoleMessage = self.on_console_message
+        # 连接信号
+        self.web_view.loadStarted.connect(self.on_load_started)
+        self.web_view.loadProgress.connect(self.on_load_progress)
+        self.web_view.loadFinished.connect(self.on_load_finished)
+        self.web_view.loadStarted.connect(lambda: logger_helper.info("Page load started"))
+        self.web_view.loadFinished.connect(lambda ok: logger_helper.info(f"Page load finished: {'success' if ok else 'failed'}"))
         
         # 获取 Web URL
         web_url = app_settings.get_web_url()
@@ -199,91 +206,56 @@ class WebGUI(QMainWindow):
                 base_url = QUrl.fromLocalFile(str(app_settings.dist_dir.absolute()))
                 logger_helper.info(f"Base URL: {base_url.toString()}")
                 
-                # 注入调试代码
-                debug_script = """
+                # 注入 WebChannel 和调试代码
+                webchannel_script = """
+                <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
                 <script>
-                    // 重写 console 方法
-                    const originalConsole = {
-                        log: console.log,
-                        info: console.info,
-                        warn: console.warn,
-                        error: console.error,
-                        debug: console.debug
-                    };
-                    
-                    function wrapConsoleMethod(method, level) {
-                        return function(...args) {
-                            // 格式化消息
-                            const message = args.map(arg => {
-                                if (typeof arg === 'object') {
-                                    try {
-                                        return JSON.stringify(arg);
-                                    } catch (e) {
-                                        return String(arg);
-                                    }
+                    // 初始化 WebChannel
+                    new QWebChannel(qt.webChannelTransport, function(channel) {
+                        window.bridge = channel.objects.bridge;
+                        
+                        // 监听来自 Python 的消息
+                        bridge.dataReceived.connect(function(message) {
+                            try {
+                                const data = JSON.parse(message);
+                                console.log('Received from Python:', data);
+                                // 处理来自 Python 的消息
+                                if (data.type === 'response') {
+                                    handlePythonResponse(data);
                                 }
-                                return String(arg);
-                            }).join(' ');
-                            
-                            // 发送到 Python
-                            originalConsole[method](`[${level}] ${message}`);
+                            } catch (e) {
+                                console.error('Error parsing message from Python:', e);
+                            }
+                        });
+                        
+                        // 发送消息到 Python 的函数
+                        window.sendToPython = function(message) {
+                            if (typeof message === 'object') {
+                                message = JSON.stringify(message);
+                            }
+                            bridge.sendToPython(message);
                         };
-                    }
-                    
-                    // 保存原始方法
-                    const originalLog = console.log;
-                    const originalInfo = console.info;
-                    const originalWarn = console.warn;
-                    const originalError = console.error;
-                    const originalDebug = console.debug;
-                    
-                    // 重写方法
-                    console.log = wrapConsoleMethod('log', 'INFO');
-                    console.info = wrapConsoleMethod('info', 'INFO');
-                    console.warn = wrapConsoleMethod('warn', 'WARNING');
-                    console.error = wrapConsoleMethod('error', 'ERROR');
-                    console.debug = wrapConsoleMethod('debug', 'DEBUG');
-                    
-                    // 监听错误
-                    window.addEventListener('error', function(event) {
-                        originalError('JavaScript Error:', event.message, 'at', event.filename, ':', event.lineno);
-                    });
-                    
-                    // 监听未处理的 Promise 错误
-                    window.addEventListener('unhandledrejection', function(event) {
-                        originalError('Unhandled Promise Rejection:', event.reason);
-                    });
-                    
-                    // 检查 React 是否正确加载
-                    window.addEventListener('load', function() {
-                        originalLog('Window loaded');
-                        if (window.React) {
-                            originalLog('React is loaded');
-                        } else {
-                            originalError('React is not loaded');
+                        
+                        // 处理来自 Python 的响应
+                        function handlePythonResponse(data) {
+                            // 根据响应类型处理数据
+                            switch(data.responseType) {
+                                case 'command_result':
+                                    console.log('Command result:', data.result);
+                                    break;
+                                case 'request_result':
+                                    console.log('Request result:', data.result);
+                                    break;
+                                default:
+                                    console.log('Unknown response type:', data);
+                            }
                         }
                     });
-                    
-                    // 添加跨域请求测试
-                    window.testCrossOrigin = async function() {
-                        try {
-                            const response = await fetch('https://api.example.com/data', {
-                                method: 'GET',
-                                headers: {
-                                    'Content-Type': 'application/json'
-                                }
-                            });
-                            const data = await response.json();
-                            originalLog('Cross-origin request successful:', data);
-                        } catch (error) {
-                            originalError('Cross-origin request failed:', error);
-                        }
-                    };
                 </script>
                 """
                 
-                # 在 </head> 标签前插入调试代码
-                html_content = html_content.replace('</head>', f'{debug_script}</head>')
+                # 在 </head> 标签前插入 WebChannel 代码
+                html_content = html_content.replace('</head>', f'{webchannel_script}</head>')
                 
                 # 修改资源路径为绝对路径
                 html_content = html_content.replace('src="./', f'src="file://{app_settings.dist_dir}/')
