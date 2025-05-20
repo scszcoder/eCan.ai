@@ -87,8 +87,8 @@
     "saved": "Settings saved"
   },
   "languages": {
-    "en": "English",
-    "zh": "Chinese"
+    "en-US": "English",
+    "zh-CN": "简体中文"
   },
   "pages": {
     "dashboard": {

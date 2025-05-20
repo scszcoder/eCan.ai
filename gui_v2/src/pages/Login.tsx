@@ -51,7 +51,10 @@ const Login: React.FC = () => {
     useEffect(() => {
         // 确保初始时角色为 commander
         form.setFieldsValue({ role: 'commander' });
-    }, [form]);
+        // 设置默认语言
+        const savedLanguage = localStorage.getItem('i18nextLng') || 'zh-CN';
+        i18n.changeLanguage(savedLanguage);
+    }, [form, i18n]);
 
     const handleSubmit = async (values: any) => {
         try {
@@ -74,10 +77,10 @@ const Login: React.FC = () => {
         }
     };
 
-    const handleLanguageChange = (value: string) => {
-        i18n.changeLanguage(value);
-        localStorage.setItem('i18nextLng', value);
-        localStorage.setItem('language', value);
+    const handleLanguageChange = (value: { value: string; label: string }) => {
+        i18n.changeLanguage(value.value);
+        localStorage.setItem('i18nextLng', value.value);
+        localStorage.setItem('language', value.value);
     };
 
     const handleRoleChange = (value: string) => {
@@ -85,9 +88,14 @@ const Login: React.FC = () => {
     };
 
     const languageOptions = [
-        { value: 'en', label: t('languages.en') },
-        { value: 'zh', label: t('languages.zh') },
+        { value: 'en-US', label: t('languages.en-US') },
+        { value: 'zh-CN', label: t('languages.zh-CN') },
     ];
+
+    const currentLanguage = {
+        value: i18n.language,
+        label: t(`languages.${i18n.language}`)
+    };
 
     const roleOptions = [
         { value: 'commander', label: t('roles.commander') },
@@ -99,10 +107,12 @@ const Login: React.FC = () => {
         <LoginContainer>
             <SelectContainer>
                 <Select
-                    value={i18n.language}
+                    value={currentLanguage}
                     style={{ width: 120 }}
                     onChange={handleLanguageChange}
                     options={languageOptions}
+                    placeholder={t('login.selectLanguage')}
+                    labelInValue
                 />
                 <Select
                     value={form.getFieldValue('role') || 'commander'}

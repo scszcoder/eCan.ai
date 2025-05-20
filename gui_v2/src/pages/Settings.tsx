@@ -56,8 +56,8 @@ const Settings: React.FC = () => {
                         label={t('settings.language')}
                     >
                         <Select onChange={handleLanguageChange}>
-                            <Option value="en">{t('languages.en')}</Option>
-                            <Option value="zh">{t('languages.zh')}</Option>
+                            <Option value="en-US">{t('languages.en-US')}</Option>
+                            <Option value="zh-CN">{t('languages.zh-CN')}</Option>
                         </Select>
                     </Form.Item>
 
