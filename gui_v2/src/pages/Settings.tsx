@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Card, Form, Input, Switch, Select, Button, Space, Typography, message } from 'antd';
+import { Card, Form, Input, Switch, Select, Button, Space, Typography, App } from 'antd';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import { useTheme } from '../contexts/ThemeContext';
@@ -19,6 +19,7 @@ const Settings: React.FC = () => {
     const { t, i18n } = useTranslation();
     const { theme: currentTheme, changeTheme } = useTheme();
     const [form] = Form.useForm();
+    const { message } = App.useApp();
 
     // 初始化表单值
     useEffect(() => {
@@ -88,9 +89,9 @@ const Settings: React.FC = () => {
                             onClick={handleDropdownClick}
                             getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
                         >
-                            <Option value="light">{t('settings.light')}</Option>
-                            <Option value="dark">{t('settings.dark')}</Option>
-                            <Option value="system">{t('settings.system')}</Option>
+                            <Option value="light">{t('settings.theme.light')}</Option>
+                            <Option value="dark">{t('settings.theme.dark')}</Option>
+                            <Option value="system">{t('settings.theme.system')}</Option>
                         </Select>
                     </Form.Item>
                 </Card>
