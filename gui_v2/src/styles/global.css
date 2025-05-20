@@ -1238,4 +1238,41 @@ body {
 .ant-select-dropdown {
     position: fixed !important;
     z-index: 99999 !important;
+}
+
+/* 用户下拉菜单样式 */
+.ant-dropdown {
+    z-index: 9999 !important;
+}
+
+.ant-dropdown-menu {
+    background-color: var(--bg-secondary) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+    padding: 4px 0 !important;
+}
+
+.ant-dropdown-menu-item {
+    color: var(--text-primary) !important;
+    padding: 8px 16px !important;
+    transition: none !important;
+    cursor: pointer !important;
+    background-color: var(--bg-secondary) !important;
+}
+
+.ant-dropdown-menu-item:hover {
+    background-color: var(--bg-tertiary) !important;
+}
+
+.ant-dropdown-menu-item-selected {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--primary-color) !important;
+}
+
+/* 移除全局过渡动画对下拉菜单的影响 */
+.ant-dropdown,
+.ant-dropdown-menu,
+.ant-dropdown-menu-item {
+    transition: none !important;
 } 
