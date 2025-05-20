@@ -299,9 +299,8 @@ body {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: var(--shadow-lg) !important;
-    z-index: 1050 !important;
-    transition: none !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+    z-index: 9999 !important;
 }
 
 .ant-select-item {
@@ -311,19 +310,15 @@ body {
 }
 
 .ant-select-item:hover {
-    background-color: var(--bg-tertiary) !important;
+    background-color: var(--bg-hover) !important;
 }
 
 .ant-select-item-option-selected {
-    background-color: var(--bg-tertiary) !important;
+    background-color: var(--bg-hover) !important;
     color: var(--primary-color) !important;
 }
 
-.ant-select-item-option-active {
-    background-color: var(--bg-tertiary) !important;
-}
-
-/* 设置页面的下拉菜单样式 */
+/* 设置页面下拉菜单样式 */
 .settings-select .ant-select-selector {
     background-color: var(--bg-tertiary) !important;
     border: 1px solid var(--border-color) !important;
@@ -331,7 +326,6 @@ body {
     color: var(--text-primary) !important;
     height: 36px !important;
     padding: 0 12px !important;
-    transition: none !important;
 }
 
 .settings-select .ant-select-selection-item {
@@ -343,18 +337,23 @@ body {
     color: var(--text-secondary) !important;
 }
 
+/* 设置页面下拉菜单容器样式 */
 .settings-select .ant-select-dropdown {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: var(--shadow-lg) !important;
-    transition: none !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+    z-index: 99999 !important;
+    position: fixed !important;
 }
 
+/* 设置页面下拉菜单项样式 */
 .settings-select .ant-select-item {
     color: var(--text-primary) !important;
     padding: 8px 12px !important;
     transition: none !important;
+    cursor: pointer !important;
+    background-color: var(--bg-secondary) !important;
 }
 
 .settings-select .ant-select-item:hover {
@@ -370,9 +369,22 @@ body {
     background-color: var(--bg-tertiary) !important;
 }
 
-/* 确保下拉菜单在模态框中正确显示 */
+/* 确保下拉菜单在模态框之上 */
 .ant-modal-root .ant-select-dropdown {
-    z-index: 1100 !important;
+    z-index: 11000 !important;
+}
+
+/* 移除全局过渡动画对下拉菜单的影响 */
+.ant-select-dropdown,
+.ant-select-item,
+.ant-select-item-option {
+    transition: none !important;
+}
+
+/* 确保下拉菜单在页面最上层 */
+.ant-select-dropdown {
+    position: fixed !important;
+    z-index: 99999 !important;
 }
 
 /* 用户菜单样式 */
@@ -1108,27 +1120,23 @@ body {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: var(--shadow-lg) !important;
-    z-index: 1050 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+    z-index: 9999 !important;
 }
 
 .ant-select-item {
     color: var(--text-primary) !important;
     padding: 8px 12px !important;
-    transition: var(--transition-fast) !important;
+    transition: none !important;
 }
 
 .ant-select-item:hover {
-    background-color: var(--bg-tertiary) !important;
+    background-color: var(--bg-hover) !important;
 }
 
 .ant-select-item-option-selected {
-    background-color: var(--bg-tertiary) !important;
+    background-color: var(--bg-hover) !important;
     color: var(--primary-color) !important;
-}
-
-.ant-select-item-option-active {
-    background-color: var(--bg-tertiary) !important;
 }
 
 /* 确保下拉菜单在模态框之上 */
@@ -1182,18 +1190,23 @@ body {
     color: var(--text-secondary) !important;
 }
 
+/* 设置页面下拉菜单容器样式 */
 .settings-select .ant-select-dropdown {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: var(--shadow-lg) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+    z-index: 99999 !important;
+    position: fixed !important;
 }
 
+/* 设置页面下拉菜单项样式 */
 .settings-select .ant-select-item {
     color: var(--text-primary) !important;
-    padding: 8px 16px !important;
+    padding: 8px 12px !important;
+    transition: none !important;
     cursor: pointer !important;
-    transition: var(--transition-fast) !important;
+    background-color: var(--bg-secondary) !important;
 }
 
 .settings-select .ant-select-item:hover {
@@ -1209,125 +1222,20 @@ body {
     background-color: var(--bg-tertiary) !important;
 }
 
-/* 设置页面表单样式 */
-.settings-form .ant-form-item-label > label {
-    color: var(--text-primary) !important;
-    font-weight: 500 !important;
+/* 确保下拉菜单在模态框之上 */
+.ant-modal-root .ant-select-dropdown {
+    z-index: 11000 !important;
 }
 
-.settings-form .ant-form-item {
-    margin-bottom: 24px !important;
-}
-
-.settings-form .ant-form-item-explain {
-    color: var(--text-secondary) !important;
-    font-size: 12px !important;
-    margin-top: 4px !important;
-}
-
-/* 设置页面卡片样式 */
-.settings-card {
-    background-color: var(--bg-secondary) !important;
-    border: 1px solid var(--border-color) !important;
-    border-radius: 12px !important;
-    box-shadow: var(--shadow-sm) !important;
-    transition: var(--transition-normal) !important;
-}
-
-.settings-card:hover {
-    box-shadow: var(--shadow-md) !important;
-}
-
-.settings-card .ant-card-head {
-    border-bottom: 1px solid var(--border-color) !important;
-    padding: 16px 24px !important;
-}
-
-.settings-card .ant-card-head-title {
-    color: var(--text-primary) !important;
-    font-size: 16px !important;
-    font-weight: 500 !important;
-}
-
-.settings-card .ant-card-body {
-    padding: 24px !important;
-}
-
-/* 用户下拉菜单样式 */
-.ant-dropdown {
-    background-color: var(--bg-secondary) !important;
-    border: 1px solid var(--border-color) !important;
-    border-radius: 8px !important;
-    box-shadow: var(--shadow-lg) !important;
-    z-index: 1050 !important;
+/* 移除全局过渡动画对下拉菜单的影响 */
+.ant-select-dropdown,
+.ant-select-item,
+.ant-select-item-option {
     transition: none !important;
 }
 
-.ant-dropdown-menu {
-    background-color: var(--bg-secondary) !important;
-    border-radius: 8px !important;
-    padding: 4px !important;
-    min-width: 160px !important;
-}
-
-.ant-dropdown-menu-item {
-    color: var(--text-primary) !important;
-    padding: 8px 16px !important;
-    border-radius: 4px !important;
-    transition: none !important;
-    cursor: pointer !important;
-}
-
-.ant-dropdown-menu-item:hover {
-    background-color: var(--bg-tertiary) !important;
-}
-
-.ant-dropdown-menu-item-selected {
-    background-color: var(--bg-tertiary) !important;
-    color: var(--primary-color) !important;
-}
-
-.ant-dropdown-menu-item-icon {
-    color: var(--text-secondary) !important;
-    font-size: 16px !important;
-}
-
-.ant-dropdown-menu-item:hover .ant-dropdown-menu-item-icon {
-    color: var(--primary-color) !important;
-}
-
-.ant-dropdown-menu-item-danger {
-    color: #ef4444 !important;
-}
-
-.ant-dropdown-menu-item-danger:hover {
-    background-color: rgba(239, 68, 68, 0.1) !important;
-}
-
-/* 用户菜单触发器样式 */
-.user-dropdown {
-    cursor: pointer !important;
-    padding: 0 12px !important;
-    height: 64px !important;
-    display: flex !important;
-    align-items: center !important;
-    transition: none !important;
-}
-
-.user-dropdown:hover {
-    background-color: var(--bg-tertiary) !important;
-}
-
-.user-dropdown .ant-avatar {
-    margin-right: 8px !important;
-}
-
-.user-dropdown .username {
-    color: var(--text-primary) !important;
-    font-weight: 500 !important;
-}
-
-/* 确保下拉菜单在模态框中正确显示 */
-.ant-modal-root .ant-dropdown {
-    z-index: 1100 !important;
+/* 确保下拉菜单在页面最上层 */
+.ant-select-dropdown {
+    position: fixed !important;
+    z-index: 99999 !important;
 } 
