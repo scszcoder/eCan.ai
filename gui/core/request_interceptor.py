@@ -3,9 +3,7 @@
 """
 
 from PySide6.QtWebEngineCore import QWebEngineUrlRequestInterceptor
-import logging
-
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper
 
 class RequestInterceptor(QWebEngineUrlRequestInterceptor):
     """请求拦截器类，用于拦截和修改网络请求"""
@@ -22,4 +20,4 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
         info.setHttpHeader(b"Access-Control-Allow-Credentials", b"true")
         
         # 记录请求信息
-        logger.debug(f"Intercepted request: {info.requestMethod().data().decode()} {info.requestUrl().toString()}") 
+        logger_helper.debug(f"Intercepted request: {info.requestMethod().data().decode()} {info.requestUrl().toString()}") 
