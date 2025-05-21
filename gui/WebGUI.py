@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QDockWidget, 
                              QTextEdit, QTabWidget, QSplitter)
 from PySide6.QtCore import Qt, Signal, Slot, QObject, Property
-from PySide6.QtGui import QAction, QKeySequence, QTextCursor
+from PySide6.QtGui import QAction, QKeySequence, QTextCursor, QShortcut
 import datetime
 import sys
 import os
@@ -18,7 +18,7 @@ from gui.ipc import IPCHandler, WebRequestHandler
 from gui.core.web_engine import WebEngine
 from gui.core.request_interceptor import RequestInterceptor
 from gui.core.js_injector import JavaScriptInjector
-from gui.core.dev_tools_plugin import DevToolsPlugin
+from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
     def __init__(self):
@@ -34,12 +34,8 @@ class WebGUI(QMainWindow):
         # 创建 Web 引擎
         self.web_engine = WebEngine()
         
-        # 创建开发者工具插件
-        self.dev_tools = DevToolsPlugin(self)
-        self.dev_tools_dock = QDockWidget("开发者工具", self)
-        self.dev_tools_dock.setWidget(self.dev_tools)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.dev_tools_dock)
-        self.dev_tools_dock.hide()  # 默认隐藏
+        # 创建开发者工具管理器
+        self.dev_tools_manager = DevToolsManager(self)
         
         # 创建 IPC 处理器
         self.ipc_handler = IPCHandler(self)
@@ -80,7 +76,7 @@ class WebGUI(QMainWindow):
         layout.addWidget(self.web_engine)
         
         # 设置快捷键
-        self.setup_shortcuts()
+        self._setup_shortcuts()
     
     def load_local_html(self):
         """加载本地 HTML 文件"""
@@ -193,13 +189,11 @@ class WebGUI(QMainWindow):
         else:
             logger_helper.error("Page load failed")
     
-    def setup_shortcuts(self):
+    def _setup_shortcuts(self):
         """设置快捷键"""
-        # F12 打开开发者工具
-        dev_tools_action = QAction(self)
-        dev_tools_action.setShortcut(QKeySequence('F12'))
-        dev_tools_action.triggered.connect(self.toggle_dev_tools)
-        self.addAction(dev_tools_action)
+        # 开发者工具快捷键
+        self.dev_tools_shortcut = QShortcut(QKeySequence("F12"), self)
+        self.dev_tools_shortcut.activated.connect(self.dev_tools_manager.toggle)
         
         # F5 重新加载
         reload_action = QAction(self)
@@ -210,17 +204,9 @@ class WebGUI(QMainWindow):
         # Ctrl+L 清除日志
         clear_logs_action = QAction(self)
         clear_logs_action.setShortcut(QKeySequence('Ctrl+L'))
-        clear_logs_action.triggered.connect(self.dev_tools.clear_all)
+        clear_logs_action.triggered.connect(self.dev_tools_manager.clear_all)
         self.addAction(clear_logs_action)
-        
-    def toggle_dev_tools(self):
-        """切换开发者工具"""
-        logger_helper.info("Toggling developer tools...")
-        if self.dev_tools_dock.isVisible():
-            self.dev_tools_dock.hide()
-        else:
-            self.dev_tools_dock.show()
-        
+    
     def reload(self):
         """重新加载页面"""
         logger_helper.info("Reloading page...")

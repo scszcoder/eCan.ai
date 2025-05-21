@@ -2,11 +2,18 @@
 WebEngine 核心模块，处理 Web 引擎相关的功能
 """
 
+import os
+import sys
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtCore import QUrl, Qt
 from PySide6.QtWebChannel import QWebChannel
 import logging
+
+# 配置日志以抑制 macOS IMK 警告
+if sys.platform == 'darwin':
+    os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+    logging.getLogger('PySide6').setLevel(logging.ERROR)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +43,11 @@ class WebEngine(QWebEngineView):
         settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
         settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
         settings.setAttribute(QWebEngineSettings.AllowGeolocationOnInsecureOrigins, True)
+        
+        # 禁用输入法相关功能以减少警告
+        if sys.platform == 'darwin':
+            settings.setAttribute(QWebEngineSettings.JavascriptCanOpenWindows, False)
+            settings.setAttribute(QWebEngineSettings.JavascriptCanAccessClipboard, False)
     
     def setup_web_channel(self, handler):
         """设置 WebChannel"""
