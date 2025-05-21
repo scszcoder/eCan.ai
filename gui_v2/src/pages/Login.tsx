@@ -53,10 +53,6 @@ const Login: React.FC = () => {
         localStorage.setItem('language', value.value);
     };
 
-    const handleRoleChange = (value: string) => {
-        form.setFieldsValue({ role: value });
-    };
-
     const languageOptions = [
         { value: 'en-US', label: t('languages.en-US') },
         { value: 'zh-CN', label: t('languages.zh-CN') },
@@ -84,12 +80,6 @@ const Login: React.FC = () => {
                     options={languageOptions}
                     placeholder={t('login.selectLanguage')}
                     labelInValue
-                />
-                <Select
-                    value={form.getFieldValue('role') || 'commander'}
-                    style={{ width: 140 }}
-                    onChange={handleRoleChange}
-                    options={roleOptions}
                 />
             </div>
 
@@ -133,9 +123,14 @@ const Login: React.FC = () => {
                         />
                     </Form.Item>
 
-                    {/* 隐藏的角色表单项，确保表单能收集到角色 */}
-                    <Form.Item name="role" style={{ display: 'none' }}>
-                        <Input type="hidden" />
+                    <Form.Item
+                        name="role"
+                        rules={[{ required: true, message: t('common.role') }]}
+                    >
+                        <Select
+                            options={roleOptions}
+                            placeholder={t('common.selectRole')}
+                        />
                     </Form.Item>
 
                     <Form.Item>
