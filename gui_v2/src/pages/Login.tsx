@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -13,19 +13,17 @@ interface LoginFormValues {
     role: string;
 }
 
-const LoginContent: React.FC = () => {
+const LoginForm: React.FC = () => {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const [form] = Form.useForm<LoginFormValues>();
     const { message } = App.useApp();
 
-    useEffect(() => {
-        // 确保初始时角色为 commander
-        form.setFieldsValue({ role: 'commander' });
-        // 设置默认语言
+    // 设置默认语言
+    React.useEffect(() => {
         const savedLanguage = localStorage.getItem('i18nextLng') || 'zh-CN';
         i18n.changeLanguage(savedLanguage);
-    }, [form, i18n]);
+    }, [i18n]);
 
     const handleSubmit = async (values: LoginFormValues) => {
         try {
@@ -154,7 +152,7 @@ const LoginContent: React.FC = () => {
 const Login: React.FC = () => {
     return (
         <App>
-            <LoginContent />
+            <LoginForm />
         </App>
     );
 };
