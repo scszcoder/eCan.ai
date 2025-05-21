@@ -83,6 +83,13 @@ const SettingsContent: React.FC = () => {
     }
   };
 
+  const initialValues = {
+    theme: theme,
+    language: localStorage.getItem('language') || 'en-US',
+    notifications: localStorage.getItem('notifications') === 'true',
+    autoUpdate: localStorage.getItem('autoUpdate') === 'true'
+  };
+
   return (
     <div className="settings-container">
       <Card title={t('settings.title')} className="settings-card">
@@ -90,12 +97,8 @@ const SettingsContent: React.FC = () => {
           form={form}
           layout="vertical"
           onFinish={onFinish}
-          initialValues={{
-            theme: theme,
-            language: localStorage.getItem('language') || 'en-US',
-            notifications: localStorage.getItem('notifications') === 'true',
-            autoUpdate: localStorage.getItem('autoUpdate') === 'true'
-          }}
+          initialValues={initialValues}
+          preserve={false}
         >
           <Form.Item
             label={t('settings.language')}

@@ -7,14 +7,9 @@ import sys
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtCore import QUrl, Qt
-import logging
+from utils.logger_helper import logger_helper
 
-# 配置日志以抑制 macOS IMK 警告
-if sys.platform == 'darwin':
-    os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
-    logging.getLogger('PySide6').setLevel(logging.ERROR)
-
-logger = logging.getLogger(__name__)
+logger = logger_helper.logger
 
 class WebEngine(QWebEngineView):
     """WebEngine 类，封装了 Web 引擎的核心功能"""
@@ -42,11 +37,6 @@ class WebEngine(QWebEngineView):
         settings.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
         settings.setAttribute(QWebEngineSettings.AllowRunningInsecureContent, True)
         settings.setAttribute(QWebEngineSettings.AllowGeolocationOnInsecureOrigins, True)
-        
-        # 禁用输入法相关功能以减少警告
-        if sys.platform == 'darwin':
-            settings.setAttribute(QWebEngineSettings.JavascriptCanOpenWindows, False)
-            settings.setAttribute(QWebEngineSettings.JavascriptCanAccessClipboard, False)
     
     def inject_script(self, script):
         """注入 JavaScript 代码"""

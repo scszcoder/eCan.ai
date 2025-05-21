@@ -5,19 +5,15 @@ from PySide6.QtGui import QAction, QKeySequence, QTextCursor, QShortcut
 import datetime
 import sys
 import os
-import logging
 
 # 配置日志以抑制 macOS IMK 警告
 if sys.platform == 'darwin':
     os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
-    # os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
-    # logging.getLogger('PySide6').setLevel(logging.ERROR)
 
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper
 from gui.core.web_engine import WebEngine
 from gui.core.request_interceptor import RequestInterceptor
-from gui.core.js_injector import JavaScriptInjector
 from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
@@ -83,13 +79,6 @@ class WebGUI(QMainWindow):
                 # 设置基础 URL
                 base_url = str(app_settings.dist_dir.absolute())
                 logger_helper.info(f"Base URL: {base_url}")
-                
-                # 注入 WebChannel 和调试代码
-                webchannel_script = JavaScriptInjector.get_web_channel_script()
-                dev_tools_script = JavaScriptInjector.get_dev_tools_script()
-                
-                # 在 </head> 标签前插入脚本
-                html_content = html_content.replace('</head>', f'{webchannel_script}{dev_tools_script}</head>')
                 
                 # 修改资源路径为绝对路径
                 html_content = html_content.replace('src="./', f'src="file://{base_url}/')
