@@ -23,15 +23,13 @@ const SettingsContent: React.FC = () => {
   const [form] = Form.useForm();
   const { message } = App.useApp();
 
-  React.useEffect(() => {
-    // 初始化表单值
-    form.setFieldsValue({
-      theme: theme,
-      language: localStorage.getItem('language') || 'en-US',
-      notifications: localStorage.getItem('notifications') === 'true',
-      autoUpdate: localStorage.getItem('autoUpdate') === 'true'
-    });
-  }, [form, theme]);
+  // 初始化表单值
+  const initialValues = {
+    theme: theme,
+    language: localStorage.getItem('language') || 'en-US',
+    notifications: localStorage.getItem('notifications') === 'true',
+    autoUpdate: localStorage.getItem('autoUpdate') === 'true'
+  };
 
   // 语言切换处理
   const handleLanguageChange = async (value: string) => {
@@ -81,13 +79,6 @@ const SettingsContent: React.FC = () => {
       console.error('Failed to save settings:', error);
       message.error(t('settings.saveError', { error: String(error) }));
     }
-  };
-
-  const initialValues = {
-    theme: theme,
-    language: localStorage.getItem('language') || 'en-US',
-    notifications: localStorage.getItem('notifications') === 'true',
-    autoUpdate: localStorage.getItem('autoUpdate') === 'true'
   };
 
   return (
