@@ -1,5 +1,5 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
-import { ConfigProvider, theme } from 'antd';
+import { ConfigProvider, theme, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import { routes, RouteConfig } from './routes';
@@ -80,11 +80,13 @@ const AppContent = () => {
             locale={locale}
             theme={getThemeConfig(isDark)}
         >
-            <HashRouter future={router.future}>
-                <Routes>
-                    {renderRoutes(routes)}
-                </Routes>
-            </HashRouter>
+            <AntdApp>
+                <HashRouter future={router.future}>
+                    <Routes>
+                        {renderRoutes(routes)}
+                    </Routes>
+                </HashRouter>
+            </AntdApp>
         </ConfigProvider>
     );
 };
