@@ -15,9 +15,6 @@ from gui.core.request_interceptor import RequestInterceptor
 from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
-    # 定义信号
-    react_app_ready = Signal()  # React 应用准备就绪信号
-    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ECBot Web Interface")
@@ -100,22 +97,6 @@ class WebGUI(QMainWindow):
                     logger_helper.info(f"  - {item.name}")
             else:
                 logger_helper.error(f"Directory {app_settings.dist_dir} does not exist")
-    
-    def on_console_message(self, message, level):
-        """处理 JavaScript 控制台消息"""
-        logger_helper.info(f"Console message: {message}")
-    
-    def on_network_request(self, request_data):
-        """处理网络请求"""
-        logger_helper.info(f"Network request: {request_data}")
-    
-    def on_element_inspection(self, element_data):
-        """处理元素检查"""
-        logger_helper.info(f"Element inspection: {element_data}")
-    
-    def on_performance_metrics(self, metrics):
-        """处理性能指标"""
-        logger_helper.info(f"Performance metrics: {metrics}")
     
     @Slot()
     def on_load_started(self):
