@@ -2,27 +2,23 @@
 开发者工具插件模块，使用 Qt 官方的开发者工具
 """
 
-from PySide6.QtWidgets import QDockWidget, QWidget, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QKeySequence
 
-class DevToolsPlugin(QDockWidget):
+class DevToolsPlugin(QWidget):
     """开发者工具插件类，使用 Qt 官方的开发者工具"""
     
     # 定义信号
     closed = Signal()
     
     def __init__(self, parent=None):
-        super().__init__("开发者工具", parent)
-        self.setFeatures(QDockWidget.DockWidgetMovable | 
-                        QDockWidget.DockWidgetFloatable |
-                        QDockWidget.DockWidgetClosable)
+        super().__init__(parent)
         
-        # 创建容器部件
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        # 创建布局
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
@@ -38,9 +34,6 @@ class DevToolsPlugin(QDockWidget):
         # 将视图添加到布局中
         layout.addWidget(self.dev_tools_view)
         
-        # 设置容器为 dock widget 的内容
-        self.setWidget(container)
-        
         # 设置快捷键
         self.setup_shortcuts()
         
@@ -50,7 +43,7 @@ class DevToolsPlugin(QDockWidget):
         # 连接标题变化信号
         self.dev_tools_page.titleChanged.connect(self.on_title_changed)
         
-        # 设置开发者工具视图的样式，隐藏其标题栏
+        # 设置开发者工具视图的样式
         self.dev_tools_view.setStyleSheet("""
             QWebEngineView {
                 border: none;
@@ -59,8 +52,9 @@ class DevToolsPlugin(QDockWidget):
     
     def on_title_changed(self, title):
         """处理标题变化"""
-        # 不设置 QWebEngineView 的标题，只更新 DockWidget 的标题
-        self.setWindowTitle("开发者工具")
+        # 更新父窗口的标题
+        if self.parent():
+            self.parent().setWindowTitle("开发者工具")
     
     def setup_shortcuts(self):
         """设置快捷键"""
