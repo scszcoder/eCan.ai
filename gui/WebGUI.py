@@ -132,38 +132,26 @@ class WebGUI(QMainWindow):
     def on_console_message(self, message, level):
         """处理 JavaScript 控制台消息"""
         logger_helper.info(f"Console message: {message}")
-        if self.dev_tools_dock.isVisible():
-            self.dev_tools.handle_console_message(message, level)
     
     def on_network_request(self, request_data):
         """处理网络请求"""
         logger_helper.info(f"Network request: {request_data}")
-        if self.dev_tools_dock.isVisible():
-            self.dev_tools.handle_network_request(request_data)
     
     def on_element_inspection(self, element_data):
         """处理元素检查"""
         logger_helper.info(f"Element inspection: {element_data}")
-        if self.dev_tools_dock.isVisible():
-            self.dev_tools.handle_element_inspection(element_data)
     
     def on_performance_metrics(self, metrics):
         """处理性能指标"""
         logger_helper.info(f"Performance metrics: {metrics}")
-        if self.dev_tools_dock.isVisible():
-            self.dev_tools.handle_performance_metrics(metrics)
     
     @Slot()
     def on_load_started(self):
         logger_helper.info("Page load started")
-        if self.dev_tools_dock.isVisible():
-            self.dev_tools.handle_console_message("Page load started", "INFO")
     
     @Slot(int)
     def on_load_progress(self, progress):
         logger_helper.info(f"Page load progress: {progress}%")
-        if self.dev_tools_dock.isVisible():
-            self.dev_tools.handle_console_message(f"Page load progress: {progress}%", "INFO")
     
     @Slot(bool)
     def on_load_finished(self, success):
@@ -175,11 +163,6 @@ class WebGUI(QMainWindow):
             # 获取当前 URL
             url = self.web_engine.url().toString()
             logger_helper.info(f"Current URL: {url}")
-            
-            if self.dev_tools_dock.isVisible():
-                self.dev_tools.handle_console_message("Page load completed successfully", "INFO")
-                self.dev_tools.handle_console_message(f"Page title: {title}", "INFO")
-                self.dev_tools.handle_console_message(f"Current URL: {url}", "INFO")
             
             # 执行额外的检查
             def check_react_status(result):
@@ -209,8 +192,6 @@ class WebGUI(QMainWindow):
             """, check_react_status)
         else:
             logger_helper.error("Page load failed")
-            if self.dev_tools_dock.isVisible():
-                self.dev_tools.handle_console_message("Page load failed", "ERROR")
     
     def setup_shortcuts(self):
         """设置快捷键"""
