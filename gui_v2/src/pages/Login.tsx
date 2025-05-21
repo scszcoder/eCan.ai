@@ -13,7 +13,7 @@ interface LoginFormValues {
     role: string;
 }
 
-const LoginForm: React.FC = () => {
+const Login: React.FC = () => {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const [form] = Form.useForm<LoginFormValues>();
@@ -146,14 +146,6 @@ const LoginForm: React.FC = () => {
                 </Form>
             </Card>
         </div>
-    );
-};
-
-const Login: React.FC = () => {
-    return (
-        <App>
-            <LoginForm />
-        </App>
     );
 };
 
