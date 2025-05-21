@@ -7,10 +7,16 @@ import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
 
+interface LoginFormValues {
+    username: string;
+    password: string;
+    role: string;
+}
+
 const LoginContent: React.FC = () => {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
-    const [form] = Form.useForm();
+    const [form] = Form.useForm<LoginFormValues>();
     const { message } = App.useApp();
 
     useEffect(() => {
@@ -21,7 +27,7 @@ const LoginContent: React.FC = () => {
         i18n.changeLanguage(savedLanguage);
     }, [form, i18n]);
 
-    const handleSubmit = async (values: any) => {
+    const handleSubmit = async (values: LoginFormValues) => {
         try {
             // 模拟登录验证
             if (values.username === 'admin' && values.password === 'admin123#') {
@@ -37,7 +43,8 @@ const LoginContent: React.FC = () => {
             } else {
                 message.error(t('login.invalidCredentials'));
             }
-        } catch (error) {
+        } catch (err) {
+            console.error('Login error:', err);
             message.error(t('login.error'));
         }
     };
@@ -106,6 +113,7 @@ const LoginContent: React.FC = () => {
                     }}
                     size="large"
                     className="login-form"
+                    preserve={false}
                 >
                     <Form.Item
                         name="username"
