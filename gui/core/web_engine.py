@@ -7,7 +7,6 @@ import sys
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
 from PySide6.QtCore import QUrl, Qt
-from PySide6.QtWebChannel import QWebChannel
 import logging
 
 # 配置日志以抑制 macOS IMK 警告
@@ -48,13 +47,6 @@ class WebEngine(QWebEngineView):
         if sys.platform == 'darwin':
             settings.setAttribute(QWebEngineSettings.JavascriptCanOpenWindows, False)
             settings.setAttribute(QWebEngineSettings.JavascriptCanAccessClipboard, False)
-    
-    def setup_web_channel(self, handler):
-        """设置 WebChannel"""
-        channel = QWebChannel(self.page())
-        channel.registerObject("bridge", handler)
-        self.page().setWebChannel(channel)
-        logger.info("WebChannel setup completed")
     
     def inject_script(self, script):
         """注入 JavaScript 代码"""

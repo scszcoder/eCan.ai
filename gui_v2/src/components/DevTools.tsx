@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useIPC } from '../hooks/useIPC';
 import { logger } from '../utils/logger';
-import { LogEntry, NetworkRequest, ElementLog } from '../services/ipc';
 
 interface PageInfo {
   title: string;
@@ -9,66 +7,149 @@ interface PageInfo {
   timestamp: string;
 }
 
+interface LogEntry {
+  level: string;
+  message: string;
+  timestamp: string;
+}
+
+interface NetworkRequest {
+  url: string;
+  method: string;
+  status: number;
+  timestamp: string;
+}
+
 export const DevTools: React.FC = () => {
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<LogEntry[]>([]);
   const [networkLogs, setNetworkLogs] = useState<NetworkRequest[]>([]);
-  const [elementLogs, setElementLogs] = useState<ElementLog[]>([]);
 
-  const {
-    reload,
-    toggleDevTools,
-    clearLogs,
-    executeScript,
-    getPageInfo,
-    getConsoleLogs,
-    getNetworkLogs,
-    getElementLogs
-  } = useIPC({
-    onEvent: (eventType, data) => {
-      logger.info(`Received event: ${eventType}`, data);
+  // 加载页面信息
+  const loadPageInfo = () => {
+    setPageInfo({
+      title: document.title,
+      url: window.location.href,
+      timestamp: new Date().toISOString()
+    });
+  };
+
+  // 重新加载页面
+  const reload = () => {
+    window.location.reload();
+  };
+
+  // 清除日志
+  const clearLogs = () => {
+    setConsoleLogs([]);
+    setNetworkLogs([]);
+    console.clear();
+  };
+
+  // 执行脚本
+  const executeScript = (script: string) => {
+    try {
+      // eslint-disable-next-line no-eval
+      eval(script);
+    } catch (e) {
+      logger.error('Error executing script:', e);
     }
-  });
+  };
 
-  // 加载页面信息和日志
+  // 初始化控制台日志监听
   useEffect(() => {
-    const loadData = async () => {
+    const originalConsole = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error
+    };
+
+    const addLog = (level: string, ...args: unknown[]) => {
+      setConsoleLogs(prev => [...prev, {
+        level,
+        message: args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+        ).join(' '),
+        timestamp: new Date().toISOString()
+      }]);
+    };
+
+    console.log = (...args) => {
+      originalConsole.log.apply(console, args);
+      addLog('log', ...args);
+    };
+
+    console.info = (...args) => {
+      originalConsole.info.apply(console, args);
+      addLog('info', ...args);
+    };
+
+    console.warn = (...args) => {
+      originalConsole.warn.apply(console, args);
+      addLog('warn', ...args);
+    };
+
+    console.error = (...args) => {
+      originalConsole.error.apply(console, args);
+      addLog('error', ...args);
+    };
+
+    return () => {
+      console.log = originalConsole.log;
+      console.info = originalConsole.info;
+      console.warn = originalConsole.warn;
+      console.error = originalConsole.error;
+    };
+  }, []);
+
+  // 初始化网络请求监听
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const startTime = new Date().toISOString();
       try {
-        const info = await getPageInfo();
-        setPageInfo(info);
-
-        const logs = await getConsoleLogs();
-        setConsoleLogs(logs);
-
-        const network = await getNetworkLogs();
-        setNetworkLogs(network);
-
-        const elements = await getElementLogs();
-        setElementLogs(elements);
-      } catch (e) {
-        logger.error('Error loading data:', e);
+        const response = await originalFetch.apply(window, args);
+        const url = args[0] instanceof Request ? args[0].url : args[0].toString();
+        setNetworkLogs(prev => [...prev, {
+          url,
+          method: args[1]?.method || 'GET',
+          status: response.status,
+          timestamp: startTime
+        }]);
+        return response;
+      } catch (error) {
+        const url = args[0] instanceof Request ? args[0].url : args[0].toString();
+        setNetworkLogs(prev => [...prev, {
+          url,
+          method: args[1]?.method || 'GET',
+          status: 0,
+          timestamp: startTime
+        }]);
+        throw error;
       }
     };
 
-    loadData();
-  }, [getPageInfo, getConsoleLogs, getNetworkLogs, getElementLogs]);
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, []);
+
+  // 初始化页面信息
+  useEffect(() => {
+    loadPageInfo();
+  }, []);
 
   return (
     <div className="dev-tools">
       <div className="toolbar">
         <button onClick={reload}>重新加载</button>
-        <button onClick={toggleDevTools}>开发者工具</button>
         <button onClick={clearLogs}>清除日志</button>
         <button onClick={() => executeScript('console.log("Hello from DevTools")')}>
           执行脚本
         </button>
-        <button onClick={() => {
-          getPageInfo().then(setPageInfo);
-          getConsoleLogs().then(setConsoleLogs);
-          getNetworkLogs().then(setNetworkLogs);
-          getElementLogs().then(setElementLogs);
-        }}>
-          刷新日志
+        <button onClick={loadPageInfo}>
+          刷新信息
         </button>
       </div>
 
@@ -93,11 +174,6 @@ export const DevTools: React.FC = () => {
           <div className="network-logs">
             <h3>网络日志</h3>
             <pre>{JSON.stringify(networkLogs, null, 2)}</pre>
-          </div>
-
-          <div className="element-logs">
-            <h3>元素日志</h3>
-            <pre>{JSON.stringify(elementLogs, null, 2)}</pre>
           </div>
         </div>
       </div>
@@ -148,8 +224,7 @@ export const DevTools: React.FC = () => {
         }
 
         .console-logs,
-        .network-logs,
-        .element-logs {
+        .network-logs {
           background: #252526;
           padding: 1rem;
           border-radius: 4px;
