@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App } from 'antd';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { useIPC } from '../hooks/useIPC';
 
 const { Option } = Select;
 
@@ -22,7 +21,6 @@ const SettingsContent: React.FC = () => {
   const { theme, changeTheme } = useTheme();
   const { changeLanguage } = useLanguage();
   const [form] = Form.useForm();
-  const { sendCommand } = useIPC();
   const { message } = App.useApp();
 
   React.useEffect(() => {
@@ -70,9 +68,6 @@ const SettingsContent: React.FC = () => {
 
   const onFinish = async (values: SettingsFormData) => {
     try {
-      // 发送设置到后端
-      await sendCommand('save_settings', values);
-      
       // 更新本地设置
       localStorage.setItem('language', values.language);
       localStorage.setItem('notifications', String(values.notifications));

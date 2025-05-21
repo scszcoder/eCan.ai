@@ -165,8 +165,11 @@ const Analytics: React.FC = () => {
                             angleField="value"
                             colorField="type"
                             radius={0.8}
-                            label={{
-                                type: 'outer',
+                            legend={{
+                                position: 'bottom',
+                                itemName: {
+                                    formatter: (text: string) => `${text}: ${resourceData.find(item => item.type === text)?.value}%`
+                                }
                             }}
                         />
                     </ChartCard>
@@ -183,12 +186,10 @@ const Analytics: React.FC = () => {
                             seriesField="efficiency"
                             isStack
                             label={{
-                                position: 'middle',
-                                layout: [
-                                    { type: 'interval-adjust-position' },
-                                    { type: 'interval-hide-overlap' },
-                                    { type: 'adjust-color' },
-                                ],
+                                position: 'top',
+                                style: {
+                                    fill: '#fff'
+                                }
                             }}
                         />
                     </ChartCard>

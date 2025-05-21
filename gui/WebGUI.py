@@ -9,12 +9,12 @@ import logging
 
 # 配置日志以抑制 macOS IMK 警告
 if sys.platform == 'darwin':
-    os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
-    logging.getLogger('PySide6').setLevel(logging.ERROR)
+    os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
+    # os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
+    # logging.getLogger('PySide6').setLevel(logging.ERROR)
 
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper
-from gui.ipc import IPCHandler, WebRequestHandler
 from gui.core.web_engine import WebEngine
 from gui.core.request_interceptor import RequestInterceptor
 from gui.core.js_injector import JavaScriptInjector
@@ -37,18 +37,9 @@ class WebGUI(QMainWindow):
         # 创建开发者工具管理器
         self.dev_tools_manager = DevToolsManager(self)
         
-        # 创建 IPC 处理器
-        self.ipc_handler = IPCHandler(self)
-        
-        # 创建 Web 请求处理器
-        self.web_request = WebRequestHandler(self.ipc_handler)
-        
         # 设置请求拦截器
         interceptor = RequestInterceptor()
         self.web_engine.page().profile().setUrlRequestInterceptor(interceptor)
-        
-        # 设置 WebChannel
-        self.web_engine.setup_web_channel(self.ipc_handler)
         
         # 连接信号
         self.web_engine.loadStarted.connect(self.on_load_started)
@@ -107,9 +98,6 @@ class WebGUI(QMainWindow):
                 # 加载 HTML 内容
                 self.web_engine.page().setHtml(html_content, base_url)
                 logger_helper.info(f"Production mode: Loading from {index_path}, {base_url}")
-                
-                # 重新初始化 WebChannel
-                self.web_engine.setup_web_channel(self.ipc_handler)
                 
             except Exception as e:
                 logger_helper.error(f"Error loading HTML file: {str(e)}")
@@ -171,18 +159,10 @@ class WebGUI(QMainWindow):
                     console.log('React version:', window.React?.version);
                     console.log('ReactDOM version:', window.ReactDOM?.version);
                     
-                    // 确保 WebChannel 已初始化
-                    if (window.bridge) {
-                        console.log('WebChannel initialized successfully');
-                    } else {
-                        console.error('WebChannel not initialized');
-                    }
-                    
                     return {
                         rootElement: document.getElementById('root') ? 'Found' : 'Not found',
                         reactVersion: window.React?.version || 'Not found',
-                        reactDOMVersion: window.ReactDOM?.version || 'Not found',
-                        webChannelInitialized: !!window.bridge
+                        reactDOMVersion: window.ReactDOM?.version || 'Not found'
                     };
                 })();
             """, check_react_status)
