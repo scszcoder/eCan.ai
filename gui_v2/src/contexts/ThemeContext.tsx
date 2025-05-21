@@ -8,7 +8,7 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-    theme: 'light',
+    theme: 'system',
     changeTheme: () => {},
 });
 
@@ -17,7 +17,7 @@ export const useTheme = () => useContext(ThemeContext);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [theme, setTheme] = useState<Theme>(() => {
         const savedTheme = localStorage.getItem('theme') as Theme;
-        return savedTheme || 'light';
+        return savedTheme || 'system';
     });
 
     const applyTheme = (themeToApply: 'light' | 'dark') => {
