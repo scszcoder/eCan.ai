@@ -16,11 +16,11 @@ interface SettingsFormData {
   [key: string]: string | boolean;
 }
 
-const SettingsContent: React.FC = () => {
+const Settings: React.FC = () => {
   const { t, i18n } = useTranslation();
   const { theme, changeTheme } = useTheme();
   const { changeLanguage } = useLanguage();
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<SettingsFormData>();
   const { message } = App.useApp();
 
   // 初始化表单值
@@ -136,14 +136,6 @@ const SettingsContent: React.FC = () => {
         </Form>
       </Card>
     </div>
-  );
-};
-
-const Settings: React.FC = () => {
-  return (
-    <App>
-      <SettingsContent />
-    </App>
   );
 };
 

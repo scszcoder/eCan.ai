@@ -2,10 +2,8 @@
 WebEngine 核心模块，处理 Web 引擎相关的功能
 """
 
-import os
-import sys
 from PySide6.QtWebEngineWidgets import QWebEngineView
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings
 from PySide6.QtCore import QUrl, Qt
 from utils.logger_helper import logger_helper
 

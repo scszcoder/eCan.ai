@@ -1,8 +1,6 @@
-from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QDockWidget, 
-                             QTextEdit, QTabWidget, QSplitter)
-from PySide6.QtCore import Qt, Signal, Slot, QObject, Property
-from PySide6.QtGui import QAction, QKeySequence, QTextCursor, QShortcut
-import datetime
+from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget)
+from PySide6.QtCore import Signal, Slot
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 import sys
 import os
 
@@ -17,6 +15,9 @@ from gui.core.request_interceptor import RequestInterceptor
 from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
+    # 定义信号
+    react_app_ready = Signal()  # React 应用准备就绪信号
+    
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ECBot Web Interface")
@@ -41,8 +42,6 @@ class WebGUI(QMainWindow):
         self.web_engine.loadStarted.connect(self.on_load_started)
         self.web_engine.loadProgress.connect(self.on_load_progress)
         self.web_engine.loadFinished.connect(self.on_load_finished)
-        self.web_engine.loadStarted.connect(lambda: logger_helper.info("Page load started"))
-        self.web_engine.loadFinished.connect(lambda ok: logger_helper.info(f"Page load finished: {'success' if ok else 'failed'}"))
         
         # 获取 Web URL
         web_url = app_settings.get_web_url()
@@ -120,14 +119,17 @@ class WebGUI(QMainWindow):
     
     @Slot()
     def on_load_started(self):
+        """页面开始加载时的处理"""
         logger_helper.info("Page load started")
     
     @Slot(int)
     def on_load_progress(self, progress):
+        """页面加载进度处理"""
         logger_helper.info(f"Page load progress: {progress}%")
     
     @Slot(bool)
     def on_load_finished(self, success):
+        """页面加载完成时的处理"""
         if success:
             logger_helper.info("Page load completed successfully")
             # 获取当前页面标题
@@ -136,25 +138,6 @@ class WebGUI(QMainWindow):
             # 获取当前 URL
             url = self.web_engine.url().toString()
             logger_helper.info(f"Current URL: {url}")
-            
-            # 执行额外的检查
-            def check_react_status(result):
-                logger_helper.info(f"React status check result: {result}")
-            
-            self.web_engine.execute_script("""
-                (function() {
-                    console.log('Checking React application status...');
-                    console.log('Root element:', document.getElementById('root'));
-                    console.log('React version:', window.React?.version);
-                    console.log('ReactDOM version:', window.ReactDOM?.version);
-                    
-                    return {
-                        rootElement: document.getElementById('root') ? 'Found' : 'Not found',
-                        reactVersion: window.React?.version || 'Not found',
-                        reactDOMVersion: window.ReactDOM?.version || 'Not found'
-                    };
-                })();
-            """, check_react_status)
         else:
             logger_helper.error("Page load failed")
     

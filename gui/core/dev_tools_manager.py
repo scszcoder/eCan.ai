@@ -49,8 +49,10 @@ class DevToolsManager(QWidget):
         # 设置快捷键
         self._setup_shortcuts()
         
-        # 连接标题变化信号
-        self.dev_tools_page.titleChanged.connect(self._on_title_changed)
+        # 连接标题变化信号，使用 lambda 函数来处理
+        self.dev_tools_page.titleChanged.connect(
+            lambda title: self.dev_tools_dock.setWindowTitle(f"开发者工具 - {title}")
+        )
         
         # 设置开发者工具视图的样式
         self.dev_tools_view.setStyleSheet("""
@@ -74,11 +76,6 @@ class DevToolsManager(QWidget):
         close_action.setShortcut(QKeySequence(Qt.Key_Escape))
         close_action.triggered.connect(self.hide)
         self.addAction(close_action)
-    
-    def _on_title_changed(self, title):
-        """处理标题变化"""
-        if self.parent:
-            self.parent.setWindowTitle("开发者工具")
     
     def toggle(self):
         """切换开发者工具显示状态"""
