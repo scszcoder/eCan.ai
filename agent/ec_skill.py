@@ -621,6 +621,56 @@ async def create_rpa_supervisor_serve_requests_skill(mainwin):
     return supervisor_skill
 
 
+async def in_browser_extract_content(params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser = browser_context.browser
+    page = await browser.get_current_page()
+    import markdownify
+
+    strip = []
+    if should_strip_link_urls:
+        strip = ['a', 'img']
+
+    content = markdownify.markdownify(await page.content(), strip=strip)
+
+    # manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
+    for iframe in page.frames:
+        if iframe.url != page.url and not iframe.url.startswith('data:'):
+            content += f'\n\nIFRAME {iframe.url}:\n'
+            content += markdownify.markdownify(await iframe.content())
+
+    prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
+    template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
+    try:
+        output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
+        msg = f'📄  Extracted from page\n: {output.content}\n'
+        logger.info(msg)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+    except Exception as e:
+        logger.debug(f'Error extracting content: {e}')
+        msg = f'📄  Extracted from page\n: {content}\n'
+        logger.info(msg)
+        return CallToolResult(content=[TextContent(type="text", text=msg)])
+
+
+def gen_tool_node_to_extract_web_page(state: NodeState) -> NodeState:
+    clickable_dom = state["messages"][-1].content.lower()
+    dom_tree = await helper_skill.mcp_session.call_tool(
+        "screen_capture", arguments={"params": {}, "context_id": ""}
+    )
+    return state
+
+
+def gen_tool_node_to_extract_web_page(state: NodeState) -> NodeState:
+    last_msg = state["messages"][-1].content.lower()
+    if "resolved" in last_msg:
+        state["resolved"] = True
+    else:
+        state["retries"] += 1
+    return state
+
+
+
 # ============ scratch here ==============================
 prompt0 = ChatPromptTemplate.from_messages([
             ("system", """

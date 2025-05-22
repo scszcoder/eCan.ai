@@ -11,8 +11,6 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
-import openai
-from openai import OpenAI
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -20,19 +18,15 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
 
 # from lmnr.sdk.decorators import observe
 from pydantic import BaseModel, ValidationError
 
-from agent.a2a.common.client import A2AClient, A2ACardResolver
-from agent.a2a.common.server import A2AServer
+from agent.a2a.common.client import A2AClient
 # from agent.gif import create_history_gif
-from agent.memory.service import Memory, MemorySettings
-from agent.message_manager.service import MessageManager, MessageManagerSettings
+from agent.message_manager.service import MessageManager
 from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
-from agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from agent.prompts import AgentMessagePrompt, PlannerPrompt
 from agent.models import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
@@ -47,21 +41,19 @@ from agent.models import (
 	ToolCallingMethod,
 )
 from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
+from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
-from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 from agent.a2a.common.types import Message, TextPart
 
-from browser.browser import Browser
-from browser.context import BrowserContext
+from agent.ec_skills.browser.browser import Browser
+from agent.ec_skills.browser.context import BrowserContext
 from agent.runner.context import RunnerContext
 
-from agent.base import GlobalContext, AppContext, Personality
+from agent.base import GlobalContext, Personality
 from agent.ec_skill import EC_Skill
 from browser.views import BrowserState, BrowserStateHistory
-from agent.runner.service import Runner
-from dom.history_tree_processor.service import (
+from agent.ec_skills.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
@@ -73,7 +65,6 @@ from telemetry.views import (
 	AgentStepTelemetryEvent,
 )
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
-from agent.runner.service import Runner
 from agent.tasks import TaskRunner, ManagedTask
 import threading
 

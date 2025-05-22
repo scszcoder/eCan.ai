@@ -1,17 +1,9 @@
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.remote.webelement import WebElement
-from typing import Optional, List
+from typing import Optional
 from dataclasses import dataclass
-import base64
 import os
-import time
-import json
-import re
 
-from dom.views import DOMElementNode, SelectorMap
-from dom.service import DomService
-from browser.views import BrowserState, BrowserError, TabInfo
+from browser.views import BrowserState
 
 
 @dataclass

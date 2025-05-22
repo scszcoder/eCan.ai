@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from dom.history_tree_processor.view import CoordinateSet, HashedDomElement, ViewportInfo
+from agent.ec_skills.dom.history_tree_processor.view import CoordinateSet, HashedDomElement, ViewportInfo
 from agent.run_utils import time_execution_sync
 
 # Avoid circular import issues
@@ -91,7 +91,7 @@ class DOMElementNode(DOMBaseNode):
 
 	@cached_property
 	def hash(self) -> HashedDomElement:
-		from dom.history_tree_processor.service import (
+		from agent.ec_skills.dom.history_tree_processor.service import (
 			HistoryTreeProcessor,
 		)
 
