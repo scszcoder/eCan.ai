@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Generic, Optional, Type, TypeVar
 from langchain_core.language_models.chat_models import BaseChatModel
 from pydantic import BaseModel, Field, create_model
 
-from browser.context import BrowserContext
+from agent.ec_skills.browser.context import BrowserContext
 from agent.runner.registry.models import (
 	ActionModel,
 	ActionRegistry,

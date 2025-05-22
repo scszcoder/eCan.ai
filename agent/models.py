@@ -14,12 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 from agent.runner.registry.models import ActionModel
 from agent.message_manager.models import MessageManagerState
 from browser.views import BrowserStateHistory
-from dom.history_tree_processor.service import (
+from agent.ec_skills.dom.history_tree_processor.service import (
 	DOMElementNode,
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
-from dom.views import SelectorMap
+from agent.ec_skills.dom.views import SelectorMap
 
 ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto']
 REQUIRED_LLM_API_ENV_VARS = {

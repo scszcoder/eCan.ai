@@ -1,8 +1,8 @@
 import hashlib
 from typing import Optional
 
-from dom.history_tree_processor.view import DOMHistoryElement, HashedDomElement
-from dom.views import DOMElementNode
+from agent.ec_skills.dom.history_tree_processor.view import DOMHistoryElement, HashedDomElement
+from agent.ec_skills.dom.views import DOMElementNode
 
 
 class HistoryTreeProcessor:
@@ -14,7 +14,7 @@ class HistoryTreeProcessor:
 
 	@staticmethod
 	def convert_dom_element_to_history_element(dom_element: DOMElementNode) -> DOMHistoryElement:
-		from browser.context import BrowserContext
+		from agent.ec_skills.browser.context import BrowserContext
 
 		parent_branch_path = HistoryTreeProcessor._get_parent_branch_path(dom_element)
 		css_selector = BrowserContext._enhanced_css_selector_for_element(dom_element)
