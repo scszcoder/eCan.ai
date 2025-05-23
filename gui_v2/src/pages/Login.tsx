@@ -18,12 +18,27 @@ const Login: React.FC = () => {
     const { t, i18n } = useTranslation();
     const [form] = Form.useForm<LoginFormValues>();
     const { message } = App.useApp();
+    const [selectedRole, setSelectedRole] = React.useState({
+        value: 'commander',
+        label: t('roles.commander')
+    });
 
     // 设置默认语言
     React.useEffect(() => {
         const savedLanguage = localStorage.getItem('i18nextLng') || 'zh-CN';
         i18n.changeLanguage(savedLanguage);
     }, [i18n]);
+
+    // 监听表单中role字段的变化
+    React.useEffect(() => {
+        const role = form.getFieldValue('role');
+        if (role) {
+            setSelectedRole({
+                value: role,
+                label: t(`roles.${role}`)
+            });
+        }
+    }, [form.getFieldValue('role'), t]);
 
     const handleSubmit = async (values: LoginFormValues) => {
         try {
@@ -81,6 +96,17 @@ const Login: React.FC = () => {
                     placeholder={t('login.selectLanguage')}
                     labelInValue
                 />
+                <Select
+                    value={selectedRole}
+                    style={{ width: 120 }}
+                    onChange={(value) => {
+                        form.setFieldsValue({ role: value.value });
+                        setSelectedRole(value);
+                    }}
+                    options={roleOptions}
+                    placeholder={t('common.selectRole')}
+                    labelInValue
+                />
             </div>
 
             <Card className="login-card" style={{ width: 400 }}>
@@ -120,16 +146,6 @@ const Login: React.FC = () => {
                         <Input.Password
                             prefix={<LockOutlined />}
                             placeholder={t('common.password')}
-                        />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="role"
-                        rules={[{ required: true, message: t('common.role') }]}
-                    >
-                        <Select
-                            options={roleOptions}
-                            placeholder={t('common.selectRole')}
                         />
                     </Form.Item>
 
