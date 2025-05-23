@@ -1,4 +1,4 @@
-import { IPC } from './types';
+import { IPC, TextMessage, ConfigMessage, CommandMessage, EventMessage, BaseResponse } from './types';
 
 /**
  * IPC 服务类
@@ -8,7 +8,6 @@ export class IPCService {
     private static instance: IPCService;
     private ipc: IPC | null = null;
     private ready = false;
-    private pendingCallbacks: Array<() => void> = [];
 
     private constructor() {}
 
@@ -23,49 +22,153 @@ export class IPCService {
     }
 
     /**
-     * 初始化 IPC 服务
-     * @param ipc IPC 对象
+     * 获取 IPC 对象
      */
-    public init(ipc: IPC): void {
-        this.ipc = ipc;
-        this.ready = true;
-        this.executePendingCallbacks();
+    public getIPC(): IPC | null {
+        return this.ipc;
     }
 
     /**
-     * 执行等待中的回调函数
+     * 设置 IPC 对象
      */
-    private executePendingCallbacks(): void {
-        while (this.pendingCallbacks.length > 0) {
-            const callback = this.pendingCallbacks.shift();
-            if (callback) {
-                callback();
-            }
-        }
+    public setIPC(ipc: IPC): void {
+        this.ipc = ipc;
+        this.ready = true;
+    }
+
+    /**
+     * 检查 IPC 是否就绪
+     */
+    public isReady(): boolean {
+        return this.ready && this.ipc !== null;
     }
 
     /**
      * 等待 IPC 就绪
-     * @returns Promise<void>
      */
     public async waitForReady(): Promise<void> {
-        if (this.ready) {
+        if (this.isReady()) {
             return;
         }
 
         return new Promise((resolve) => {
-            this.pendingCallbacks.push(resolve);
+            const check = () => {
+                if (this.isReady()) {
+                    resolve();
+                } else {
+                    console.log('IPC not ready');
+                    setTimeout(check, 100);
+                }
+            };
+            check();
         });
     }
 
     /**
-     * 获取 IPC 对象
-     * @returns IPC 对象
+     * 发送文本消息
      */
-    public getIPC(): IPC {
-        if (!this.ipc) {
-            throw new Error('IPC not initialized');
+    public async sendTextMessage(content: string): Promise<BaseResponse> {
+        if (!this.isReady()) {
+            throw new Error('IPC not ready');
         }
-        return this.ipc;
+
+        const message: TextMessage = {
+            type: 'message',
+            content,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            const response = await this.ipc!.web_to_python(JSON.stringify(message));
+            return JSON.parse(response);
+        } catch (error) {
+            return {
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Unknown error',
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+
+    /**
+     * 发送配置消息
+     */
+    public async sendConfigMessage(action: 'get' | 'set', key: string, value?: string): Promise<BaseResponse> {
+        if (!this.isReady()) {
+            throw new Error('IPC not ready');
+        }
+
+        const message: ConfigMessage = {
+            type: 'config',
+            action,
+            key,
+            value,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            const response = await this.ipc!.web_to_python(JSON.stringify(message));
+            return JSON.parse(response);
+        } catch (error) {
+            return {
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Unknown error',
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+
+    /**
+     * 发送命令消息
+     */
+    public async sendCommandMessage(command: string, args?: unknown[]): Promise<BaseResponse> {
+        if (!this.isReady()) {
+            throw new Error('IPC not ready');
+        }
+
+        const message: CommandMessage = {
+            type: 'command',
+            command,
+            args: args ? { args } : undefined,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            const response = await this.ipc!.web_to_python(JSON.stringify(message));
+            return JSON.parse(response);
+        } catch (error) {
+            return {
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Unknown error',
+                timestamp: new Date().toISOString()
+            };
+        }
+    }
+
+    /**
+     * 发送事件消息
+     */
+    public async sendEventMessage(event: string, data?: unknown): Promise<BaseResponse> {
+        if (!this.isReady()) {
+            throw new Error('IPC not ready');
+        }
+
+        const message: EventMessage = {
+            type: 'event',
+            event,
+            data: data ? { data } : undefined,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            const response = await this.ipc!.web_to_python(JSON.stringify(message));
+            return JSON.parse(response);
+        } catch (error) {
+            return {
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Unknown error',
+                timestamp: new Date().toISOString()
+            };
+        }
     }
 } 

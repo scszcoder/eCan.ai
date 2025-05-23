@@ -1,8 +1,9 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { BaseResponse, useIPC } from '../service/ipc';
 import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
@@ -18,6 +19,7 @@ const Login: React.FC = () => {
     const { t, i18n } = useTranslation();
     const [form] = Form.useForm<LoginFormValues>();
     const { message } = App.useApp();
+    const { isReady, sendMessage } = useIPC();
     const [selectedRole, setSelectedRole] = React.useState({
         value: 'commander',
         label: t('roles.commander')
@@ -42,8 +44,20 @@ const Login: React.FC = () => {
 
     const handleSubmit = async (values: LoginFormValues) => {
         try {
-            // 模拟登录验证
-            if (values.username === 'admin' && values.password === 'admin123#') {
+            if (!isReady) {
+                message.error(t('login.ipcNotReady'));
+                return;
+            }
+
+            // 发送登录请求到 Python 后端
+            const response: BaseResponse = await sendMessage(JSON.stringify({
+                type: 'login',
+                username: values.username,
+                password: values.password,
+                role: values.role
+            }));
+
+            if (response.status === 'success') {
                 // 保存登录状态和角色
                 localStorage.setItem('isAuthenticated', 'true');
                 localStorage.setItem('userRole', values.role);
@@ -54,7 +68,8 @@ const Login: React.FC = () => {
                 // 使用 replace 进行导航
                 navigate('/', { replace: true });
             } else {
-                message.error(t('login.invalidCredentials'));
+                console.log('Login failed:', response);
+                message.error(response.message || t('login.invalidCredentials'));
             }
         } catch (err) {
             console.error('Login error:', err);

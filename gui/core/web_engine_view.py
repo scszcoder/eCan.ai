@@ -114,8 +114,11 @@ class WebEngineView(QWebEngineView):
             }}
             
             function initWebChannel() {{
+                console.log('Initializing WebChannel...');
                 new QWebChannel(qt.webChannelTransport, channel => {{
+                    console.log('WebChannel initialized, creating IPC object...');
                     window.ipc = channel.objects.ipc;
+                    console.log('IPC object created:', window.ipc);
                     // 触发自定义事件通知前端 WebChannel 已就绪
                     window.dispatchEvent(new CustomEvent('webchannel-ready'));
                 }});
