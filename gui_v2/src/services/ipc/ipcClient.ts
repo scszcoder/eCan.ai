@@ -1,15 +1,17 @@
-import { IPC, TextMessage, ConfigMessage, CommandMessage, EventMessage, BaseResponse } from './types';
+import { IPC, TextMessage, ConfigMessage, CommandMessage, EventMessage, BaseResponse, BaseMessage } from './types';
+import { EventEmitter } from './EventEmitter';
 
 /**
  * IPC 客户端类
  * 用于处理与 Python 后端的 IPC 通信
  */
-export class IPCClient {
+export class IPCClient extends EventEmitter {
     private static instance: IPCClient;
     private ipc: IPC | null = null;
     private ready = false;
 
     private constructor() {
+        super();
         // 监听 webchannel-ready 事件
         window.addEventListener('webchannel-ready', () => {
             console.log('WebChannel is ready');
@@ -54,6 +56,24 @@ export class IPCClient {
     public setIPC(ipc: IPC): void {
         this.ipc = ipc;
         this.ready = true;
+        
+        // 设置 python_to_web 消息处理
+        if (this.ipc.python_to_web) {
+            this.ipc.python_to_web.connect((message: string) => {
+                try {
+                    console.log('Python to Web message:', message);
+                    // const parsedMessage = JSON.parse(message) as BaseMessage;
+                    // this.emit('message', parsedMessage);
+                    
+                    // // 根据消息类型触发特定事件
+                    // if (parsedMessage.type) {
+                    //     this.emit(parsedMessage.type, parsedMessage);
+                    // }
+                } catch (error) {
+                    console.error('Error parsing python_to_web message:', error);
+                }
+            });
+        }
     }
 
     /**
@@ -82,6 +102,24 @@ export class IPCClient {
             };
             check();
         });
+    }
+
+    /**
+     * 监听 Python 到 Web 的消息
+     * @param type 消息类型，可以是 'message' 或具体的消息类型
+     * @param callback 回调函数
+     */
+    public onPythonMessage(type: string, callback: (message: BaseMessage) => void): void {
+        this.on(type, callback);
+    }
+
+    /**
+     * 移除 Python 到 Web 的消息监听
+     * @param type 消息类型
+     * @param callback 回调函数
+     */
+    public offPythonMessage(type: string, callback: (message: BaseMessage) => void): void {
+        this.off(type, callback);
     }
 
     /**

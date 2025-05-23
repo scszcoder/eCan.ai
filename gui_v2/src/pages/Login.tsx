@@ -56,6 +56,7 @@ const Login: React.FC = () => {
                 password: values.password,
                 role: values.role
             }));
+            console.log('Login response:', response);
 
             if (response.status === 'success') {
                 // 保存登录状态和角色

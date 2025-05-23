@@ -3,6 +3,9 @@
  */
 export interface IPC {
     web_to_python(message: string): Promise<string>;
+    python_to_web?: {
+        connect(callback: (message: string) => void): void;
+    };
 }
 
 /**
