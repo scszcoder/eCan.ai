@@ -40,7 +40,7 @@ const Login: React.FC = () => {
                 label: t(`roles.${role}`)
             });
         }
-    }, [form.getFieldValue('role'), t]);
+    }, [form, t]);
 
     const handleSubmit = async (values: LoginFormValues) => {
         try {
@@ -131,7 +131,7 @@ const Login: React.FC = () => {
                     <Text type="secondary">{t('login.subtitle')}</Text>
                 </div>
 
-                <Form
+                <Form<LoginFormValues>
                     form={form}
                     name="login"
                     onFinish={handleSubmit}
