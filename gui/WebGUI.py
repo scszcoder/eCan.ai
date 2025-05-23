@@ -9,7 +9,7 @@ if sys.platform == 'darwin':
 
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper
-from gui.core.web_engine import WebEngine
+from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
@@ -24,7 +24,7 @@ class WebGUI(QMainWindow):
         layout = QVBoxLayout(central_widget)
         
         # 创建 Web 引擎
-        self.web_engine = WebEngine()
+        self.web_engine_view = WebEngineView()
         
         # 创建开发者工具管理器
         self.dev_tools_manager = DevToolsManager(self)
@@ -36,7 +36,7 @@ class WebGUI(QMainWindow):
         if web_url:
             if app_settings.is_dev_mode:
                 # 开发模式：使用 Vite 开发服务器
-                self.web_engine.load_url(web_url)
+                self.web_engine_view.load_url(web_url)
                 logger_helper.info(f"Development mode: Loading from {web_url}")
             else:
                 # 生产模式：加载本地文件
@@ -45,7 +45,7 @@ class WebGUI(QMainWindow):
             logger_helper.error("Failed to get web URL")
         
         # 添加 Web 引擎到布局
-        layout.addWidget(self.web_engine)
+        layout.addWidget(self.web_engine_view)
         
         # 设置快捷键
         self._setup_shortcuts()
@@ -70,7 +70,7 @@ class WebGUI(QMainWindow):
                 html_content = html_content.replace('href="./', f'href="file://{base_url}/')
                 
                 # 加载 HTML 内容
-                self.web_engine.page().setHtml(html_content, base_url)
+                self.web_engine_view.page().setHtml(html_content, base_url)
                 logger_helper.info(f"Production mode: Loading from {index_path}, {base_url}")
                 
             except Exception as e:
@@ -109,6 +109,6 @@ class WebGUI(QMainWindow):
         """重新加载页面"""
         logger_helper.info("Reloading page...")
         if app_settings.is_dev_mode:
-            self.web_engine.reload_page()
+            self.web_engine_view.reload_page()
         else:
             self.load_local_html() 
