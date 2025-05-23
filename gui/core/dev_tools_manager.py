@@ -37,7 +37,7 @@ class DevToolsManager(QWidget):
         self.dev_tools_view.setPage(self.dev_tools_page)
         
         # 设置开发者工具页面
-        self.parent.web_engine.page().setDevToolsPage(self.dev_tools_page)
+        self.parent.web_engine_view.page().setDevToolsPage(self.dev_tools_page)
         
         # 将视图添加到布局中
         layout.addWidget(self.dev_tools_view)
@@ -105,4 +105,4 @@ class DevToolsManager(QWidget):
     
     def clear_all(self):
         """清除所有数据（重新加载开发者工具）"""
-        self.parent.web_engine.page().setDevToolsPage(self.dev_tools_page) 
+        self.parent.web_engine_view.page().setDevToolsPage(self.dev_tools_page) 
