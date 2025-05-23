@@ -1,5 +1,8 @@
 import { IPC, TextMessage, ConfigMessage, CommandMessage, EventMessage, BaseResponse, BaseMessage } from './types';
 import { EventEmitter } from './EventEmitter';
+import { HandlerManager } from './handlers/HandlerManager';
+import { TextMessageHandler } from './handlers/TextMessageHandler';
+import { BaseHandler } from './handlers/BaseHandler';
 
 /**
  * IPC 客户端类
@@ -9,9 +12,13 @@ export class IPCClient extends EventEmitter {
     private static instance: IPCClient;
     private ipc: IPC | null = null;
     private ready = false;
+    private handlerManager: HandlerManager;
 
     private constructor() {
         super();
+        this.handlerManager = HandlerManager.getInstance();
+        this.initializeHandlers();
+
         // 监听 webchannel-ready 事件
         window.addEventListener('webchannel-ready', () => {
             console.log('WebChannel is ready');
@@ -19,6 +26,15 @@ export class IPCClient extends EventEmitter {
             this.setIPC(ipc);
             console.log('IPC client initialized successfully');
         });
+    }
+
+    /**
+     * 初始化消息处理器
+     */
+    private initializeHandlers(): void {
+        // 注册默认的消息处理器
+        this.handlerManager.registerHandler(new TextMessageHandler());
+        // 在这里注册其他处理器...
     }
 
     /**
@@ -61,14 +77,19 @@ export class IPCClient extends EventEmitter {
         if (this.ipc.python_to_web) {
             this.ipc.python_to_web.connect((message: string) => {
                 try {
-                    console.log('Python to Web message:', message);
-                    // const parsedMessage = JSON.parse(message) as BaseMessage;
-                    // this.emit('message', parsedMessage);
+                    console.debug('Python to Web message:', message);
+                    const parsedMessage = JSON.parse(message) as BaseMessage;
                     
-                    // // 根据消息类型触发特定事件
-                    // if (parsedMessage.type) {
-                    //     this.emit(parsedMessage.type, parsedMessage);
-                    // }
+                    // 使用处理器处理消息
+                    this.handlerManager.handleMessage(parsedMessage).then(response => {
+                        // 触发事件通知
+                        this.emit('message', { message: parsedMessage, response });
+                        if (parsedMessage.type) {
+                            this.emit(parsedMessage.type, { message: parsedMessage, response });
+                        }
+                    }).catch(error => {
+                        console.error('Error handling message:', error);
+                    });
                 } catch (error) {
                     console.error('Error parsing python_to_web message:', error);
                 }
@@ -120,6 +141,20 @@ export class IPCClient extends EventEmitter {
      */
     public offPythonMessage(type: string, callback: (message: BaseMessage) => void): void {
         this.off(type, callback);
+    }
+
+    /**
+     * 注册新的消息处理器
+     */
+    public registerHandler(handler: BaseHandler): void {
+        this.handlerManager.registerHandler(handler);
+    }
+
+    /**
+     * 移除消息处理器
+     */
+    public removeHandler(handler: BaseHandler): void {
+        this.handlerManager.removeHandler(handler);
     }
 
     /**
