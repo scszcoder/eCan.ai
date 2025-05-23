@@ -8,6 +8,10 @@ from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtGui import QAction, QKeySequence
 from utils.logger_helper import logger_helper
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from gui.WebGUI import WebGUI
 
 class DevToolsManager(QWidget):
     """DevTools 管理器类，负责管理开发者工具的生命周期和状态"""
@@ -15,9 +19,9 @@ class DevToolsManager(QWidget):
     # 定义信号
     closed = Signal()
     
-    def __init__(self, parent):
+    def __init__(self, parent: 'WebGUI'):
         super().__init__(parent)
-        self.parent = parent
+        self.parent: 'WebGUI' = parent
         
         # 设置默认大小
         self.setMinimumSize(QSize(800, 300))
@@ -33,8 +37,7 @@ class DevToolsManager(QWidget):
         self.dev_tools_view.setPage(self.dev_tools_page)
         
         # 设置开发者工具页面
-        if hasattr(parent, 'web_engine'):
-            parent.web_engine.page().setDevToolsPage(self.dev_tools_page)
+        self.parent.web_engine.page().setDevToolsPage(self.dev_tools_page)
         
         # 将视图添加到布局中
         layout.addWidget(self.dev_tools_view)
@@ -102,5 +105,4 @@ class DevToolsManager(QWidget):
     
     def clear_all(self):
         """清除所有数据（重新加载开发者工具）"""
-        if hasattr(self.parent, 'web_engine'):
-            self.parent.web_engine.page().setDevToolsPage(self.dev_tools_page) 
+        self.parent.web_engine.page().setDevToolsPage(self.dev_tools_page) 

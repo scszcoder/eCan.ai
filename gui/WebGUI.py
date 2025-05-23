@@ -1,5 +1,4 @@
 from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget)
-from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 import sys
 import os
@@ -11,7 +10,6 @@ if sys.platform == 'darwin':
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper
 from gui.core.web_engine import WebEngine
-from gui.core.request_interceptor import RequestInterceptor
 from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
@@ -30,15 +28,6 @@ class WebGUI(QMainWindow):
         
         # 创建开发者工具管理器
         self.dev_tools_manager = DevToolsManager(self)
-        
-        # 设置请求拦截器
-        interceptor = RequestInterceptor()
-        self.web_engine.page().profile().setUrlRequestInterceptor(interceptor)
-        
-        # 连接信号
-        self.web_engine.loadStarted.connect(self.on_load_started)
-        self.web_engine.loadProgress.connect(self.on_load_progress)
-        self.web_engine.loadFinished.connect(self.on_load_finished)
         
         # 获取 Web URL
         web_url = app_settings.get_web_url()
@@ -97,30 +86,6 @@ class WebGUI(QMainWindow):
                     logger_helper.info(f"  - {item.name}")
             else:
                 logger_helper.error(f"Directory {app_settings.dist_dir} does not exist")
-    
-    @Slot()
-    def on_load_started(self):
-        """页面开始加载时的处理"""
-        logger_helper.info("Page load started")
-    
-    @Slot(int)
-    def on_load_progress(self, progress):
-        """页面加载进度处理"""
-        logger_helper.info(f"Page load progress: {progress}%")
-    
-    @Slot(bool)
-    def on_load_finished(self, success):
-        """页面加载完成时的处理"""
-        if success:
-            logger_helper.info("Page load completed successfully")
-            # 获取当前页面标题
-            title = self.web_engine.page().title()
-            logger_helper.info(f"Page title: {title}")
-            # 获取当前 URL
-            url = self.web_engine.url().toString()
-            logger_helper.info(f"Current URL: {url}")
-        else:
-            logger_helper.error("Page load failed")
     
     def _setup_shortcuts(self):
         """设置快捷键"""
