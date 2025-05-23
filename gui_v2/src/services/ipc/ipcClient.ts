@@ -1,24 +1,44 @@
 import { IPC, TextMessage, ConfigMessage, CommandMessage, EventMessage, BaseResponse } from './types';
 
 /**
- * IPC 服务类
- * 用于处理与 Python 后端的通信
+ * IPC 客户端类
+ * 用于处理与 Python 后端的 IPC 通信
  */
-export class IPCService {
-    private static instance: IPCService;
+export class IPCClient {
+    private static instance: IPCClient;
     private ipc: IPC | null = null;
     private ready = false;
 
-    private constructor() {}
+    private constructor() {
+        // 监听 webchannel-ready 事件
+        window.addEventListener('webchannel-ready', () => {
+            console.log('WebChannel is ready');
+            const ipc: IPC = window.ipc;
+            this.setIPC(ipc);
+            console.log('IPC client initialized successfully');
+        });
+    }
 
     /**
-     * 获取 IPCService 实例
+     * 获取 IPCClient 实例
      */
-    public static getInstance(): IPCService {
-        if (!IPCService.instance) {
-            IPCService.instance = new IPCService();
+    public static getInstance(): IPCClient {
+        if (!IPCClient.instance) {
+            IPCClient.instance = new IPCClient();
         }
-        return IPCService.instance;
+        return IPCClient.instance;
+    }
+
+    /**
+     * 初始化 IPC 客户端
+     */
+    public async init(): Promise<void> {
+        // 检查是否在 Qt WebEngine 环境中
+        if (!window.qt?.webChannelTransport) {
+            console.warn('Not running in Qt WebEngine environment');
+            return;
+        }
+        console.log('WebChannel transport available:', window.qt.webChannelTransport);
     }
 
     /**
@@ -56,7 +76,7 @@ export class IPCService {
                 if (this.isReady()) {
                     resolve();
                 } else {
-                    console.log('IPC not ready');
+                    console.log('IPC client not ready, retrying...');
                     setTimeout(check, 100);
                 }
             };
@@ -68,9 +88,7 @@ export class IPCService {
      * 发送文本消息
      */
     public async sendTextMessage(content: string): Promise<BaseResponse> {
-        if (!this.isReady()) {
-            throw new Error('IPC not ready');
-        }
+        await this.waitForReady();
 
         const message: TextMessage = {
             type: 'message',
@@ -94,9 +112,7 @@ export class IPCService {
      * 发送配置消息
      */
     public async sendConfigMessage(action: 'get' | 'set', key: string, value?: string): Promise<BaseResponse> {
-        if (!this.isReady()) {
-            throw new Error('IPC not ready');
-        }
+        await this.waitForReady();
 
         const message: ConfigMessage = {
             type: 'config',
@@ -122,9 +138,7 @@ export class IPCService {
      * 发送命令消息
      */
     public async sendCommandMessage(command: string, args?: unknown[]): Promise<BaseResponse> {
-        if (!this.isReady()) {
-            throw new Error('IPC not ready');
-        }
+        await this.waitForReady();
 
         const message: CommandMessage = {
             type: 'command',
@@ -149,9 +163,7 @@ export class IPCService {
      * 发送事件消息
      */
     public async sendEventMessage(event: string, data?: unknown): Promise<BaseResponse> {
-        if (!this.isReady()) {
-            throw new Error('IPC not ready');
-        }
+        await this.waitForReady();
 
         const message: EventMessage = {
             type: 'event',
@@ -171,4 +183,7 @@ export class IPCService {
             };
         }
     }
-} 
+}
+
+// 导出单例实例
+export const ipcClient = IPCClient.getInstance(); 
