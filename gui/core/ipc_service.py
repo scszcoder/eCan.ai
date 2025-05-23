@@ -18,14 +18,14 @@ class IPCService(QObject):
     """IPC 服务类，处理与前端的数据交互"""
     
     # 定义信号
-    message_received = Signal(dict)  # 接收消息信号
+    python_to_web = Signal(dict)  # 接收消息信号
     
     def __init__(self):
         super().__init__()
         logger.info("IPC service initialized")
     
     @Slot(str, result=str)
-    def send(self, message: str) -> str:
+    def web_to_python(self, message: str) -> str:
         """发送消息到 Python
         
         Args:
@@ -40,7 +40,7 @@ class IPCService(QObject):
             logger.info(f"Received message: {data}")
             
             # 发送信号
-            self.message_received.emit(data)
+            self.python_to_web.emit(data)
             
             # 根据消息类型处理
             if data['type'] == 'message':
