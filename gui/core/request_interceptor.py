@@ -29,9 +29,9 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
             resource_type = info.resourceType().name
             
             # 记录请求信息
-            logger_helper.debug(
-                f"Intercepted request: {method} {url} ({resource_type})"
-            )
+            # logger_helper.debug(
+            #     f"Intercepted request: {method} {url} ({resource_type})"
+            # )
             
             # 检查是否需要拦截
             if self._should_intercept(url, resource_type):
