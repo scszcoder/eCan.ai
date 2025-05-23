@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { BaseResponse, useIPC } from '../service/ipc';
+import { BaseResponse, useIPC } from '../services/ipc';
 import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
