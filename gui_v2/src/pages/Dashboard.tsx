@@ -35,24 +35,8 @@ const Dashboard: React.FC = () => {
         // 将更新函数暴露到全局
         updateDashboardData = handleUpdateData;
 
-        // // 监听 IPC 消息
-        // const handleIPCMessage = (event: MessageEvent) => {
-        //     try {
-        //         const data = JSON.parse(event.data);
-        //         if (data.type === 'dashboard_update' && data.stats) {
-        //             handleUpdateData(data.stats);
-        //         }
-        //     } catch (error) {
-        //         console.error('Error handling IPC message:', error);
-        //     }
-        // };
-
-        // // 添加消息监听器
-        // window.addEventListener('message', handleIPCMessage);
-
         // 清理函数
         return () => {
-            // window.removeEventListener('message', handleIPCMessage);
             updateDashboardData = null;
         };
     }, [handleUpdateData]);
