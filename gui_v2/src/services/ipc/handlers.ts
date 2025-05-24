@@ -4,6 +4,7 @@
  */
 import { IPCRequest, IPCResponse } from './types';
 import { updateDashboard } from '../../pages/Dashboard';
+import { logger } from '../../utils/logger';
 
 // 处理器类型定义
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -88,7 +89,7 @@ export class IPCHandlers {
             updateDashboard(stats);
             return { refreshed: true };
         } catch (error) {
-            console.error('Error in refresh_dashboard handler:', error);
+            logger.error('Error in refresh_dashboard handler:', error);
             throw error;
         }
     }

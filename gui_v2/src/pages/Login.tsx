@@ -4,6 +4,7 @@ import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { createIPCAPI } from '../services/ipc';
+import { logger } from '../utils/logger';
 import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
@@ -53,7 +54,7 @@ const Login: React.FC = () => {
         try {
             const response = await api.login<LoginResponse>(values.username, values.password);
             if (response.success && response.data) {
-                console.log(response.data);
+                logger.info('Login successful', response.data);
                 const { token, message: successMessage } = response.data;
                 localStorage.setItem('token', token);
                 localStorage.setItem('isAuthenticated', 'true');
@@ -61,10 +62,11 @@ const Login: React.FC = () => {
                 messageApi.success(successMessage);
                 navigate('/dashboard');
             } else {
-                console.log(response.error);
+                logger.error('Login failed', response.error);
                 messageApi.error(response.error?.message || t('login.failed'));
             }
         } catch (error) {
+            logger.error('Login error:', error);
             messageApi.error(t('login.failed') + ': ' + (error instanceof Error ? error.message : String(error)));
         } finally {
             setLoading(false);

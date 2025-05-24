@@ -7,7 +7,6 @@ import {
     IPCRequest,
     IPCResponse,
     IPCRequestHandler,
-    IPCResponseHandler,
     IPCErrorHandler,
     createRequest,
     createErrorResponse,
@@ -26,10 +25,8 @@ export class IPCClient {
     private requestHandlers: Record<string, IPCRequestHandler>;
     private errorHandler: IPCErrorHandler | null = null;
     private initPromise: Promise<void> | null = null;
-    private logger: typeof logger;
 
     private constructor() {
-        this.logger = logger;
         this.requestHandlers = getHandlers();
         this.init();
     }
@@ -38,7 +35,7 @@ export class IPCClient {
      * 初始化 IPC 客户端
      */
     private init(): void {
-        this.logger.info('start ipc client init...');
+        logger.info('start ipc client init...');
         // 如果已经初始化过，直接返回
         if (this.ipc) {
             return;
@@ -47,11 +44,11 @@ export class IPCClient {
         this.initPromise = new Promise((resolve) => {
             // 监听 webchannel-ready 事件
             const handleWebChannelReady = () => {
-                this.logger.info('WebChannel ready event triggered');
+                logger.info('WebChannel ready event triggered');
                 // 再次检查是否已初始化，避免重复设置
                 if (!this.ipc && window.ipc) {
                     this.setIPC(window.ipc);
-                    this.logger.info('IPC initialized successfully');
+                    logger.info('IPC initialized successfully');
                     // 移除事件监听器
                     window.removeEventListener('webchannel-ready', handleWebChannelReady);
                     resolve();
@@ -60,7 +57,7 @@ export class IPCClient {
 
             // 添加事件监听器
             window.addEventListener('webchannel-ready', handleWebChannelReady);
-            this.logger.info('WebChannel ready event listener set up');
+            logger.info('WebChannel ready event listener set up');
 
             // 如果 webchannel 已经就绪，立即初始化
             if (document.readyState === 'complete' && window.ipc) {
@@ -99,12 +96,12 @@ export class IPCClient {
     public setIPC(ipc: IPC): void {
         // 如果已经设置了 IPC 对象，直接返回
         if (this.ipc) {
-            this.logger.warn('IPC object already set, ignoring duplicate initialization');
+            logger.warn('IPC object already set, ignoring duplicate initialization');
             return;
         }
         this.ipc = ipc;
         this.setupMessageHandler();
-        this.logger.info('IPC object set and message handler initialized');
+        logger.info('IPC object set and message handler initialized');
     }
 
     /**
@@ -113,7 +110,7 @@ export class IPCClient {
      */
     public setErrorHandler(handler: IPCErrorHandler): void {
         this.errorHandler = handler;
-        this.logger.info('Error handler set');
+        logger.info('Error handler set');
     }
 
     /**
@@ -135,7 +132,7 @@ export class IPCClient {
         }
 
         const request = createRequest(method, params);
-        this.logger.debug(`Sending request: ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
+        logger.debug(`Sending request: ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
 
         try {
             const responseStr = await this.ipc.web_to_python(JSON.stringify(request));
@@ -152,7 +149,7 @@ export class IPCClient {
             // 直接返回响应，无论状态如何
             return response;
         } catch (error) {
-            this.logger.error(`Failed to send request ${method}:`, error);
+            logger.error(`Failed to send request ${method}:`, error);
             if (error instanceof Error) {
                 throw createErrorResponse(
                     request.id,
@@ -170,13 +167,13 @@ export class IPCClient {
      */
     private handleMessage(message: string): void {
         try {
-            this.logger.info('Received message:', message);
+            logger.info('Received message:', message);
             const request = JSON.parse(message) as IPCRequest;
 
             if (request.type === 'request') {
                 this.handleRequest(request);
             } else {
-                this.logger.warn('Received non-request type message:', request);
+                logger.warn('Received non-request type message:', request);
                 this.sendErrorResponse(request.id, {
                     code: 'HANDLER_ERROR',
                     message: `Received non-request type message: ${request.type}`,
@@ -184,7 +181,7 @@ export class IPCClient {
                 });
             }
         } catch (error) {
-            this.logger.error('Failed to parse message:', error);
+            logger.error('Failed to parse message:', error);
             this.handleError({
                 code: 'PARSE_ERROR',
                 message: 'Failed to parse message',
@@ -200,7 +197,7 @@ export class IPCClient {
     private async handleRequest(request: IPCRequest): Promise<void> {
         const handler = this.requestHandlers[request.method];
         if (!handler) {
-            this.logger.warn(`No handler registered for method '${request.method}'`);
+            logger.warn(`No handler registered for method '${request.method}'`);
             this.sendErrorResponse(request.id, {
                 code: 'HANDLER_ERROR',
                 message: `No handler registered for method '${request.method}'`,
@@ -213,7 +210,7 @@ export class IPCClient {
             const result = await handler(request);
             this.sendResponse(request.id, result);
         } catch (error) {
-            this.logger.error(`Error handling request '${request.method}':`, error);
+            logger.error(`Error handling request '${request.method}':`, error);
             this.sendErrorResponse(request.id, {
                 code: 'HANDLER_ERROR',
                 message: error instanceof Error ? error.message : 'Handler error occurred',
@@ -229,7 +226,7 @@ export class IPCClient {
      */
     private sendResponse(requestId: string, result: unknown): void {
         if (!this.ipc) {
-            this.logger.error('IPC object not set');
+            logger.error('IPC object not set');
             return;
         }
 
@@ -243,9 +240,9 @@ export class IPCClient {
 
         try {
             this.ipc.web_to_python(JSON.stringify(response));
-            this.logger.debug('Response sent:' + JSON.stringify(response));
+            logger.debug('Response sent:' + JSON.stringify(response));
         } catch (error) {
-            this.logger.error('Failed to send response:', error);
+            logger.error('Failed to send response:', error);
             this.handleError({
                 code: 'SEND_ERROR',
                 message: 'Failed to send response',
@@ -261,7 +258,7 @@ export class IPCClient {
      */
     private sendErrorResponse(requestId: string, error: { code: string; message: string; details?: unknown }): void {
         if (!this.ipc) {
-            this.logger.error('IPC object not set');
+            logger.error('IPC object not set');
             return;
         }
 
@@ -269,9 +266,9 @@ export class IPCClient {
 
         try {
             this.ipc.web_to_python(JSON.stringify(response));
-            this.logger.debug('Error response sent:', response);
+            logger.debug('Error response sent:', response);
         } catch (sendError) {
-            this.logger.error('Failed to send error response:', sendError);
+            logger.error('Failed to send error response:', sendError);
             this.handleError({
                 code: 'SEND_ERROR',
                 message: 'Failed to send error response',
@@ -285,7 +282,7 @@ export class IPCClient {
      * @param error - 错误信息
      */
     private handleError(error: { code: string | number; message: string; details?: unknown }): void {
-        this.logger.error('IPC error:', error);
+        logger.error('IPC error:', error);
         if (this.errorHandler) {
             this.errorHandler(error);
         }
@@ -299,9 +296,9 @@ export class IPCClient {
             window.ipc.python_to_web.connect((message) => {
                 this.handleMessage(message);
             });
-            this.logger.info('IPC message handler set up');
+            logger.info('IPC message handler set up');
         } else {
-            this.logger.warn('IPC python_to_web not available');
+            logger.warn('IPC python_to_web not available');
         }
     }
 } 

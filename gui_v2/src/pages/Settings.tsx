@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App } from 'antd';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
+import { logger } from '../utils/logger';
 
 const { Option } = Select;
 
@@ -64,7 +65,7 @@ const Settings: React.FC = () => {
     message.success(t('settings.autoUpdateChanged'));
   };
 
-  const onFinish = async (values: SettingsFormData) => {
+  const handleSave = async (values: SettingsFormData) => {
     try {
       // 更新本地设置
       localStorage.setItem('language', values.language);
@@ -76,8 +77,8 @@ const Settings: React.FC = () => {
       
       message.success(t('settings.saved'));
     } catch (error) {
-      console.error('Failed to save settings:', error);
-      message.error(t('settings.saveError', { error: String(error) }));
+      logger.error('Failed to save settings:', error);
+      message.error(t('settings.saveError'));
     }
   };
 
@@ -87,7 +88,7 @@ const Settings: React.FC = () => {
         <Form
           form={form}
           layout="vertical"
-          onFinish={onFinish}
+          onFinish={handleSave}
           initialValues={initialValues}
           preserve={false}
         >
