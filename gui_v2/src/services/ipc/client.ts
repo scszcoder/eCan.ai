@@ -35,28 +35,31 @@ export class IPCClient {
      * 初始化 IPC 客户端
      */
     private init(): void {
+        this.logger.info('start ipc client init...');
         // 如果已经初始化过，直接返回
         if (this.ipc) {
             return;
         }
 
         // 监听 webchannel-ready 事件
-        const handleWebChannelReady = () => {
+        const handleWebChannelReady = (event: Event) => {
+            this.logger.info('WebChannel ready event triggered');
             // 再次检查是否已初始化，避免重复设置
             if (!this.ipc && window.ipc) {
                 this.setIPC(window.ipc);
                 this.logger.info('IPC initialized successfully');
                 // 移除事件监听器
-                document.removeEventListener('webchannel-ready', handleWebChannelReady);
+                window.removeEventListener('webchannel-ready', handleWebChannelReady);
             }
         };
 
         // 添加事件监听器
-        document.addEventListener('webchannel-ready', handleWebChannelReady);
+        window.addEventListener('webchannel-ready', handleWebChannelReady);
+        this.logger.info('WebChannel ready event listener set up');
 
         // 如果 webchannel 已经就绪，立即初始化
         if (document.readyState === 'complete' && window.ipc) {
-            handleWebChannelReady();
+            handleWebChannelReady(new Event('webchannel-ready'));
         }
     }
 
