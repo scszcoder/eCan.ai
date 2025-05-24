@@ -1272,7 +1272,7 @@ tool_function_mapping = {
         "in_browser_switch_tab": in_browser_switch_tab,
         "in_browser_open_tab": in_browser_open_tab,
         "in_browser_close_tab": in_browser_close_tab,
-        "in_browser_extract_content": in_browser_extract_content,
+        "in_browser_extract_content": in_browser_scrape_content,
         "in_browser_save_html_to_file": in_browser_save_html_to_file,
         "in_browser_scroll_down": in_browser_scroll_down,
         "in_browser_scroll_up": in_browser_scroll_up,

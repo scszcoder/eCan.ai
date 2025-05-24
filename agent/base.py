@@ -18,7 +18,7 @@ class GlobalContext(BaseModel):
 class AppContext(BaseModel):
     context_id: str = str(uuid.uuid4())
     name: str = "browser"
-    config: dict = {}
+    config: dict = Any
     category: str = 'browser'
     state: str = "closed"
 

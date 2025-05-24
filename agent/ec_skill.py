@@ -16,7 +16,10 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from pyqtgraph.examples.MatrixDisplayExample import main_window
 from sqlalchemy.testing.suite.test_reflection import metadata
-
+from agent.message_manager.service import MessageManager
+from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
+from agent.prompts import AgentMessagePrompt, PlannerPrompt
+from agent.models import ActionResult
 from typing_extensions import TypedDict
 from langgraph.prebuilt import tools_condition
 from mcp.client.sse import sse_client
@@ -621,54 +624,154 @@ async def create_rpa_supervisor_serve_requests_skill(mainwin):
     return supervisor_skill
 
 
-async def in_browser_extract_content(params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
-    browser = browser_context.browser
-    page = await browser.get_current_page()
-    import markdownify
+async def in_browser_scrape_content(state: NodeState) -> NodeState:
+    """Execute one step of the task"""
+    state = None
+    model_output = None
+    result: list[ActionResult] = []
+    step_start_time = time.time()
+    tokens = 0
+    agent = state["messages"][-1]
+    mainwin = agent.mainwin
 
-    strip = []
-    if should_strip_link_urls:
-        strip = ['a', 'img']
-
-    content = markdownify.markdownify(await page.content(), strip=strip)
-
-    # manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
-    for iframe in page.frames:
-        if iframe.url != page.url and not iframe.url.startswith('data:'):
-            content += f'\n\nIFRAME {iframe.url}:\n'
-            content += markdownify.markdownify(await iframe.content())
-
-    prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
-    template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
     try:
-        output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
-        msg = f'📄  Extracted from page\n: {output.content}\n'
-        logger.info(msg)
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        global_context = agent.global_context
+        state = await agent.global_context.get_state()
+        active_page = await agent.global_context.get_current_page()
+        # generate procedural memory if needed
+        if agent.settings.enable_memory and agent.memory and agent.state.n_steps % agent.settings.memory_interval == 0:
+            agent.memory.create_procedural_memory(agent.state.n_steps)
+
+        await agent._raise_if_stopped_or_paused()
+
+        # Update action models with page-specific actions
+        await agent._update_action_models_for_page(active_page, global_context)
+
+        # Get page-specific filtered actions
+        page_filtered_actions = agent.runner.registry.get_prompt_description(active_page, global_context)
+
+        # If there are page-specific actions, add them as a special message for this step only
+        if page_filtered_actions:
+            page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
+            agent._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
+
+        # If using raw tool calling method, we need to update the message context with new actions
+        # For raw tool calling, get all non-filtered actions plus the page-filtered ones
+        all_unfiltered_actions = agent.runner.registry.get_prompt_description()
+        all_actions = all_unfiltered_actions
+
+        if page_filtered_actions:
+            all_actions += '\n' + page_filtered_actions
+
+            context_lines = agent._message_manager.settings.message_context.split('\n')
+            non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
+            updated_context = '\n'.join(non_action_lines)
+            if updated_context:
+                updated_context += f'\n\nAvailable actions: {all_actions}'
+            else:
+                updated_context = f'Available actions: {all_actions}'
+            agent._message_manager.settings.message_context = updated_context
+
+        print("add state message:", state)
+        agent._message_manager.add_state_message(state, agent.state.last_result,
+                                                agent.settings.use_vision)
+
+
+
+        input_messages = agent._message_manager.get_messages()
+        tokens = agent._message_manager.state.history.current_tokens
+
+
+        model_output = await agent.get_next_action(input_messages)
+
+        # Check again for paused/stopped state after getting model output
+        # This is needed in case Ctrl+C was pressed during the get_next_action call
+        await agent._raise_if_stopped_or_paused()
+
+        agent.state.n_steps += 1
+
+        if agent.settings.save_conversation_path:
+            target = agent.settings.save_conversation_path + f'_{agent.state.n_steps}.txt'
+            save_conversation(input_messages, model_output, target,
+                              agent.settings.save_conversation_path_encoding)
+
+        agent._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
+
+        # check again if Ctrl+C was pressed before we commit the output to history
+        await agent._raise_if_stopped_or_paused()
+
+        agent._message_manager.add_model_output(model_output)
+
+        result: list[ActionResult] = await agent.multi_act(model_output.action)
+
+        agent.state.last_result = result
+
+        if len(result) > 0 and result[-1].is_done:
+            # logger.info(f'📄 Result: {result[-1].extracted_content}')
+            print(f'📄 Result: {result[-1].extracted_content}')
+
+        agent.state.consecutive_failures = 0
+
+
+    except InterruptedError:
+        # logger.debug('Agent paused')
+        agent.state.last_result = [
+            ActionResult(
+                error='The agent was paused mid-step - the last action might need to be repeated',
+                include_in_memory=False
+            )
+        ]
+        return
+    except asyncio.CancelledError:
+        # Directly handle the case where the step is cancelled at a higher level
+        # logger.debug('Task cancelled - agent was paused with Ctrl+C')
+        agent.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
+        raise InterruptedError('Step cancelled by user')
     except Exception as e:
-        logger.debug(f'Error extracting content: {e}')
-        msg = f'📄  Extracted from page\n: {content}\n'
-        logger.info(msg)
-        return CallToolResult(content=[TextContent(type="text", text=msg)])
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
+            # logger.error(f'❌  Failed to step: {ex_stat}')
+            print(f'❌  Failed to step: {ex_stat}')
 
+        result = await agent._handle_step_error(e)
+        agent.state.last_result = result
 
-def gen_tool_node_to_extract_web_page(state: NodeState) -> NodeState:
-    clickable_dom = state["messages"][-1].content.lower()
-    dom_tree = await helper_skill.mcp_session.call_tool(
-        "screen_capture", arguments={"params": {}, "context_id": ""}
-    )
-    return state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
+        mainwin.showMsg(ex_stat)
+        return None
 
+    finally:
+        step_end_time = time.time()
+        actions = [a.model_dump(exclude_unset=True) for a in model_output.action] if model_output else []
+        agent.telemetry.capture(
+            AgentStepTelemetryEvent(
+                agent_id=agent.state.agent_id,
+                step=agent.state.n_steps,
+                actions=actions,
+                consecutive_failures=agent.state.consecutive_failures,
+                step_error=[r.error for r in result if r.error] if result else ['No result'],
+            )
+        )
+        if not result:
+            return
 
-def gen_tool_node_to_extract_web_page(state: NodeState) -> NodeState:
-    last_msg = state["messages"][-1].content.lower()
-    if "resolved" in last_msg:
-        state["resolved"] = True
-    else:
-        state["retries"] += 1
-    return state
-
+        if state:
+            metadata = StepMetadata(
+                step_number=self.state.n_steps,
+                step_start_time=step_start_time,
+                step_end_time=step_end_time,
+                input_tokens=tokens,
+            )
+            agent._make_history_item(model_output, state, result, metadata)
 
 
 # ============ scratch here ==============================

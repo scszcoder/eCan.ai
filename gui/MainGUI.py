@@ -91,6 +91,8 @@ from agent.ec_agent import EC_Agent
 from agent.runner.service import Runner
 from agent.ec_skill import build_agent_skills
 from agent.a2a.langgraph_agent.utils import set_up_ec_helper_agent, set_up_ec_rpa_operator_agent, set_up_ec_rpa_supervisor_agent
+from agent.a2a.langgraph_agent.utils import set_up_ec_customer_support_agent, set_up_ec_marketing_agent, set_up_ec_sales_agent
+from agent.a2a.langgraph_agent.utils import set_up_ec_research_agent
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
 
@@ -1124,11 +1126,13 @@ class MainWindow(QMainWindow):
         if "Platoon" in self.machine_role:
             self.agents.append(set_up_ec_helper_agent(self))
             self.agents.append(set_up_ec_rpa_operator_agent(self))
+            self.agents.append(set_up_ec_research_agent(self))
         else:
             self.agents.append(set_up_ec_helper_agent(self))
             self.agents.append(set_up_ec_rpa_supervisor_agent(self))
             if "ONLY" not in self.machine_role:
                 self.agents.append(set_up_ec_rpa_operator_agent(self))
+                self.agents.append(set_up_ec_research_agent(self))
 
     def get_vehicle_ecbot_op_agent(self, v):
         # obtain agents on a vehicle.
