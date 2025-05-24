@@ -21,16 +21,44 @@ class APIResponse(Generic[T]):
     error: Optional[str] = None
 
 class IPCAPI:
-    """IPC API 管理类"""
+    """IPC API 管理类（单例模式）"""
     
-    def __init__(self, ipc_service: IPCService):
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self, ipc_service: Optional[IPCService] = None):
         """
         初始化 IPC API
         
         Args:
-            ipc_service: IPC 服务实例
+            ipc_service: IPC 服务实例（可选，如果已初始化则忽略）
         """
-        self._ipc_service: IPCService = ipc_service
+        if not self._initialized:
+            if ipc_service is None:
+                raise ValueError("IPC service must be provided for first initialization")
+            self._ipc_service: IPCService = ipc_service
+            self._initialized = True
+            logger.info("IPC API initialized")
+    
+    @classmethod
+    def get_instance(cls) -> 'IPCAPI':
+        """
+        获取 IPCAPI 单例实例
+        
+        Returns:
+            IPCAPI: IPCAPI 实例
+            
+        Raises:
+            RuntimeError: 如果实例尚未初始化
+        """
+        if cls._instance is None:
+            raise RuntimeError("IPCAPI has not been initialized. Call IPCAPI(ipc_service) first.")
+        return cls._instance
     
     def _convert_response(
         self,
