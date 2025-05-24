@@ -67,7 +67,7 @@ class WebEngineView(QWebEngineView):
         # 5. 设置 WebChannel（在页面加载前）
         self.setup_webchannel()
 
-        # 6. 初始化 IPCAPI 单例
+        # # 6. 初始化 IPCAPI 单例
         self._ipc_api = IPCAPI(self._ipc_service)
     
     def init_engine(self):
@@ -306,8 +306,6 @@ class WebEngineView(QWebEngineView):
     def reload_page(self) -> None:
         """重新加载页面"""
         try:
-            # 重新设置 WebChannel
-            self.setup_webchannel()
             # 重新加载页面
             self.reload()
             logger.info("Page reloaded")
