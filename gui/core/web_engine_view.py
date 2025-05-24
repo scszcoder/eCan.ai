@@ -8,7 +8,7 @@ from PySide6.QtCore import QUrl, Qt, Slot, Signal, QObject
 from PySide6.QtWebChannel import QWebChannel
 from utils.logger_helper import logger_helper
 from gui.core.request_interceptor import RequestInterceptor
-from gui.core.ipc_service import IPCService
+from gui.ipc.service import IPCService
 from typing import Optional, Callable, Any, Dict, Union
 from pathlib import Path
 import os
