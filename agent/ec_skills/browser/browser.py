@@ -12,7 +12,7 @@ from typing import Literal
 # )
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from agent.ec_skills.browser.browser import BrowserContext, BrowserContextConfig
+from agent.ec_skills.browser.context import BrowserContext, BrowserContextConfig
 
 logger = logging.getLogger(__name__)
 

@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agent.base import AppContext
 from agent.playwright_sim import *
 import asyncio
-from browser.views import (
+from agent.ec_skills.browser.views import (
 	BrowserError,
 	BrowserState,
 	TabInfo,

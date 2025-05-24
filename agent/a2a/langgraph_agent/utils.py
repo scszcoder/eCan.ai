@@ -450,11 +450,11 @@ def set_up_ec_research_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
+        agent_skill = next((sk for sk in agent_skills if sk.name == "search 1688 web site"), None)
 
         agent_card = AgentCard(
-            name="ECBot Helper Agent",
-            description="ECBot Market Research",
+            name="MECA Product Researcher Agent",
+            description="MECA Product Research",
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
@@ -480,8 +480,8 @@ def set_up_ec_research_agent(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Helper Task",
-            description="Help fix errors/failures during e-commerce RPA run",
+            name="MECA search product on 1688 task",
+            description="find a part or product on 1688",
             status=status,  # or whatever default status you need
             sessionId=session_id,
             skill=agent_skill,
@@ -499,9 +499,9 @@ def set_up_ec_research_agent(mainwin):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorSetUpECBOTHelperAgent:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorSetUpECResearcherAgent:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorSetUpECBOTHelperAgent: traceback information not available:" + str(e)
+            ex_stat = "ErrorSetUpECResearcherAgent: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
         return None
     return marketing_researcher

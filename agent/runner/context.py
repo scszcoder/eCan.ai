@@ -3,7 +3,7 @@ from typing import Optional
 from dataclasses import dataclass
 import os
 
-from browser.views import BrowserState
+from agent.ec_skills.browser.views import BrowserState
 
 
 @dataclass

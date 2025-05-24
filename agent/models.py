@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from agent.runner.registry.models import ActionModel
 from agent.message_manager.models import MessageManagerState
-from browser.views import BrowserStateHistory
+from agent.ec_skills.browser.views import BrowserStateHistory
 from agent.ec_skills.dom.history_tree_processor.service import (
 	DOMElementNode,
 	DOMHistoryElement,
