@@ -8,6 +8,7 @@ from .types import IPCRequest, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper
 import json
+import uuid
 
 logger = logger_helper.logger
 
@@ -168,3 +169,86 @@ def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
             'CONFIG_ERROR',
             f"Error setting config: {str(e)}"
         ))
+
+@IPCHandlerRegistry.register('login')
+def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+    """处理登录请求
+    
+    验证用户凭据并返回访问令牌。
+    
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+        
+    Returns:
+        str: JSON 格式的响应消息
+        
+    Example:
+        请求:
+        {
+            "method": "login",
+            "params": {"username": "admin", "password": "admin123#"}
+        }
+        
+        成功响应:
+        {
+            "status": "ok",
+            "result": {
+                "token": "32位随机token",
+                "message": "Login successful"
+            }
+        }
+        
+        错误响应:
+        {
+            "status": "error",
+            "error": {
+                "code": "INVALID_CREDENTIALS",
+                "message": "Invalid username or password"
+            }
+        }
+    """
+    try:
+        # 验证参数
+        result = validate_params(params, ['username', 'password'])
+        if not result.is_valid:
+            logger.warning(f"Invalid parameters for login: {result.error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                result.error
+            ))
+        
+        # 获取用户名和密码
+        username = result.data['username']
+        password = result.data['password']
+        
+        # 简单的密码验证
+        if password == 'admin123#':
+            # 生成32位随机token
+            token = uuid.uuid4().hex
+            logger.info(f"User {username} logged in successfully")
+            return json.dumps(create_success_response(request, {
+                'token': token,
+                'message': 'Login successful'
+            }))
+        else:
+            logger.warning(f"Invalid login attempt for user {username}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_CREDENTIALS',
+                'Invalid username or password'
+            ))
+    except Exception as e:
+        logger.error(f"Error during login: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+# 注册所有处理方法
+HANDLERS = {
+    'login': handle_login,
+    # ... 其他处理方法 ...
+}
