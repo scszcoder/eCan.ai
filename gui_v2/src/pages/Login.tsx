@@ -1,79 +1,75 @@
-import React, { useEffect } from 'react';
-import { Form, Input, Button, Card, Select, Typography, message } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
+import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import styled from '@emotion/styled';
+import { createIPCAPI } from '../services/ipc';
+import { logger } from '../utils/logger';
 import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
 
-const LoginContainer = styled.div`
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    background: #f0f2f5;
-    position: relative;
-`;
+interface LoginFormValues {
+    username: string;
+    password: string;
+    role: string;
+}
 
-const LoginCard = styled(Card)`
-    width: 400px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-`;
-
-const LoginTitle = styled.div`
-    text-align: center;
-    margin-bottom: 24px;
-`;
-
-const SelectContainer = styled.div`
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    display: flex;
-    gap: 12px;
-    z-index: 10;
-`;
-
-const Logo = styled.img`
-    display: block;
-    width: 120px;
-    height: auto;
-    margin: 0 auto 32px;
-`;
+interface LoginResponse {
+    token: string;
+    message: string;
+}
 
 const Login: React.FC = () => {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
-    const [form] = Form.useForm();
+    const [form] = Form.useForm<LoginFormValues>();
+    const { message: messageApi } = App.useApp();
+    const [loading, setLoading] = useState(false);
+    const api = createIPCAPI();
+    const [selectedRole, setSelectedRole] = React.useState({
+        value: 'commander',
+        label: t('roles.commander')
+    });
 
-    useEffect(() => {
-        // 确保初始时角色为 commander
-        form.setFieldsValue({ role: 'commander' });
-        // 设置默认语言
+    // 设置默认语言
+    React.useEffect(() => {
         const savedLanguage = localStorage.getItem('i18nextLng') || 'zh-CN';
         i18n.changeLanguage(savedLanguage);
-    }, [form, i18n]);
+    }, [i18n]);
 
-    const handleSubmit = async (values: any) => {
+    // 监听表单中role字段的变化
+    React.useEffect(() => {
+        const role = form.getFieldValue('role');
+        if (role) {
+            setSelectedRole({
+                value: role,
+                label: t(`roles.${role}`)
+            });
+        }
+    }, [form, t]);
+
+    const handleSubmit = async (values: LoginFormValues) => {
+        setLoading(true);
         try {
-            // 模拟登录验证
-            if (values.username === 'admin' && values.password === 'admin123#') {
-                // 保存登录状态和角色
+            const response = await api.login<LoginResponse>(values.username, values.password);
+            if (response.success && response.data) {
+                logger.info('Login successful', response.data);
+                const { token, message: successMessage } = response.data;
+                localStorage.setItem('token', token);
                 localStorage.setItem('isAuthenticated', 'true');
                 localStorage.setItem('userRole', values.role);
-                
-                // 显示成功消息
-                message.success(t('login.success'));
-                
-                // 使用 replace 进行导航
-                navigate('/', { replace: true });
+                messageApi.success(successMessage);
+                navigate('/dashboard');
             } else {
-                message.error(t('login.invalidCredentials'));
+                logger.error('Login failed', response.error);
+                messageApi.error(response.error?.message || t('login.failed'));
             }
         } catch (error) {
-            message.error(t('login.error'));
+            logger.error('Login error:', error);
+            messageApi.error(t('login.failed') + ': ' + (error instanceof Error ? error.message : String(error)));
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -81,10 +77,6 @@ const Login: React.FC = () => {
         i18n.changeLanguage(value.value);
         localStorage.setItem('i18nextLng', value.value);
         localStorage.setItem('language', value.value);
-    };
-
-    const handleRoleChange = (value: string) => {
-        form.setFieldsValue({ role: value });
     };
 
     const languageOptions = [
@@ -104,8 +96,9 @@ const Login: React.FC = () => {
     ];
 
     return (
-        <LoginContainer>
-            <SelectContainer>
+        <div className="login-container">
+            <div className="login-decoration" />
+            <div style={{ position: 'absolute', top: 20, right: 20, display: 'flex', gap: 12, zIndex: 10 }}>
                 <Select
                     value={currentLanguage}
                     style={{ width: 120 }}
@@ -115,21 +108,26 @@ const Login: React.FC = () => {
                     labelInValue
                 />
                 <Select
-                    value={form.getFieldValue('role') || 'commander'}
-                    style={{ width: 140 }}
-                    onChange={handleRoleChange}
+                    value={selectedRole}
+                    style={{ width: 120 }}
+                    onChange={(value) => {
+                        form.setFieldsValue({ role: value.value });
+                        setSelectedRole(value);
+                    }}
                     options={roleOptions}
+                    placeholder={t('common.selectRole')}
+                    labelInValue
                 />
-            </SelectContainer>
+            </div>
 
-            <LoginCard>
-                <Logo src={logo} alt="ECBOT" />
-                <LoginTitle>
+            <Card className="login-card" style={{ width: 400 }}>
+                <img src={logo} alt="ECBOT" style={{ display: 'block', width: 120, height: 'auto', margin: '0 auto 32px' }} />
+                <div className="login-title">
                     <Title level={2}>{t('login.title')}</Title>
                     <Text type="secondary">{t('login.subtitle')}</Text>
-                </LoginTitle>
+                </div>
 
-                <Form
+                <Form<LoginFormValues>
                     form={form}
                     name="login"
                     onFinish={handleSubmit}
@@ -139,6 +137,8 @@ const Login: React.FC = () => {
                         role: 'commander',
                     }}
                     size="large"
+                    className="login-form"
+                    preserve={false}
                 >
                     <Form.Item
                         name="username"
@@ -160,19 +160,14 @@ const Login: React.FC = () => {
                         />
                     </Form.Item>
 
-                    {/* 隐藏的角色表单项，确保表单能收集到角色 */}
-                    <Form.Item name="role" style={{ display: 'none' }}>
-                        <Input type="hidden" />
-                    </Form.Item>
-
                     <Form.Item>
-                        <Button type="primary" htmlType="submit" block>
+                        <Button type="primary" htmlType="submit" loading={loading} block>
                             {t('common.login')}
                         </Button>
                     </Form.Item>
                 </Form>
-            </LoginCard>
-        </LoginContainer>
+            </Card>
+        </div>
     );
 };
 
