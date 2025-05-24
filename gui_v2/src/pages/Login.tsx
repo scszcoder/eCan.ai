@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { createIPCAPI } from '../services/ipc';
 import logo from '../assets/logo.png';
 
 const { Title, Text } = Typography;
@@ -13,11 +14,18 @@ interface LoginFormValues {
     role: string;
 }
 
+interface LoginResponse {
+    token: string;
+    message: string;
+}
+
 const Login: React.FC = () => {
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const [form] = Form.useForm<LoginFormValues>();
-    const { message } = App.useApp();
+    const { message: messageApi } = App.useApp();
+    const [loading, setLoading] = useState(false);
+    const api = createIPCAPI();
     const [selectedRole, setSelectedRole] = React.useState({
         value: 'commander',
         label: t('roles.commander')
@@ -41,7 +49,22 @@ const Login: React.FC = () => {
     }, [form, t]);
 
     const handleSubmit = async (values: LoginFormValues) => {
-        
+        setLoading(true);
+        try {
+            const response = await api.login<LoginResponse>(values.username, values.password);
+            if (response.success && response.data) {
+                const { token, message: successMessage } = response.data;
+                localStorage.setItem('token', token);
+                messageApi.success(successMessage);
+                navigate('/dashboard');
+            } else {
+                messageApi.error(response.error?.message || t('login.failed'));
+            }
+        } catch (error) {
+            messageApi.error(t('login.failed') + ': ' + (error instanceof Error ? error.message : String(error)));
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleLanguageChange = (value: { value: string; label: string }) => {
@@ -132,7 +155,7 @@ const Login: React.FC = () => {
                     </Form.Item>
 
                     <Form.Item>
-                        <Button type="primary" htmlType="submit" block>
+                        <Button type="primary" htmlType="submit" loading={loading} block>
                             {t('common.login')}
                         </Button>
                     </Form.Item>
