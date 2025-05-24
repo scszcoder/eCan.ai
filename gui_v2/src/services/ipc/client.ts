@@ -28,7 +28,36 @@ export class IPCClient {
 
     private constructor() {
         this.logger = console;
-        this.setupMessageHandler();
+        this.init();
+    }
+
+    /**
+     * 初始化 IPC 客户端
+     */
+    private init(): void {
+        // 如果已经初始化过，直接返回
+        if (this.ipc) {
+            return;
+        }
+
+        // 监听 webchannel-ready 事件
+        const handleWebChannelReady = () => {
+            // 再次检查是否已初始化，避免重复设置
+            if (!this.ipc && window.ipc) {
+                this.setIPC(window.ipc);
+                this.logger.info('IPC initialized successfully');
+                // 移除事件监听器
+                document.removeEventListener('webchannel-ready', handleWebChannelReady);
+            }
+        };
+
+        // 添加事件监听器
+        document.addEventListener('webchannel-ready', handleWebChannelReady);
+
+        // 如果 webchannel 已经就绪，立即初始化
+        if (document.readyState === 'complete' && window.ipc) {
+            handleWebChannelReady();
+        }
     }
 
     /**
@@ -47,8 +76,14 @@ export class IPCClient {
      * @param ipc - IPC 接口实例
      */
     public setIPC(ipc: IPC): void {
+        // 如果已经设置了 IPC 对象，直接返回
+        if (this.ipc) {
+            this.logger.warn('IPC object already set, ignoring duplicate initialization');
+            return;
+        }
         this.ipc = ipc;
-        this.logger.info('IPC object set');
+        this.setupMessageHandler();
+        this.logger.info('IPC object set and message handler initialized');
     }
 
     /**
@@ -127,13 +162,13 @@ export class IPCClient {
      */
     private handleMessage(message: string): void {
         try {
-            const data = JSON.parse(message) as IPCRequest | IPCResponse;
+            const data = JSON.parse(message) as IPCRequest;
             this.logger.debug('Received message:', data);
 
             if (data.type === 'request') {
-                this.handleRequest(data as IPCRequest);
+                this.handleRequest(data);
             } else {
-                this.handleResponse(data as IPCResponse);
+                this.logger.warn('Received non-request message:', data);
             }
         } catch (error) {
             this.logger.error('Failed to parse message:', error);
@@ -166,19 +201,6 @@ export class IPCClient {
                 message: error instanceof Error ? error.message : 'Handler error occurred',
                 details: error
             });
-        }
-    }
-
-    /**
-     * 处理响应消息
-     * @param response - 响应对象
-     */
-    private handleResponse(response: IPCResponse): void {
-        const handler = this.responseHandlers.get(response.id);
-        if (handler) {
-            handler(response);
-        } else {
-            this.logger.warn(`No response handler found for request '${response.id}'`);
         }
     }
 
@@ -255,13 +277,13 @@ export class IPCClient {
      * 设置消息处理器
      */
     private setupMessageHandler(): void {
-        if (window.qt?.webChannelTransport) {
-            window.qt.webChannelTransport.onmessage = (event) => {
-                this.handleMessage(event.data);
-            };
-            this.logger.info('Message handler set up');
+        if (window.ipc?.python_to_web) {
+            window.ipc.python_to_web.connect((message) => {
+                this.handleMessage(message);
+            });
+            this.logger.info('IPC message handler set up');
         } else {
-            this.logger.warn('Qt WebChannel transport not available');
+            this.logger.warn('IPC python_to_web not available');
         }
     }
 } 
