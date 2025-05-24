@@ -1,7 +1,11 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
-import { ConfigProvider, theme } from 'antd';
+import { ConfigProvider, theme, App as AntdApp } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
 import { routes, RouteConfig } from './routes';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+import { LanguageProvider } from './contexts/LanguageContext';
+import { useTranslation } from 'react-i18next';
 import './styles/global.css';
 
 // 配置 React Router future flags
@@ -13,7 +17,7 @@ const router = {
 };
 
 // 自定义主题配置
-const customTheme = {
+const getThemeConfig = (isDark: boolean) => ({
     token: {
         colorPrimary: '#3b82f6',
         colorSuccess: '#22c55e',
@@ -23,38 +27,38 @@ const customTheme = {
         borderRadius: 8,
         wireframe: false,
     },
-    algorithm: theme.darkAlgorithm,
+    algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
     components: {
         Layout: {
-            bodyBg: '#0f172a',
-            headerBg: '#1e293b',
-            siderBg: '#1e293b',
+            bodyBg: isDark ? '#0f172a' : '#f0f2f5',
+            headerBg: isDark ? '#1e293b' : '#ffffff',
+            siderBg: isDark ? '#1e293b' : '#ffffff',
         },
         Menu: {
-            darkItemBg: '#1e293b',
-            darkItemSelectedBg: '#334155',
-            darkItemHoverBg: '#334155',
+            darkItemBg: isDark ? '#1e293b' : '#ffffff',
+            darkItemSelectedBg: isDark ? '#334155' : '#f0f2f5',
+            darkItemHoverBg: isDark ? '#334155' : '#f0f2f5',
         },
         Card: {
-            colorBgContainer: '#1e293b',
-            colorBorderSecondary: '#334155',
+            colorBgContainer: isDark ? '#1e293b' : '#ffffff',
+            colorBorderSecondary: isDark ? '#334155' : '#f0f0f0',
         },
         Button: {
             colorPrimary: '#3b82f6',
             colorPrimaryHover: '#2563eb',
         },
         Input: {
-            colorBgContainer: '#334155',
-            colorBorder: '#475569',
+            colorBgContainer: isDark ? '#334155' : '#ffffff',
+            colorBorder: isDark ? '#475569' : '#d9d9d9',
         },
         Table: {
-            colorBgContainer: '#1e293b',
-            headerBg: '#1e293b',
-            headerColor: '#f8fafc',
-            rowHoverBg: '#334155',
+            colorBgContainer: isDark ? '#1e293b' : '#ffffff',
+            headerBg: isDark ? '#1e293b' : '#fafafa',
+            headerColor: isDark ? '#f8fafc' : '#000000',
+            rowHoverBg: isDark ? '#334155' : '#fafafa',
         },
     },
-};
+});
 
 // 递归渲染路由
 const renderRoutes = (routes: RouteConfig[]) => {
@@ -65,18 +69,35 @@ const renderRoutes = (routes: RouteConfig[]) => {
     ));
 };
 
-function App() {
+const AppContent = () => {
+    const { theme: currentTheme } = useTheme();
+    const { i18n } = useTranslation();
+    const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const locale = i18n.language === 'en-US' ? enUS : zhCN;
+
     return (
         <ConfigProvider
-            locale={zhCN}
-            theme={customTheme}
+            locale={locale}
+            theme={getThemeConfig(isDark)}
         >
-            <HashRouter future={router.future}>
-                <Routes>
-                    {renderRoutes(routes)}
-                </Routes>
-            </HashRouter>
+            <AntdApp>
+                <HashRouter future={router.future}>
+                    <Routes>
+                        {renderRoutes(routes)}
+                    </Routes>
+                </HashRouter>
+            </AntdApp>
         </ConfigProvider>
+    );
+};
+
+function App() {
+    return (
+        <ThemeProvider>
+            <LanguageProvider>
+                <AppContent />
+            </LanguageProvider>
+        </ThemeProvider>
     );
 }
 

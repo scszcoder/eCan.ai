@@ -1,124 +1,143 @@
-import React, { useEffect } from 'react';
-import { Card, Form, Input, Switch, Select, Button, Space, Typography, message } from 'antd';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
-import styled from '@emotion/styled';
+import { Card, Form, Select, Switch, Button, App } from 'antd';
 import { useTheme } from '../contexts/ThemeContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import { logger } from '../utils/logger';
 
-const { Title } = Typography;
 const { Option } = Select;
 
-const SettingsContainer = styled.div`
-    padding: 24px;
-`;
+type Theme = 'light' | 'dark' | 'system';
 
-const StyledCard = styled(Card)`
-    margin-bottom: 24px;
-`;
+interface SettingsFormData {
+  theme: string;
+  language: string;
+  notifications: boolean;
+  autoUpdate: boolean;
+  [key: string]: string | boolean;
+}
 
 const Settings: React.FC = () => {
-    const { t, i18n } = useTranslation();
-    const { theme: currentTheme, changeTheme } = useTheme();
-    const [form] = Form.useForm();
+  const { t, i18n } = useTranslation();
+  const { theme, changeTheme } = useTheme();
+  const { changeLanguage } = useLanguage();
+  const [form] = Form.useForm<SettingsFormData>();
+  const { message } = App.useApp();
 
-    // 初始化表单值
-    useEffect(() => {
-        form.setFieldsValue({
-            language: i18n.language,
-            theme: currentTheme,
-            notifications: true,
-            sound: true,
-            email: true
-        });
-    }, [form, i18n.language, currentTheme]);
+  // 初始化表单值
+  const initialValues = {
+    theme: theme,
+    language: localStorage.getItem('language') || 'en-US',
+    notifications: localStorage.getItem('notifications') === 'true',
+    autoUpdate: localStorage.getItem('autoUpdate') === 'true'
+  };
 
-    const handleLanguageChange = (value: string) => {
-        i18n.changeLanguage(value);
-        localStorage.setItem('i18nextLng', value);
-        localStorage.setItem('language', value);
-        message.success(t('settings.languageChanged'));
-    };
+  // 语言切换处理
+  const handleLanguageChange = async (value: string) => {
+    try {
+      localStorage.setItem('i18nextLng', value);
+      await i18n.changeLanguage(value);
+      changeLanguage(value);
+      message.success(t('settings.languageChanged'));
+    } catch {
+      message.error(t('settings.languageChangeError'));
+    }
+  };
 
-    const handleThemeChange = (value: string) => {
-        changeTheme(value as 'light' | 'dark' | 'system');
-        message.success(t('settings.themeChanged'));
-    };
+  // 主题切换处理
+  const handleThemeChange = (value: Theme) => {
+    changeTheme(value);
+    localStorage.setItem('theme', value);
+    message.success(t('settings.themeChanged'));
+  };
 
-    const onFinish = (values: any) => {
-        console.log('Settings values:', values);
-        message.success(t('settings.saved'));
-    };
+  // 通知设置切换处理
+  const handleNotificationChange = (checked: boolean) => {
+    localStorage.setItem('notifications', String(checked));
+    form.setFieldsValue({ notifications: checked });
+    message.success(t('settings.notificationsChanged'));
+  };
 
-    return (
-        <SettingsContainer>
-            <Title level={2}>{t('settings.title')}</Title>
-            
-            <Form
-                form={form}
-                layout="vertical"
-                onFinish={onFinish}
-            >
-                <StyledCard title={t('settings.general')}>
-                    <Form.Item
-                        name="language"
-                        label={t('settings.language')}
-                    >
-                        <Select onChange={handleLanguageChange}>
-                            <Option value="en-US">{t('languages.en-US')}</Option>
-                            <Option value="zh-CN">{t('languages.zh-CN')}</Option>
-                        </Select>
-                    </Form.Item>
+  // 自动更新设置切换处理
+  const handleAutoUpdateChange = (checked: boolean) => {
+    localStorage.setItem('autoUpdate', String(checked));
+    form.setFieldsValue({ autoUpdate: checked });
+    message.success(t('settings.autoUpdateChanged'));
+  };
 
-                    <Form.Item
-                        name="theme"
-                        label={t('settings.theme')}
-                    >
-                        <Select onChange={handleThemeChange}>
-                            <Option value="light">{t('settings.light')}</Option>
-                            <Option value="dark">{t('settings.dark')}</Option>
-                            <Option value="system">{t('settings.system')}</Option>
-                        </Select>
-                    </Form.Item>
-                </StyledCard>
+  const handleSave = async (values: SettingsFormData) => {
+    try {
+      // 更新本地设置
+      localStorage.setItem('language', values.language);
+      localStorage.setItem('notifications', String(values.notifications));
+      localStorage.setItem('autoUpdate', String(values.autoUpdate));
+      
+      // 更新主题
+      changeTheme(values.theme as 'light' | 'dark' | 'system');
+      
+      message.success(t('settings.saved'));
+    } catch (error) {
+      logger.error('Failed to save settings:', error);
+      message.error(t('settings.saveError'));
+    }
+  };
 
-                <StyledCard title={t('settings.notifications')}>
-                    <Form.Item
-                        name="notifications"
-                        label={t('settings.enableNotifications')}
-                        valuePropName="checked"
-                    >
-                        <Switch />
-                    </Form.Item>
+  return (
+    <div className="settings-container">
+      <Card title={t('settings.title')} className="settings-card">
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSave}
+          initialValues={initialValues}
+          preserve={false}
+        >
+          <Form.Item
+            label={t('settings.language')}
+            name="language"
+          >
+            <Select onChange={handleLanguageChange}>
+              <Option value="en-US">{t('languages.en-US')}</Option>
+              <Option value="zh-CN">{t('languages.zh-CN')}</Option>
+            </Select>
+          </Form.Item>
 
-                    <Form.Item
-                        name="sound"
-                        label={t('settings.sound')}
-                        valuePropName="checked"
-                    >
-                        <Switch />
-                    </Form.Item>
+          <Form.Item
+            label={t('settings.theme')}
+            name="theme"
+          >
+            <Select onChange={handleThemeChange}>
+              <Option value="light">{t('settings.theme.light')}</Option>
+              <Option value="dark">{t('settings.theme.dark')}</Option>
+              <Option value="system">{t('settings.theme.system')}</Option>
+            </Select>
+          </Form.Item>
 
-                    <Form.Item
-                        name="email"
-                        label={t('settings.email')}
-                        valuePropName="checked"
-                    >
-                        <Switch />
-                    </Form.Item>
-                </StyledCard>
+          <Form.Item
+            label={t('settings.notifications')}
+            name="notifications"
+            valuePropName="checked"
+          >
+            <Switch onChange={handleNotificationChange} />
+          </Form.Item>
 
-                <Form.Item>
-                    <Space>
-                        <Button type="primary" htmlType="submit">
-                            {t('common.save')}
-                        </Button>
-                        <Button onClick={() => form.resetFields()}>
-                            {t('common.reset')}
-                        </Button>
-                    </Space>
-                </Form.Item>
-            </Form>
-        </SettingsContainer>
-    );
+          <Form.Item
+            label={t('settings.autoUpdate')}
+            name="autoUpdate"
+            valuePropName="checked"
+          >
+            <Switch onChange={handleAutoUpdateChange} />
+          </Form.Item>
+
+          <Form.Item>
+            <Button type="primary" htmlType="submit">
+              {t('common.save')}
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
+    </div>
+  );
 };
 
 export default Settings; 

@@ -45,6 +45,7 @@
     "schedule": "日程安排",
     "chat": "聊天",
     "skills": "技能",
+    "skill_editor": "技能编辑器",
     "agents": "代理",
     "analytics": "数据分析",
     "apps": "应用",
@@ -73,19 +74,27 @@
     "general": "常规",
     "language": "语言",
     "theme": "主题",
+    "theme.light": "浅色",
+    "theme.dark": "深色",
+    "theme.system": "跟随系统",
     "notifications": "通知",
     "enableNotifications": "启用通知",
     "sound": "声音",
     "email": "邮件通知",
-    "light": "浅色",
-    "dark": "深色",
-    "system": "跟随系统",
     "account": "账户",
     "security": "安全",
     "about": "关于",
     "languageChanged": "语言已更改",
     "themeChanged": "主题已更改",
-    "saved": "设置已保存"
+    "saved": "设置已保存",
+    "autoUpdate": "自动更新",
+    "saveError": "保存设置失败：{{error}}",
+    "loadError": "加载设置失败",
+    "saveSuccess": "设置保存成功",
+    "notificationsChanged": "通知设置已更新",
+    "soundChanged": "声音设置已更新",
+    "emailChanged": "邮件通知设置已更新",
+    "autoUpdateChanged": "自动更新设置已更新"
   },
   "languages": {
     "en-US": "English",
@@ -423,6 +432,19 @@
       "exportTools": "导出工具",
       "importTools": "导入工具",
       "toolSettings": "工具设置"
+    },
+    "skill_editor": {
+      "title": "技能编辑器",
+      "save": "保存技能",
+      "cancel": "取消",
+      "name": "技能名称",
+      "description": "描述",
+      "type": "类型",
+      "status": "状态",
+      "content": "内容",
+      "preview": "预览",
+      "test": "测试",
+      "deploy": "部署"
     }
   }
 } 

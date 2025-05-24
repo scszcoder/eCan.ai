@@ -45,6 +45,7 @@
     "schedule": "Schedule",
     "chat": "Chat",
     "skills": "Skills",
+    "skill_editor": "Skill Editor",
     "agents": "Agents",
     "analytics": "Analytics",
     "apps": "Apps",
@@ -73,19 +74,27 @@
     "general": "General",
     "language": "Language",
     "theme": "Theme",
+    "theme.light": "Light",
+    "theme.dark": "Dark",
+    "theme.system": "System",
     "notifications": "Notifications",
     "enableNotifications": "Enable Notifications",
     "sound": "Sound",
     "email": "Email Notifications",
-    "light": "Light",
-    "dark": "Dark",
-    "system": "System",
     "account": "Account",
     "security": "Security",
     "about": "About",
     "languageChanged": "Language changed",
     "themeChanged": "Theme changed",
-    "saved": "Settings saved"
+    "saved": "Settings saved",
+    "autoUpdate": "Auto Update",
+    "saveError": "Failed to save settings: {{error}}",
+    "loadError": "Failed to load settings",
+    "saveSuccess": "Settings saved successfully",
+    "notificationsChanged": "Notification settings updated",
+    "soundChanged": "Sound settings updated",
+    "emailChanged": "Email notification settings updated",
+    "autoUpdateChanged": "Auto update settings updated"
   },
   "languages": {
     "en-US": "English",
@@ -411,6 +420,19 @@
       "exportTools": "Export Tools",
       "importTools": "Import Tools",
       "toolSettings": "Tool Settings"
+    },
+    "skill_editor": {
+      "title": "Skill Editor",
+      "save": "Save Skill",
+      "cancel": "Cancel",
+      "name": "Skill Name",
+      "description": "Description",
+      "type": "Type",
+      "status": "Status",
+      "content": "Content",
+      "preview": "Preview",
+      "test": "Test",
+      "deploy": "Deploy"
     }
   }
 } 
