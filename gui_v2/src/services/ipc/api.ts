@@ -4,6 +4,7 @@
  */
 import { IPCClient } from './client';
 import { IPCResponse } from './types';
+import { logger } from '../../utils/logger';
 
 /**
  * API 响应类型
@@ -31,11 +32,9 @@ export interface APIResponse<T = unknown> {
 export class IPCAPI {
     private static instance: IPCAPI;
     private client: IPCClient;
-    private logger: Console;
 
     private constructor() {
         this.client = IPCClient.getInstance();
-        this.logger = console;
     }
 
     /**
@@ -56,7 +55,7 @@ export class IPCAPI {
      */
     private async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
         try {
-            this.logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
+            logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
             const response = await this.client.sendRequest(method, params) as IPCResponse;
             if (response.status === 'ok') {
                 return {
@@ -74,7 +73,7 @@ export class IPCAPI {
                 };
             }
         } catch (error) {
-            this.logger.error(`Failed to execute ${method}:`, error);
+            logger.error(`Failed to execute ${method}:`, error);
             return {
                 success: false,
                 error: {

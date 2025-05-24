@@ -3,6 +3,7 @@
  * 管理 IPC 请求处理器的注册和查找
  */
 import { IPCRequestHandler } from './types';
+import { logger } from '../../utils/logger';
 
 /**
  * IPC 处理器注册表类
@@ -10,11 +11,9 @@ import { IPCRequestHandler } from './types';
 export class IPCHandlerRegistry {
     private static instance: IPCHandlerRegistry;
     private handlers: Map<string, IPCRequestHandler>;
-    private logger: Console;
 
     private constructor() {
         this.handlers = new Map();
-        this.logger = console;
     }
 
     /**
@@ -35,10 +34,10 @@ export class IPCHandlerRegistry {
      */
     public register(method: string, handler: IPCRequestHandler): void {
         if (this.handlers.has(method)) {
-            this.logger.warn(`Handler for method '${method}' already exists, overwriting`);
+            logger.warn(`Handler for method '${method}' already exists, overwriting`);
         }
         this.handlers.set(method, handler);
-        this.logger.info(`Handler registered for method '${method}'`);
+        logger.info(`Handler registered for method '${method}'`);
     }
 
     /**
@@ -64,6 +63,6 @@ export class IPCHandlerRegistry {
      */
     public clearHandlers(): void {
         this.handlers.clear();
-        this.logger.info('All handlers cleared');
+        logger.info('All handlers cleared');
     }
 } 
