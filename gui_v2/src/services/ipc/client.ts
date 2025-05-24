@@ -25,6 +25,7 @@ export class IPCClient {
     private responseHandlers: Map<string, IPCResponseHandler> = new Map();
     private errorHandler: IPCErrorHandler | null = null;
     private logger: Console;
+    private initPromise: Promise<void> | null = null;
 
     private constructor() {
         this.logger = console;
@@ -41,25 +42,40 @@ export class IPCClient {
             return;
         }
 
-        // 监听 webchannel-ready 事件
-        const handleWebChannelReady = (event: Event) => {
-            this.logger.info('WebChannel ready event triggered');
-            // 再次检查是否已初始化，避免重复设置
-            if (!this.ipc && window.ipc) {
-                this.setIPC(window.ipc);
-                this.logger.info('IPC initialized successfully');
-                // 移除事件监听器
-                window.removeEventListener('webchannel-ready', handleWebChannelReady);
+        this.initPromise = new Promise((resolve) => {
+            // 监听 webchannel-ready 事件
+            const handleWebChannelReady = () => {
+                this.logger.info('WebChannel ready event triggered');
+                // 再次检查是否已初始化，避免重复设置
+                if (!this.ipc && window.ipc) {
+                    this.setIPC(window.ipc);
+                    this.logger.info('IPC initialized successfully');
+                    // 移除事件监听器
+                    window.removeEventListener('webchannel-ready', handleWebChannelReady);
+                    resolve();
+                }
+            };
+
+            // 添加事件监听器
+            window.addEventListener('webchannel-ready', handleWebChannelReady);
+            this.logger.info('WebChannel ready event listener set up');
+
+            // 如果 webchannel 已经就绪，立即初始化
+            if (document.readyState === 'complete' && window.ipc) {
+                handleWebChannelReady();
             }
-        };
+        });
+    }
 
-        // 添加事件监听器
-        window.addEventListener('webchannel-ready', handleWebChannelReady);
-        this.logger.info('WebChannel ready event listener set up');
-
-        // 如果 webchannel 已经就绪，立即初始化
-        if (document.readyState === 'complete' && window.ipc) {
-            handleWebChannelReady(new Event('webchannel-ready'));
+    /**
+     * 等待 IPC 初始化完成
+     */
+    private async waitForInit(): Promise<void> {
+        if (this.ipc) {
+            return;
+        }
+        if (this.initPromise) {
+            await this.initPromise;
         }
     }
 
@@ -118,6 +134,9 @@ export class IPCClient {
      * @returns Promise 对象，解析为 IPC 响应
      */
     public async sendRequest(method: string, params?: unknown): Promise<IPCResponse> {
+        // 等待 IPC 初始化完成
+        await this.waitForInit();
+
         if (!this.ipc) {
             throw createErrorResponse(
                 generateRequestId(),
