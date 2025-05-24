@@ -56,9 +56,12 @@ const Login: React.FC = () => {
                 console.log(response.data);
                 const { token, message: successMessage } = response.data;
                 localStorage.setItem('token', token);
+                localStorage.setItem('isAuthenticated', 'true');
+                localStorage.setItem('userRole', values.role);
                 messageApi.success(successMessage);
                 navigate('/dashboard');
             } else {
+                console.log(response.error);
                 messageApi.error(response.error?.message || t('login.failed'));
             }
         } catch (error) {

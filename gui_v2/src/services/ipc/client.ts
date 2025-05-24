@@ -160,11 +160,8 @@ export class IPCClient {
                 );
             }
 
-            if (response.status === 'ok') {
-                return response;
-            } else {
-                throw response;
-            }
+            // 直接返回响应，无论状态如何
+            return response;
         } catch (error) {
             this.logger.error(`Failed to send request ${method}:`, error);
             if (error instanceof Error) {
