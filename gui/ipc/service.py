@@ -136,7 +136,7 @@ class IPCService(QObject):
                 callback(response)
                 # 处理完成后删除回调
                 del self._request_callbacks[response['id']]
-                logger.info(f"Response handled for request: {response['id']}")
+                logger.info(f"Response handled for request: {response['id']} handle finished")
             else:
                 logger.warning(f"No callback found for response: {response['id']}")
         except Exception as e:

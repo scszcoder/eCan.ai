@@ -86,7 +86,7 @@ export class IPCHandlers {
 
             // 更新仪表盘数据
             updateDashboard(stats);
-            return stats;
+            return { refreshed: true };
         } catch (error) {
             console.error('Error in refresh_dashboard handler:', error);
             throw error;
