@@ -76,10 +76,10 @@ class IPCAPI:
             return
             
         try:
-            if response.status == 'ok':
-                callback(APIResponse(success=True, data=response.result))
+            if response['status'] == 'ok':
+                callback(APIResponse(success=True, data=response['result']))
             else:
-                error_msg = response.error.message if response.error else 'Unknown error'
+                error_msg = response['error']['message'] if response['error'] else 'Unknown error'
                 callback(APIResponse(success=False, error=error_msg))
         except Exception as e:
             logger.error(f"Error in response callback: {e}")

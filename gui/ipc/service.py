@@ -39,7 +39,7 @@ class IPCService(QObject):
             # 解析消息
             data = json.loads(message)
             logger.info(f"Received message: {data}")
-            
+
             # 检查消息类型
             if 'type' not in data:
                 logger.warning("Message missing type field")
@@ -130,15 +130,15 @@ class IPCService(QObject):
         """
         try:
             # 获取对应的回调函数
-            callback = self._request_callbacks.get(response.id)
+            callback = self._request_callbacks.get(response['id'])
             if callback:
                 # 调用回调函数处理响应
                 callback(response)
                 # 处理完成后删除回调
-                del self._request_callbacks[response.id]
-                logger.info(f"Response handled for request: {response.id}")
+                del self._request_callbacks[response['id']]
+                logger.info(f"Response handled for request: {response['id']}")
             else:
-                logger.warning(f"No callback found for response: {response.id}")
+                logger.warning(f"No callback found for response: {response['id']}")
         except Exception as e:
             logger.error(f"Error handling response: {e}")
     
