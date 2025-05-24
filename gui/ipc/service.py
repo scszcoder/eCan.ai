@@ -105,7 +105,16 @@ class IPCService(QObject):
         # 查找并调用对应的处理器
         handler = IPCHandlerRegistry.get_handler(method)
         if handler:
-            return handler(self, request, params)
+            try:
+                # 直接调用处理器，让装饰器处理参数
+                return handler(request, params)
+            except Exception as e:
+                logger.error(f"Error calling handler for method {method}: {e}")
+                return json.dumps(create_error_response(
+                    request,
+                    'HANDLER_ERROR',
+                    f"Error calling handler: {str(e)}"
+                ))
         else:
             return json.dumps(create_error_response(
                 request,

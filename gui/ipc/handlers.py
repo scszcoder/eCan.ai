@@ -3,7 +3,7 @@ IPC 处理器实现模块
 提供各种 IPC 请求的具体处理实现
 """
 
-from typing import Any, Optional, Dict, TypeVar, Generic, Union
+from typing import Any, Optional, Dict
 from .types import IPCRequest, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper
@@ -12,43 +12,26 @@ import uuid
 
 logger = logger_helper.logger
 
-# 定义泛型类型
-T = TypeVar('T')
-
-class ValidationResult(Generic[T]):
-    """参数验证结果类"""
-    def __init__(self, is_valid: bool, data: Optional[T] = None, error: Optional[str] = None):
-        self.is_valid = is_valid
-        self.data = data
-        self.error = error
-
-def validate_params(params: Optional[Dict[str, Any]], required_keys: list[str]) -> ValidationResult[Dict[str, Any]]:
+def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """验证请求参数
     
-    检查参数字典是否包含所有必需的键。
-    
     Args:
-        params: 参数字典
-        required_keys: 必需的键列表
+        params: 请求参数
+        required: 必需参数列表
         
     Returns:
-        ValidationResult: 验证结果，包含验证状态、数据（如果有效）和错误信息（如果无效）
-        
-    Example:
-        result = validate_params(params, ['key', 'value'])
-        if not result.is_valid:
-            return create_error_response(request, 'INVALID_PARAMS', result.error)
+        tuple[bool, Optional[Dict[str, Any]], Optional[str]]: (是否有效, 参数数据, 错误信息)
     """
     if not params:
-        return ValidationResult(False, error="Missing parameters")
+        return False, None, f"Missing required parameters: {', '.join(required)}"
     
-    missing_keys = [key for key in required_keys if key not in params]
-    if missing_keys:
-        return ValidationResult(False, error=f"Missing required parameters: {', '.join(missing_keys)}")
+    missing = [param for param in required if param not in params]
+    if missing:
+        return False, None, f"Missing required parameters: {', '.join(missing)}"
     
-    return ValidationResult(True, data=params)
+    return True, params, None
 
-@IPCHandlerRegistry.register('get_config')
+@IPCHandlerRegistry.handler('get_config')
 def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
     """处理获取配置请求
     
@@ -60,42 +43,20 @@ def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         
     Returns:
         str: JSON 格式的响应消息
-        
-    Example:
-        请求:
-        {
-            "method": "get_config",
-            "params": {"key": "theme"}
-        }
-        
-        成功响应:
-        {
-            "status": "ok",
-            "result": {"key": "theme", "value": "dark"}
-        }
-        
-        错误响应:
-        {
-            "status": "error",
-            "error": {
-                "code": "CONFIG_ERROR",
-                "message": "Error getting config: Config not found"
-            }
-        }
     """
     try:
         # 验证参数
-        result = validate_params(params, ['key'])
-        if not result.is_valid:
-            logger.warning(f"Invalid parameters for get_config: {result.error}")
+        is_valid, data, error = validate_params(params, ['key'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for get_config: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
-                result.error
+                error
             ))
         
         # 获取配置
-        key = result.data['key']
+        key = data['key']
         # TODO: 实现实际的配置获取逻辑
         config_value = {'key': key, 'value': 'Config value'}
         
@@ -109,7 +70,7 @@ def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
             f"Error getting config: {str(e)}"
         ))
 
-@IPCHandlerRegistry.register('set_config')
+@IPCHandlerRegistry.handler('set_config')
 def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
     """处理设置配置请求
     
@@ -121,43 +82,21 @@ def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         
     Returns:
         str: JSON 格式的响应消息
-        
-    Example:
-        请求:
-        {
-            "method": "set_config",
-            "params": {"key": "theme", "value": "dark"}
-        }
-        
-        成功响应:
-        {
-            "status": "ok",
-            "result": {"success": true}
-        }
-        
-        错误响应:
-        {
-            "status": "error",
-            "error": {
-                "code": "CONFIG_ERROR",
-                "message": "Error setting config: Invalid value"
-            }
-        }
     """
     try:
         # 验证参数
-        result = validate_params(params, ['key', 'value'])
-        if not result.is_valid:
-            logger.warning(f"Invalid parameters for set_config: {result.error}")
+        is_valid, data, error = validate_params(params, ['key', 'value'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for set_config: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
-                result.error
+                error
             ))
         
         # 设置配置
-        key = result.data['key']
-        value = result.data['value']
+        key = data['key']
+        value = data['value']
         # TODO: 实现实际的配置设置逻辑
         
         logger.info(f"Config set: {key} = {value}")
@@ -170,7 +109,7 @@ def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
             f"Error setting config: {str(e)}"
         ))
 
-@IPCHandlerRegistry.register('login')
+@IPCHandlerRegistry.handler('login')
 def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
     """处理登录请求
     
@@ -182,73 +121,47 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
         
     Returns:
         str: JSON 格式的响应消息
-        
-    Example:
-        请求:
-        {
-            "method": "login",
-            "params": {"username": "admin", "password": "admin123#"}
-        }
-        
-        成功响应:
-        {
-            "status": "ok",
-            "result": {
-                "token": "32位随机token",
-                "message": "Login successful"
-            }
-        }
-        
-        错误响应:
-        {
-            "status": "error",
-            "error": {
-                "code": "INVALID_CREDENTIALS",
-                "message": "Invalid username or password"
-            }
-        }
     """
     try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        
         # 验证参数
-        result = validate_params(params, ['username', 'password'])
-        if not result.is_valid:
-            logger.warning(f"Invalid parameters for login: {result.error}")
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
-                result.error
+                error
             ))
         
         # 获取用户名和密码
-        username = result.data['username']
-        password = result.data['password']
+        username = data['username']
+        password = data['password']
         
         # 简单的密码验证
         if password == 'admin123#':
-            # 生成32位随机token
-            token = uuid.uuid4().hex
-            logger.info(f"User {username} logged in successfully")
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            logger.info(f"Login successful for user: {username}")
             return json.dumps(create_success_response(request, {
                 'token': token,
                 'message': 'Login successful'
             }))
         else:
-            logger.warning(f"Invalid login attempt for user {username}")
+            logger.warning(f"Invalid password for user: {username}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_CREDENTIALS',
                 'Invalid username or password'
             ))
     except Exception as e:
-        logger.error(f"Error during login: {e}")
+        logger.error(f"Error in login handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
             f"Error during login: {str(e)}"
         ))
 
-# 注册所有处理方法
-HANDLERS = {
-    'login': handle_login,
-    # ... 其他处理方法 ...
-}
+# 打印所有已注册的处理器
+logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")

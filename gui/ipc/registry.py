@@ -1,9 +1,9 @@
 """
 IPC 处理器注册器模块
-提供 IPC 处理器的注册、查找和管理功能
+提供 IPC 请求处理器的注册、查找和管理功能
 """
 
-from typing import Any, Dict, Optional, Callable, TypeVar, cast, ClassVar, Protocol, Union
+from typing import Any, Dict, Optional, Callable, TypeVar, cast, ClassVar
 from functools import wraps
 from .types import IPCRequest, create_error_response
 from utils.logger_helper import logger_helper
@@ -11,15 +11,9 @@ import json
 
 logger = logger_helper.logger
 
-# 定义处理器类型
-class IPCServiceProtocol(Protocol):
-    """IPC 服务协议，定义处理器所需的 IPC 服务接口"""
-    pass
-
 # 定义处理器函数类型
 HandlerFunc = Callable[[IPCRequest, Optional[Any]], str]
-ServiceHandlerFunc = Callable[[IPCServiceProtocol, IPCRequest, Optional[Any]], str]
-HandlerType = TypeVar('HandlerType', HandlerFunc, ServiceHandlerFunc)
+HandlerType = TypeVar('HandlerType', bound=HandlerFunc)
 
 class IPCHandlerRegistry:
     """IPC 处理器注册器
@@ -31,11 +25,10 @@ class IPCHandlerRegistry:
     _handlers: ClassVar[Dict[str, HandlerType]] = {}
     
     @classmethod
-    def register(cls, method: str) -> Callable[[HandlerType], HandlerType]:
-        """注册处理器装饰器
+    def handler(cls, method: str) -> Callable[[HandlerType], HandlerType]:
+        """处理器注册装饰器
         
-        用于注册处理特定 IPC 方法的处理器函数。装饰器会自动处理请求验证、
-        错误处理和日志记录。
+        用于注册处理特定 IPC 方法的处理器函数。
         
         Args:
             method: 要处理的方法名
@@ -44,54 +37,41 @@ class IPCHandlerRegistry:
             Callable: 装饰器函数
             
         Example:
-            # 不需要访问 IPC 服务的处理器
-            @IPCHandlerRegistry.register('get_config')
-            def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
-                # 处理逻辑
-                pass
-                
-            # 需要访问 IPC 服务的处理器
-            @IPCHandlerRegistry.register('notify_event')
-            def handle_notify_event(self: IPCService, request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+            @IPCHandlerRegistry.handler('login')
+            def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
                 # 处理逻辑
                 pass
         """
         def decorator(func: HandlerType) -> HandlerType:
             @wraps(func)
-            def wrapper(self_or_request: Union[IPCServiceProtocol, IPCRequest], 
-                       request_or_params: Union[IPCRequest, Optional[Any]], 
-                       params: Optional[Any] = None) -> str:
+            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> str:
+                """处理器包装函数
+                
+                Args:
+                    request: IPC 请求对象
+                    params: 请求参数
+                    
+                Returns:
+                    str: JSON 格式的响应消息
+                """
                 try:
-                    # 判断是否是服务处理器
-                    is_service_handler = len(func.__annotations__) > 2
-                    
-                    # 获取实际的请求和参数
-                    if is_service_handler:
-                        self = self_or_request
-                        request = request_or_params
-                    else:
-                        request = self_or_request
-                        params = request_or_params
-                    
                     # 验证请求参数
                     if not isinstance(request, dict):
                         logger.error(f"Invalid request format for method {method}")
                         return json.dumps(create_error_response(
-                            request,
+                            request or {},
                             'INVALID_REQUEST',
                             "Invalid request format"
                         ))
                     
                     # 调用处理器
                     logger.debug(f"Calling handler for method {method}")
-                    if is_service_handler:
-                        return func(self, request, params)
-                    else:
-                        return func(request, params)
+                    return func(request, params)
+                    
                 except Exception as e:
                     logger.error(f"Error in handler {method}: {e}")
                     return json.dumps(create_error_response(
-                        request,
+                        request or {},
                         'HANDLER_ERROR',
                         f"Error in handler {method}: {str(e)}"
                     ))
@@ -122,15 +102,15 @@ class IPCHandlerRegistry:
         return handler
     
     @classmethod
-    def list_handlers(cls) -> Dict[str, str]:
+    def list_handlers(cls) -> list[str]:
         """列出所有已注册的处理器
         
-        返回所有已注册处理器的名称和函数名的映射。
+        返回所有已注册处理器的方法名列表。
         
         Returns:
-            Dict[str, str]: 处理器名称到处理器函数的映射
+            list[str]: 已注册处理器的方法名列表
         """
-        handlers = {name: func.__name__ for name, func in cls._handlers.items()}
+        handlers = list(cls._handlers.keys())
         logger.debug(f"Listed {len(handlers)} handlers")
         return handlers
     
