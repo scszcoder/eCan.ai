@@ -9,6 +9,7 @@ from PySide6.QtWebChannel import QWebChannel
 from utils.logger_helper import logger_helper
 from gui.core.request_interceptor import RequestInterceptor
 from gui.ipc.service import IPCService
+from gui.ipc.api import IPCAPI
 from typing import Optional, Callable, Any, Dict, Union
 from pathlib import Path
 import os
@@ -53,12 +54,21 @@ class WebEngineView(QWebEngineView):
         
         # 1. 初始化引擎
         self.init_engine()
+        
         # 2. 连接信号
         self.connect_signals()
+        
         # 3. 设置拦截器
         self.setup_interceptor()
-        # 4. 设置 WebChannel（在页面加载前）
+        
+        # 4. 创建 IPC 服务（在页面初始化后）
+        self._ipc_service = IPCService()
+
+        # 5. 设置 WebChannel（在页面加载前）
         self.setup_webchannel()
+
+        # 6. 初始化 IPCAPI 单例
+        self._ipc_api = IPCAPI(self._ipc_service)
     
     def init_engine(self):
         """初始化 Web 引擎"""
@@ -98,9 +108,8 @@ class WebEngineView(QWebEngineView):
             self._channel = QWebChannel()
             self.page().setWebChannel(self._channel)
 
-            # 创建并注册 IPC 服务
-            self._ipc_service = IPCService()
-            self._channel.registerObject('ipc', self._ipc_service)
+            # 注册 IPC 服务
+            self._channel.registerObject('ipc', self.ipc_service)
 
             # 注入初始化脚本
             init_js = f'''
