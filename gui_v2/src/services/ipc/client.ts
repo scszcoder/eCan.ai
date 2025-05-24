@@ -14,6 +14,7 @@ import {
     generateRequestId
 } from './types';
 import { getHandlers } from './handlers';
+import { logger } from '../../utils/logger';
 
 /**
  * IPC 客户端类
@@ -24,11 +25,11 @@ export class IPCClient {
     private ipc: IPC | null = null;
     private requestHandlers: Record<string, IPCRequestHandler>;
     private errorHandler: IPCErrorHandler | null = null;
-    private logger: Console;
     private initPromise: Promise<void> | null = null;
+    private logger: typeof logger;
 
     private constructor() {
-        this.logger = console;
+        this.logger = logger;
         this.requestHandlers = getHandlers();
         this.init();
     }
@@ -169,7 +170,7 @@ export class IPCClient {
      */
     private handleMessage(message: string): void {
         try {
-            this.logger.log('Received message:', message);
+            this.logger.info('Received message:', message);
             const request = JSON.parse(message) as IPCRequest;
 
             if (request.type === 'request') {
@@ -242,7 +243,7 @@ export class IPCClient {
 
         try {
             this.ipc.web_to_python(JSON.stringify(response));
-            this.logger.debug('Response sent:', response);
+            this.logger.debug('Response sent:' + JSON.stringify(response));
         } catch (error) {
             this.logger.error('Failed to send response:', error);
             this.handleError({
