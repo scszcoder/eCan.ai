@@ -6,15 +6,29 @@ import { useTranslation } from 'react-i18next';
 const { Title } = Typography;
 
 // 仪表盘数据接口
-interface DashboardStats {
+export interface DashboardStats {
     overview: number;
     statistics: number;
     recentActivities: number;
     quickActions: number;
 }
 
-// 创建全局更新函数
-let updateDashboardData: ((data: DashboardStats) => void) | null = null;
+// 创建事件总线
+const dashboardEventBus = {
+    listeners: new Set<(data: DashboardStats) => void>(),
+    subscribe(listener: (data: DashboardStats) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: DashboardStats) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateDashboard = (data: DashboardStats) => {
+    dashboardEventBus.emit(data);
+};
 
 const Dashboard: React.FC = () => {
     const { t } = useTranslation();
@@ -25,21 +39,15 @@ const Dashboard: React.FC = () => {
         quickActions: 15
     });
 
-    // 更新数据的函数
-    const handleUpdateData = useCallback((newData: DashboardStats) => {
-        setStats(newData);
-    }, []);
-
-    // 初始化 IPC 监听
+    // 监听数据更新
     useEffect(() => {
-        // 将更新函数暴露到全局
-        updateDashboardData = handleUpdateData;
-
-        // 清理函数
+        const unsubscribe = dashboardEventBus.subscribe((newData) => {
+            setStats(newData);
+        });
         return () => {
-            updateDashboardData = null;
+            unsubscribe();
         };
-    }, [handleUpdateData]);
+    }, []);
 
     return (
         <div>
@@ -86,15 +94,6 @@ const Dashboard: React.FC = () => {
             </Row>
         </div>
     );
-};
-
-// 导出更新数据的函数
-export const updateDashboard = (data: DashboardStats) => {
-    if (updateDashboardData) {
-        updateDashboardData(data);
-    } else {
-        console.warn('Dashboard update function not initialized');
-    }
 };
 
 export default Dashboard; 
