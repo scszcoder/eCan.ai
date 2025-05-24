@@ -114,42 +114,7 @@ export class IPCAPI {
     public async setConfig<T>(key: string, value: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('set_config', { key, value });
     }
-
-    /**
-     * 获取所有配置
-     * @returns Promise 对象，解析为所有配置
-     */
-    public async getAllConfig(): Promise<APIResponse<Record<string, unknown>>> {
-        return this.executeRequest<Record<string, unknown>>('get_all_config', {});
-    }
-
-    /**
-     * 重置配置
-     * @returns Promise 对象，解析为操作结果
-     */
-    public async resetConfig(): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('reset_config', {});
-    }
-
-    /**
-     * 执行命令
-     * @param command - 命令名
-     * @param params - 命令参数
-     * @returns Promise 对象，解析为命令执行结果
-     */
-    public async executeCommand<T>(command: string, params?: unknown): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('execute_command', { command, params });
-    }
-
-    /**
-     * 通知事件
-     * @param event - 事件名
-     * @param data - 事件数据
-     * @returns Promise 对象，解析为操作结果
-     */
-    public async notifyEvent(event: string, data?: unknown): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('notify_event', { event, data });
-    }
+ 
 }
 
 /**

@@ -107,24 +107,7 @@ class IPCAPI:
             callback: 回调函数，接收 APIResponse[bool]
         """
         self._send_request('set_config', {'key': key, 'value': value}, callback=callback)
-       
-    # 事件相关接口
-    def notify_event(
-        self,
-        event: str,
-        data: Optional[Any] = None,
-        callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        通知事件
-        
-        Args:
-            event: 事件名
-            data: 事件数据
-            callback: 回调函数，接收 APIResponse[bool]
-        """
-        self._send_request('notify_event', {'event': event, 'data': data}, callback=callback)
-
+     
 
 # 使用示例
 """
