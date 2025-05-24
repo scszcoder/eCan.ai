@@ -53,6 +53,7 @@ const Login: React.FC = () => {
         try {
             const response = await api.login<LoginResponse>(values.username, values.password);
             if (response.success && response.data) {
+                console.log(response.data);
                 const { token, message: successMessage } = response.data;
                 localStorage.setItem('token', token);
                 messageApi.success(successMessage);
