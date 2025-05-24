@@ -135,12 +135,29 @@ class IPCAPI:
             callback: 回调函数，接收 APIResponse[bool]
         """
         self._send_request('set_config', {'key': key, 'value': value}, callback=callback)
-     
+
+    def refresh_dashboard(
+        self,
+        data: Dict[str, Any],
+        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
+    ) -> None:
+        """
+        刷新仪表盘数据
+        
+        Args:
+            data: 包含以下字段的字典
+                - overview: 概览数据
+                - statistics: 统计数据
+                - recentActivities: 最近活动数
+                - quickActions: 快速操作数
+            callback: 回调函数，接收 APIResponse[Dict[str, Any]]
+        """
+        self._send_request('refresh_dashboard', data, callback=callback)
 
 # 使用示例
 """
-# 创建 IPC API 实例
-ipc_api = IPCAPI(ipc_service)
+# 获取 IPC API 单例实例
+ipc_api = IPCAPI.get_instance()
 
 # 获取配置示例
 def handle_config(response: APIResponse[Any]):
@@ -151,21 +168,47 @@ def handle_config(response: APIResponse[Any]):
 
 ipc_api.get_config('some_key', handle_config)
 
-# 执行命令示例
-def handle_command(response: APIResponse[Dict[str, Any]]):
+# 设置配置示例
+def handle_set_config(response: APIResponse[bool]):
     if response.success:
-        print(f"Command result: {response.data}")
+        print("Config updated successfully")
     else:
         print(f"Error: {response.error}")
 
-ipc_api.execute_command('some_command', ['arg1', 'arg2'], handle_command)
+ipc_api.set_config('some_key', 'some_value', handle_set_config)
 
-# 通知事件示例
-def handle_event(response: APIResponse[bool]):
+# 刷新仪表盘数据示例
+def handle_dashboard_update(response: APIResponse[Dict[str, Any]]):
     if response.success:
-        print("Event processed successfully")
+        print(f"Dashboard data updated: {response.data}")
     else:
-        print(f"Error: {response.error}")
+        print(f"Error updating dashboard: {response.error}")
 
-ipc_api.notify_event('some_event', {'data': 'value'}, handle_event)
+# 使用随机数据更新仪表盘
+import random
+dashboard_data = {
+    'overview': random.randint(10, 100),
+    'statistics': random.randint(5, 50),
+    'recentActivities': random.randint(20, 200),
+    'quickActions': random.randint(1, 30)
+}
+ipc_api.refresh_dashboard(dashboard_data, handle_dashboard_update)
+
+# 使用定时器定期更新仪表盘数据
+from PySide6.QtCore import QTimer
+
+def setup_dashboard_timer():
+    timer = QTimer()
+    def update_dashboard():
+        dashboard_data = {
+            'overview': random.randint(10, 100),
+            'statistics': random.randint(5, 50),
+            'recentActivities': random.randint(20, 200),
+            'quickActions': random.randint(1, 30)
+        }
+        ipc_api.refresh_dashboard(dashboard_data, handle_dashboard_update)
+    
+    timer.timeout.connect(update_dashboard)
+    timer.start(5000)  # 每5秒更新一次
+    return timer
 """ 

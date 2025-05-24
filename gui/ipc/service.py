@@ -17,7 +17,7 @@ class IPCService(QObject):
     """IPC 服务类，处理与前端的数据交互"""
     
     # 定义信号
-    python_to_web = Signal(dict)  # 发送消息到 Web 的信号
+    python_to_web = Signal(str)  # 发送消息到 Web 的信号
     
     def __init__(self):
         super().__init__()
@@ -167,8 +167,8 @@ class IPCService(QObject):
                 logger.debug(f"Callback registered for request: {request['id']}")
             
             # 发送请求
-            self.python_to_web.emit(request)
-            logger.debug(f"Request sent: {request}")
+            self.python_to_web.emit(json.dumps(request))
+            logger.debug(f"Request sent: {json.dumps(request)}")
         except Exception as e:
             logger.error(f"Error sending request: {e}")
             if callback:
