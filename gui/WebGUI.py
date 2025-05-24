@@ -54,10 +54,10 @@ class WebGUI(QMainWindow):
         # 设置快捷键
         self._setup_shortcuts()
         
-        # 创建定时器
-        self.dashboard_timer = QTimer(self)
-        self.dashboard_timer.timeout.connect(self.update_dashboard_data)
-        self.dashboard_timer.start(5000)  # 每5秒触发一次
+        # # 创建定时器 Demo 测试使用的
+        # self.dashboard_timer = QTimer(self)
+        # self.dashboard_timer.timeout.connect(self.update_dashboard_data)
+        # self.dashboard_timer.start(5000)  # 每5秒触发一次
     
     def load_local_html(self):
         """加载本地 HTML 文件"""
