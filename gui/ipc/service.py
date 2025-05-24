@@ -5,15 +5,11 @@ IPC 服务模块，处理与前端的数据交互
 from PySide6.QtCore import QObject, Slot, Signal
 from utils.logger_helper import logger_helper
 import json
-from datetime import datetime
 from typing import Optional, Dict, Any, Callable
-from .ipc_types import (
+from .types import (
     IPCRequest, IPCResponse, create_request, create_error_response
 )
-from .ipc_handler_registry import IPCHandlerRegistry
-
-# 导入处理器实现
-from . import ipc_handlers
+from .registry import IPCHandlerRegistry
 
 logger = logger_helper.logger
 
@@ -158,12 +154,12 @@ class IPCService(QObject):
             
             # 如果有回调函数，注册回调
             if callback:
-                self._request_callbacks[request.id] = callback
-                logger.debug(f"Callback registered for request: {request.id}")
+                self._request_callbacks[request['id']] = callback
+                logger.debug(f"Callback registered for request: {request['id']}")
             
             # 发送请求
-            self.python_to_web.emit(request.dict())
-            logger.debug(f"Request sent: {request.dict()}")
+            self.python_to_web.emit(request)
+            logger.debug(f"Request sent: {request}")
         except Exception as e:
             logger.error(f"Error sending request: {e}")
             if callback:

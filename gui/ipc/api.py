@@ -4,8 +4,8 @@ IPC API 管理模块
 """
 from typing import Optional, Dict, Any, Callable, TypeVar, Generic, Union
 from dataclasses import dataclass
-from gui.core.ipc_types import IPCRequest, IPCResponse, create_request, create_error_response
-from gui.core.ipc_service import IPCService
+from .types import IPCRequest, IPCResponse, create_request, create_error_response
+from .service import IPCService
 from utils.logger_helper import logger_helper
 
 logger = logger_helper.logger
@@ -77,6 +77,20 @@ class IPCAPI:
             self._convert_response(response, callback)
             
         self._ipc_service.send_request(method, params, meta, ipc_response_callback)
+    
+    def get_config(
+        self,
+        key: str,
+        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
+    ) -> None:
+        """
+        获取配置
+        
+        Args:
+            key: 配置键
+            callback: 回调函数，接收 APIResponse[Dict[str, Any]]
+        """
+        self._send_request('get_config', {'key': key}, callback=callback)
     
     def set_config(
         self,
