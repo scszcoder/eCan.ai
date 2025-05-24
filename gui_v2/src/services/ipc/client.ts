@@ -13,6 +13,7 @@ import {
     createErrorResponse,
     generateRequestId
 } from './types';
+import { getHandlers } from './handlers';
 
 /**
  * IPC 客户端类
@@ -21,14 +22,14 @@ import {
 export class IPCClient {
     private static instance: IPCClient;
     private ipc: IPC | null = null;
-    private requestHandlers: Map<string, IPCRequestHandler> = new Map();
-    private responseHandlers: Map<string, IPCResponseHandler> = new Map();
+    private requestHandlers: Record<string, IPCRequestHandler>;
     private errorHandler: IPCErrorHandler | null = null;
     private logger: Console;
     private initPromise: Promise<void> | null = null;
 
     private constructor() {
         this.logger = console;
+        this.requestHandlers = getHandlers();
         this.init();
     }
 
@@ -115,19 +116,6 @@ export class IPCClient {
     }
 
     /**
-     * 注册请求处理器
-     * @param method - 请求方法名
-     * @param handler - 请求处理器函数
-     */
-    public registerRequestHandler(method: string, handler: IPCRequestHandler): void {
-        if (this.requestHandlers.has(method)) {
-            this.logger.warn(`Request handler for method '${method}' already exists, overwriting`);
-        }
-        this.requestHandlers.set(method, handler);
-        this.logger.info(`Request handler registered for method '${method}'`);
-    }
-
-    /**
      * 发送请求到 Python 后端
      * @param method - 请求方法名
      * @param params - 请求参数
@@ -209,7 +197,7 @@ export class IPCClient {
      * @param request - 请求对象
      */
     private async handleRequest(request: IPCRequest): Promise<void> {
-        const handler = this.requestHandlers.get(request.method);
+        const handler = this.requestHandlers[request.method];
         if (!handler) {
             this.logger.warn(`No handler registered for method '${request.method}'`);
             this.sendErrorResponse(request.id, {

@@ -2,7 +2,8 @@
  * IPC 处理器
  * 实现了与 Python 后端通信的请求处理器
  */
-import { IPCRequest } from './types';
+import { IPCRequest, IPCResponse } from './types';
+import { updateDashboard } from '../../pages/Dashboard';
 
 // 处理器类型定义
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -33,10 +34,15 @@ export class IPCHandlers {
         this.registerHandler('get_config', this.getConfig);
         this.registerHandler('set_config', this.setConfig);
         this.registerHandler('notify_event', this.notifyEvent);
+        this.registerHandler('refresh_dashboard', this.refreshDashboard);
     }
 
     private registerHandler(method: string, handler: Handler): void {
         this.handlers[method] = handler;
+    }
+
+    getHandlers(): HandlerMap {
+        return this.handlers;
     }
 
     async getConfig(request: IPCRequest): Promise<unknown> {
@@ -62,8 +68,29 @@ export class IPCHandlers {
         return { event, processed: true };
     }
 
-    getHandlers(): HandlerMap {
-        return this.handlers;
+    async refreshDashboard(request: IPCRequest): Promise<unknown> {
+        try {
+            const { params } = request;
+            if (!params || typeof params !== 'object') {
+                throw new Error('Invalid parameters');
+            }
+
+            // 验证参数
+            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
+            const stats = params as { [K in typeof requiredFields[number]]: number };
+            for (const field of requiredFields) {
+                if (typeof stats[field] !== 'number') {
+                    throw new Error(`Invalid field type: ${field} must be a number`);
+                }
+            }
+
+            // 更新仪表盘数据
+            updateDashboard(stats);
+            return stats;
+        } catch (error) {
+            console.error('Error in refresh_dashboard handler:', error);
+            throw error;
+        }
     }
 }
 
@@ -71,4 +98,4 @@ export class IPCHandlers {
 const ipcHandlers = new IPCHandlers();
 
 // 导出处理器映射
-export const createHandlers = () => ipcHandlers.getHandlers();
+export const getHandlers = () => ipcHandlers.getHandlers();
