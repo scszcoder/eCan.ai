@@ -1,45 +1,23 @@
-import { IPC, TextMessage, ConfigMessage, CommandMessage, EventMessage, BaseResponse, BaseMessage } from './types';
-import { EventEmitter } from './EventEmitter';
-import { HandlerManager } from './handlers/HandlerManager';
-import { TextMessageHandler } from './handlers/TextMessageHandler';
-import { BaseHandler } from './handlers/BaseHandler';
+import { logger } from '@/utils/logger';
+import { IPCRequest, IPCResponse, QtWebChannel } from './types';
 
 /**
  * IPC 客户端类
- * 用于处理与 Python 后端的 IPC 通信
+ * 处理与 Python 后端的通信
  */
-export class IPCClient extends EventEmitter {
+export class IPCClient {
     private static instance: IPCClient;
-    private ipc: IPC | null = null;
-    private ready = false;
-    private handlerManager: HandlerManager;
+    private ipc: QtWebChannel | null = null;
+    private requestHandlers: Map<string, (params: unknown) => Promise<unknown>> = new Map();
+    private pendingRequests: Map<string, {
+        resolve: (value: unknown) => void;
+        reject: (reason: Error) => void;
+    }> = new Map();
 
     private constructor() {
-        super();
-        this.handlerManager = HandlerManager.getInstance();
-        this.initializeHandlers();
-
-        // 监听 webchannel-ready 事件
-        window.addEventListener('webchannel-ready', () => {
-            console.log('WebChannel is ready');
-            const ipc: IPC = window.ipc;
-            this.setIPC(ipc);
-            console.log('IPC client initialized successfully');
-        });
+        // 初始化时不需要做任何事情，等待 setIPC 被调用
     }
 
-    /**
-     * 初始化消息处理器
-     */
-    private initializeHandlers(): void {
-        // 注册默认的消息处理器
-        this.handlerManager.registerHandler(new TextMessageHandler());
-        // 在这里注册其他处理器...
-    }
-
-    /**
-     * 获取 IPCClient 实例
-     */
     public static getInstance(): IPCClient {
         if (!IPCClient.instance) {
             IPCClient.instance = new IPCClient();
@@ -48,213 +26,186 @@ export class IPCClient extends EventEmitter {
     }
 
     /**
-     * 初始化 IPC 客户端
-     */
-    public async init(): Promise<void> {
-        // 检查是否在 Qt WebEngine 环境中
-        if (!window.qt?.webChannelTransport) {
-            console.warn('Not running in Qt WebEngine environment');
-            return;
-        }
-        console.log('WebChannel transport available:', window.qt.webChannelTransport);
-    }
-
-    /**
-     * 获取 IPC 对象
-     */
-    public getIPC(): IPC | null {
-        return this.ipc;
-    }
-
-    /**
      * 设置 IPC 对象
+     * 这个方法应该在使用前被调用
      */
-    public setIPC(ipc: IPC): void {
+    public setIPC(ipc: QtWebChannel): void {
         this.ipc = ipc;
-        this.ready = true;
-        
-        // 设置 python_to_web 消息处理
-        if (this.ipc.python_to_web) {
-            this.ipc.python_to_web.connect((message: string) => {
-                try {
-                    console.debug('Python to Web message:', message);
-                    const parsedMessage = JSON.parse(message) as BaseMessage;
-                    
-                    // 使用处理器处理消息
-                    this.handlerManager.handleMessage(parsedMessage).then(response => {
-                        // 触发事件通知
-                        this.emit('message', { message: parsedMessage, response });
-                        if (parsedMessage.type) {
-                            this.emit(parsedMessage.type, { message: parsedMessage, response });
-                        }
-                    }).catch(error => {
-                        console.error('Error handling message:', error);
-                    });
-                } catch (error) {
-                    console.error('Error parsing python_to_web message:', error);
-                }
-            });
-        }
+        this.setupMessageHandler();
     }
 
     /**
-     * 检查 IPC 是否就绪
+     * 设置消息处理器
      */
-    public isReady(): boolean {
-        return this.ready && this.ipc !== null;
-    }
-
-    /**
-     * 等待 IPC 就绪
-     */
-    public async waitForReady(): Promise<void> {
-        if (this.isReady()) {
+    private setupMessageHandler(): void {
+        if (!this.ipc) {
+            logger.error('IPC object not set');
             return;
         }
 
-        return new Promise((resolve) => {
-            const check = () => {
-                if (this.isReady()) {
-                    resolve();
-                } else {
-                    console.log('IPC client not ready, retrying...');
-                    setTimeout(check, 100);
-                }
-            };
-            check();
+        this.ipc.python_to_web.connect((message: string) => {
+            try {
+                const data = JSON.parse(message);
+                this.handleMessage(data);
+            } catch (error) {
+                logger.error('Error parsing message:', error);
+            }
         });
     }
 
     /**
-     * 监听 Python 到 Web 的消息
-     * @param type 消息类型，可以是 'message' 或具体的消息类型
-     * @param callback 回调函数
+     * 处理接收到的消息
      */
-    public onPythonMessage(type: string, callback: (message: BaseMessage) => void): void {
-        this.on(type, callback);
-    }
-
-    /**
-     * 移除 Python 到 Web 的消息监听
-     * @param type 消息类型
-     * @param callback 回调函数
-     */
-    public offPythonMessage(type: string, callback: (message: BaseMessage) => void): void {
-        this.off(type, callback);
-    }
-
-    /**
-     * 注册新的消息处理器
-     */
-    public registerHandler(handler: BaseHandler): void {
-        this.handlerManager.registerHandler(handler);
-    }
-
-    /**
-     * 移除消息处理器
-     */
-    public removeHandler(handler: BaseHandler): void {
-        this.handlerManager.removeHandler(handler);
-    }
-
-    /**
-     * 发送文本消息
-     */
-    public async sendTextMessage(content: string): Promise<BaseResponse> {
-        await this.waitForReady();
-
-        const message: TextMessage = {
-            type: 'message',
-            content,
-            timestamp: new Date().toISOString()
-        };
-
-        try {
-            const response = await this.ipc!.web_to_python(JSON.stringify(message));
-            return JSON.parse(response);
-        } catch (error) {
-            return {
-                status: 'error',
-                message: error instanceof Error ? error.message : 'Unknown error',
-                timestamp: new Date().toISOString()
-            };
+    private handleMessage(data: IPCRequest | IPCResponse): void {
+        if ('type' in data && data.type === 'request') {
+            this.handleRequest(data as IPCRequest);
         }
     }
 
     /**
-     * 发送配置消息
+     * 处理请求消息
      */
-    public async sendConfigMessage(action: 'get' | 'set', key: string, value?: string): Promise<BaseResponse> {
-        await this.waitForReady();
-
-        const message: ConfigMessage = {
-            type: 'config',
-            action,
-            key,
-            value,
-            timestamp: new Date().toISOString()
-        };
+    private async handleRequest(request: IPCRequest): Promise<void> {
+        const handler = this.requestHandlers.get(request.method);
+        if (!handler) {
+            logger.warn(`No handler registered for method: ${request.method}`);
+            return;
+        }
 
         try {
-            const response = await this.ipc!.web_to_python(JSON.stringify(message));
-            return JSON.parse(response);
+            const result = await handler(request.params);
+            this.sendResponse(request.id, result);
         } catch (error) {
-            return {
-                status: 'error',
-                message: error instanceof Error ? error.message : 'Unknown error',
-                timestamp: new Date().toISOString()
-            };
+            logger.error(`Error handling request ${request.method}:`, error);
+            this.sendError(request.id, error instanceof Error ? error.message : String(error));
         }
     }
 
     /**
-     * 发送命令消息
+     * 处理响应消息
      */
-    public async sendCommandMessage(command: string, args?: unknown[]): Promise<BaseResponse> {
-        await this.waitForReady();
-
-        const message: CommandMessage = {
-            type: 'command',
-            command,
-            args: args ? { args } : undefined,
-            timestamp: new Date().toISOString()
-        };
-
-        try {
-            const response = await this.ipc!.web_to_python(JSON.stringify(message));
-            return JSON.parse(response);
-        } catch (error) {
-            return {
-                status: 'error',
-                message: error instanceof Error ? error.message : 'Unknown error',
-                timestamp: new Date().toISOString()
-            };
+    private handleResponse(response: IPCResponse): void {
+        const pendingRequest = this.pendingRequests.get(response.id);
+        if (pendingRequest) {
+            if (response.status === 'error' && response.error) {
+                // 处理错误响应
+                pendingRequest.reject(new Error(response.error.message));
+            } else if (response.status === 'ok' && 'result' in response) {
+                // 处理成功响应
+                pendingRequest.resolve(response.result);
+            } else {
+                // 处理无效响应
+                pendingRequest.reject(new Error('Invalid response: missing result or error'));
+            }
+            this.pendingRequests.delete(response.id);
+        } else {
+            logger.warn(`No pending request found for response id: ${response.id}`);
         }
     }
 
     /**
-     * 发送事件消息
+     * 发送响应
      */
-    public async sendEventMessage(event: string, data?: unknown): Promise<BaseResponse> {
-        await this.waitForReady();
-
-        const message: EventMessage = {
-            type: 'event',
-            event,
-            data: data ? { data } : undefined,
-            timestamp: new Date().toISOString()
+    private sendResponse(id: string, result: unknown): void {
+        const response: IPCResponse = {
+            id,
+            type: 'response',
+            status: 'ok',
+            result,
+            timestamp: Date.now()
         };
+        this.sendToPython(response);
+    }
+
+    /**
+     * 发送错误响应
+     */
+    private sendError(id: string, error: string): void {
+        const response: IPCResponse = {
+            id,
+            type: 'response',
+            status: 'error',
+            error: {
+                code: 'HANDLER_ERROR',
+                message: error
+            },
+            timestamp: Date.now()
+        };
+        this.sendToPython(response);
+    }
+
+    /**
+     * 发送消息到 Python
+     */
+    private sendToPython(message: IPCRequest | IPCResponse): void {
+        if (!this.ipc) {
+            logger.error('IPC object not set');
+            return;
+        }
 
         try {
-            const response = await this.ipc!.web_to_python(JSON.stringify(message));
-            return JSON.parse(response);
+            this.ipc.web_to_python(JSON.stringify(message));
         } catch (error) {
-            return {
-                status: 'error',
-                message: error instanceof Error ? error.message : 'Unknown error',
-                timestamp: new Date().toISOString()
-            };
+            logger.error('Error sending message to Python:', error);
         }
+    }
+
+    /**
+     * 注册请求处理器
+     */
+    public registerRequestHandler(
+        method: string,
+        handler: (params: unknown) => Promise<unknown>
+    ): void {
+        this.requestHandlers.set(method, handler);
+    }
+
+    /**
+     * 发送请求到 Python
+     */
+    public async sendRequest<T = unknown>(
+        method: string,
+        params?: unknown,
+        meta?: Record<string, unknown>
+    ): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            const id = crypto.randomUUID();
+            
+            // 保存请求的 Promise 解析函数
+            this.pendingRequests.set(id, {
+                resolve: (value: unknown) => resolve(value as T),
+                reject
+            });
+
+            // 发送请求
+            const request: IPCRequest = {
+                id,
+                type: 'request',
+                method,
+                params,
+                meta,
+                timestamp: Date.now()
+            };
+
+            try {
+                if (!this.ipc) {
+                    throw new Error('IPC object not set');
+                }
+
+                const response = this.ipc.web_to_python(JSON.stringify(request));
+                if (response.status === 'error' && response.error) {
+                    reject(new Error(response.error.message));
+                } else if (response.status === 'ok' && 'result' in response) {
+                    resolve(response.result as T);
+                } else {
+                    reject(new Error('Invalid response: missing result or error'));
+                }
+            } catch (error) {
+                reject(error instanceof Error ? error : new Error(String(error)));
+            } finally {
+                this.pendingRequests.delete(id);
+            }
+        });
     }
 }
 

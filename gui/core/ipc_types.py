@@ -2,112 +2,95 @@
 IPC 通信类型定义
 """
 
-from typing import TypedDict, Literal, Union, Optional, Dict, Any
+from typing import TypedDict, Union, Optional, Dict, Any, Literal
 from datetime import datetime
+import uuid
 
-# 消息类型
-MessageType = Literal['message', 'config', 'command', 'event']
+# IPC 错误信息
+class IPCError(TypedDict):
+    code: Union[int, str]  # 错误码
+    message: str          # 错误描述
+    details: Optional[Any]  # 额外错误上下文
 
-# 基础消息
-class BaseMessage(TypedDict):
-    type: MessageType
-    timestamp: str
+# IPC 请求
+class IPCRequest(TypedDict):
+    id: str              # 全局唯一请求标识
+    method: str          # 要调用的接口名
+    params: Optional[Any]  # 请求参数
+    meta: Optional[Dict[str, Any]]  # 扩展元信息
+    timestamp: Optional[int]  # 发送时间戳 ms
 
-# 普通消息
-class TextMessage(BaseMessage):
-    type: Literal['message']
-    content: str
+# IPC 响应
+class IPCResponse(TypedDict):
+    id: str              # 与请求相同的 ID
+    method: Optional[str]  # 回显请求的 method
+    status: Literal['ok', 'error']  # 调用结果状态
+    result: Optional[Any]  # 正常返回的数据（status=ok 时必填）
+    error: Optional[IPCError]  # 错误信息（status=error 时必填）
+    meta: Optional[Dict[str, Any]]  # 扩展元信息
+    timestamp: Optional[int]  # 发送时间戳 ms
 
-# 配置操作消息
-class ConfigMessage(BaseMessage):
-    type: Literal['config']
-    action: Literal['get', 'set']
-    key: str
-    value: Optional[str]
-
-# 命令执行消息
-class CommandMessage(BaseMessage):
-    type: Literal['command']
-    command: str
-    args: Optional[Dict[str, Any]]
-
-# 事件通知消息
-class EventMessage(BaseMessage):
-    type: Literal['event']
-    event: str
-    data: Optional[Dict[str, Any]]
-
-# 所有可能的消息类型
-IPCMessage = Union[TextMessage, ConfigMessage, CommandMessage, EventMessage]
-
-# 响应状态
-ResponseStatus = Literal['success', 'error']
-
-# 基础响应
-class BaseResponse(TypedDict):
-    status: ResponseStatus
-    timestamp: str
-
-# 成功响应
-class SuccessResponse(BaseResponse):
-    status: Literal['success']
-    data: Optional[Any]
-    message: Optional[str]
-
-# 错误响应
-class ErrorResponse(BaseResponse):
-    status: Literal['error']
-    message: str
-    code: Optional[str]
-
-# 所有可能的响应类型
-IPCResponse = Union[SuccessResponse, ErrorResponse]
-
-# 配置响应数据
-class ConfigData(TypedDict):
-    key: str
-    value: str
-
-# 命令响应数据
-class CommandData(TypedDict):
-    command: str
-    result: Any
-
-# 事件响应数据
-class EventData(TypedDict):
-    event: str
-    data: Any
-
-def create_response(
-    status: ResponseStatus,
-    message: Optional[str] = None,
-    data: Optional[Any] = None,
-    code: Optional[str] = None
-) -> IPCResponse:
-    """创建响应对象
+def create_request(method: str, params: Optional[Any] = None, meta: Optional[Dict[str, Any]] = None) -> IPCRequest:
+    """创建 IPC 请求
     
     Args:
-        status: 响应状态
-        message: 响应消息
-        data: 响应数据
-        code: 错误代码（仅用于错误响应）
+        method: 要调用的接口名
+        params: 请求参数
+        meta: 扩展元信息
+        
+    Returns:
+        IPCRequest: 请求对象
+    """
+    return {
+        'id': str(uuid.uuid4()),
+        'method': method,
+        'params': params,
+        'meta': meta,
+        'timestamp': int(datetime.now().timestamp() * 1000)
+    }
+
+def create_success_response(request: IPCRequest, result: Any, meta: Optional[Dict[str, Any]] = None) -> IPCResponse:
+    """创建成功响应
+    
+    Args:
+        request: 原始请求
+        result: 返回结果
+        meta: 扩展元信息
         
     Returns:
         IPCResponse: 响应对象
     """
-    timestamp = datetime.now().isoformat()
+    return {
+        'id': request['id'],
+        'method': request['method'],
+        'status': 'ok',
+        'result': result,
+        'meta': meta,
+        'timestamp': int(datetime.now().timestamp() * 1000)
+    }
+
+def create_error_response(request: IPCRequest, code: Union[int, str], message: str, details: Optional[Any] = None, meta: Optional[Dict[str, Any]] = None) -> IPCResponse:
+    """创建错误响应
     
-    if status == 'success':
-        return {
-            'status': 'success',
-            'timestamp': timestamp,
+    Args:
+        request: 原始请求
+        code: 错误码
+        message: 错误描述
+        details: 额外错误上下文
+        meta: 扩展元信息
+        
+    Returns:
+        IPCResponse: 响应对象
+    """
+    return {
+        'id': request['id'],
+        'method': request['method'],
+        'status': 'error',
+        'error': {
+            'code': code,
             'message': message,
-            'data': data
-        }
-    else:
-        return {
-            'status': 'error',
-            'timestamp': timestamp,
-            'message': message or 'Unknown error',
-            'code': code
-        } 
+            'details': details
+        },
+        'meta': meta,
+        'timestamp': int(datetime.now().timestamp() * 1000)
+    } 
