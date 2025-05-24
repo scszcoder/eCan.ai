@@ -182,12 +182,17 @@ export class IPCClient {
     private handleMessage(message: string): void {
         try {
             this.logger.log('Received message:', message);
-            const data = JSON.parse(message) as IPCRequest;
+            const request = JSON.parse(message) as IPCRequest;
 
-            if (data.type === 'request') {
-                this.handleRequest(data);
+            if (request.type === 'request') {
+                this.handleRequest(request);
             } else {
-                this.logger.warn('Received non-request message:', data);
+                this.logger.warn('Received non-request type message:', request);
+                this.sendErrorResponse(request.id, {
+                    code: 'HANDLER_ERROR',
+                    message: `Received non-request type message: ${request.type}`,
+                    details: ""
+                });
             }
         } catch (error) {
             this.logger.error('Failed to parse message:', error);
@@ -207,6 +212,11 @@ export class IPCClient {
         const handler = this.requestHandlers.get(request.method);
         if (!handler) {
             this.logger.warn(`No handler registered for method '${request.method}'`);
+            this.sendErrorResponse(request.id, {
+                code: 'HANDLER_ERROR',
+                message: `No handler registered for method '${request.method}'`,
+                details: ""
+            });
             return;
         }
 
