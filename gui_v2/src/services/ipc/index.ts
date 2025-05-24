@@ -6,5 +6,4 @@ export * from './types';
 export * from './client';
 export * from './api';
 export * from './handlers';
-export * from './registry';
-export * from './hooks'; 
+export * from './registry'; 
