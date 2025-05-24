@@ -9,6 +9,7 @@ import {
     CalendarOutlined,
     MessageOutlined,
     RobotOutlined,
+    EditOutlined,
     TeamOutlined,
     BarChartOutlined,
     AppstoreOutlined,
@@ -109,6 +110,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             key: '/skills',
             icon: <RobotOutlined />,
             label: t('menu.skills'),
+        },
+        {
+            key: '/skill_editor',
+            icon: <EditOutlined />,
+            label: t('menu.skill_editor'),
         },
         {
             key: '/agents',

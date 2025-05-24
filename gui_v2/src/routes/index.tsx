@@ -7,11 +7,25 @@ import Vehicles from '../pages/Vehicles';
 import Schedule from '../pages/Schedule';
 import Chat from '../pages/Chat';
 import Skills from '../pages/Skills';
+import SkillEditor from '../pages/SkillEditor';
 import Agents from '../pages/Agents';
 import Analytics from '../pages/Analytics';
 import Apps from '../pages/Apps';
 import Tools from '../pages/Tools';
 import Settings from '../pages/Settings';
+import {
+    DashboardOutlined,
+    CarOutlined,
+    CalendarOutlined,
+    MessageOutlined,
+    RobotOutlined,
+    EditOutlined,
+    TeamOutlined,
+    BarChartOutlined,
+    AppstoreOutlined,
+    ToolOutlined,
+    SettingOutlined,
+} from '@ant-design/icons';
 
 // 路由配置类型
 export interface RouteConfig {
@@ -71,6 +85,10 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'skills',
                 element: <Skills />,
+            },
+            {
+                path: 'skill_editor',
+                element: <SkillEditor />,
             },
             {
                 path: 'agents',
@@ -135,6 +153,11 @@ export const menuItems = [
         key: '/skills',
         icon: 'RobotOutlined',
         label: 'menu.skills',
+    },
+    {
+        key: '/skill_editor',
+        icon: 'EditOutlined',
+        label: 'menu.skill_editor',
     },
     {
         key: '/agents',

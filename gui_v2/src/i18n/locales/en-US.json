@@ -45,6 +45,7 @@
     "schedule": "Schedule",
     "chat": "Chat",
     "skills": "Skills",
+    "skill_editor": "Skill Editor",
     "agents": "Agents",
     "analytics": "Analytics",
     "apps": "Apps",
@@ -419,6 +420,19 @@
       "exportTools": "Export Tools",
       "importTools": "Import Tools",
       "toolSettings": "Tool Settings"
+    },
+    "skill_editor": {
+      "title": "Skill Editor",
+      "save": "Save Skill",
+      "cancel": "Cancel",
+      "name": "Skill Name",
+      "description": "Description",
+      "type": "Type",
+      "status": "Status",
+      "content": "Content",
+      "preview": "Preview",
+      "test": "Test",
+      "deploy": "Deploy"
     }
   }
 } 
