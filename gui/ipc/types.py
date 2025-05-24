@@ -15,6 +15,7 @@ class IPCError(TypedDict):
 # IPC 请求
 class IPCRequest(TypedDict):
     id: str              # 全局唯一请求标识
+    type: Literal['request', 'response']  # 请求类型
     method: str          # 要调用的接口名
     params: Optional[Any]  # 请求参数
     meta: Optional[Dict[str, Any]]  # 扩展元信息
@@ -43,6 +44,7 @@ def create_request(method: str, params: Optional[Any] = None, meta: Optional[Dic
     """
     return {
         'id': str(uuid.uuid4()),
+        'type': 'request',
         'method': method,
         'params': params,
         'meta': meta,

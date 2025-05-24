@@ -1,7 +1,11 @@
 from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget)
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtCore import QTimer
 import sys
 import os
+import random
+
+from gui.ipc.api import IPCAPI
 
 # 配置日志以抑制 macOS IMK 警告
 if sys.platform == 'darwin':
@@ -49,6 +53,11 @@ class WebGUI(QMainWindow):
         
         # 设置快捷键
         self._setup_shortcuts()
+        
+        # 创建定时器
+        self.dashboard_timer = QTimer(self)
+        self.dashboard_timer.timeout.connect(self.update_dashboard_data)
+        self.dashboard_timer.start(5000)  # 每5秒触发一次
     
     def load_local_html(self):
         """加载本地 HTML 文件"""
@@ -111,4 +120,33 @@ class WebGUI(QMainWindow):
         if app_settings.is_dev_mode:
             self.web_engine_view.reload_page()
         else:
-            self.load_local_html() 
+            self.load_local_html()
+    
+    def update_dashboard_data(self):
+        """更新仪表盘数据"""
+        try:
+            # 生成随机数据
+            data = {
+                'overview': random.randint(10, 100),
+                'statistics': random.randint(5, 50),
+                'recentActivities': random.randint(20, 200),
+                'quickActions': random.randint(1, 30)
+            }
+            
+            # 调用 refresh_dashboard API
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"Dashboard data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update dashboard data: {response.error}")
+            
+            IPCAPI.get_instance().refresh_dashboard(data, handle_response)
+            
+        except Exception as e:
+            logger_helper.error(f"Error updating dashboard data: {e}")
+    
+    def closeEvent(self, event):
+        """窗口关闭事件"""
+        # 停止定时器
+        self.dashboard_timer.stop()
+        super().closeEvent(event) 

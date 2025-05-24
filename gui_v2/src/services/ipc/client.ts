@@ -181,8 +181,8 @@ export class IPCClient {
      */
     private handleMessage(message: string): void {
         try {
+            this.logger.log('Received message:', message);
             const data = JSON.parse(message) as IPCRequest;
-            this.logger.debug('Received message:', data);
 
             if (data.type === 'request') {
                 this.handleRequest(data);
