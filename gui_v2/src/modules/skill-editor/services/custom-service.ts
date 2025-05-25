@@ -28,13 +28,17 @@ import {
  */
 @injectable()
 export class CustomService {
-  @inject(FreeLayoutPluginContext) ctx: FreeLayoutPluginContext;
+  @inject(FreeLayoutPluginContext)
+  private readonly ctx!: FreeLayoutPluginContext;
 
-  @inject(SelectionService) selectionService: SelectionService;
+  @inject(SelectionService)
+  private readonly selectionService!: SelectionService;
 
-  @inject(Playground) playground: Playground;
+  @inject(Playground)
+  private readonly playground!: Playground;
 
-  @inject(WorkflowDocument) document: WorkflowDocument;
+  @inject(WorkflowDocument)
+  private readonly document!: WorkflowDocument;
 
   save() {
     console.log(this.document.toJSON());
