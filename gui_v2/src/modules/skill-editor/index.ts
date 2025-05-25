@@ -1,1 +1,1 @@
-export { Editor as Editor } from './editor';
+export { SkEditor } from './editor';

@@ -12,7 +12,7 @@ export default defineConfig({
      * support inversify @injectable() and @inject decorators
      */
     decorators: {
-      version: 'legacy',
+      version: 'legacy'
     },
   },
   html: {

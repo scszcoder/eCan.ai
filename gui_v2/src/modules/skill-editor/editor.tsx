@@ -8,7 +8,7 @@ import { useEditorProps } from './hooks';
 import { DemoTools } from './components/tools';
 import { SidebarProvider, SidebarRenderer } from './components/sidebar';
 
-export const Editor = () => {
+export const SkEditor = () => {
   const editorProps = useEditorProps(initialData, nodeRegistries);
   return (
     <div className="doc-free-feature-overview">
