@@ -5,8 +5,6 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { logger } from '../utils/logger';
 
-const { Option } = Select;
-
 type Theme = 'light' | 'dark' | 'system';
 
 interface SettingsFormData {
@@ -97,8 +95,8 @@ const Settings: React.FC = () => {
             name="language"
           >
             <Select onChange={handleLanguageChange}>
-              <Option value="en-US">{t('languages.en-US')}</Option>
-              <Option value="zh-CN">{t('languages.zh-CN')}</Option>
+              <Select.Option value="en-US">{t('languages.en-US')}</Select.Option>
+              <Select.Option value="zh-CN">{t('languages.zh-CN')}</Select.Option>
             </Select>
           </Form.Item>
 
@@ -107,9 +105,9 @@ const Settings: React.FC = () => {
             name="theme"
           >
             <Select onChange={handleThemeChange}>
-              <Option value="light">{t('settings.theme.light')}</Option>
-              <Option value="dark">{t('settings.theme.dark')}</Option>
-              <Option value="system">{t('settings.theme.system')}</Option>
+              <Select.Option value="light">{t('settings.theme.light')}</Select.Option>
+              <Select.Option value="dark">{t('settings.theme.dark')}</Select.Option>
+              <Select.Option value="system">{t('settings.theme.system')}</Select.Option>
             </Select>
           </Form.Item>
 
