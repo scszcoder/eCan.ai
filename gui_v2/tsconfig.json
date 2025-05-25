@@ -15,7 +15,7 @@
     "paths": {
       "@/*": ["src/*"]
     },
-    "types": ["node", "electron"]
+    "types": ["node"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
