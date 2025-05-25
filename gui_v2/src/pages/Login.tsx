@@ -27,10 +27,7 @@ const Login: React.FC = () => {
     const { message: messageApi } = App.useApp();
     const [loading, setLoading] = useState(false);
     const api = createIPCAPI();
-    const [selectedRole, setSelectedRole] = React.useState({
-        value: 'commander',
-        label: t('roles.commander')
-    });
+    const [selectedRole, setSelectedRole] = useState('commander');
 
     // 设置默认语言
     React.useEffect(() => {
@@ -42,12 +39,9 @@ const Login: React.FC = () => {
     React.useEffect(() => {
         const role = form.getFieldValue('role');
         if (role) {
-            setSelectedRole({
-                value: role,
-                label: t(`roles.${role}`)
-            });
+            setSelectedRole(role);
         }
-    }, [form, t]);
+    }, [form]);
 
     const handleSubmit = async (values: LoginFormValues) => {
         setLoading(true);
@@ -73,51 +67,38 @@ const Login: React.FC = () => {
         }
     };
 
-    const handleLanguageChange = (value: { value: string; label: string }) => {
-        i18n.changeLanguage(value.value);
-        localStorage.setItem('i18nextLng', value.value);
-        localStorage.setItem('language', value.value);
+    const handleLanguageChange = (value: string) => {
+        i18n.changeLanguage(value);
+        localStorage.setItem('i18nextLng', value);
+        localStorage.setItem('language', value);
     };
-
-    const languageOptions = [
-        { value: 'en-US', label: t('languages.en-US') },
-        { value: 'zh-CN', label: t('languages.zh-CN') },
-    ];
-
-    const currentLanguage = {
-        value: i18n.language,
-        label: t(`languages.${i18n.language}`)
-    };
-
-    const roleOptions = [
-        { value: 'commander', label: t('roles.commander') },
-        { value: 'platoon', label: t('roles.platoon') },
-        { value: 'staff_office', label: t('roles.staff_office') },
-    ];
 
     return (
         <div className="login-container">
             <div className="login-decoration" />
             <div style={{ position: 'absolute', top: 20, right: 20, display: 'flex', gap: 12, zIndex: 10 }}>
                 <Select
-                    value={currentLanguage}
+                    value={i18n.language}
                     style={{ width: 120 }}
                     onChange={handleLanguageChange}
-                    options={languageOptions}
                     placeholder={t('login.selectLanguage')}
-                    labelInValue
-                />
+                >
+                    <Select.Option value="en-US">{t('languages.en-US')}</Select.Option>
+                    <Select.Option value="zh-CN">{t('languages.zh-CN')}</Select.Option>
+                </Select>
                 <Select
                     value={selectedRole}
                     style={{ width: 120 }}
                     onChange={(value) => {
-                        form.setFieldsValue({ role: value.value });
+                        form.setFieldsValue({ role: value });
                         setSelectedRole(value);
                     }}
-                    options={roleOptions}
                     placeholder={t('common.selectRole')}
-                    labelInValue
-                />
+                >
+                    <Select.Option value="commander">{t('roles.commander')}</Select.Option>
+                    <Select.Option value="platoon">{t('roles.platoon')}</Select.Option>
+                    <Select.Option value="staff_office">{t('roles.staff_office')}</Select.Option>
+                </Select>
             </div>
 
             <Card className="login-card" style={{ width: 400 }}>
