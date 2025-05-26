@@ -11,6 +11,7 @@ import SkillEditor from '../pages/SkillEditor';
 import Agents from '../pages/Agents';
 import Analytics from '../pages/Analytics';
 import Apps from '../pages/Apps';
+import Tasks from '../pages/Tasks';
 import Tools from '../pages/Tools';
 import Settings from '../pages/Settings';
 import {
@@ -23,6 +24,7 @@ import {
     TeamOutlined,
     BarChartOutlined,
     AppstoreOutlined,
+    OrderedListOutlined,
     ToolOutlined,
     SettingOutlined,
 } from '@ant-design/icons';
@@ -103,6 +105,10 @@ export const protectedRoutes: RouteConfig[] = [
                 element: <Apps />,
             },
             {
+                path: 'tasks',
+                element: <Tasks />,
+            },
+            {
                 path: 'tools',
                 element: <Tools />,
             },
@@ -173,6 +179,11 @@ export const menuItems = [
         key: '/apps',
         icon: 'AppstoreOutlined',
         label: 'menu.apps',
+    },
+    {
+        key: '/tasks',
+        icon: 'OrderedListOutlined',
+        label: 'menu.tasks',
     },
     {
         key: '/tools',
