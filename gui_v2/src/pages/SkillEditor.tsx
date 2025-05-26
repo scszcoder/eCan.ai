@@ -6,13 +6,18 @@ import styled from '@emotion/styled';
 const EditorContainer = styled.div`
   height: 100%;
   width: 100%;
-  padding: 1px;
-  background: #fff;
 
   .doc-free-feature-overview {
+    width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
+  }
+
+  .demo-free-layout-tools {
+    position: absolute;
+    bottom: 10px;
+    color: black;
   }
 `;
 
@@ -22,8 +27,8 @@ const SkillEditor: React.FC = () => {
             <style>
                 {`
                     .ant-layout-content {
-                        padding: 3px !important;
-                        margin: 3px !important;
+                        padding: 2px !important;
+                        margin: 2px !important;
                     }
                 `}
             </style>
