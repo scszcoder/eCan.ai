@@ -92,8 +92,10 @@ class A2AServer:
             else:
                 logger.warning(f"Unexpected request type: {type(json_rpc_request)}")
                 raise ValueError(f"Unexpected request type: {type(request)}")
-
-            return self._create_response(result)
+            print("result available")
+            returnable = self._create_response(result)
+            print("done processing request:", type(returnable), returnable)
+            return returnable
 
         except Exception as e:
             return self._handle_exception(e)
