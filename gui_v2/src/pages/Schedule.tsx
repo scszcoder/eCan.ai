@@ -156,18 +156,18 @@ const Schedule: React.FC = () => {
                         key: 'type',
                         label: t('pages.schedule.type'),
                         options: [
-                            { label: t('pages.schedule.type.meeting'), value: 'meeting' },
-                            { label: t('pages.schedule.type.task'), value: 'task' },
-                            { label: t('pages.schedule.type.maintenance'), value: 'maintenance' },
+                            { label: t('pages.schedule.meeting'), value: 'meeting' },
+                            { label: t('pages.schedule.task'), value: 'task' },
+                            { label: t('pages.schedule.maintenance'), value: 'maintenance' },
                         ],
                     },
                     {
                         key: 'priority',
                         label: t('pages.schedule.priority'),
                         options: [
-                            { label: t('pages.schedule.priority.high'), value: 'high' },
-                            { label: t('pages.schedule.priority.medium'), value: 'medium' },
-                            { label: t('pages.schedule.priority.low'), value: 'low' },
+                            { label: t('pages.schedule.high'), value: 'high' },
+                            { label: t('pages.schedule.medium'), value: 'medium' },
+                            { label: t('pages.schedule.low'), value: 'low' },
                         ],
                     },
                 ]}
