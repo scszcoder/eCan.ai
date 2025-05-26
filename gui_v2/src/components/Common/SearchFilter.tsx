@@ -13,27 +13,56 @@ const FilterContainer = styled.div`
     border: 1px solid var(--border-color);
 `;
 
-const StyledSearch = styled(Search)`
+const StyledSearch = styled(Input.Search)`
     .ant-input-affix-wrapper {
+        height: 32px !important;
         background-color: var(--bg-primary);
         border-color: var(--border-color);
+        border-radius: 4px;
+        transition: all 0.3s ease;
+        padding: 0 8px;
+
         &:hover, &:focus {
             border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px var(--primary-color-light);
         }
-    }
-    .ant-input {
-        background-color: var(--bg-primary);
-        color: var(--text-primary);
-        &::placeholder {
+
+        .ant-input {
+            height: 30px !important;
+            line-height: 30px !important;
+            background-color: transparent;
+            color: var(--text-primary);
+            font-size: 14px;
+            padding: 0;
+        }
+
+        .anticon {
             color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .ant-input-suffix, .ant-input-prefix {
+            margin-right: 8px;
+            display: flex;
+            align-items: center;
         }
     }
+
     .ant-input-search-button {
+        height: 32px !important;
         background-color: var(--primary-color);
         border-color: var(--primary-color);
+        border-radius: 4px;
+        transition: all 0.3s ease;
+
         &:hover {
             background-color: var(--primary-color-hover);
             border-color: var(--primary-color-hover);
+        }
+
+        .anticon {
+            color: var(--text-primary);
+            font-size: 14px;
         }
     }
 `;
