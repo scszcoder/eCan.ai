@@ -14,20 +14,6 @@ import Apps from '../pages/Apps';
 import Tasks from '../pages/Tasks';
 import Tools from '../pages/Tools';
 import Settings from '../pages/Settings';
-import {
-    DashboardOutlined,
-    CarOutlined,
-    CalendarOutlined,
-    MessageOutlined,
-    RobotOutlined,
-    EditOutlined,
-    TeamOutlined,
-    BarChartOutlined,
-    AppstoreOutlined,
-    OrderedListOutlined,
-    ToolOutlined,
-    SettingOutlined,
-} from '@ant-design/icons';
 
 // 路由配置类型
 export interface RouteConfig {

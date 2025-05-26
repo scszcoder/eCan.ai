@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, Typography, Space, Row, Col } from 'antd';
 import styled from '@emotion/styled';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 const StyledCard = styled(Card)`
     margin-bottom: 16px;

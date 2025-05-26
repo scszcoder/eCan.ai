@@ -1,8 +1,6 @@
 import React from 'react';
-import { Card, Typography } from 'antd';
+import { Card } from 'antd';
 import styled from '@emotion/styled';
-
-const { Text } = Typography;
 
 const Container = styled.div`
     display: flex;

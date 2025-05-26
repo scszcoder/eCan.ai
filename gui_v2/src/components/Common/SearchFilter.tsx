@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { Input, Space, Select, Button, Dropdown, Tag, Tooltip } from 'antd';
-import { SearchOutlined, FilterOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
+import { FilterOutlined, ReloadOutlined, CloseOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
-
-const { Search } = Input;
 
 const FilterContainer = styled.div`
     margin-bottom: 16px;
