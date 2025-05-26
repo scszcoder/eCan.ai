@@ -40,7 +40,11 @@ class WebEngineView(QWebEngineView):
         QWebEngineSettings.WebGLEnabled: True,
         QWebEngineSettings.ScrollAnimatorEnabled: True,
         QWebEngineSettings.ErrorPageEnabled: True,
-        QWebEngineSettings.FocusOnNavigationEnabled: True
+        QWebEngineSettings.FocusOnNavigationEnabled: True,
+        QWebEngineSettings.JavascriptCanOpenWindows: True,  # 允许JS打开新窗口
+        QWebEngineSettings.JavascriptCanAccessClipboard: True,  # 允许JS访问剪贴板
+        QWebEngineSettings.AutoLoadImages: True,  # 自动加载图片
+        QWebEngineSettings.JavascriptCanPaste: True,  # 允许JS粘贴
     }
     
     def __init__(self, parent: Optional[QObject] = None):

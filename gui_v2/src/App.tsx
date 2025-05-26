@@ -1,12 +1,37 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
-import zhCN from 'antd/locale/zh_CN';
-import enUS from 'antd/locale/en_US';
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
-import { useTranslation } from 'react-i18next';
+import { getAntdLocale } from './i18n';
+import { IPCClient } from './services/ipc/client';
+import { logger, LogLevel } from './utils/logger';
 import './styles/global.css';
+import 'antd/dist/reset.css';
+import './index.css';
+
+// 初始化应用
+const initializeApp = () => {
+  // 根据环境设置日志等级
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
+  // 打印当前环境信息
+  console.log('Current NODE_ENV:', process.env.NODE_ENV);
+  console.log('Is development:', isDevelopment);
+
+  if (isDevelopment) {
+    // 开发环境：显示所有日志
+    logger.setLevel(LogLevel.DEBUG);
+    console.log('Set log level to:', LogLevel[logger.getLevel()]);
+  } else {
+    // 生产环境：只显示信息、警告和错误
+    logger.setLevel(LogLevel.INFO);
+    logger.info('Running in production mode, debug logs disabled');
+  }
+
+  // 初始化 IPC 服务
+  IPCClient.getInstance();
+};
 
 // 配置 React Router future flags
 const router = {
@@ -71,13 +96,11 @@ const renderRoutes = (routes: RouteConfig[]) => {
 
 const AppContent = () => {
     const { theme: currentTheme } = useTheme();
-    const { i18n } = useTranslation();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    const locale = i18n.language === 'en-US' ? enUS : zhCN;
 
     return (
         <ConfigProvider
-            locale={locale}
+            locale={getAntdLocale()}
             theme={getThemeConfig(isDark)}
         >
             <AntdApp>
@@ -92,6 +115,9 @@ const AppContent = () => {
 };
 
 function App() {
+    // 初始化应用
+    initializeApp();
+
     return (
         <ThemeProvider>
             <LanguageProvider>
