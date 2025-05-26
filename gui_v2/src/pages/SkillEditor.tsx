@@ -1,17 +1,39 @@
 import React from 'react';
-import { Card, Typography } from 'antd';
 import { logger } from '../utils/logger';
+import { Editor } from '../modules/skill-editor';
+import styled from '@emotion/styled';
 
-const { Title } = Typography;
+const EditorContainer = styled.div`
+  height: 100%;
+  width: 100%;
+
+  .doc-free-feature-overview {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .demo-free-layout-tools {
+    position: absolute;
+    bottom: 10px;
+    color: black;
+  }
+`;
 
 const SkillEditor: React.FC = () => {
-    logger.debug('SkillEditor component rendered');
-
     return (
-        <Card>
-            <Title level={2}>Skill Editor</Title>
-            <p>Skill editor content will be implemented here.</p>
-        </Card>
+        <EditorContainer>
+            <style>
+                {`
+                    .ant-layout-content {
+                        padding: 2px !important;
+                        margin: 2px !important;
+                    }
+                `}
+            </style>
+            <Editor />
+        </EditorContainer>
     );
 };
 

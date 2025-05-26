@@ -1,6 +1,8 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import LanguageDetector from 'i18next-browser-languagedetector';
+import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
 
 // 导入翻译文件
 import enTranslations from './locales/en-US.json';
@@ -54,5 +56,10 @@ i18n.on('languageChanged', (lng) => {
   document.documentElement.lang = lng;
 });
 
-// 导出 i18n 实例
+// 导出 i18n 实例和 antd 语言配置
+export const getAntdLocale = () => {
+  const currentLang = i18n.language;
+  return currentLang === 'zh-CN' ? zhCN : enUS;
+};
+
 export default i18n; 
