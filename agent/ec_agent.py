@@ -11,8 +11,6 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
-import openai
-from openai import OpenAI
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -20,19 +18,15 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
 
 # from lmnr.sdk.decorators import observe
 from pydantic import BaseModel, ValidationError
 
-from agent.a2a.common.client import A2AClient, A2ACardResolver
-from agent.a2a.common.server import A2AServer
+from agent.a2a.common.client import A2AClient
 # from agent.gif import create_history_gif
-from agent.memory.service import Memory, MemorySettings
-from agent.message_manager.service import MessageManager, MessageManagerSettings
+from agent.message_manager.service import MessageManager
 from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
-from agent.prompts import AgentMessagePrompt, PlannerPrompt, SystemPrompt
+from agent.prompts import AgentMessagePrompt, PlannerPrompt
 from agent.models import (
 	REQUIRED_LLM_API_ENV_VARS,
 	ActionResult,
@@ -47,21 +41,19 @@ from agent.models import (
 	ToolCallingMethod,
 )
 from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
+from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
-from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 from agent.a2a.common.types import Message, TextPart
 
-from browser.browser import Browser
-from browser.context import BrowserContext
+from agent.ec_skills.browser.browser import Browser
+from agent.ec_skills.browser.context import BrowserContext
 from agent.runner.context import RunnerContext
 
-from agent.base import GlobalContext, AppContext, Personality
+from agent.base import GlobalContext, Personality
 from agent.ec_skill import EC_Skill
-from browser.views import BrowserState, BrowserStateHistory
-from agent.runner.service import Runner
-from dom.history_tree_processor.service import (
+from agent.ec_skills.browser.views import BrowserState, BrowserStateHistory
+from agent.ec_skills.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
@@ -73,7 +65,6 @@ from telemetry.views import (
 	AgentStepTelemetryEvent,
 )
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
-from agent.runner.service import Runner
 from agent.tasks import TaskRunner, ManagedTask
 import threading
 
@@ -338,6 +329,7 @@ class EC_Agent(Generic[Context]):
 		self.a2a_server.attach_agent(self)
 
 		self.runner = TaskRunner(self)
+		self.human_chatter = HumanChatter(self)
 
 
 		# Callbacks
@@ -646,168 +638,6 @@ class EC_Agent(Generic[Context]):
 				)
 				self._make_history_item(model_output, state, result, metadata)
 
-	# @observe(name='agent.step', ignore_output=True, ignore_input=True)
-	@time_execution_async('--browser_step (agent)')
-	async def browser_step(self, step_info: Optional[AgentStepInfo] = None) -> None:
-		"""Execute one step of the task"""
-		logger.info(f'📍 Step {self.state.n_steps}')
-		state = None
-		model_output = None
-		result: list[ActionResult] = []
-		step_start_time = time.time()
-		tokens = 0
-
-		try:
-			state = await self.browser_context.get_state()
-			active_page = await self.browser_context.get_current_page()
-
-			# generate procedural memory if needed
-			if self.settings.enable_memory and self.memory and self.state.n_steps % self.settings.memory_interval == 0:
-				self.memory.create_procedural_memory(self.state.n_steps)
-
-			await self._raise_if_stopped_or_paused()
-
-			# Update action models with page-specific actions
-			await self._update_action_models_for_page(active_page)
-
-			# Get page-specific filtered actions
-			page_filtered_actions = self.runner.registry.get_prompt_description(active_page)
-
-			# If there are page-specific actions, add them as a special message for this step only
-			if page_filtered_actions:
-				page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
-				self._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
-
-			# If using raw tool calling method, we need to update the message context with new actions
-			if self.tool_calling_method == 'raw':
-				# For raw tool calling, get all non-filtered actions plus the page-filtered ones
-				all_unfiltered_actions = self.runner.registry.get_prompt_description()
-				all_actions = all_unfiltered_actions
-				if page_filtered_actions:
-					all_actions += '\n' + page_filtered_actions
-
-				context_lines = self._message_manager.settings.message_context.split('\n')
-				non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
-				updated_context = '\n'.join(non_action_lines)
-				if updated_context:
-					updated_context += f'\n\nAvailable actions: {all_actions}'
-				else:
-					updated_context = f'Available actions: {all_actions}'
-				self._message_manager.settings.message_context = updated_context
-
-			self._message_manager.add_state_message(state, self.state.last_result, step_info, self.settings.use_vision)
-
-			# Run planner at specified intervals if planner is configured
-			if self.settings.planner_llm and self.state.n_steps % self.settings.planner_interval == 0:
-				plan = await self._run_planner()
-				# add plan before last state message
-				self._message_manager.add_plan(plan, position=-1)
-
-			if step_info and step_info.is_last_step():
-				# Add last step warning if needed
-				msg = 'Now comes your last step. Use only the "done" action now. No other actions - so here your action sequence must have length 1.'
-				msg += '\nIf the task is not yet fully finished as requested by the user, set success in "done" to false! E.g. if not all steps are fully completed.'
-				msg += '\nIf the task is fully finished, set success in "done" to true.'
-				msg += '\nInclude everything you found out for the ultimate task in the done text.'
-				logger.info('Last step finishing up')
-				self._message_manager._add_message_with_tokens(HumanMessage(content=msg))
-				self.AgentOutput = self.DoneAgentOutput
-
-			input_messages = self._message_manager.get_messages()
-			tokens = self._message_manager.state.history.current_tokens
-
-			try:
-				model_output = await self.get_next_action(input_messages)
-
-				# Check again for paused/stopped state after getting model output
-				# This is needed in case Ctrl+C was pressed during the get_next_action call
-				await self._raise_if_stopped_or_paused()
-
-				self.state.n_steps += 1
-
-				if self.register_new_step_callback:
-					if inspect.iscoroutinefunction(self.register_new_step_callback):
-						await self.register_new_step_callback(state, model_output, self.state.n_steps)
-					else:
-						self.register_new_step_callback(state, model_output, self.state.n_steps)
-				if self.settings.save_conversation_path:
-					target = self.settings.save_conversation_path + f'_{self.state.n_steps}.txt'
-					save_conversation(input_messages, model_output, target, self.settings.save_conversation_path_encoding)
-
-				self._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
-
-				# check again if Ctrl+C was pressed before we commit the output to history
-				await self._raise_if_stopped_or_paused()
-
-				self._message_manager.add_model_output(model_output)
-			except asyncio.CancelledError:
-				# Task was cancelled due to Ctrl+C
-				self._message_manager._remove_last_state_message()
-				raise InterruptedError('Model query cancelled by user')
-			except InterruptedError:
-				# Agent was paused during get_next_action
-				self._message_manager._remove_last_state_message()
-				raise  # Re-raise to be caught by the outer try/except
-			except Exception as e:
-				# model call failed, remove last state message from history
-				self._message_manager._remove_last_state_message()
-				raise e
-
-			result: list[ActionResult] = await self.multi_act(model_output.action)
-
-			self.state.last_result = result
-
-			if len(result) > 0 and result[-1].is_done:
-				logger.info(f'📄 Result: {result[-1].extracted_content}')
-
-			self.state.consecutive_failures = 0
-
-		except InterruptedError:
-			# logger.debug('Agent paused')
-			self.state.last_result = [
-				ActionResult(
-					error='The agent was paused mid-step - the last action might need to be repeated', include_in_memory=False
-				)
-			]
-			return
-		except asyncio.CancelledError:
-			# Directly handle the case where the step is cancelled at a higher level
-			# logger.debug('Task cancelled - agent was paused with Ctrl+C')
-			self.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
-			raise InterruptedError('Step cancelled by user')
-		except Exception as e:
-			traceback_info = traceback.extract_tb(e.__traceback__)
-			# Extract the file name and line number from the last entry in the traceback
-			if traceback_info:
-				ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
-				logger.error(f'❌  Failed to step: {ex_stat}')
-
-			result = await self._handle_step_error(e)
-			self.state.last_result = result
-
-		finally:
-			step_end_time = time.time()
-			actions = [a.model_dump(exclude_unset=True) for a in model_output.action] if model_output else []
-			self.telemetry.capture(
-				AgentStepTelemetryEvent(
-					agent_id=self.state.agent_id,
-					step=self.state.n_steps,
-					actions=actions,
-					consecutive_failures=self.state.consecutive_failures,
-					step_error=[r.error for r in result if r.error] if result else ['No result'],
-				)
-			)
-			if not result:
-				return
-
-			if state:
-				metadata = StepMetadata(
-					step_number=self.state.n_steps,
-					step_start_time=step_start_time,
-					step_end_time=step_end_time,
-					input_tokens=tokens,
-				)
-				self._make_history_item(model_output, state, result, metadata)
 
 	@time_execution_async('--handle_step_error (agent)')
 	async def _handle_step_error(self, error: Exception) -> list[ActionResult]:
@@ -1759,6 +1589,7 @@ class EC_Agent(Generic[Context]):
 			print("client payload:", payload)
 			response = await self.a2a_client.send_task(payload)
 			print("A2A RESPONSE:", response)
+			return response
 		except Exception as e:
 			# Get the traceback information
 			traceback_info = traceback.extract_tb(e.__traceback__)

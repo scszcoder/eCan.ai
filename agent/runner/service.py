@@ -1,10 +1,7 @@
 import os
-import random
-import re
 import subprocess
 import asyncio
 import pyautogui
-import pynput
 import datetime
 import enum
 import time
@@ -25,7 +22,7 @@ from pydantic import BaseModel
 from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
 from agent.runner.registry.models import ActionModel
 from agent.models import ActionResult
-from browser.context import BrowserContext
+from agent.ec_skills.browser.context import BrowserContext
 from agent.runner.registry.service import Registry
 from agent.runner.models import (
 	ClickElementAction,

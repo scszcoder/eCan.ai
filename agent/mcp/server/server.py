@@ -1,84 +1,29 @@
 import os
 from mcp.server.sse import SseServerTransport
-from mcp.server.fastmcp.prompts import base
-from starlette.applications import Starlette
-from starlette.routing import Route
 from selenium import webdriver
-from mcp.server.fastmcp import FastMCP, Image, Context
-from PIL import Image as PILImage
-import httpx
 import pyautogui
-import pynput
 from pynput.mouse import Controller
 import pygetwindow as gw
-import sqlite3
 import time
 import asyncio
-from typing import Dict, Generic, Optional, Tuple, Type, TypeVar, cast
-from contextlib import AsyncExitStack
+from typing import Optional, Tuple, TypeVar, cast
 import re
 import subprocess
-import mcp.types as types
 from mcp.server.lowlevel import Server
 import traceback
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
 from mcp.server.fastmcp.prompts import base
-from mcp.types import CallToolResult, TextContent, Prompt, PromptMessage, Tool, ImageContent, EmbeddedResource, Resource, GetPromptResult, PromptArgument
+from mcp.types import CallToolResult, TextContent
 from agent.mcp.server.tool_schemas import *
-from pydantic import FileUrl
-from agent.a2a.common.types import AgentCard
 import json
 from dotenv import load_dotenv
 import logging
-from agent.models import ActionResult
-from browser.context import BrowserContext
-from agent.runner.registry.service import Registry
 from datetime import datetime
 from agent.runner.models import (
-	ClickElementAction,
-	ClickElementBySelectorAction,
-	ClickElementByTextAction,
-	ClickElementByXpathAction,
-	CloseTabAction,
-	DoneAction,
-	DragDropAction,
-	GoToUrlAction,
-	InputTextAction,
-	NoParamsAction,
-	OpenTabAction,
-	Position,
-	ScrollAction,
-	SearchGoogleAction,
-	SendKeysAction,
-	SwitchTabAction,
-	WaitForElementAction,
-	MouseClickAction,
-	MouseMoveAction,
-	MouseDragDropAction,
-	MouseScrollAction,
-	TextInputAction,
-	KeysAction,
-	OpenAppAction,
-	CloseAppAction,
-	SwitchToAppAction,
-	CallAPIAction,
-	WaitAction,
-	RunExternAction,
-	MakeDirAction,
-	DeleteFileAction,
-	DeleteDirAction,
-	MoveFileAction,
-	CopyFileDirAction,
-	ScreenAnalyzeAction,
-	ScreenCaptureAction,
-	SevenZipAction,
-	KillProcessesAction,
+    Position,
 )
 import shutil
 from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
 from utils.logger_helper import login
-from langchain_core.language_models.chat_models import BaseChatModel
 
 server_main_win = None
 logger = logging.getLogger(__name__)
@@ -358,36 +303,23 @@ async def in_browser_close_tab(params):
 
 
 # Content Actions
-async def in_browser_extract_content(params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
-    browser = browser_context.browser
-    page = await browser.get_current_page()
-    import markdownify
-
-    strip = []
-    if should_strip_link_urls:
-        strip = ['a', 'img']
-
-    content = markdownify.markdownify(await page.content(), strip=strip)
-
-    # manually append iframe text into the content so it's readable by the LLM (includes cross-origin iframes)
-    for iframe in page.frames:
-        if iframe.url != page.url and not iframe.url.startswith('data:'):
-            content += f'\n\nIFRAME {iframe.url}:\n'
-            content += markdownify.markdownify(await iframe.content())
-
-    prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
-    template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
+async def in_browser_scrape_content(params):
     try:
-        output = page_extraction_llm.invoke(template.format(goal=goal, page=content))
-        msg = f'📄  Extracted from page\n: {output.content}\n'
-        logger.info(msg)
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        global server_main_win
+        web_driver = server_main_win.web_driver
+        dom_service = server_main_win.dom_service
+        dom_service.get_clickable_elements()
+
     except Exception as e:
-        logger.debug(f'Error extracting content: {e}')
-        msg = f'📄  Extracted from page\n: {content}\n'
-        logger.info(msg)
-        return CallToolResult(content=[TextContent(type="text", text=msg)])
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallToolScrapeContents:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallToolScrapeContents: traceback information not available:" + str(e)
+        print("ex_stat:", ex_stat)
+        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
+        return CallToolResult(content=err_text_content, isError=True)
+
 
 
 # HTML Download
@@ -892,19 +824,41 @@ async def in_browser_drag_drop(params) -> CallToolResult:
 
 
 async def mouse_click(params):
-    browser_context = login.main_win.getBrowserContextById(context_id)
-    browser = browser_context.browser
-    if params.index not in await browser.get_selector_map():
-        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
-
-    nClicks = 1
-    interval = 0.1
-    pyautogui.moveTo(params.loc.x, params.loc.y)
-    pyautogui.click(clicks=nClicks, interval=interval)
-
-    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    msg = ""
-    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+    print("INPUT:", params)
+    # if tool_name != "rpa_supervisor_scheduling_work":
+    #     raise ValueError(f"Unexpected tool name: {tool_name}")
+    global server_main_win
+    try:
+        # mainwin = params["agent"].mainwin
+        print(f"[MCP] Running supervisor scheduler tool... ")
+        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
+        schedule = server_main_win.fetchSchedule("", server_main_win.get_vehicle_settings())
+        print("MCP fetched schedule.......", schedule)
+        # workable = server_main_win.runTeamPrepHook(schedule)
+        # works_to_be_dispatched = server_main_win.handleCloudScheduledWorks(workable)
+        pyautogui.moveTo(params.loc.x, params.loc.y)
+        # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
+        ctr = CallToolResult(content=[TextContent(type="text", text=msg)])
+        print("ABOUT TO return call tool result", type(ctr), ctr)
+        print("ABOUT CTR Type", ctr.model_dump(by_alias=True, exclude_none=True, mode="json"))
+        tool_result = {
+            "content": [{"type": "text", "text": msg}],
+            # "meta": workable,
+            "isError": False
+        }
+        print("[DEBUG] Returning result:", json.dumps(tool_result, indent=2))
+        # return ctr.model_dump(by_alias=True, exclude_none=True, mode="json", round_trip=False)
+        return [TextContent(type="text", text=msg), TextContent(type="text", text=json.dumps(workable))]
+    except Exception as e:
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallToolMouseClick:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallToolMouseClick: traceback information not available:" + str(e)
+        print("ex_stat:", ex_stat)
+        err_text_content = [TextContent(type="text", text=f"Error in mouse click: {ex_stat}")]
+        return CallToolResult(content=err_text_content, isError=True)
 
 
 async def mouse_move(params):
@@ -1318,7 +1272,7 @@ tool_function_mapping = {
         "in_browser_switch_tab": in_browser_switch_tab,
         "in_browser_open_tab": in_browser_open_tab,
         "in_browser_close_tab": in_browser_close_tab,
-        "in_browser_extract_content": in_browser_extract_content,
+        "in_browser_extract_content": in_browser_scrape_content,
         "in_browser_save_html_to_file": in_browser_save_html_to_file,
         "in_browser_scroll_down": in_browser_scroll_down,
         "in_browser_scroll_up": in_browser_scroll_up,

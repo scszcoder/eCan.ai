@@ -1,13 +1,12 @@
 import React from 'react';
 import { List, Tag, Typography, Space, Button, Avatar, Row, Col, Progress, Card } from 'antd';
 import { 
-    AppstoreOutlined,
+    OrderedListOutlined,
     CheckCircleOutlined,
     ClockCircleOutlined,
     StarOutlined,
     DownloadOutlined,
     SettingOutlined,
-    OrderedListOutlined,
     DeleteOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
@@ -18,7 +17,7 @@ import ActionButtons from '../components/Common/ActionButtons';
 
 const { Text, Title } = Typography;
 
-const AppItem = styled.div`
+const TaskItem = styled.div`
     padding: 12px;
     border-bottom: 1px solid #f0f0f0;
     &:last-child {
@@ -31,7 +30,7 @@ const AppItem = styled.div`
     }
 `;
 
-interface App {
+interface Task {
     id: number;
     name: string;
     version: string;
@@ -44,7 +43,7 @@ interface App {
     features: string[];
 }
 
-const getStatusColor = (status: App['status']): string => {
+const getStatusColor = (status: Task['status']): string => {
     switch (status) {
         case 'active':
             return 'success';
@@ -57,7 +56,7 @@ const getStatusColor = (status: App['status']): string => {
     }
 };
 
-const initialApps: App[] = [
+const initialTasks: Task[] = [
     {
         id: 1,
         name: 'TaskManager',
@@ -96,45 +95,45 @@ const initialApps: App[] = [
     },
 ];
 
-const Apps: React.FC = () => {
+const Tasks: React.FC = () => {
     const { t } = useTranslation();
     const {
-        selectedItem: selectedApp,
-        items: apps,
+        selectedItem: selectedTask,
+        items: tasks,
         selectItem,
         removeItem,
         updateItem,
-    } = useDetailView<App>(initialApps);
+    } = useDetailView<Task>(initialTasks);
 
-    const translateApp = (app: App): App => {
+    const translateTask = (task: Task): Task => {
         // 如果已经是翻译后的文本（包含中文或特殊字符），直接返回
-        if (app.name.includes('管理器') || app.name.includes('分析器') || app.name.includes('监视器')) {
-            return app;
+        if (task.name.includes('管理器') || task.name.includes('分析器') || task.name.includes('监视器')) {
+            return task;
         }
 
         return {
-            ...app,
-            name: t(`pages.apps.apps.${app.name}.name`),
-            category: t(`pages.apps.categories.${app.category}`),
-            description: t(`pages.apps.apps.${app.name}.description`),
-            features: app.features.map(feature => {
+            ...task,
+            name: t(`pages.tasks.tasks.${task.name}.name`),
+            category: t(`pages.tasks.categories.${task.category}`),
+            description: t(`pages.tasks.tasks.${task.name}.description`),
+            features: task.features.map(feature => {
                 // 如果功能名称已经是中文，直接返回
                 if (feature.includes('创建') || feature.includes('跟踪') || feature.includes('协作')) {
                     return feature;
                 }
-                return t(`pages.apps.apps.${app.name}.features.${feature}`);
+                return t(`pages.tasks.tasks.${task.name}.features.${feature}`);
             }),
-            lastUpdated: app.lastUpdated === '2 days ago'
-                ? t('pages.apps.time.daysAgo', { days: 2 })
-                : app.lastUpdated === '1 hour ago'
-                ? t('pages.apps.time.hoursAgo', { hours: 1 })
-                : app.lastUpdated === '1 week ago'
-                ? t('pages.apps.time.weeksAgo', { weeks: 1 })
-                : app.lastUpdated
+            lastUpdated: task.lastUpdated === '2 days ago'
+                ? t('pages.tasks.time.daysAgo', { days: 2 })
+                : task.lastUpdated === '1 hour ago'
+                ? t('pages.tasks.time.hoursAgo', { hours: 1 })
+                : task.lastUpdated === '1 week ago'
+                ? t('pages.tasks.time.weeksAgo', { weeks: 1 })
+                : task.lastUpdated
         };
     };
 
-    const translatedApps = apps.map(translateApp);
+    const translatedTasks = tasks.map(translateTask);
 
     const handleUpdate = (id: number) => {
         updateItem(id, { status: 'updating' });
@@ -142,8 +141,8 @@ const Apps: React.FC = () => {
         setTimeout(() => {
             updateItem(id, { 
                 status: 'active',
-                version: (parseFloat(apps.find(app => app.id === id)?.version || '0') + 0.1).toFixed(1),
-                lastUpdated: t('pages.apps.time.justNow')
+                version: (parseFloat(tasks.find(task => task.id === id)?.version || '0') + 0.1).toFixed(1),
+                lastUpdated: t('pages.tasks.time.justNow')
             });
         }, 2000);
     };
@@ -154,65 +153,65 @@ const Apps: React.FC = () => {
 
     const renderListContent = () => (
         <List
-            dataSource={translatedApps}
-            renderItem={app => (
-                <AppItem onClick={() => selectItem(app)}>
+            dataSource={translatedTasks}
+            renderItem={task => (
+                <TaskItem onClick={() => selectItem(task)}>
                     <Space direction="vertical" style={{ width: '100%' }}>
                         <Space>
-                            <Avatar icon={<AppstoreOutlined />} />
-                            <Text strong>{app.name}</Text>
+                            <Avatar icon={<OrderedListOutlined />} />
+                            <Text strong>{task.name}</Text>
                         </Space>
                         <Space>
-                            <Tag color={getStatusColor(app.status)}>{t(`pages.apps.status.${app.status}`)}</Tag>
-                            <Tag color="blue">{app.category}</Tag>
+                            <Tag color={getStatusColor(task.status)}>{t(`pages.tasks.status.${task.status}`)}</Tag>
+                            <Tag color="blue">{task.category}</Tag>
                         </Space>
                         <Space>
-                            <Text type="secondary">v{app.version}</Text>
-                            <Text type="secondary">{app.size}</Text>
+                            <Text type="secondary">v{task.version}</Text>
+                            <Text type="secondary">{task.size}</Text>
                         </Space>
                     </Space>
-                </AppItem>
+                </TaskItem>
             )}
         />
     );
 
     const renderDetailsContent = () => {
-        if (!selectedApp) {
-            return <Text type="secondary">{t('pages.apps.selectApp')}</Text>;
+        if (!selectedTask) {
+            return <Text type="secondary">{t('pages.tasks.selectTask')}</Text>;
         }
 
-        const translatedApp = translateApp(selectedApp);
+        const translatedTask = translateTask(selectedTask);
 
         return (
             <Space direction="vertical" style={{ width: '100%' }}>
                 <Space>
-                    <Avatar size={64} icon={<AppstoreOutlined />} />
+                    <Avatar size={64} icon={<OrderedListOutlined />} />
                     <div>
-                        <Title level={4} style={{ margin: 0 }}>{translatedApp.name}</Title>
-                        <Text type="secondary">{t('pages.apps.version', { version: translatedApp.version })}</Text>
+                        <Title level={4} style={{ margin: 0 }}>{translatedTask.name}</Title>
+                        <Text type="secondary">{t('pages.tasks.version', { version: translatedTask.version })}</Text>
                     </div>
                 </Space>
                 <Space>
-                    <Tag color={getStatusColor(translatedApp.status)}>
-                        <CheckCircleOutlined /> {t('pages.apps.status')}: {t(`pages.apps.status.${translatedApp.status}`)}
+                    <Tag color={getStatusColor(translatedTask.status)}>
+                        <CheckCircleOutlined /> {t('pages.tasks.status')}: {t(`pages.tasks.status.${translatedTask.status}`)}
                     </Tag>
                     <Tag>
-                        <ClockCircleOutlined /> {t('pages.apps.lastUpdated')}: {translatedApp.lastUpdated}
+                        <ClockCircleOutlined /> {t('pages.tasks.lastUpdated')}: {translatedTask.lastUpdated}
                     </Tag>
                     <Tag>
-                        <StarOutlined /> {t('pages.apps.rating')}: {translatedApp.rating}/5
+                        <StarOutlined /> {t('pages.tasks.rating')}: {translatedTask.rating}/5
                     </Tag>
                 </Space>
                 <div>
-                    <Text strong>{t('pages.apps.description')}</Text>
+                    <Text strong>{t('pages.tasks.description')}</Text>
                     <br />
-                    <Text>{translatedApp.description}</Text>
+                    <Text>{translatedTask.description}</Text>
                 </div>
                 <div>
-                    <Text strong>{t('pages.apps.features')}</Text>
+                    <Text strong>{t('pages.tasks.features')}</Text>
                     <br />
                     <Space wrap>
-                        {translatedApp.features.map(feature => (
+                        {translatedTask.features.map(feature => (
                             <Tag key={feature} color="green">{feature}</Tag>
                         ))}
                     </Space>
@@ -221,18 +220,18 @@ const Apps: React.FC = () => {
                     <Col span={12}>
                         <Card>
                             <Space direction="vertical" style={{ width: '100%' }}>
-                                <Text>{t('pages.apps.storageUsage')}</Text>
+                                <Text>{t('pages.tasks.storageUsage')}</Text>
                                 <Progress percent={75} />
-                                <Text type="secondary">{translatedApp.size}</Text>
+                                <Text type="secondary">{translatedTask.size}</Text>
                             </Space>
                         </Card>
                     </Col>
                     <Col span={12}>
                         <Card>
                             <Space direction="vertical" style={{ width: '100%' }}>
-                                <Text>{t('pages.apps.userRating')}</Text>
-                                <Progress percent={translatedApp.rating * 20} />
-                                <Text type="secondary">{translatedApp.rating}/5</Text>
+                                <Text>{t('pages.tasks.userRating')}</Text>
+                                <Progress percent={translatedTask.rating * 20} />
+                                <Text type="secondary">{translatedTask.rating}/5</Text>
                             </Space>
                         </Card>
                     </Col>
@@ -241,23 +240,23 @@ const Apps: React.FC = () => {
                     <Button 
                         type="primary" 
                         icon={<DownloadOutlined />}
-                        onClick={() => handleUpdate(translatedApp.id)}
-                        disabled={translatedApp.status === 'updating'}
+                        onClick={() => handleUpdate(translatedTask.id)}
+                        disabled={translatedTask.status === 'updating'}
                     >
-                        {t('pages.apps.update')}
+                        {t('pages.tasks.update')}
                     </Button>
                     <Button 
                         icon={<SettingOutlined />}
                         onClick={() => {}}
                     >
-                        {t('pages.apps.settings')}
+                        {t('pages.tasks.settings')}
                     </Button>
                     <Button 
                         danger
                         icon={<DeleteOutlined />}
-                        onClick={() => handleUninstall(translatedApp.id)}
+                        onClick={() => handleUninstall(translatedTask.id)}
                     >
-                        {t('pages.apps.uninstall')}
+                        {t('pages.tasks.uninstall')}
                     </Button>
                 </Space>
                 <ActionButtons
@@ -268,13 +267,13 @@ const Apps: React.FC = () => {
                     onExport={() => {}}
                     onImport={() => {}}
                     onSettings={() => {}}
-                    addText={t('pages.apps.addApp')}
-                    editText={t('pages.apps.editApp')}
-                    deleteText={t('pages.apps.deleteApp')}
-                    refreshText={t('pages.apps.refreshApps')}
-                    exportText={t('pages.apps.exportApps')}
-                    importText={t('pages.apps.importApps')}
-                    settingsText={t('pages.apps.appSettings')}
+                    addText={t('pages.tasks.addTask')}
+                    editText={t('pages.tasks.editTask')}
+                    deleteText={t('pages.tasks.deleteTask')}
+                    refreshText={t('pages.tasks.refreshTasks')}
+                    exportText={t('pages.tasks.exportTasks')}
+                    importText={t('pages.tasks.importTasks')}
+                    settingsText={t('pages.tasks.taskSettings')}
                 />
             </Space>
         );
@@ -282,12 +281,12 @@ const Apps: React.FC = () => {
 
     return (
         <DetailLayout
-            listTitle={t('pages.apps.title')}
-            detailsTitle={t('pages.apps.details')}
+            listTitle={t('pages.tasks.title')}
+            detailsTitle={t('pages.tasks.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />
     );
 };
 
-export default Apps; 
+export default Tasks; 

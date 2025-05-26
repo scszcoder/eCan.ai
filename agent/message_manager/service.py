@@ -14,8 +14,8 @@ from pydantic import BaseModel
 
 from agent.message_manager.models import MessageMetadata
 from agent.prompts import AgentMessagePrompt
-from agent.models import ActionResult, AgentOutput, AgentStepInfo, MessageManagerState
-from browser.views import BrowserState
+from agent.models import ActionResult, AgentOutput, MessageManagerState
+from agent.ec_skills.browser.views import BrowserState
 from agent.run_utils import time_execution_sync
 
 logger = logging.getLogger(__name__)
@@ -111,7 +111,6 @@ class MessageManager:
 		self,
 		state: BrowserState,
 		result: Optional[List[ActionResult]] = None,
-		step_info: Optional[AgentStepInfo] = None,
 		use_vision=True,
 	) -> None:
 		"""Add browser state as human message"""
@@ -138,7 +137,6 @@ class MessageManager:
 			state,
 			result,
 			include_attributes=self.settings.include_attributes,
-			step_info=step_info,
 		).get_user_message(use_vision)
 		self._add_message_with_tokens(state_message)
 

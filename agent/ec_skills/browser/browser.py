@@ -1,30 +1,18 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.common.by import By
-from typing import Optional, Literal
-from dataclasses import dataclass, field
+from typing import Optional
 import os
-import json
 import logging
-import subprocess
-import socket
-import time
-import socket
-import subprocess
 from typing import Literal
 
-import psutil
-import requests
-from dotenv import load_dotenv
-from agent.playwright_sim import PlaywrightBrowser
 # from playwright.async_api import (
 # 	Playwright,
 # 	async_playwright,
 # )
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from browser.context import BrowserContext, BrowserContextConfig
+from agent.ec_skills.browser.context import BrowserContext, BrowserContextConfig
 
 logger = logging.getLogger(__name__)
 

@@ -16,7 +16,10 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from pyqtgraph.examples.MatrixDisplayExample import main_window
 from sqlalchemy.testing.suite.test_reflection import metadata
-
+from agent.message_manager.service import MessageManager
+from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
+from agent.prompts import AgentMessagePrompt, PlannerPrompt
+from agent.models import ActionResult
 from typing_extensions import TypedDict
 from langgraph.prebuilt import tools_condition
 from mcp.client.sse import sse_client
@@ -165,12 +168,23 @@ def _bind_to_system_message(state):
     print(state) # Problem here
     return "system prompt"
 
+
+# Goal for graph
+class Goal(TypedDict):
+    name: str
+    description: str
+    min_criteria: str
+    score: float
+    weight: float
+
+
 # State for LangGraph
-class AgentState(TypedDict):
+class NodeState(TypedDict):
     input: str
     messages: List[Any]
     retries: int
     resolved: bool
+    goals: List[Goal]
 
 async def create_rpa_helper_skill(mainwin):
     try:
@@ -207,12 +221,12 @@ async def create_rpa_helper_skill(mainwin):
         planner_node = prompt | llm
 
 
-        def initial_state(input_text: str) -> AgentState:
+        def initial_state(input_text: str) -> NodeState:
             return {"input": input_text, "messages": [HumanMessage(content=input_text)], "retries": 0,
                     "resolved": False}
 
         def make_llm_tool_node(session: ClientSession):
-            async def node(state: AgentState) -> AgentState:
+            async def node(state: NodeState) -> NodeState:
                 result = await session.invoke(
                     input=state["input"],
                     messages=state["messages"][-1],
@@ -223,7 +237,7 @@ async def create_rpa_helper_skill(mainwin):
 
             return node
 
-        async def planner_with_image(state: AgentState):
+        async def planner_with_image(state: NodeState):
             # Call your screenshot tool
             # REMOTE call over SSE → MCP tool
             image_b64: str = await helper_skill.mcp_session.call_tool(
@@ -244,7 +258,7 @@ async def create_rpa_helper_skill(mainwin):
 
 
         # Verify node (simple check)
-        def verify_resolved(state: AgentState) -> AgentState:
+        def verify_resolved(state: NodeState) -> NodeState:
             last_msg = state["messages"][-1].content.lower()
             if "resolved" in last_msg:
                 state["resolved"] = True
@@ -253,14 +267,14 @@ async def create_rpa_helper_skill(mainwin):
             return state
 
         # Router logic
-        async def route_logic(state: AgentState) -> str:
+        async def route_logic(state: NodeState) -> str:
             if state["resolved"] or state["retries"] >= 5:
                 return END
             return "llm_loop"
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(AgentState)
+        workflow = StateGraph(NodeState)
         workflow.add_node("llm_loop", helper_agent)
         workflow.add_node("verify", verify_resolved)
 
@@ -290,13 +304,13 @@ async def create_rpa_helper_skill(mainwin):
     return helper_skill
 
 
-async def operator_message_handler(state: AgentState) -> AgentState:
-    end_state = {
-        "input": "",
-        "messages": ["task executed successfully!"],
-        "retries": 0,
-        "resolved": True
-    }
+async def operator_message_handler(state: NodeState) -> NodeState:
+    end_state = NodeState(
+        input="",
+        messages= ["task executed successfully!"],
+        retries=0,
+        resolved=True
+    )
 
     try:
         print("operator_message_handler......", state)
@@ -307,6 +321,7 @@ async def operator_message_handler(state: AgentState) -> AgentState:
             msg_type = req2operator["msg_type"]
             print("operator_message_handler......about to call func.", req2operator)
             result = await operator_msg_function_mapping[msg_type](req2operator, agent)
+            end_state["messages"].append(result)
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -318,6 +333,7 @@ async def operator_message_handler(state: AgentState) -> AgentState:
         print(ex_stat)
         end_state["messages"][0] = f"Task Error: {ex_stat}"
 
+    print("operator_message_handler task end state:", end_state)
     return end_state  # must return the new state
 
 
@@ -341,7 +357,7 @@ async def create_rpa_operator_skill(mainwin):
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
 
-        workflow = StateGraph(AgentState)
+        workflow = StateGraph(NodeState)
         workflow.add_node("message_handler", operator_message_handler)
         workflow.set_entry_point("message_handler")  # where execution starts
         workflow.add_edge("message_handler", END)
@@ -366,7 +382,7 @@ async def create_rpa_operator_skill(mainwin):
     return operator_skill
 
 
-async def supervisor_task_scheduler(state: AgentState) -> AgentState:
+async def supervisor_task_scheduler(state: NodeState) -> NodeState:
     end_state = {
         "input": "",
         "messages": ["task executed successfully!"],
@@ -403,6 +419,7 @@ async def supervisor_task_scheduler(state: AgentState) -> AgentState:
             req_data = {"msg_type": "rpa_tasks", "rpa_tasks": per_vehicle_works[v]}
             rpa_task_request = Message(role="user", parts=[TextPart(type="text", text="Here are the RPA work to run")], metadata=req_data)
             rpa_task_reponse = await this_agent.a2a_send_message(vehicle_operator_agent, rpa_task_request)
+            print("a2a send response:", rpa_task_reponse)
             if "error" in rpa_task_reponse:
                 print("rpa_task_reponse", rpa_task_reponse)
             else:
@@ -430,7 +447,7 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
 
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
-        workflow = StateGraph(AgentState)
+        workflow = StateGraph(NodeState)
         workflow.add_node("message_handler", supervisor_task_scheduler)
         workflow.set_entry_point("message_handler")  # where execution starts
         workflow.add_edge("message_handler", END)
@@ -499,27 +516,32 @@ supervisor_msg_function_mapping = {
     }
 
 async def operaor_handle_rpa_tasks(req_data, agent):
-    print("operaor_handle_rpa_tasks", req_data, "simply enqueue")
-    print("mainwin # of agents:", len(agent.mainwin.bots))    # enqueue
-    asyncio.ensure_future(agent.mainwin.todo_wait_in_line(req_data))
+    print("operaor_handle_rpa_tasks", req_data, "simply enqueue", len(agent.mainwin.bots))
+    # future = asyncio.ensure_future(agent.mainwin.todo_wait_in_line(req_data))
+    task_run_stat = await agent.mainwin.todo_wait_in_line(req_data)
+    return task_run_stat
 
 
-async def operaor_handle_run_control(mainwin, agent, req_data):
+async def operaor_handle_run_control(req_data, agent):
     print("operaor_handle_run_control")
     # enqueue
-    await mainwin.rpa_wait_in_line.put(req_data)
+    await agent.mainwin.rpa_wait_in_line.put(req_data)
 
-async def operaor_handle_human_in_loop_response(mainwin, agent, req_data):
+async def operaor_handle_human_in_loop_response(req_data, agent):
     print("operaor_handle_human_in_loop_response")
-    asyncio.ensure_future(mainwin.rpa_wait_in_line.put(req_data))
+    # asyncio.ensure_future(agent.mainwin.rpa_wait_in_line.put(req_data))
+    task_run_stat = await agent.mainwin.todo_wait_in_line(req_data)
+    return task_run_stat
 
-async def operaor_handle_agent_in_loop_response(mainwin, agent, req_data):
+async def operaor_handle_agent_in_loop_response(req_data, agent):
     print("operaor_handle_agent_in_loop_response")
-    mainwin.rpa_wait_in_line(req_data)
+    task_run_stat = await agent.mainwin.todo_wait_in_line(req_data)
+    return task_run_stat
 
-async def operaor_handle_help_response(mainwin, agent, req_data):
+async def operaor_handle_help_response(req_data, agent):
     print("operaor_handle_help_response")
-    mainwin.rpa_wait_in_line(req_data)
+    task_run_stat = await agent.mainwin.todo_wait_in_line(req_data)
+    return task_run_stat
 
 operator_msg_function_mapping = {
         "rpa_tasks": operaor_handle_rpa_tasks,
@@ -530,7 +552,7 @@ operator_msg_function_mapping = {
     }
 
 
-async def supervisor_message_handler(state: AgentState) -> AgentState:
+async def supervisor_message_handler(state: NodeState) -> NodeState:
     end_state = {
         "input": "",
         "messages": ["task executed successfully!"],
@@ -578,7 +600,7 @@ async def create_rpa_supervisor_serve_requests_skill(mainwin):
 
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
-        workflow = StateGraph(AgentState)
+        workflow = StateGraph(NodeState)
         workflow.add_node("message_handler", supervisor_message_handler)
         workflow.set_entry_point("message_handler")  # where execution starts
         workflow.add_edge("message_handler", END)
@@ -602,4 +624,196 @@ async def create_rpa_supervisor_serve_requests_skill(mainwin):
     return supervisor_skill
 
 
+async def in_browser_scrape_content(state: NodeState) -> NodeState:
+    """Execute one step of the task"""
+    state = None
+    model_output = None
+    result: list[ActionResult] = []
+    step_start_time = time.time()
+    tokens = 0
+    agent = state["messages"][-1]
+    mainwin = agent.mainwin
+
+    try:
+        global_context = agent.global_context
+        state = await agent.global_context.get_state()
+        active_page = await agent.global_context.get_current_page()
+        # generate procedural memory if needed
+        if agent.settings.enable_memory and agent.memory and agent.state.n_steps % agent.settings.memory_interval == 0:
+            agent.memory.create_procedural_memory(agent.state.n_steps)
+
+        await agent._raise_if_stopped_or_paused()
+
+        # Update action models with page-specific actions
+        await agent._update_action_models_for_page(active_page, global_context)
+
+        # Get page-specific filtered actions
+        page_filtered_actions = agent.runner.registry.get_prompt_description(active_page, global_context)
+
+        # If there are page-specific actions, add them as a special message for this step only
+        if page_filtered_actions:
+            page_action_message = f'For this page, these additional actions are available:\n{page_filtered_actions}'
+            agent._message_manager._add_message_with_tokens(HumanMessage(content=page_action_message))
+
+        # If using raw tool calling method, we need to update the message context with new actions
+        # For raw tool calling, get all non-filtered actions plus the page-filtered ones
+        all_unfiltered_actions = agent.runner.registry.get_prompt_description()
+        all_actions = all_unfiltered_actions
+
+        if page_filtered_actions:
+            all_actions += '\n' + page_filtered_actions
+
+            context_lines = agent._message_manager.settings.message_context.split('\n')
+            non_action_lines = [line for line in context_lines if not line.startswith('Available actions:')]
+            updated_context = '\n'.join(non_action_lines)
+            if updated_context:
+                updated_context += f'\n\nAvailable actions: {all_actions}'
+            else:
+                updated_context = f'Available actions: {all_actions}'
+            agent._message_manager.settings.message_context = updated_context
+
+        print("add state message:", state)
+        agent._message_manager.add_state_message(state, agent.state.last_result,
+                                                agent.settings.use_vision)
+
+
+
+        input_messages = agent._message_manager.get_messages()
+        tokens = agent._message_manager.state.history.current_tokens
+
+
+        model_output = await agent.get_next_action(input_messages)
+
+        # Check again for paused/stopped state after getting model output
+        # This is needed in case Ctrl+C was pressed during the get_next_action call
+        await agent._raise_if_stopped_or_paused()
+
+        agent.state.n_steps += 1
+
+        if agent.settings.save_conversation_path:
+            target = agent.settings.save_conversation_path + f'_{agent.state.n_steps}.txt'
+            save_conversation(input_messages, model_output, target,
+                              agent.settings.save_conversation_path_encoding)
+
+        agent._message_manager._remove_last_state_message()  # we dont want the whole state in the chat history
+
+        # check again if Ctrl+C was pressed before we commit the output to history
+        await agent._raise_if_stopped_or_paused()
+
+        agent._message_manager.add_model_output(model_output)
+
+        result: list[ActionResult] = await agent.multi_act(model_output.action)
+
+        agent.state.last_result = result
+
+        if len(result) > 0 and result[-1].is_done:
+            # logger.info(f'📄 Result: {result[-1].extracted_content}')
+            print(f'📄 Result: {result[-1].extracted_content}')
+
+        agent.state.consecutive_failures = 0
+
+
+    except InterruptedError:
+        # logger.debug('Agent paused')
+        agent.state.last_result = [
+            ActionResult(
+                error='The agent was paused mid-step - the last action might need to be repeated',
+                include_in_memory=False
+            )
+        ]
+        return
+    except asyncio.CancelledError:
+        # Directly handle the case where the step is cancelled at a higher level
+        # logger.debug('Task cancelled - agent was paused with Ctrl+C')
+        agent.state.last_result = [ActionResult(error='The agent was paused with Ctrl+C', include_in_memory=False)]
+        raise InterruptedError('Step cancelled by user')
+    except Exception as e:
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
+            # logger.error(f'❌  Failed to step: {ex_stat}')
+            print(f'❌  Failed to step: {ex_stat}')
+
+        result = await agent._handle_step_error(e)
+        agent.state.last_result = result
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
+        mainwin.showMsg(ex_stat)
+        return None
+
+    finally:
+        step_end_time = time.time()
+        actions = [a.model_dump(exclude_unset=True) for a in model_output.action] if model_output else []
+        agent.telemetry.capture(
+            AgentStepTelemetryEvent(
+                agent_id=agent.state.agent_id,
+                step=agent.state.n_steps,
+                actions=actions,
+                consecutive_failures=agent.state.consecutive_failures,
+                step_error=[r.error for r in result if r.error] if result else ['No result'],
+            )
+        )
+        if not result:
+            return
+
+        if state:
+            metadata = StepMetadata(
+                step_number=self.state.n_steps,
+                step_start_time=step_start_time,
+                step_end_time=step_end_time,
+                input_tokens=tokens,
+            )
+            agent._make_history_item(model_output, state, result, metadata)
+
+
 # ============ scratch here ==============================
+prompt0 = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're a electronics component procurement expert helping sourcing components for this provided BOM in JSON format. Analyze the screenshot image provided.
+                - If an ad popup blocks the screen, identify the exact (x,y) coordinates to click.
+                - If Wi-Fi is disconnected, instruct to reconnect Wi-Fi.
+                Indicate clearly if the issue has been resolved.
+            """),
+            ("human", [
+                {"type": "text", "text": "{input}"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+            ]),
+            ("placeholder", "{messages}"),
+        ])
+
+prompt1 = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
+                - given the parameters, please check against our knowledge base to check whether additional parameters or selection criteria needed from the user, if so, prompt user with questions to get the info about the additional parameters or criteria.
+                - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
+                Indicate clearly if the issue has been resolved.
+            """),
+            ("human", [
+                {"type": "text", "text": "{input}"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+            ]),
+            ("placeholder", "{messages}"),
+        ])
+
+
+prompt2 = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
+                - given all required parameters, as well as the collected DOM tree of the current web page, please help collect as much required parameter info as possible 
+                - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
+                Indicate clearly if the issue has been resolved.
+            """),
+            ("human", [
+                {"type": "text", "text": "{input}"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+            ]),
+            ("placeholder", "{messages}"),
+        ])

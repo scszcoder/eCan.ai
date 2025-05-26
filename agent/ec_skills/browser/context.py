@@ -1,44 +1,29 @@
-from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
-from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-from typing import Optional, List
-from typing import TYPE_CHECKING, Optional
+from selenium.common.exceptions import NoSuchElementException
 from dataclasses import dataclass
 import base64
 import os
-import time
 import json
 import re
 import gc
 import uuid
-import logging
-from dom.views import DOMElementNode, SelectorMap
-from dom.service import DomService
-from browser.views import BrowserState, BrowserError, TabInfo
-from agent.run_utils import time_execution_sync
 import traceback
 from pydantic import BaseModel, ConfigDict, Field
 from agent.base import AppContext
 from agent.playwright_sim import *
 import asyncio
-from browser.views import (
+from agent.ec_skills.browser.views import (
 	BrowserError,
 	BrowserState,
 	TabInfo,
 	URLNotAllowedError,
 )
-from dom.service import DomService
-from dom.views import DOMElementNode, SelectorMap
+from agent.ec_skills.dom.service import DomService
+from agent.ec_skills.dom.views import DOMElementNode, SelectorMap
 from agent.run_utils import time_execution_async, time_execution_sync
 
 if TYPE_CHECKING:
-	from browser.browser import Browser
+	from agent.ec_skills.browser.browser import Browser
 
 logger = logging.getLogger(__name__)
 

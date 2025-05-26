@@ -6,16 +6,15 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium import webdriver
-import base64
 import time
-from typing import Optional, List
+from typing import List
 from typing import TYPE_CHECKING, Optional
 
 import logging
 
 
 if TYPE_CHECKING:
-	from browser.browser import Browser
+    pass
 
 logger = logging.getLogger(__name__)
 
