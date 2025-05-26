@@ -19,19 +19,35 @@ const { Text, Title } = Typography;
 
 const SkillItem = styled.div`
     padding: 12px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border-color);
     &:last-child {
         border-bottom: none;
     }
     cursor: pointer;
-    transition: background-color 0.3s;
+    transition: all 0.3s ease;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    margin: 4px 0;
     &:hover {
-        background-color: #f5f5f5;
+        background-color: var(--bg-tertiary);
+        transform: translateX(4px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    .ant-typography {
+        color: var(--text-primary);
+    }
+    .ant-tag {
+        background-color: var(--bg-primary);
+        border-color: var(--border-color);
+    }
+    .ant-progress-text {
+        color: var(--text-primary);
     }
 `;
 
 const SkillProgress = styled.div`
     margin-top: 8px;
+    padding: 0 4px;
 `;
 
 interface Skill {
