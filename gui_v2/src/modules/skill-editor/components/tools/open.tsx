@@ -1,47 +1,46 @@
 import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
-import { Button } from '@douyinfe/semi-ui';
+import { Tooltip, IconButton } from '@douyinfe/semi-ui';
+import { IconFolderOpen } from '@douyinfe/semi-icons';
 
-export function Open(props: { disabled: boolean }) {
-  const clientContext = useClientContext();
+interface OpenProps {
+  disabled?: boolean;
+}
 
-  const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+export const Open = ({ disabled }: OpenProps) => {
+  const { document: workflowDocument } = useClientContext();
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const content = e.target?.result as string;
-        const jsonData = JSON.parse(content);
-        
-        // Clear current document and load new data
-        clientContext.document.clear();
-        clientContext.document.fromJSON(jsonData);
-      } catch (error) {
-        console.error('Error loading file:', error);
-        // You might want to show an error message to the user here
+  const handleOpen = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target?.result as string);
+            workflowDocument.fromJSON(data);
+          } catch (error) {
+            console.error('Failed to load file:', error);
+          }
+        };
+        reader.readAsText(file);
       }
     };
-    reader.readAsText(file);
-  }, [clientContext]);
+    input.click();
+  }, [workflowDocument]);
 
   return (
-    <>
-      <input
-        type="file"
-        accept=".json"
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-        id="open-file-input"
+    <Tooltip content="Open">
+      <IconButton
+        type="tertiary"
+        theme="borderless"
+        icon={<IconFolderOpen />}
+        disabled={disabled}
+        onClick={handleOpen}
       />
-      <Button
-        disabled={props.disabled}
-        onClick={() => document.getElementById('open-file-input')?.click()}
-        style={{ backgroundColor: 'rgba(171,181,255,0.3)', borderRadius: '8px' }}
-      >
-        Open
-      </Button>
-    </>
+    </Tooltip>
   );
-} 
+}; 
