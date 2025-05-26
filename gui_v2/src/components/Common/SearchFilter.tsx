@@ -8,8 +8,63 @@ const { Search } = Input;
 const FilterContainer = styled.div`
     margin-bottom: 16px;
     padding: 16px;
-    background: #fafafa;
+    background: var(--bg-secondary);
     border-radius: 8px;
+    border: 1px solid var(--border-color);
+`;
+
+const StyledSearch = styled(Search)`
+    .ant-input-affix-wrapper {
+        background-color: var(--bg-primary);
+        border-color: var(--border-color);
+        &:hover, &:focus {
+            border-color: var(--primary-color);
+        }
+    }
+    .ant-input {
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        &::placeholder {
+            color: var(--text-secondary);
+        }
+    }
+    .ant-input-search-button {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        &:hover {
+            background-color: var(--primary-color-hover);
+            border-color: var(--primary-color-hover);
+        }
+    }
+`;
+
+const StyledSelect = styled(Select)`
+    .ant-select-selector {
+        background-color: var(--bg-primary) !important;
+        border-color: var(--border-color) !important;
+        &:hover {
+            border-color: var(--primary-color) !important;
+        }
+    }
+    .ant-select-selection-item {
+        color: var(--text-primary) !important;
+    }
+    .ant-select-arrow {
+        color: var(--text-secondary);
+    }
+`;
+
+const StyledButton = styled(Button)`
+    &.ant-btn {
+        background-color: var(--bg-primary);
+        border-color: var(--border-color);
+        color: var(--text-primary);
+        &:hover {
+            background-color: var(--bg-tertiary);
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+    }
 `;
 
 interface SearchFilterProps {
@@ -37,30 +92,30 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
 
     return (
         <FilterContainer>
-            <Space style={{ width: '100%' }} size="middle">
-                <Search
+            <Space style={{ width: '100%' }} size="middle" wrap>
+                <StyledSearch
                     placeholder={placeholder}
                     allowClear
                     onSearch={onSearch}
-                    style={{ width: 300 }}
+                    style={{ minWidth: 300, flex: 1 }}
                     prefix={<SearchOutlined />}
                 />
                 {filterOptions.map(option => (
-                    <Select
+                    <StyledSelect
                         key={option.key}
                         placeholder={option.label}
-                        style={{ width: 200 }}
+                        style={{ minWidth: 200 }}
                         allowClear
                         onChange={value => handleFilterChange(option.key, value)}
                         options={option.options}
                     />
                 ))}
-                <Button 
+                <StyledButton 
                     icon={<ReloadOutlined />} 
                     onClick={onReset}
                 >
                     Reset
-                </Button>
+                </StyledButton>
             </Space>
         </FilterContainer>
     );
