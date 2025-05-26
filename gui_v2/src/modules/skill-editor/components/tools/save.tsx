@@ -53,7 +53,30 @@ export const Save = ({ disabled }: SaveProps) => {
       await writable.write(blob);
       await writable.close();
     } catch (error) {
-      console.error('Failed to save workflow:', error);
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.log('Save operation was cancelled by user');
+      } else {
+        console.error('Failed to save workflow:', error);
+        // 如果 showSaveFilePicker 失败，回退到传统的下载方式
+        try {
+          const data = workflowDocument.toJSON();
+          const jsonString = JSON.stringify(data, null, 2);
+          const blob = new Blob([jsonString], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = 'workflow.json';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 100);
+        } catch (fallbackError) {
+          console.error('Fallback save also failed:', fallbackError);
+        }
+      }
     }
   }, [workflowDocument]);
 
