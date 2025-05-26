@@ -14,18 +14,6 @@ const EditorContainer = styled.div`
     display: flex;
     flex-direction: column;
   }
-
-  .demo-container {
-    flex: 1;
-    display: flex;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .demo-editor {
-    flex: 1;
-    position: relative;
-  }
 `;
 
 const SkillEditor: React.FC = () => {
