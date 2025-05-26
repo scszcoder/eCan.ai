@@ -1,6 +1,6 @@
 import React from 'react';
 import { logger } from '../utils/logger';
-import { SkEditor } from '../modules/skill-editor';
+import { Editor } from '../modules/skill-editor';
 import styled from '@emotion/styled';
 
 const EditorContainer = styled.div`
@@ -27,7 +27,7 @@ const SkillEditor: React.FC = () => {
                     }
                 `}
             </style>
-            <SkEditor />
+            <Editor />
         </EditorContainer>
     );
 };
