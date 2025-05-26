@@ -146,28 +146,28 @@ const Schedule: React.FC = () => {
                         key: 'status',
                         label: t('pages.schedule.status'),
                         options: [
-                            { label: t('pages.schedule.scheduled'), value: 'scheduled' },
-                            { label: t('pages.schedule.inProgress'), value: 'in-progress' },
-                            { label: t('pages.schedule.completed'), value: 'completed' },
-                            { label: t('pages.schedule.cancelled'), value: 'cancelled' },
+                            { label: t('pages.schedule.status.scheduled'), value: 'scheduled' },
+                            { label: t('pages.schedule.status.inProgress'), value: 'in-progress' },
+                            { label: t('pages.schedule.status.completed'), value: 'completed' },
+                            { label: t('pages.schedule.status.cancelled'), value: 'cancelled' },
                         ],
                     },
                     {
                         key: 'type',
                         label: t('pages.schedule.type'),
                         options: [
-                            { label: t('pages.schedule.meeting'), value: 'meeting' },
-                            { label: t('pages.schedule.task'), value: 'task' },
-                            { label: t('pages.schedule.maintenance'), value: 'maintenance' },
+                            { label: t('pages.schedule.type.meeting'), value: 'meeting' },
+                            { label: t('pages.schedule.type.task'), value: 'task' },
+                            { label: t('pages.schedule.type.maintenance'), value: 'maintenance' },
                         ],
                     },
                     {
                         key: 'priority',
                         label: t('pages.schedule.priority'),
                         options: [
-                            { label: t('pages.schedule.high'), value: 'high' },
-                            { label: t('pages.schedule.medium'), value: 'medium' },
-                            { label: t('pages.schedule.low'), value: 'low' },
+                            { label: t('pages.schedule.priority.high'), value: 'high' },
+                            { label: t('pages.schedule.priority.medium'), value: 'medium' },
+                            { label: t('pages.schedule.priority.low'), value: 'low' },
                         ],
                     },
                 ]}
