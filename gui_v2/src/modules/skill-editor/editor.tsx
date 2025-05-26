@@ -9,7 +9,7 @@ import { Tools } from './components/tools';
 import { SidebarProvider, SidebarRenderer } from './components/sidebar';
 import { FlowDocumentJSON } from './typings';
 
-export const SkEditor = () => {
+export const Editor = () => {
   const emptyData: FlowDocumentJSON = {
     nodes: [],
     edges: []
