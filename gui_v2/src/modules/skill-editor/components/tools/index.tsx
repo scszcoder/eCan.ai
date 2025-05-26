@@ -18,8 +18,9 @@ import { Interactive } from './interactive';
 import { FitView } from './fit-view';
 import { Comment } from './comment';
 import { AutoLayout } from './auto-layout';
+import { Open } from './open';
 
-export const DemoTools = () => {
+export const Tools = () => {
   const { history, playground } = useClientContext();
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -71,6 +72,7 @@ export const DemoTools = () => {
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
         <AddNode disabled={playground.config.readonly} />
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
+        <Open disabled={playground.config.readonly} />
         <Save disabled={playground.config.readonly} />
         <Run />
       </ToolSection>

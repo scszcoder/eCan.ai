@@ -5,7 +5,7 @@ import './styles/index.css';
 import { nodeRegistries } from './nodes';
 import { initialData } from './initial-data';
 import { useEditorProps } from './hooks';
-import { DemoTools } from './components/tools';
+import { Tools } from './components/tools';
 import { SidebarProvider, SidebarRenderer } from './components/sidebar';
 
 export const SkEditor = () => {
@@ -17,7 +17,7 @@ export const SkEditor = () => {
           <div className="demo-container">
             <EditorRenderer className="demo-editor" />
           </div>
-          <DemoTools />
+          <Tools />
           <SidebarRenderer />
         </SidebarProvider>
       </FreeLayoutEditorProvider>
