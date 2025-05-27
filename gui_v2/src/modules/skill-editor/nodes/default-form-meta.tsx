@@ -22,7 +22,10 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
     'inputsValues.*': ({ value, context, formValues, name }) => {
       const valuePropetyKey = name.replace(/^inputsValues\./, '');
       const required = formValues.inputs?.required || [];
-      if (required.includes(valuePropetyKey) && (value === '' || value === undefined)) {
+      if (
+        required.includes(valuePropetyKey) &&
+        (value === '' || value === undefined || value?.content === '')
+      ) {
         return `${valuePropetyKey} is required`;
       }
       return undefined;
