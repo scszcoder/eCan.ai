@@ -10,6 +10,7 @@ export const AddNode = (props: { disabled: boolean }) => {
       <IconButton
         type="tertiary"
         theme="borderless"
+        data-testid="demo.free-layout.add-node"
         icon={<IconPlusCircle />}
         disabled={props.disabled}
         onClick={(e) => {

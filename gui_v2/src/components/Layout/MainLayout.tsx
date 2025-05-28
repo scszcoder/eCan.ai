@@ -19,6 +19,7 @@ import {
     UserOutlined,
     OrderedListOutlined,
     LogoutOutlined,
+    SafetyCertificateOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
@@ -41,15 +42,54 @@ const StyledHeader = styled(Header)`
 `;
 
 const Logo = styled.div`
-    height: 32px;
-    margin: 16px;
-    background: rgba(255, 255, 255, 0.2);
+    height: 64px;
+    padding: 0 16px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 18px;
-    font-weight: bold;
+    gap: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin: 0;
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.08) 0%,
+        rgba(255, 255, 255, 0.03) 100%
+    );
+
+    &:hover {
+        background: linear-gradient(
+            135deg,
+            rgba(255, 255, 255, 0.12) 0%,
+            rgba(255, 255, 255, 0.05) 100%
+        );
+    }
+
+    .logo-icon {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-hover) 100%);
+        border-radius: 6px;
+        transition: all 0.3s ease;
+
+        .anticon {
+            font-size: 18px;
+            color: #fff;
+        }
+    }
+
+    .logo-text {
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: all 0.3s ease;
+    }
 `;
 
 const StyledContent = styled(Content)`
@@ -84,6 +124,10 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         localStorage.removeItem('userRole');
         
         window.location.replace('/login');
+    };
+
+    const handleLogoClick = () => {
+        navigate('/');
     };
 
     const menuItems = React.useMemo<MenuProps['items']>(() => [
@@ -173,8 +217,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     return (
         <StyledLayout>
-            <Sider trigger={null} collapsible collapsed={collapsed}>
-                <Logo>ECBOT</Logo>
+            <Sider trigger={null} collapsible collapsed={collapsed} theme="dark">
+                <Logo onClick={handleLogoClick}>
+                    <div className="logo-icon">
+                        <SafetyCertificateOutlined />
+                    </div>
+                    <div className="logo-text">ECBot</div>
+                </Logo>
                 <Menu
                     theme="dark"
                     mode="inline"
