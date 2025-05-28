@@ -17,6 +17,7 @@ import {
     SettingOutlined,
     BellOutlined,
     UserOutlined,
+    OrderedListOutlined,
     LogoutOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -130,6 +131,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             key: '/apps',
             icon: <AppstoreOutlined />,
             label: t('menu.apps'),
+        },
+        {
+            key: '/tasks',
+            icon: <OrderedListOutlined />,
+            label: t('menu.tasks'),
         },
         {
             key: '/tools',

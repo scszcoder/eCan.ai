@@ -49,6 +49,7 @@
     "agents": "代理",
     "analytics": "数据分析",
     "apps": "应用",
+    "tasks": "任务",
     "tools": "工具",
     "settings": "设置"
   },
@@ -66,7 +67,7 @@
   },
   "roles": {
     "commander": "指挥官",
-    "platoon": "排长",
+    "platoon": "小分队",
     "staff_office": "参谋部"
   },
   "settings": {
@@ -421,6 +422,17 @@
         "weeksAgo": "{{weeks}} 周前",
         "monthsAgo": "{{months}} 个月前"
       }
+    },
+    "tasks": {
+      "title": "任务",
+      "list": "任务列表",
+      "addTask": "添加任务",
+      "editTask": "编辑任务",
+      "deleteTask": "删除任务",
+      "refreshTasks": "刷新任务",
+      "exportTasks": "导出任务",
+      "importTasks": "导入任务",
+      "taskSettings": "任务设置"
     },
     "tools": {
       "title": "工具",
