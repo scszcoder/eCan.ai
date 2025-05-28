@@ -27,14 +27,29 @@ const { TextArea } = Input;
 
 const ChatItem = styled.div`
     padding: 12px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border-color);
     &:last-child {
         border-bottom: none;
     }
     cursor: pointer;
-    transition: background-color 0.3s;
+    transition: all 0.3s ease;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    margin: 4px 0;
     &:hover {
-        background-color: #f5f5f5;
+        background-color: var(--bg-tertiary);
+        transform: translateX(4px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    .ant-typography {
+        color: var(--text-primary);
+    }
+    .ant-tag {
+        background-color: var(--bg-primary);
+        border-color: var(--border-color);
+    }
+    .ant-progress-text {
+        color: var(--text-primary);
     }
 `;
 
@@ -48,9 +63,10 @@ const MessageItem = styled.div<{ isUser: boolean }>`
 const MessageContent = styled.div<{ isUser: boolean }>`
     max-width: 70%;
     padding: 12px;
-    border-radius: 8px;
-    background-color: ${props => props.isUser ? '#1890ff' : '#f0f0f0'};
-    color: ${props => props.isUser ? '#fff' : 'inherit'};
+    border-radius: 12px;
+    background-color: ${props => props.isUser ? 'var(--primary-color)' : 'var(--bg-tertiary)'};
+    color: ${props => props.isUser ? '#fff' : 'var(--text-primary)'};
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 `;
 
 const MessageToolbar = styled.div`
@@ -58,7 +74,8 @@ const MessageToolbar = styled.div`
     align-items: center;
     gap: 8px;
     padding: 8px;
-    border-top: 1px solid #f0f0f0;
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 8px 8px;
 `;
 
 interface Chat {

@@ -37,6 +37,7 @@ interface NodeProps {
 function Node(props: NodeProps) {
   return (
     <NodeWrap
+      data-testid={`demo-free-node-list-${props.label}`}
       onClick={props.disabled ? undefined : props.onClick}
       style={props.disabled ? { opacity: 0.3 } : {}}
     >

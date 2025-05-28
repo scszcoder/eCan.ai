@@ -1,3 +1,10 @@
+:root {
+    --g-workflow-port-color-primary: #4d53e8;
+    --g-workflow-port-color-secondary: #9197f1;
+    --g-workflow-port-color-error: #ff0000;
+    --g-workflow-port-color-background: #ffffff;
+}
+
 .gedit-selector-bounds-background {
     cursor: move;
     display: none !important;
@@ -16,9 +23,15 @@
 }
 
 @keyframes blink {
-    0% { opacity: 1; }
-    50% { opacity: 0; }
-    100% { opacity: 1; }
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0;
+    }
+    100% {
+        opacity: 1;
+    }
 }
 
 .node-running {
