@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Card, Row, Col, Statistic, Typography } from 'antd';
 import { CarOutlined, TeamOutlined, RobotOutlined, ScheduleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import {ipc_api} from '../services/ipc_api';
 
 const { Title } = Typography;
 
@@ -51,8 +52,12 @@ const Dashboard: React.FC = () => {
 
     return (
         <div>
-            <Title level={2}>{t('pages.dashboard.title')}</Title>
-            <Title level={4}>{t('pages.dashboard.welcome')}</Title>
+            <Title level={2} style={{ color: 'white' }}>
+              {t('pages.dashboard.title')}
+            </Title>
+            <Title level={4} style={{ color: 'white' }}>
+              {t('pages.dashboard.welcome')}
+            </Title>
             
             <Row gutter={[16, 16]}>
                 <Col span={6}>

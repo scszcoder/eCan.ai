@@ -14,6 +14,7 @@ import DetailLayout from '../components/Layout/DetailLayout';
 import { useDetailView } from '../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../components/Common/ActionButtons';
+import {ipc_api} from '../services/ipc_api';
 
 const { Text, Title } = Typography;
 
@@ -164,8 +165,8 @@ const Skills: React.FC = () => {
 
         return (
             <Space direction="vertical" style={{ width: '100%' }}>
-                <Title level={4}>{selectedSkill.name}</Title>
-                <Text>{selectedSkill.description}</Text>
+                <Title level={4}  style={{ color: 'white' }}>{selectedSkill.name}</Title>
+                <Text  style={{ color: 'white' }}>{selectedSkill.description}</Text>
                 <Space>
                     <Tag color={getStatusColor(selectedSkill.status)}>
                         <CheckCircleOutlined /> {t('pages.skills.status')}: {t(`pages.skills.status.${selectedSkill.status}`)}
@@ -175,21 +176,21 @@ const Skills: React.FC = () => {
                     </Tag>
                 </Space>
                 <Space>
-                    <Tag>
+                    <Tag style={{color: 'white'}}>
                         <ClockCircleOutlined /> {t('pages.skills.lastUsed')}: {selectedSkill.lastUsed}
                     </Tag>
-                    <Tag>
+                    <Tag style={{color: 'white'}}>
                         <StarOutlined /> {t('pages.skills.usageCount')}: {selectedSkill.usageCount}
                     </Tag>
                 </Space>
                 <Card>
                     <Space direction="vertical" style={{ width: '100%' }}>
-                        <Text strong>{t('pages.skills.skillLevel')}</Text>
+                        <Text strong style={{ color: 'white' }}>{t('pages.skills.skillLevel')}</Text>
                         <Progress 
                             percent={selectedSkill.level} 
                             status={selectedSkill.status === 'learning' ? 'active' : 'normal'}
                         />
-                        <Text type="secondary">
+                        <Text type="secondary"  style={{ color: 'white' }}>
                             {selectedSkill.level === 100 
                                 ? t('pages.skills.mastered')
                                 : t('pages.skills.complete', { level: selectedSkill.level })}

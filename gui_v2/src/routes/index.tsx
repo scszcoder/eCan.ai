@@ -14,6 +14,7 @@ import Apps from '../pages/Apps';
 import Tasks from '../pages/Tasks';
 import Tools from '../pages/Tools';
 import Settings from '../pages/Settings';
+import Console from '../pages/Console';
 
 // 路由配置类型
 export interface RouteConfig {
@@ -102,6 +103,10 @@ export const protectedRoutes: RouteConfig[] = [
                 path: 'settings',
                 element: <Settings />,
             },
+            {
+                path: 'console',
+                element: <Console />,
+            },
         ],
     },
 ];
@@ -128,7 +133,7 @@ export const menuItems = [
     },
     {
         key: '/vehicles',
-        icon: 'CarOutlined',
+        icon: 'ClusterOutlined',
         label: 'menu.vehicles',
     },
     {
@@ -180,5 +185,10 @@ export const menuItems = [
         key: '/settings',
         icon: 'SettingOutlined',
         label: 'menu.settings',
+    },
+    {
+        key: '/console',
+        icon: 'SettingOutlined',
+        label: 'menu.console',
     },
 ]; 
