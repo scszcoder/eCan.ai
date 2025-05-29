@@ -138,7 +138,24 @@ export const initialData: FlowDocumentJSON = {
           },
           data: {
             title: 'LLM_4',
-            inputsValues: {},
+            inputsValues: {
+              modelType: {
+                type: 'constant',
+                content: 'gpt-3.5-turbo',
+              },
+              temperature: {
+                type: 'constant',
+                content: 0.5,
+              },
+              systemPrompt: {
+                type: 'constant',
+                content: 'You are an AI assistant.',
+              },
+              prompt: {
+                type: 'constant',
+                content: '',
+              },
+            },
             inputs: {
               type: 'object',
               required: ['modelType', 'temperature', 'prompt'],
@@ -178,7 +195,24 @@ export const initialData: FlowDocumentJSON = {
           },
           data: {
             title: 'LLM_5',
-            inputsValues: {},
+            inputsValues: {
+              modelType: {
+                type: 'constant',
+                content: 'gpt-3.5-turbo',
+              },
+              temperature: {
+                type: 'constant',
+                content: 0.5,
+              },
+              systemPrompt: {
+                type: 'constant',
+                content: 'You are an AI assistant.',
+              },
+              prompt: {
+                type: 'constant',
+                content: '',
+              },
+            },
             inputs: {
               type: 'object',
               required: ['modelType', 'temperature', 'prompt'],
@@ -314,7 +348,24 @@ export const initialData: FlowDocumentJSON = {
           },
           data: {
             title: 'LLM_1',
-            inputsValues: {},
+            inputsValues: {
+              modelType: {
+                type: 'constant',
+                content: 'gpt-3.5-turbo',
+              },
+              temperature: {
+                type: 'constant',
+                content: 0.5,
+              },
+              systemPrompt: {
+                type: 'constant',
+                content: 'You are an AI assistant.',
+              },
+              prompt: {
+                type: 'constant',
+                content: '',
+              },
+            },
             inputs: {
               type: 'object',
               required: ['modelType', 'temperature', 'prompt'],
