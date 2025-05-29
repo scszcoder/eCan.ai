@@ -2,11 +2,11 @@
 from agent.ec_skill import *
 
 def check_browser_and_drivers(state: NodeState) -> NodeState:
-    agent = state["messages"][-1]
+    agent = state["messages"][0]
     mainwin = agent.mainwin
     webdriver = mainwin.default_webdriver
     try:
-        url = state["messages"][0]
+        url = state["input"]["url"]
         webdriver.switch_to.window(webdriver.window_handles[0])
         time.sleep(3)
         webdriver.execute_script(f"window.open('{url}', '_blank');")
@@ -18,6 +18,10 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
         if url:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
+
+        result_state =  NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[], resolved=False)
+
+        return result_state
 
 
     except Exception as e:
@@ -49,6 +53,9 @@ def goto_site(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
+        result_state = NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[],
+                             resolved=False)
+        return result_state
 
     except Exception as e:
         # Get the traceback information
@@ -82,6 +89,9 @@ async def extract_web_page(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
+        result_state = NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[],
+                             resolved=False)
+        return result_state
 
     except Exception as e:
         # Get the traceback information
@@ -112,6 +122,10 @@ def get_next_action(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
+        result_state = NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[],
+                             resolved=False)
+
+        return result_state
 
     except Exception as e:
         # Get the traceback information
@@ -185,8 +199,7 @@ async def create_search_1688_skill(mainwin):
 
 
         def initial_state(input_text: str) -> NodeState:
-            return {"input": input_text, "messages": [HumanMessage(content=input_text)], "retries": 0,
-                    "resolved": False}
+            return {"input": input_text, "messages": [HumanMessage(content=input_text)], "retries": 0, "resolved": False}
 
         def make_llm_tool_node(session: ClientSession):
             async def node(state: NodeState) -> NodeState:

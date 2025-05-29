@@ -3,6 +3,7 @@ import { Layout, Typography, Card } from 'antd';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../components/Common/ActionButtons';
+import {ipc_api} from '../services/ipc_api';
 
 const { Content } = Layout;
 const { Title } = Typography;

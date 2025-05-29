@@ -41,7 +41,7 @@
   },
   "menu": {
     "dashboard": "仪表盘",
-    "vehicles": "车辆管理",
+    "vehicles": "电脑管理",
     "schedule": "日程安排",
     "chat": "聊天",
     "skills": "技能",
@@ -51,7 +51,8 @@
     "apps": "应用",
     "tasks": "任务",
     "tools": "工具",
-    "settings": "设置"
+    "settings": "设置",
+    "console": "日志台"
   },
   "login": {
     "title": "欢迎回来",
@@ -447,6 +448,19 @@
     },
     "skill_editor": {
       "title": "技能编辑器",
+      "save": "保存技能",
+      "cancel": "取消",
+      "name": "技能名称",
+      "description": "描述",
+      "type": "类型",
+      "status": "状态",
+      "content": "内容",
+      "preview": "预览",
+      "test": "测试",
+      "deploy": "部署"
+    },
+    "console": {
+      "title": "日志记录",
       "save": "保存技能",
       "cancel": "取消",
       "name": "技能名称",
