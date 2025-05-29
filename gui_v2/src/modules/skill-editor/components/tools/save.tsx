@@ -52,6 +52,7 @@ export const Save = ({ disabled }: SaveProps) => {
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
+
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         console.log('Save operation was cancelled by user');

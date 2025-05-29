@@ -5,6 +5,25 @@ from agent.ec_skill import *
 class IPCBridge(QObject):
     sendToJS = Signal(str)
 
+    def route_logic(self):
+        if True:
+            result = "a"
+        else:
+            result = "b"
+
+        return result
+
+
+    def switch_case_logic(self):
+        if True:
+            result = "a"
+        else:
+            result = "b"
+
+        return result
+
+
+
     @Slot(str)
     def receiveFromJS(self, message: str):
         print(f"[JS → Python] {message}")

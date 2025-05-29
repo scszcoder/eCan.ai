@@ -12,12 +12,18 @@ const ListCard = styled(Card)`
     width: 300px;
     height: 100%;
     overflow: auto;
+    .ant-card-head-title {
+        color: white;
+    }
 `;
 
 const DetailsCard = styled(Card)`
     flex: 1;
     height: 100%;
     overflow: auto;
+    .ant-card-head-title {
+        color: white;
+    }
 `;
 
 interface DetailLayoutProps {
