@@ -17,6 +17,7 @@ import {
     SettingOutlined,
     BellOutlined,
     UserOutlined,
+    OrderedListOutlined,
     LogoutOutlined,
     SafetyCertificateOutlined
 } from '@ant-design/icons';
@@ -174,6 +175,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             key: '/apps',
             icon: <AppstoreOutlined />,
             label: t('menu.apps'),
+        },
+        {
+            key: '/tasks',
+            icon: <OrderedListOutlined />,
+            label: t('menu.tasks'),
         },
         {
             key: '/tools',

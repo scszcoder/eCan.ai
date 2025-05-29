@@ -50,6 +50,7 @@
     "analytics": "Analytics",
     "apps": "Apps",
     "tools": "Tools",
+    "tasks": "Tasks",
     "settings": "Settings"
   },
   "login": {
@@ -420,6 +421,17 @@
       "exportTools": "Export Tools",
       "importTools": "Import Tools",
       "toolSettings": "Tool Settings"
+    },
+    "tasks": {
+      "title": "Tasks",
+      "list": "Tasks List",
+      "addTask": "Add Task",
+      "editTask": "Edit Task",
+      "deleteTask": "Delete Task",
+      "refreshTasks": "Refresh Tasks",
+      "exportTasks": "Export Tasks",
+      "importTasks": "Import Tasks",
+      "taskSettings": "Task Settings"
     },
     "skill_editor": {
       "title": "Skill Editor",
