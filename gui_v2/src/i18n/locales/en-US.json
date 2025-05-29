@@ -51,7 +51,8 @@
     "apps": "Apps",
     "tools": "Tools",
     "tasks": "Tasks",
-    "settings": "Settings"
+    "settings": "Settings",
+    "console": "Console"
   },
   "login": {
     "title": "Welcome Back",
@@ -445,6 +446,17 @@
       "preview": "Preview",
       "test": "Test",
       "deploy": "Deploy"
+    },
+    "console": {
+      "title": "Log Console",
+      "list": "Tasks List",
+      "addTask": "Add Task",
+      "editTask": "Edit Task",
+      "deleteTask": "Delete Task",
+      "refreshTasks": "Refresh Tasks",
+      "exportTasks": "Export Tasks",
+      "importTasks": "Import Tasks",
+      "taskSettings": "Task Settings"
     }
   }
 } 

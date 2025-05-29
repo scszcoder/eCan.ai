@@ -4,6 +4,7 @@ import { Card, Form, Select, Switch, Button, App } from 'antd';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { logger } from '../utils/logger';
+import {ipc_api} from '../services/ipc_api';
 
 type Theme = 'light' | 'dark' | 'system';
 

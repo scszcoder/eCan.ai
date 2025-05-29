@@ -4,8 +4,11 @@ import type { MenuProps } from 'antd';
 import {
     MenuFoldOutlined,
     MenuUnfoldOutlined,
+    LeftSquareFilled,
+    RightSquareFilled,
     DashboardOutlined,
     CarOutlined,
+    ClusterOutlined,
     CalendarOutlined,
     MessageOutlined,
     RobotOutlined,
@@ -19,6 +22,7 @@ import {
     UserOutlined,
     OrderedListOutlined,
     LogoutOutlined,
+    AlignLeftOutlined,
     SafetyCertificateOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -191,6 +195,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             icon: <SettingOutlined />,
             label: t('menu.settings'),
         },
+        {
+            key: '/console',
+            icon: <AlignLeftOutlined />,
+            label: t('menu.console'),
+        },
     ], [t]);
 
     const userMenuItems = React.useMemo<MenuProps['items']>(() => [
@@ -236,12 +245,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <StyledHeader>
                     <Button
                         type="text"
-                        icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                        icon={collapsed ? <RightSquareFilled /> : <LeftSquareFilled />}
                         onClick={() => setCollapsed(!collapsed)}
                         style={{
-                            fontSize: '16px',
-                            width: 64,
-                            height: 64,
+                            fontSize: '32px',
+                            color: 'white',
+                            width: 32,
+                            height: 32,
                         }}
                     />
                     <HeaderRight>
@@ -249,7 +259,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                             <Button
                                 type="text"
                                 icon={<BellOutlined />}
-                                style={{ fontSize: '16px' }}
+                                style={{ fontSize: '16px', color: 'white' }}
                             />
                         </Badge>
                         <Dropdown

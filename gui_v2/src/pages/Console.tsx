@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { List, Tag, Typography, Space, Button, Progress, Row, Col, Statistic, Card, Badge } from 'antd';
 import { 
     CarOutlined,
-    ClusterOutlined,
+    ClusterOutlined, 
     CheckCircleOutlined,
     ClockCircleOutlined,
     ThunderboltOutlined,
@@ -20,7 +20,6 @@ import ActionButtons from '../components/Common/ActionButtons';
 import StatusTag from '../components/Common/StatusTag';
 import DetailCard from '../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
-import {ipc_api} from '../services/ipc_api';
 
 const { Text, Title } = Typography;
 
@@ -52,7 +51,7 @@ const VehicleItem = styled.div`
     }
 `;
 
-interface Vehicle {
+interface LogMessage {
     id: number;
     name: string;
     type: string;
@@ -65,10 +64,10 @@ interface Vehicle {
     nextMaintenance?: string;
 }
 
-const Vehicles: React.FC = () => {
+const Console: React.FC = () => {
     const { t } = useTranslation();
     
-    const initialVehicles: Vehicle[] = [
+    const initialLogs: LogMessage[] = [
         {
             id: 1,
             name: 'Vehicle Alpha',
@@ -105,12 +104,7 @@ const Vehicles: React.FC = () => {
         },
     ];
 
-    const {
-        selectedItem: selectedVehicle,
-        items: vehicles,
-        selectItem,
-        updateItem,
-    } = useDetailView<Vehicle>(initialVehicles);
+
 
     const [filters, setFilters] = useState<Record<string, any>>({});
 
@@ -234,110 +228,11 @@ const Vehicles: React.FC = () => {
         </>
     );
 
-    const renderDetailsContent = () => {
-        if (!selectedVehicle) {
-            return <Text type="secondary">{t('pages.vehicles.selectVehicle')}</Text>;
-        }
-
-        return (
-            <Space direction="vertical" style={{ width: '100%' }}>
-                <DetailCard
-                    title={t('pages.vehicles.vehicleInformation')}
-                    items={[
-                        {
-                            label: t('pages.vehicles.name'),
-                            value: selectedVehicle.name,
-                            icon: <ClusterOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.type'),
-                            value: selectedVehicle.type,
-                            icon: <ClusterOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.status'),
-                            value: <StatusTag status={selectedVehicle.status} />,
-                            icon: <CheckCircleOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.location'),
-                            value: selectedVehicle.location,
-                            icon: <EnvironmentOutlined />,
-                        },
-                    ]}
-                />
-                <DetailCard
-                    title={t('pages.vehicles.performanceMetrics')}
-                    items={[
-                        {
-                            label: t('pages.vehicles.batteryLevel'),
-                            value: (
-                                <Statistic
-                                    value={selectedVehicle.battery}
-                                    suffix="%"
-                                    prefix={<ThunderboltOutlined />}
-                                />
-                            ),
-                            icon: <ThunderboltOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.totalDistance'),
-                            value: (
-                                <Statistic
-                                    value={selectedVehicle.totalDistance}
-                                    suffix="km"
-                                />
-                            ),
-                            icon: <ClusterOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.lastMaintenance'),
-                            value: selectedVehicle.lastMaintenance,
-                            icon: <ToolOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.nextMaintenance'),
-                            value: selectedVehicle.nextMaintenance,
-                            icon: <ClockCircleOutlined />,
-                        },
-                    ]}
-                />
-                <Space>
-                    <Button 
-                        type="primary" 
-                        icon={<PlusOutlined />}
-                        onClick={() => handleStatusChange(selectedVehicle.id, 'active')}
-                        disabled={selectedVehicle.status === 'active'}
-                    >
-                        {t('pages.vehicles.activate')}
-                    </Button>
-                    <Button 
-                        icon={<ToolOutlined />}
-                        onClick={() => handleMaintenance(selectedVehicle.id)}
-                        disabled={selectedVehicle.status === 'maintenance'}
-                    >
-                        {t('pages.vehicles.scheduleMaintenance')}
-                    </Button>
-                    <Button 
-                        icon={<HistoryOutlined />}
-                        onClick={() => handleStatusChange(selectedVehicle.id, 'offline')}
-                        disabled={selectedVehicle.status === 'offline'}
-                    >
-                        {t('pages.vehicles.setOffline')}
-                    </Button>
-                </Space>
-            </Space>
-        );
-    };
-
     return (
         <DetailLayout
-            listTitle={t('pages.vehicles.title')}
-            detailsTitle={t('pages.vehicles.vehicleInformation')}
             listContent={renderListContent()}
-            detailsContent={renderDetailsContent()}
         />
     );
 };
 
-export default Vehicles; 
+export default Console;

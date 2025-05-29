@@ -4,6 +4,7 @@ import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { createIPCAPI } from '../services/ipc';
+import {ipc_api} from '../services/ipc_api';
 import { logger } from '../utils/logger';
 import logo from '../assets/logo.png';
 
@@ -26,7 +27,7 @@ const Login: React.FC = () => {
     const [form] = Form.useForm<LoginFormValues>();
     const { message: messageApi } = App.useApp();
     const [loading, setLoading] = useState(false);
-    const api = createIPCAPI();
+    const ipc_api = createIPCAPI();
     const [selectedRole, setSelectedRole] = useState('commander');
 
     // 设置默认语言
@@ -46,7 +47,7 @@ const Login: React.FC = () => {
     const handleSubmit = async (values: LoginFormValues) => {
         setLoading(true);
         try {
-            const response = await api.login<LoginResponse>(values.username, values.password);
+            const response = await ipc_api.login<LoginResponse>(values.username, values.password);
             if (response.success && response.data) {
                 logger.info('Login successful', response.data);
                 const { token, message: successMessage } = response.data;
