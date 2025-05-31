@@ -95,6 +95,34 @@ export class IPCAPI {
         return this.executeRequest<T>('login', { username, password });
     }
 
+    public async getAll<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_all', { username });
+    }
+
+    public async getAgents<T>(agent_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_agents', { agent_ids });
+    }
+
+    public async getSkills<T>(skill_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_skills', { skill_ids });
+    }
+
+    public async getTasks<T>(task_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_tasks', { task_ids });
+    }
+
+    public async getVehicles<T>(v_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_vehicles', { v_ids });
+    }
+
+    public async getTools<T>(tool_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_tools', { tool_ids });
+    }
+
+    public async getChats<T>(agent_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_chats', { agent_ids });
+    }
+
     /**
      * 获取配置
      * @param key - 配置键名
@@ -113,7 +141,30 @@ export class IPCAPI {
     public async setConfig<T>(key: string, value: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('set_config', { key, value });
     }
- 
+
+    public async saveAgents<T>(values: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_agents', values);
+    }
+
+    public async saveTools<T>(values: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_tools', values);
+    }
+
+    public async saveTasks<T>(values: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_tasks', values);
+    }
+
+    public async saveSkills<T>(values: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_skills', values);
+    }
+
+    public async saveSkill<T>(values: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_skill', values);
+    }
+
+    public async selfTest() {
+       console.log(">>>>>>>>>>>>>>>>IPC_API instance is live!!!");
+    }
 }
 
 /**

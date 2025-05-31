@@ -2,7 +2,7 @@
 IPC API 管理模块
 提供统一的 Python 到 Web 的调用接口
 """
-from typing import Optional, Dict, Any, Callable, TypeVar, Generic, Union
+from typing import Optional, Dict, Any, Callable, TypeVar, Generic, Union, List
 from dataclasses import dataclass
 from .types import IPCRequest, IPCResponse, create_request, create_error_response
 from .service import IPCService
@@ -89,6 +89,7 @@ class IPCAPI:
         self,
         method: str,
         params: Optional[Dict[str, Any]] = None,
+        data:  Optional[list[Any]] = None,
         meta: Optional[Dict[str, Any]] = None,
         callback: Optional[Callable[[APIResponse[T]], None]] = None
     ) -> None:
@@ -153,6 +154,80 @@ class IPCAPI:
             callback: 回调函数，接收 APIResponse[Dict[str, Any]]
         """
         self._send_request('refresh_dashboard', data, callback=callback)
+
+    def update_agents(
+            self,
+            agents: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            agents: agents
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_agents', data=agents, callback=callback)
+
+
+    def update_skills(
+            self,
+            skills: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            skills: skill sets
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_skills', data=skills, callback=callback)
+
+    def update_tasks(
+            self,
+            tasks: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            tasks: work to be done
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_tasks', data=tasks, callback=callback)
+
+
+    def update_settings(
+            self,
+            settings: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            settings: 配置值
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_settings', data=settings, callback=callback)
+
+
+    def update_knowledges(
+            self,
+            knowledges: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            knowledges: list of knowledge points (RAG vector DB table?)
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_knowledges', data=knowledges, callback=callback)
+
 
 # 使用示例
 """
