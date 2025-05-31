@@ -10,6 +10,7 @@ import {
     ToolOutlined,
     PlusOutlined,
     HistoryOutlined,
+    ReadOutlined,
     EditOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
@@ -23,7 +24,7 @@ import { useTranslation } from 'react-i18next';
 
 const { Text, Title } = Typography;
 
-const ConsoleLogItem = styled.div`
+const KnowledgeItem = styled.div`
     padding: 12px;
     border-bottom: 1px solid var(--border-color);
     &:last-child {
@@ -51,7 +52,7 @@ const ConsoleLogItem = styled.div`
     }
 `;
 
-interface LogMessage {
+interface KnowledgePoint {
     id: number;
     name: string;
     type: string;
@@ -64,83 +65,84 @@ interface LogMessage {
     nextMaintenance?: string;
 }
 
-const Console: React.FC = () => {
+const Knowledge: React.FC = () => {
     const { t } = useTranslation();
     
-    const initialLogs: LogMessage[] = [
+    const initialKnowledge: KnowledgePoint[] = [
         {
             id: 1,
-            name: 'Agent Alpha',
-            type: t('pages.console.groundVehicle'),
+            name: 'Product A',
+            type: t('pages.knowledge.groundVehicle'),
             status: 'active',
             battery: 85,
-            location: t('pages.console.zoneA'),
-            lastMaintenance: t('pages.console.lastMaintenance', { time: '2 weeks ago' }),
+            location: t('pages.knowledge.zoneA'),
+            lastMaintenance: t('pages.knowledge.lastMaintenance', { time: '2 weeks ago' }),
             totalDistance: 1560,
-            currentTask: t('pages.console.currentTask', { task: 'Delivery Task #123' }),
-            nextMaintenance: t('pages.console.nextMaintenance', { time: '2 weeks from now' }),
+            currentTask: t('pages.knowledge.currentTask', { task: 'Delivery Task #123' }),
+            nextMaintenance: t('pages.knowledge.nextMaintenance', { time: '2 weeks from now' }),
         },
         {
             id: 2,
-            name: 'Agent Beta',
-            type: t('pages.console.aerialVehicle'),
+            name: 'Service Beta',
+            type: t('pages.knowledge.aerialVehicle'),
             status: 'maintenance',
             battery: 45,
-            location: t('pages.console.maintenanceBay'),
-            lastMaintenance: t('pages.console.lastMaintenance', { time: '1 day ago' }),
+            location: t('pages.knowledge.maintenanceBay'),
+            lastMaintenance: t('pages.knowledge.lastMaintenance', { time: '1 day ago' }),
             totalDistance: 2340,
-            nextMaintenance: t('pages.console.nextMaintenance', { time: '1 week from now' }),
+            nextMaintenance: t('pages.knowledge.nextMaintenance', { time: '1 week from now' }),
         },
         {
             id: 3,
-            name: 'Agent Gamma',
-            type: t('pages.console.groundVehicle'),
+            name: 'Product Gamma',
+            type: t('pages.knowledge.groundVehicle'),
             status: 'offline',
             battery: 100,
-            location: t('pages.console.chargingStation'),
-            lastMaintenance: t('pages.console.lastMaintenance', { time: '1 month ago' }),
+            location: t('pages.knowledge.chargingStation'),
+            lastMaintenance: t('pages.knowledge.lastMaintenance', { time: '1 month ago' }),
             totalDistance: 890,
-            nextMaintenance: t('pages.console.nextMaintenance', { time: '3 weeks from now' }),
+            nextMaintenance: t('pages.knowledge.nextMaintenance', { time: '3 weeks from now' }),
         },
     ];
 
+
     const {
-        selectedItem: selectedAgentLogs,
-        items: agentLogs,
+        selectedItem: selectedKnowledge,
+        items: knowledges,
         selectItem,
         updateItem,
-    } = useDetailView<LogMessage>(initialLogs);
+    } = useDetailView<KnowledgePoint>(initialKnowledge);
 
     const [filters, setFilters] = useState<Record<string, any>>({});
 
     const handleStatusChange = (id: number, newStatus: Vehicle['status']) => {
         updateItem(id, {
             status: newStatus,
-            location: newStatus === 'maintenance' ? t('pages.console.maintenanceBay') : 
-                     newStatus === 'offline' ? t('pages.console.chargingStation') : t('pages.console.zoneA'),
+            location: newStatus === 'maintenance' ? t('pages.knowledge.maintenanceBay') :
+                     newStatus === 'offline' ? t('pages.knowledge.chargingStation') : t('pages.knowledge.zoneA'),
         });
     };
 
     const handleTaskComplete = (id: number) => {
-        const agentLog = agentLogs.find(v => v.id === id);
-        if (agentLog) {
+        const knowledgePoint = knowledges.find(k => k.id === id);
+        if (knowledgePoint) {
             updateItem(id, {
                 status: 'active',
                 currentTask: undefined,
-                totalDistance: agentLog.totalDistance + 10,
-                battery: Math.max(agentLog.battery - 5, 0),
+                totalDistance: knowledgePoint.totalDistance + 10,
+                battery: Math.max(knowledgePoint.battery - 5, 0),
             });
         }
     };
 
     const handleMaintenance = (id: number) => {
-        const agentLog = agentLogs.find(v => v.id === id);
-        if (agentLog) {
+        const knowledgePoint = knowledges.find(k => k.id === id);
+        if (knowledgePoint) {
             updateItem(id, {
                 status: 'maintenance',
-                location: t('pages.console.maintenanceBay'),
-                lastMaintenance: t('pages.console.lastMaintenance', { time: t('pages.schedule.justNow') }),
-                nextMaintenance: t('pages.console.nextMaintenance', { time: t('pages.schedule.twoWeeksFromNow') }),
+                location: t('pages.knowledge.maintenanceBay'),
+                lastMaintenance: t('pages.knowledge.lastMaintenance', { time: t('pages.schedule.justNow') }),
+                nextMaintenance: t('pages.knowledge.nextMaintenance', { time: t('pages.schedule.twoWeeksFromNow') }),
             });
         }
     };
@@ -159,7 +161,7 @@ const Console: React.FC = () => {
 
     const renderListContent = () => (
         <>
-            <Title level={2}>{t('pages.console.title')}</Title>
+            <Title level={2}>{t('pages.knowledge.title')}</Title>
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}
@@ -167,23 +169,23 @@ const Console: React.FC = () => {
                 filterOptions={[
                     {
                         key: 'status',
-                        label: t('pages.console.status'),
+                        label: t('pages.knowledge.status'),
                         options: [
-                            { label: t('pages.console.status.active'), value: 'active' },
-                            { label: t('pages.console.status.maintenance'), value: 'maintenance' },
-                            { label: t('pages.console.status.offline'), value: 'offline' },
+                            { label: t('pages.knowledge.status.active'), value: 'active' },
+                            { label: t('pages.knowledge.status.maintenance'), value: 'maintenance' },
+                            { label: t('pages.knowledge.status.offline'), value: 'offline' },
                         ],
                     },
                     {
                         key: 'type',
-                        label: t('pages.console.type'),
+                        label: t('pages.knowledge.type'),
                         options: [
-                            { label: t('pages.console.groundVehicle'), value: t('pages.console.groundVehicle') },
-                            { label: t('pages.console.aerialVehicle'), value: t('pages.console.aerialVehicle') },
+                            { label: t('pages.knowledge.groundVehicle'), value: t('pages.knowledge.groundVehicle') },
+                            { label: t('pages.knowledge.aerialVehicle'), value: t('pages.knowledge.aerialVehicle') },
                         ],
                     },
                 ]}
-                placeholder={t('pages.console.searchPlaceholder')}
+                placeholder={t('pages.knowledge.searchPlaceholder')}
             />
             <ActionButtons
                 onAdd={() => {}}
@@ -193,86 +195,86 @@ const Console: React.FC = () => {
                 onExport={() => {}}
                 onImport={() => {}}
                 onSettings={() => {}}
-                addText={t('pages.console.addVehicle')}
-                editText={t('pages.console.editVehicle')}
-                deleteText={t('pages.console.deleteVehicle')}
-                refreshText={t('pages.console.refreshVehicles')}
-                exportText={t('pages.console.exportVehicles')}
-                importText={t('pages.console.importVehicles')}
-                settingsText={t('pages.console.vehicleSettings')}
+                addText={t('pages.knowledge.addVehicle')}
+                editText={t('pages.knowledge.editVehicle')}
+                deleteText={t('pages.knowledge.deleteVehicle')}
+                refreshText={t('pages.knowledge.refreshVehicles')}
+                exportText={t('pages.knowledge.exportVehicles')}
+                importText={t('pages.knowledge.importVehicles')}
+                settingsText={t('pages.knowledge.vehicleSettings')}
             />
             <List
-                dataSource={agentLogs}
-                renderItem={agentLog => (
-                    <ConsoleLogItem onClick={() => selectItem(agentLog)}>
+                dataSource={knowledges}
+                renderItem={knowledgePoint => (
+                    <KnowledgeItem onClick={() => selectItem(knowledgePoint)}>
                         <Space direction="vertical" style={{ width: '100%' }}>
                             <Space>
-                                <StatusTag status={agentLog.status} />
+                                <StatusTag status={knowledgePoint.status} />
                                 <ClusterOutlined />
-                                <Text strong>{agentLog.name}</Text>
+                                <Text strong>{knowledgePoint.name}</Text>
                             </Space>
                             <Space>
-                                <Tag color="blue">{agentLog.type}</Tag>
-                                {agentLog.currentTask && (
-                                    <Tag color="processing">{t('pages.console.currentTask')}: {agentLog.currentTask}</Tag>
+                                <Tag color="blue">{knowledgePoint.type}</Tag>
+                                {knowledgePoint.currentTask && (
+                                    <Tag color="processing">{t('pages.knowledge.currentTask')}: {knowledgePoint.currentTask}</Tag>
                                 )}
                             </Space>
                             <Space>
                                 <EnvironmentOutlined />
-                                <Text type="secondary">{agentLog.location}</Text>
+                                <Text type="secondary">{knowledgePoint.location}</Text>
                             </Space>
                             <Progress 
-                                percent={agentLog.battery}
+                                percent={knowledgePoint.battery}
                                 size="small"
-                                status={agentLog.battery < 20 ? 'exception' : 'normal'}
+                                status={knowledgePoint.battery < 20 ? 'exception' : 'normal'}
                             />
                         </Space>
-                    </ConsoleLogItem>
+                    </KnowledgeItem>
                 )}
             />
         </>
     );
 
     const renderDetailsContent = () => {
-        if (!selectedAgentLogs) {
-            return <Text type="secondary">{t('pages.console.selectVehicle')}</Text>;
+        if (!selectedKnowledge) {
+            return <Text type="secondary">{t('pages.knowledge.selectVehicle')}</Text>;
         }
 
         return (
             <Space direction="vertical" style={{ width: '100%' }}>
                 <DetailCard
-                    title={t('pages.console.vehicleInformation')}
+                    title={t('pages.knowledge.vehicleInformation')}
                     items={[
                         {
-                            label: t('pages.console.name'),
-                            value: selectedAgentLogs.name,
+                            label: t('pages.knowledge.name'),
+                            value: selectedKnowledge.name,
                             icon: <ClusterOutlined />,
                         },
                         {
-                            label: t('pages.console.type'),
-                            value: selectedAgentLogs.type,
+                            label: t('pages.knowledge.type'),
+                            value: selectedKnowledge.type,
                             icon: <ClusterOutlined />,
                         },
                         {
-                            label: t('pages.console.status'),
-                            value: <StatusTag status={selectedAgentLogs.status} />,
+                            label: t('pages.knowledge.status'),
+                            value: <StatusTag status={selectedKnowledge.status} />,
                             icon: <CheckCircleOutlined />,
                         },
                         {
-                            label: t('pages.console.location'),
-                            value: selectedAgentLogs.location,
+                            label: t('pages.knowledge.location'),
+                            value: selectedKnowledge.location,
                             icon: <EnvironmentOutlined />,
                         },
                     ]}
                 />
                 <DetailCard
-                    title={t('pages.console.performanceMetrics')}
+                    title={t('pages.knowledge.performanceMetrics')}
                     items={[
                         {
-                            label: t('pages.console.batteryLevel'),
+                            label: t('pages.knowledge.batteryLevel'),
                             value: (
                                 <Statistic
-                                    value={selectedAgentLogs.battery}
+                                    value={selectedKnowledge.battery}
                                     suffix="%"
                                     prefix={<ThunderboltOutlined />}
                                 />
@@ -280,49 +282,49 @@ const Console: React.FC = () => {
                             icon: <ThunderboltOutlined />,
                         },
                         {
-                            label: t('pages.console.totalDistance'),
+                            label: t('pages.knowledge.totalDistance'),
                             value: (
                                 <Statistic
-                                    value={selectedAgentLogs.totalDistance}
+                                    value={selectedKnowledge.totalDistance}
                                     suffix="km"
                                 />
                             ),
                             icon: <ClusterOutlined />,
                         },
                         {
-                            label: t('pages.console.lastMaintenance'),
-                            value: selectedAgentLogs.lastMaintenance,
+                            label: t('pages.knowledge.lastMaintenance'),
+                            value: selectedKnowledge.lastMaintenance,
                             icon: <ToolOutlined />,
                         },
                         {
-                            label: t('pages.console.nextMaintenance'),
-                            value: selectedAgentLogs.nextMaintenance,
+                            label: t('pages.knowledge.nextMaintenance'),
+                            value: selectedKnowledge.nextMaintenance,
                             icon: <ClockCircleOutlined />,
                         },
                     ]}
                 />
                 <Space>
-                    <Button
-                        type="primary"
+                    <Button 
+                        type="primary" 
                         icon={<PlusOutlined />}
-                        onClick={() => handleStatusChange(selectedAgentLogs.id, 'active')}
-                        disabled={selectedAgentLogs.status === 'active'}
+                        onClick={() => handleStatusChange(selectedKnowledge.id, 'active')}
+                        disabled={selectedKnowledge.status === 'active'}
                     >
-                        {t('pages.console.activate')}
+                        {t('pages.knowledge.activate')}
                     </Button>
-                    <Button
+                    <Button 
                         icon={<ToolOutlined />}
-                        onClick={() => handleMaintenance(selectedAgentLogs.id)}
-                        disabled={selectedAgentLogs.status === 'maintenance'}
+                        onClick={() => handleMaintenance(selectedKnowledge.id)}
+                        disabled={selectedKnowledge.status === 'maintenance'}
                     >
-                        {t('pages.console.scheduleMaintenance')}
+                        {t('pages.knowledge.scheduleMaintenance')}
                     </Button>
-                    <Button
+                    <Button 
                         icon={<HistoryOutlined />}
-                        onClick={() => handleStatusChange(selectedAgentLogs.id, 'offline')}
-                        disabled={selectedAgentLogs.status === 'offline'}
+                        onClick={() => handleStatusChange(selectedKnowledge.id, 'offline')}
+                        disabled={selectedKnowledge.status === 'offline'}
                     >
-                        {t('pages.console.setOffline')}
+                        {t('pages.knowledge.setOffline')}
                     </Button>
                 </Space>
             </Space>
@@ -336,4 +338,4 @@ const Console: React.FC = () => {
     );
 };
 
-export default Console;
+export default Knowledge;

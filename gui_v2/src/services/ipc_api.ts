@@ -4,4 +4,15 @@
  */
 
 
-export const ipc_api = null;
+let ipc_api: any = null;
+
+export function set_ipc_api(ii: any): void {
+    ipc_api = ii;
+}
+
+export function get_ipc_api(): any {
+    return ipc_api;
+}
+
+export { ipc_api };
+

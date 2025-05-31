@@ -36,6 +36,11 @@ export class IPCHandlers {
         this.registerHandler('set_config', this.setConfig);
         this.registerHandler('notify_event', this.notifyEvent);
         this.registerHandler('refresh_dashboard', this.refreshDashboard);
+        this.registerHandler('update_agents', this.updateAgents);
+        this.registerHandler('update_skills', this.updateSkills);
+        this.registerHandler('update_tasks', this.updateTasks);
+        this.registerHandler('update_knowledges', this.updateKnowledges);
+        this.registerHandler('update_settings', this.updateSettings);
     }
 
     private registerHandler(method: string, handler: Handler): void {
@@ -93,6 +98,139 @@ export class IPCHandlers {
             throw error;
         }
     }
+
+
+    async updateAgents(request: IPCRequest): Promise<unknown> {
+        try {
+            const { params } = request;
+            if (!params || typeof params !== 'object') {
+                throw new Error('Invalid parameters');
+            }
+
+            // 验证参数
+            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
+            const updatedAgents = params as { [K in typeof requiredFields[number]]: number };
+            for (const field of requiredFields) {
+                if (typeof stats[field] !== 'number') {
+                    throw new Error(`Invalid field type: ${field} must be a number`);
+                }
+            }
+
+            // 更新仪表盘数据
+            updateAgentsGUI(updatedAgents);
+            return { refreshed: true };
+        } catch (error) {
+            logger.error('Error in refresh_dashboard handler:', error);
+            throw error;
+        }
+    }
+
+
+    async updateSkills(request: IPCRequest): Promise<unknown> {
+        try {
+            const { params } = request;
+            if (!params || typeof params !== 'object') {
+                throw new Error('Invalid parameters');
+            }
+
+            // 验证参数
+            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
+            const stats = params as { [K in typeof requiredFields[number]]: number };
+            for (const field of requiredFields) {
+                if (typeof stats[field] !== 'number') {
+                    throw new Error(`Invalid field type: ${field} must be a number`);
+                }
+            }
+
+            // 更新仪表盘数据
+            updateDashboard(stats);
+            return { refreshed: true };
+        } catch (error) {
+            logger.error('Error in refresh_dashboard handler:', error);
+            throw error;
+        }
+    }
+
+
+    async updateTasks(request: IPCRequest): Promise<unknown> {
+        try {
+            const { params } = request;
+            if (!params || typeof params !== 'object') {
+                throw new Error('Invalid parameters');
+            }
+
+            // 验证参数
+            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
+            const stats = params as { [K in typeof requiredFields[number]]: number };
+            for (const field of requiredFields) {
+                if (typeof stats[field] !== 'number') {
+                    throw new Error(`Invalid field type: ${field} must be a number`);
+                }
+            }
+
+            // 更新仪表盘数据
+            updateDashboard(stats);
+            return { refreshed: true };
+        } catch (error) {
+            logger.error('Error in refresh_dashboard handler:', error);
+            throw error;
+        }
+    }
+
+
+    async updateSettings(request: IPCRequest): Promise<unknown> {
+        try {
+            const { params } = request;
+            if (!params || typeof params !== 'object') {
+                throw new Error('Invalid parameters');
+            }
+
+            // 验证参数
+            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
+            const stats = params as { [K in typeof requiredFields[number]]: number };
+            for (const field of requiredFields) {
+                if (typeof stats[field] !== 'number') {
+                    throw new Error(`Invalid field type: ${field} must be a number`);
+                }
+            }
+
+            // 更新仪表盘数据
+            updateDashboard(stats);
+            return { refreshed: true };
+        } catch (error) {
+            logger.error('Error in refresh_dashboard handler:', error);
+            throw error;
+        }
+    }
+
+
+    async updateKnowledges(request: IPCRequest): Promise<unknown> {
+        try {
+            const { params } = request;
+            if (!params || typeof params !== 'object') {
+                throw new Error('Invalid parameters');
+            }
+
+            // 验证参数
+            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
+            const stats = params as { [K in typeof requiredFields[number]]: number };
+            for (const field of requiredFields) {
+                if (typeof stats[field] !== 'number') {
+                    throw new Error(`Invalid field type: ${field} must be a number`);
+                }
+            }
+
+            // 更新仪表盘数据
+            updateDashboard(stats);
+            return { refreshed: true };
+        } catch (error) {
+            logger.error('Error in refresh_dashboard handler:', error);
+            throw error;
+        }
+    }
+
+
+
 }
 
 // 创建处理器实例

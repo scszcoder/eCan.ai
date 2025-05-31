@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { List, Tag, Typography, Space, Button, Avatar, Statistic, Row, Col, Card, Badge } from 'antd';
 import { 
     TeamOutlined, 
@@ -16,7 +16,7 @@ import DetailLayout from '../components/Layout/DetailLayout';
 import { useDetailView } from '../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../components/Common/ActionButtons';
-import {ipc_api} from '../services/ipc_api';
+import {get_ipc_api} from '../services/ipc_api';
 
 const { Text, Title } = Typography;
 
@@ -60,6 +60,24 @@ interface Agent {
     avatar?: string;
     currentTask?: string;
 }
+
+// 创建事件总线
+const agentsEventBus = {
+    listeners: new Set<(data: DashboardStats) => void>(),
+    subscribe(listener: (data: Agent[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Agent[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateAgentsGUI = (data: Agent[]) => {
+    agentsEventBus.emit(data);
+};
+
 
 const getStatusColor = (status: Agent['status']): string => {
     switch (status) {
@@ -116,6 +134,7 @@ const Agents: React.FC = () => {
         items: agents,
         selectItem,
         updateItem,
+        updateItems,
     } = useDetailView<Agent>(initialAgents);
 
     const translateAgent = (agent: Agent): Agent => {
@@ -149,6 +168,17 @@ const Agents: React.FC = () => {
     };
 
     const translatedAgents = agents.map(translateAgent);
+    {async () => await add1agent()}
+
+    const save1agent = async (targetAgents) => {
+        console.log("adding 1 agent...");
+        const ipc_api = get_ipc_api();
+        ipc_api.selfTest();
+
+        // If T should match the shape of value, infer it
+        await ipc_api.saveAgents(targetAgents);
+    };
+
 
     const handleStatusChange = (id: number, newStatus: Agent['status']) => {
         updateItem(id, {
@@ -156,6 +186,7 @@ const Agents: React.FC = () => {
             lastActive: t('pages.agents.time.justNow'),
         });
     };
+
 
     const handleTaskComplete = (id: number) => {
         const agent = agents.find(a => a.id === id);
@@ -293,10 +324,10 @@ const Agents: React.FC = () => {
                     </Button>
                 </Space>
                 <ActionButtons
-                    onAdd={() => {}}
-                    onEdit={() => {}}
-                    onDelete={() => {}}
-                    onRefresh={() => {}}
+                    onAdd={async () => await add1agent()}
+                    onEdit={async () => await save1agent([selectedAgent])}
+                    onDelete={async () => await delete1agent()}
+                    onRefresh={async () => await get1agent()}
                     onExport={() => {}}
                     onImport={() => {}}
                     onSettings={() => {}}
@@ -311,6 +342,15 @@ const Agents: React.FC = () => {
             </Space>
         );
     };
+
+    useEffect(() => {
+        const unsubscribe = agentsEventBus.subscribe((newData) => {
+            updateItems(newData);
+        });
+        return () => {
+            unsubscribe();
+        };
+    }, []);
 
     return (
         <DetailLayout

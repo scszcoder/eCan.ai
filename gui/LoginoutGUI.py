@@ -621,11 +621,11 @@ class Login(QDialog):
                 self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip,
                                            self.textName.text(), ecbhomepath,
                                            self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
-                self.new_main_win = BrowserWindow()
-                gui_port = 4000
-                new_gui_url = f"http://localhost:{gui_port}"
-                self.new_main_win.loadURL(new_gui_url)
-                self.new_main_win.show()        #coment this out if using old GUI
+                # self.new_main_win = BrowserWindow()
+                # gui_port = 4000
+                # new_gui_url = f"http://localhost:{gui_port}"
+                # self.new_main_win.loadURL(new_gui_url)
+                # self.new_main_win.show()        #coment this out if using old GUI
 
                 print("Running as a commander...", commanderServer)
                 self.main_win.setOwner(self.textName.text())
@@ -754,11 +754,11 @@ class Login(QDialog):
         self.main_win.show()
 
         # using new GUI
-        self.new_main_win = BrowserWindow()
-        gui_port = 4000
-        new_gui_url = f"http://localhost:{gui_port}"
-        self.new_main_win.loadURL(new_gui_url)
-        self.new_main_win.show()
+        # self.new_main_win = BrowserWindow()
+        # gui_port = 4000
+        # new_gui_url = f"http://localhost:{gui_port}"
+        # self.new_main_win.loadURL(new_gui_url)
+        # self.new_main_win.show()
 
     def get_mainwin(self):
         return self.main_win
