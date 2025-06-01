@@ -163,5 +163,426 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
             f"Error during login: {str(e)}"
         ))
 
+
+@IPCHandlerRegistry.handler('get_all')
+def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+        password = data['password']
+
+        # 简单的密码验证
+        if password == 'admin123#':
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            logger.info(f"Login successful for user: {username}")
+            return json.dumps(create_success_response(request, {
+                'token': token,
+                'message': 'Login successful'
+            }))
+        else:
+            logger.warning(f"Invalid password for user: {username}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_CREDENTIALS',
+                'Invalid username or password'
+            ))
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('get_agents')
+def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        print("get agents:", params)
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+        # 简单的密码验证
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"Login successful for user: {username}")
+        return json.dumps([{"id": 666, "name": "john smith"}])
+
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
+
+@IPCHandlerRegistry.handler('get_skills')
+def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+        password = data['password']
+
+        # 简单的密码验证
+        if password == 'admin123#':
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            logger.info(f"Login successful for user: {username}")
+            return json.dumps(create_success_response(request, {
+                'token': token,
+                'message': 'Login successful'
+            }))
+        else:
+            logger.warning(f"Invalid password for user: {username}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_CREDENTIALS',
+                'Invalid username or password'
+            ))
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
+
+@IPCHandlerRegistry.handler('get_tasks')
+def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+        # 简单的密码验证
+        if username == 'admin123#':
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            logger.info(f"Login successful for user: {username}")
+            return json.dumps(create_success_response(request, {
+                'token': token,
+                'message': 'Login successful'
+            }))
+        else:
+            logger.warning(f"Invalid password for user: {username}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_CREDENTIALS',
+                'Invalid username or password'
+            ))
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
+
+@IPCHandlerRegistry.handler('get_vehicles')
+def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+        # 简单的密码验证
+        if username == 'admin123#':
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            logger.info(f"Login successful for user: {username}")
+            return json.dumps(create_success_response(request, {
+                'token': token,
+                'message': 'Get vehicles successful'
+            }))
+        else:
+            logger.warning(f"Invalid password for user: {username}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_CREDENTIALS',
+                'Invalid username or password'
+            ))
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('get_tools')
+def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+        # 简单的密码验证
+        if username == 'admin123#':
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            logger.info(f"Login successful for user: {username}")
+            return json.dumps(create_success_response(request, {
+                'token': token,
+                'message': 'Get tools successful'
+            }))
+        else:
+            logger.warning(f"Invalid password for user: {username}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_CREDENTIALS',
+                'Invalid username or password'
+            ))
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('get_chats')
+def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+        # 简单的密码验证
+        if username == 'admin123#':
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            logger.info(f"Login successful for user: {username}")
+            return json.dumps(create_success_response(request, {
+                'token': token,
+                'message': 'Login successful'
+            }))
+        else:
+            logger.warning(f"Invalid password for user: {username}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_CREDENTIALS',
+                'Invalid username or password'
+            ))
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('save_agents')
+def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        print("save agents:", params)
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"Login successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Get agents successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+
 # 打印所有已注册的处理器
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")

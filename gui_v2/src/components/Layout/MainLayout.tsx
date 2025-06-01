@@ -12,6 +12,7 @@ import {
     CalendarOutlined,
     MessageOutlined,
     RobotOutlined,
+    ReadOutlined,
     EditOutlined,
     TeamOutlined,
     BarChartOutlined,
@@ -199,6 +200,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             key: '/console',
             icon: <AlignLeftOutlined />,
             label: t('menu.console'),
+        },
+        {
+            key: '/knowledge',
+            icon: <ReadOutlined />,
+            label: t('menu.knowledge'),
         },
     ], [t]);
 

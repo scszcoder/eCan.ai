@@ -14,7 +14,6 @@ from langgraph.graph.graph import CompiledGraph
 from langgraph.graph.message import AnyMessage, add_messages, MessagesState, BaseMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
-from pyqtgraph.examples.MatrixDisplayExample import main_window
 from sqlalchemy.testing.suite.test_reflection import metadata
 from agent.message_manager.service import MessageManager
 from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
@@ -182,6 +181,7 @@ class Goal(TypedDict):
 class NodeState(TypedDict):
     input: dict
     messages: List[Any]
+    attributes: dict
     result: dict
     retries: int
     resolved: bool

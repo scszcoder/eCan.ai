@@ -15,6 +15,7 @@ import Tasks from '../pages/Tasks';
 import Tools from '../pages/Tools';
 import Settings from '../pages/Settings';
 import Console from '../pages/Console';
+import Knowledge from '../pages/Knowledge';
 
 // 路由配置类型
 export interface RouteConfig {
@@ -107,6 +108,10 @@ export const protectedRoutes: RouteConfig[] = [
                 path: 'console',
                 element: <Console />,
             },
+            {
+                path: 'knowledge',
+                element: <Knowledge />,
+            },
         ],
     },
 ];
@@ -190,5 +195,10 @@ export const menuItems = [
         key: '/console',
         icon: 'SettingOutlined',
         label: 'menu.console',
+    },
+    {
+        key: '/knowledge',
+        icon: 'ReadOutlined',
+        label: 'menu.knowledge',
     },
 ]; 
