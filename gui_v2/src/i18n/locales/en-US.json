@@ -52,7 +52,8 @@
     "tools": "Tools",
     "tasks": "Tasks",
     "settings": "Settings",
-    "console": "Console"
+    "console": "Console",
+    "knowledge": "Knowledge"
   },
   "login": {
     "title": "Welcome Back",
@@ -449,14 +450,25 @@
     },
     "console": {
       "title": "Log Console",
-      "list": "Tasks List",
-      "addTask": "Add Task",
-      "editTask": "Edit Task",
-      "deleteTask": "Delete Task",
-      "refreshTasks": "Refresh Tasks",
-      "exportTasks": "Export Tasks",
-      "importTasks": "Import Tasks",
-      "taskSettings": "Task Settings"
+      "list": "Logs List",
+      "addLog": "Add Log",
+      "editLog": "Edit Log",
+      "deleteLog": "Delete Log",
+      "refreshLogs": "Refresh Logs",
+      "exportLogs": "Export Logs",
+      "importLogs": "Import Logs",
+      "logSettings": "Log Settings"
+    },
+    "knowledge": {
+      "title": "Knowledge Storage",
+      "list": "Knowledge List",
+      "addKnowledge": "Add Knowledge",
+      "editKnowledge": "Edit Knowledge",
+      "deleteKnowledge": "Delete Knowledge",
+      "refreshKnowledge": "Refresh Knowledge",
+      "exportKnowledge": "Export Knowledge",
+      "importKnowledge": "Import Knowledge",
+      "knowledgeSettings": "Knowledge Settings"
     }
   }
 } 

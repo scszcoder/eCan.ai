@@ -52,7 +52,8 @@
     "tasks": "任务",
     "tools": "工具",
     "settings": "设置",
-    "console": "日志台"
+    "console": "日志台",
+    "knowledge": "知识库"
   },
   "login": {
     "title": "欢迎回来",
@@ -461,6 +462,19 @@
     },
     "console": {
       "title": "日志记录",
+      "save": "保存技能",
+      "cancel": "取消",
+      "name": "技能名称",
+      "description": "描述",
+      "type": "类型",
+      "status": "状态",
+      "content": "内容",
+      "preview": "预览",
+      "test": "测试",
+      "deploy": "部署"
+    },
+    "knowledge": {
+      "title": "知识库",
       "save": "保存技能",
       "cancel": "取消",
       "name": "技能名称",
