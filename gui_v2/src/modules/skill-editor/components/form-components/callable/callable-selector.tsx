@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Select, Button, Space, Tooltip } from '@douyinfe/semi-ui';
-import { IconPlus, IconEdit, IconServer, IconCode } from '@douyinfe/semi-icons';
+import { Select, Button, Space, Tooltip, Dropdown } from '@douyinfe/semi-ui';
+import { IconPlus, IconEdit, IconServer, IconCode, IconSetting } from '@douyinfe/semi-icons';
 import { CallableFunction } from '../../../typings/callable';
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
@@ -9,11 +9,17 @@ import { CallableSelectorWrapper } from './styles';
 interface CallableSelectorProps {
   value?: CallableFunction;
   onChange?: (value: CallableFunction) => void;
+  onEdit?: (value: CallableFunction) => void;
+  onAdd?: () => void;
+  systemFunctions?: CallableFunction[];
 }
 
 export const CallableSelector: React.FC<CallableSelectorProps> = ({
   value,
-  onChange
+  onChange,
+  onEdit,
+  onAdd,
+  systemFunctions: propSystemFunctions = systemFunctions
 }) => {
   const [searchText, setSearchText] = useState('');
   const [editorVisible, setEditorVisible] = useState(false);
@@ -27,11 +33,11 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   // 使用 useMemo 优化过滤函数列表的性能
   const filteredFunctions = useMemo(() => {
     if (!searchText) {
-      return [...systemFunctions, ...customFunctions];
+      return [...propSystemFunctions, ...customFunctions];
     }
 
     const searchLower = searchText.toLowerCase();
-    return [...systemFunctions, ...customFunctions].filter(func => {
+    return [...propSystemFunctions, ...customFunctions].filter(func => {
       // 检查函数名
       if (func.name.toLowerCase().includes(searchLower)) {
         return true;
@@ -53,43 +59,30 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
       }
       return false;
     });
-  }, [searchText]);
+  }, [searchText, propSystemFunctions]);
 
   const handleSelect = (selectedValue: any) => {
     console.log('Selected value:', selectedValue);
     const selectedFunction = filteredFunctions.find(func => func.name === selectedValue);
     console.log('Found function:', selectedFunction);
-    if (selectedFunction && onChange) {
+    if (selectedFunction) {
       setSelectedValue(selectedValue);
-      onChange(selectedFunction);
+      if (onChange) {
+        onChange(selectedFunction);
+      }
     }
   };
 
   const handleEdit = () => {
-    if (value) {
-      setEditingFunction(value);
-      setEditorVisible(true);
+    if (value && onEdit) {
+      onEdit(value);
     }
   };
 
   const handleAdd = () => {
-    const newFunction: CallableFunction = {
-      name: 'newFunction',
-      desc: 'New function',
-      params: {
-        type: 'object',
-        properties: {},
-        required: []
-      },
-      returns: {
-        type: 'object',
-        properties: {}
-      },
-      type: 'custom',
-      code: 'function newFunction(params) {\n  // Implement your logic here\n  return {};\n}'
-    };
-    setEditingFunction(newFunction);
-    setEditorVisible(true);
+    if (onAdd) {
+      onAdd();
+    }
   };
 
   const handleEditorSave = (updatedFunction: CallableFunction) => {
@@ -116,9 +109,25 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     </Tooltip>
   );
 
+  const dropdownItems = [
+    {
+      key: 'edit',
+      text: 'Edit',
+      icon: <IconEdit />,
+      onClick: handleEdit,
+      disabled: !selectedValue
+    },
+    {
+      key: 'add',
+      text: 'Add',
+      icon: <IconPlus />,
+      onClick: handleAdd
+    }
+  ];
+
   return (
     <CallableSelectorWrapper>
-      <Space vertical style={{ width: '100%' }}>
+      <div className="selector-container">
         <Select
           style={{ width: '100%' }}
           value={selectedValue}
@@ -132,22 +141,32 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
             label: renderOption(func)
           }))}
         />
-        <Space>
+        <Dropdown
+          trigger="click"
+          position="bottomRight"
+          render={
+            <Dropdown.Menu>
+              {dropdownItems.map(item => (
+                <Dropdown.Item
+                  key={item.key}
+                  icon={item.icon}
+                  onClick={item.onClick}
+                  disabled={item.disabled}
+                >
+                  {item.text}
+                </Dropdown.Item>
+              ))}
+            </Dropdown.Menu>
+          }
+        >
           <Button
-            icon={<IconEdit />}
-            onClick={handleEdit}
-            disabled={!selectedValue}
-          >
-            Edit
-          </Button>
-          <Button
-            icon={<IconPlus />}
-            onClick={handleAdd}
-          >
-            Add
-          </Button>
-        </Space>
-      </Space>
+            type="tertiary"
+            theme="borderless"
+            className="settings-button"
+            icon={<IconSetting size="small" />}
+          />
+        </Dropdown>
+      </div>
 
       {editorVisible && editingFunction && (
         <CallableEditor
@@ -156,7 +175,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
           onSave={handleEditorSave}
           onCancel={handleEditorCancel}
           mode={editingFunction.type === 'system' ? 'edit' : 'edit'}
-          systemFunctions={systemFunctions}
+          systemFunctions={propSystemFunctions}
         />
       )}
     </CallableSelectorWrapper>

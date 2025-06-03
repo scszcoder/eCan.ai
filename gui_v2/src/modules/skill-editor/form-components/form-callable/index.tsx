@@ -14,12 +14,9 @@ export function FormCallable() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <FunctionOutlined style={{ fontSize: '16px', color: '#666' }} />
             <CallableSelector
-              value={value?.name}
-              onChange={(funcName) => {
-                const selectedFunc = systemFunctions.find(f => f.name === funcName);
-                if (selectedFunc) {
-                  onChange(selectedFunc);
-                }
+              value={value}
+              onChange={(func) => {
+                onChange(func);
               }}
               onEdit={onChange}
               onAdd={() => {
