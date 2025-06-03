@@ -32,7 +32,7 @@ def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tu
     return True, params, None
 
 @IPCHandlerRegistry.handler('get_config')
-def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理获取配置请求
     
     从配置存储中获取指定键的配置值。
@@ -71,7 +71,7 @@ def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         ))
 
 @IPCHandlerRegistry.handler('set_config')
-def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理设置配置请求
     
     将配置值保存到配置存储中。
@@ -110,7 +110,7 @@ def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         ))
 
 @IPCHandlerRegistry.handler('login')
-def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
     
     验证用户凭据并返回访问令牌。
@@ -138,9 +138,10 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
         # 获取用户名和密码
         username = data['username']
         password = data['password']
-        
+        print("user name:", username, "password:", password)
+        result = py_login.handleLogin(username, password)
         # 简单的密码验证
-        if password == 'admin123#':
+        if result == 'Successful':
             # 生成随机令牌
             token = str(uuid.uuid4()).replace('-', '')
             logger.info(f"Login successful for user: {username}")
@@ -165,7 +166,7 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
 
 
 @IPCHandlerRegistry.handler('get_all')
-def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -220,7 +221,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str
 
 
 @IPCHandlerRegistry.handler('get_agents')
-def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> str:
+def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -265,7 +266,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> str:
 
 
 @IPCHandlerRegistry.handler('get_skills')
-def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -321,7 +322,7 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
 
 
 @IPCHandlerRegistry.handler('get_tasks')
-def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -376,7 +377,7 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> s
 
 
 @IPCHandlerRegistry.handler('get_vehicles')
-def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -430,7 +431,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 
 
 @IPCHandlerRegistry.handler('get_tools')
-def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -484,7 +485,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> s
 
 
 @IPCHandlerRegistry.handler('get_chats')
-def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> str:
+def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -538,7 +539,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> s
 
 
 @IPCHandlerRegistry.handler('save_agents')
-def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> str:
+def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
