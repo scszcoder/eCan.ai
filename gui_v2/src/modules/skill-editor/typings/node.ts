@@ -9,61 +9,7 @@ import {
 import { IFlowValue } from '@flowgram.ai/form-materials';
 
 import { type JsonSchema } from './json-schema';
-
-/**
- * Interface for defining a callable function
- * 定义可调用函数的接口
- */
-export interface CallableFunction {
-  /**
-   * Function name
-   * 函数名称
-   */
-  name: string;
-  
-  /**
-   * Function description
-   * 函数描述
-   */
-  desc: string;
-  
-  /**
-   * Function parameters schema
-   * 函数参数模式
-   */
-  params: JsonSchema;
-  
-  /**
-   * Function return type schema
-   * 函数返回类型模式
-   */
-  returns: JsonSchema;
-  
-  /**
-   * Function implementation type
-   * 函数实现类型
-   */
-  type: 'system' | 'custom';
-  
-  /**
-   * System function identifier (only for system functions)
-   * 系统函数标识符（仅用于系统函数）
-   */
-  sysId?: string;
-  
-  /**
-   * Custom implementation code (only for custom functions)
-   * 自定义实现代码（仅用于自定义函数）
-   */
-  code?: string;
-  
-  /**
-   * Function implementation (deprecated, use sysId or code instead)
-   * 函数实现（已废弃，请使用 sysId 或 code）
-   * @deprecated
-   */
-  impl?: string;
-}
+import { type CallableFunction } from './callable';
 
 /**
  * Interface for defining a goal
