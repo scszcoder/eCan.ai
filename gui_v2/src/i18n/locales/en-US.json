@@ -65,6 +65,8 @@
     "selectRole": "Select Role",
     "success": "Login successful",
     "invalidCredentials": "Invalid username or password",
+    "forgotUsernamePassword":"Forgot username or password",
+    "signUp": "Sign Up New Account",
     "error": "Login failed"
   },
   "roles": {
