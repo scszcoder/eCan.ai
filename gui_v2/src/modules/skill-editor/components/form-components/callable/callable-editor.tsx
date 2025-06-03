@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Space, Typography } from 'antd';
+import { Modal, Form, Input, Select, Button, Typography } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
 import { CodeEditorModal } from '../../code-editor-modal';
+import { FormItem } from '../../../form-components/form-item';
+import { JsonSchemaEditor } from '@flowgram.ai/form-materials';
+import { Editor } from '@monaco-editor/react';
 
 const { Option } = Select;
 const { Title } = Typography;
@@ -135,7 +138,10 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             name="params"
             rules={[{ required: true }]}
           >
-            <Input.TextArea rows={4} />
+            <JsonSchemaEditor
+              value={form.getFieldValue('params')}
+              onChange={(value) => form.setFieldValue('params', value)}
+            />
           </Form.Item>
 
           <Title level={5} style={{ color: '#fff', marginTop: 24 }}>Return Type Schema</Title>
@@ -143,7 +149,10 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             name="returns"
             rules={[{ required: true }]}
           >
-            <Input.TextArea rows={4} />
+            <JsonSchemaEditor
+              value={form.getFieldValue('returns')}
+              onChange={(value) => form.setFieldValue('returns', value)}
+            />
           </Form.Item>
 
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -159,7 +168,32 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             )}
           </div>
           <div className="code-preview">
-            {codeValue || '// No implementation code yet'}
+            <Editor
+              height="200px"
+              defaultLanguage="javascript"
+              value={codeValue || '// No implementation code yet'}
+              theme="vs-dark"
+              options={{
+                readOnly: true,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                wordWrap: 'on',
+                lineNumbers: 'off',
+                folding: false,
+                glyphMargin: false,
+                lineDecorationsWidth: 0,
+                lineNumbersMinChars: 0,
+                renderLineHighlight: 'none',
+                overviewRulerBorder: false,
+                hideCursorInOverviewRuler: true,
+                overviewRulerLanes: 0,
+                scrollbar: {
+                  vertical: 'hidden',
+                  horizontal: 'hidden'
+                }
+              }}
+            />
           </div>
         </Form>
 
