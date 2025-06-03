@@ -1,6 +1,7 @@
 """
 WebEngine 核心模块，处理 Web 引擎相关的功能
 """
+from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget)
 
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEnginePage, QWebEngineScript
@@ -47,7 +48,7 @@ class WebEngineView(QWebEngineView):
         QWebEngineSettings.JavascriptCanPaste: True,  # 允许JS粘贴
     }
     
-    def __init__(self, parent: Optional[QObject] = None):
+    def __init__(self, parent: Optional[QMainWindow] = None):
         super().__init__(parent)
         self._interceptor: Optional[RequestInterceptor] = None
         self._is_loading: bool = False
@@ -55,7 +56,7 @@ class WebEngineView(QWebEngineView):
         self._channel: Optional[QWebChannel] = None
         self._ipc_service: Optional[IPCService] = None
         self._webchannel_script: Optional[QWebEngineScript] = None
-        
+        self.gui_top = parent
         # 1. 初始化引擎
         self.init_engine()
         
@@ -66,7 +67,7 @@ class WebEngineView(QWebEngineView):
         self.setup_interceptor()
         
         # 4. 创建 IPC 服务（在页面初始化后）
-        self._ipc_service = IPCService()
+        self._ipc_service = IPCService(parent.py_login)
 
         # 5. 设置 WebChannel（在页面加载前）
         self.setup_webchannel()
