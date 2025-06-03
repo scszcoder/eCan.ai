@@ -4,7 +4,6 @@ import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
 import { CodeEditorModal } from '../../code-editor-modal';
-import { FormItem } from '../../../form-components/form-item';
 import { JsonSchemaEditor } from '@flowgram.ai/form-materials';
 import { Editor } from '@monaco-editor/react';
 
@@ -32,12 +31,18 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   const [isCodeEditorVisible, setIsCodeEditorVisible] = useState(false);
   const [functionType, setFunctionType] = useState<'system' | 'custom'>(value?.type || 'custom');
   const [codeValue, setCodeValue] = useState(value?.code || '');
+  const [language, setLanguage] = useState<'javascript' | 'python'>('python');
 
   useEffect(() => {
     if (value) {
       form.setFieldsValue(value);
       setFunctionType(value.type);
       setCodeValue(value.code || '');
+      if (value.code?.includes('def ')) {
+        setLanguage('python');
+      } else {
+        setLanguage('javascript');
+      }
     }
   }, [value, form]);
 
@@ -103,13 +108,13 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
 
           {functionType === 'system' && (
             <Form.Item
-              name="sysId"
-              label="System Function"
+              name="name"
+              label="Function Name"
               rules={[{ required: true }]}
             >
               <Select>
                 {systemFunctions.map(func => (
-                  <Option key={func.sysId} value={func.sysId}>
+                  <Option key={func.sysId} value={func.name}>
                     {func.name}
                   </Option>
                 ))}
@@ -117,21 +122,25 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             </Form.Item>
           )}
 
-          <Form.Item
-            name="name"
-            label="Function Name"
-            rules={[{ required: true }]}
-          >
-            <Input />
-          </Form.Item>
+          {functionType === 'custom' && (
+            <>
+              <Form.Item
+                name="name"
+                label="Function Name"
+                rules={[{ required: true }]}
+              >
+                <Input />
+              </Form.Item>
 
-          <Form.Item
-            name="desc"
-            label="Description"
-            rules={[{ required: true }]}
-          >
-            <Input.TextArea rows={2} />
-          </Form.Item>
+              <Form.Item
+                name="desc"
+                label="Description"
+                rules={[{ required: true }]}
+              >
+                <Input.TextArea rows={2} />
+              </Form.Item>
+            </>
+          )}
 
           <Title level={5} style={{ color: '#fff', marginTop: 24 }}>Parameters Schema</Title>
           <Form.Item
@@ -170,7 +179,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           <div className="code-preview">
             <Editor
               height="200px"
-              defaultLanguage="javascript"
+              defaultLanguage={language}
               value={codeValue || '// No implementation code yet'}
               theme="vs-dark"
               options={{
@@ -200,7 +209,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
         <CodeEditorModal
           value={codeValue}
           onChange={handleCodeSave}
-          language="javascript"
+          language={language}
           visible={isCodeEditorVisible}
           handleOk={() => setIsCodeEditorVisible(false)}
           handleCancel={() => setIsCodeEditorVisible(false)}

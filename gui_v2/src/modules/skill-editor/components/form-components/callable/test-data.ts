@@ -38,23 +38,24 @@ export const systemFunctions: CallableFunction[] = [
     },
     type: 'system',
     sysId: 'calc_total_v1',
-    code: `function calculateTotal(params) {
-  const { price, quantity, taxRate } = params;
-  
-  // 计算不含税总价
-  const subtotal = price * quantity;
-  
-  // 计算税额
-  const tax = subtotal * (taxRate / 100);
-  
-  // 计算含税总价
-  const total = subtotal + tax;
-  
-  return {
-    total: Number(total.toFixed(2)),
-    tax: Number(tax.toFixed(2))
-  };
-}`
+    code: `def calculate_total(params):
+    price = params['price']
+    quantity = params['quantity']
+    tax_rate = params['taxRate']
+    
+    # 计算不含税总价
+    subtotal = price * quantity
+    
+    # 计算税额
+    tax = subtotal * (tax_rate / 100)
+    
+    # 计算含税总价
+    total = subtotal + tax
+    
+    return {
+        'total': round(total, 2),
+        'tax': round(tax, 2)
+    }`
   },
   {
     name: 'formatDate',
@@ -80,25 +81,22 @@ export const systemFunctions: CallableFunction[] = [
     },
     type: 'system',
     sysId: 'format_date_v1',
-    code: `function formatDate(params) {
-  const { date, format } = params;
-  const d = new Date(date);
-  
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  
-  switch (format) {
-    case 'YYYY-MM-DD':
-      return \`\${year}-\${month}-\${day}\`;
-    case 'DD/MM/YYYY':
-      return \`\${day}/\${month}/\${year}\`;
-    case 'MM/DD/YYYY':
-      return \`\${month}/\${day}/\${year}\`;
-    default:
-      throw new Error('Unsupported date format');
-  }
-}`
+    code: `from datetime import datetime
+
+def format_date(params):
+    date_str = params['date']
+    format_type = params['format']
+    
+    date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+    
+    if format_type == 'YYYY-MM-DD':
+        return date_obj.strftime('%Y-%m-%d')
+    elif format_type == 'DD/MM/YYYY':
+        return date_obj.strftime('%d/%m/%Y')
+    elif format_type == 'MM/DD/YYYY':
+        return date_obj.strftime('%m/%d/%Y')
+    else:
+        raise ValueError('Unsupported date format')`
   },
   {
     name: 'validateEmail',
@@ -128,17 +126,18 @@ export const systemFunctions: CallableFunction[] = [
     },
     type: 'system',
     sysId: 'validate_email_v1',
-    code: `function validateEmail(params) {
-  const { email } = params;
-  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/;
-  
-  const isValid = emailRegex.test(email);
-  
-  return {
-    isValid,
-    message: isValid ? 'Valid email address' : 'Invalid email format'
-  };
-}`
+    code: `import re
+
+def validate_email(params):
+    email = params['email']
+    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$'
+    
+    is_valid = bool(re.match(email_regex, email))
+    
+    return {
+        'isValid': is_valid,
+        'message': 'Valid email address' if is_valid else 'Invalid email format'
+    }`
   },
   {
     name: 'calculateDiscount',
@@ -181,27 +180,25 @@ export const systemFunctions: CallableFunction[] = [
     },
     type: 'system',
     sysId: 'calc_discount_v1',
-    code: `function calculateDiscount(params) {
-  const { price, discountType, discountValue } = params;
-  
-  let discountAmount = 0;
-  
-  if (discountType === 'percentage') {
-    // 百分比折扣
-    discountAmount = price * (discountValue / 100);
-  } else {
-    // 固定金额折扣
-    discountAmount = Math.min(discountValue, price);
-  }
-  
-  const finalPrice = price - discountAmount;
-  
-  return {
-    originalPrice: Number(price.toFixed(2)),
-    discountAmount: Number(discountAmount.toFixed(2)),
-    finalPrice: Number(finalPrice.toFixed(2))
-  };
-}`
+    code: `def calculate_discount(params):
+    price = params['price']
+    discount_type = params['discountType']
+    discount_value = params['discountValue']
+    
+    if discount_type == 'percentage':
+        # 百分比折扣
+        discount_amount = price * (discount_value / 100)
+    else:
+        # 固定金额折扣
+        discount_amount = min(discount_value, price)
+    
+    final_price = price - discount_amount
+    
+    return {
+        'originalPrice': round(price, 2),
+        'discountAmount': round(discount_amount, 2),
+        'finalPrice': round(final_price, 2)
+    }`
   }
 ];
 
@@ -230,17 +227,17 @@ export const customFunctions: CallableFunction[] = [
       description: '问候语'
     },
     type: 'custom',
-    code: `function customGreeting(params) {
-  const { name, timeOfDay } = params;
-  
-  const greetings = {
-    morning: '早上好',
-    afternoon: '下午好',
-    evening: '晚上好'
-  };
-  
-  return \`\${greetings[timeOfDay]}，\${name}！\`;
-}`
+    code: `def custom_greeting(params):
+    name = params['name']
+    time_of_day = params['timeOfDay']
+    
+    greetings = {
+        'morning': '早上好',
+        'afternoon': '下午好',
+        'evening': '晚上好'
+    }
+    
+    return f"{greetings[time_of_day]}，{name}！"`
   }
 ];
 
