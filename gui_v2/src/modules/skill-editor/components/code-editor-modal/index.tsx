@@ -1,6 +1,6 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { Modal } from '@douyinfe/semi-ui';
-import Editor from '@monaco-editor/react';
+import Editor, { OnMount } from '@monaco-editor/react';
 
 interface CodeEditorModalProps {
   value: string;
@@ -23,6 +23,8 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
   onVisibleChange,
   options: externalOptions,
 }) => {
+  const editorRef = useRef<any>(null);
+
   const handleCurrentOk = useCallback(() => {
     if (handleOk) {
       handleOk();
@@ -60,6 +62,10 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
     }
   };
 
+  const handleEditorDidMount: OnMount = (editor) => {
+    editorRef.current = editor;
+  };
+
   return (
     <Modal
       title="Code Editor"
@@ -70,6 +76,12 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
       fullScreen
       style={{ zIndex: 1000 }}
       getPopupContainer={() => document.body}
+      afterClose={() => {
+        if (editorRef.current) {
+          editorRef.current.dispose();
+          editorRef.current = null;
+        }
+      }}
     >
       <Editor
         height="calc(100vh - 120px)"
@@ -77,6 +89,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
         language={language}
         value={value}
         onChange={handleEditorChange}
+        onMount={handleEditorDidMount}
         theme="vs-dark"
         options={mergedOptions}
         loading={<div>Loading editor...</div>}

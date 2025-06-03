@@ -1,158 +1,179 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Space } from 'antd';
+import { Modal, Form, Input, Select, Button, Space, Typography } from 'antd';
+import { CodeOutlined } from '@ant-design/icons';
+import { CallableFunction } from '../../../typings/callable';
+import { CallableEditorWrapper } from './styles';
 import { CodeEditorModal } from '../../code-editor-modal';
-import { CallableFunction, CallableEditorProps } from '../../../typings/callable';
-import { JsonSchemaEditor } from '@flowgram.ai/form-materials';
 
 const { Option } = Select;
+const { Title } = Typography;
+
+interface CallableEditorProps {
+  value?: CallableFunction;
+  onSave: (func: CallableFunction) => void;
+  onCancel: () => void;
+  mode: 'create' | 'edit';
+  systemFunctions: CallableFunction[];
+  visible: boolean;
+}
 
 export const CallableEditor: React.FC<CallableEditorProps> = ({
   value,
-  onChange,
   onSave,
   onCancel,
-  mode = 'create',
-  systemFunctions = []
+  mode,
+  systemFunctions,
+  visible
 }) => {
   const [form] = Form.useForm();
   const [isCodeEditorVisible, setIsCodeEditorVisible] = useState(false);
-  const [currentCallable, setCurrentCallable] = useState<CallableFunction | undefined>(value);
-  const [codeValue, setCodeValue] = useState('');
+  const [functionType, setFunctionType] = useState<'system' | 'custom'>(value?.type || 'custom');
+  const [codeValue, setCodeValue] = useState(value?.code || '');
 
   useEffect(() => {
     if (value) {
       form.setFieldsValue(value);
-      setCurrentCallable(value);
+      setFunctionType(value.type);
       setCodeValue(value.code || '');
     }
   }, [value, form]);
 
-  const handleValuesChange = (changedValues: any, allValues: any) => {
-    const newCallable = { ...currentCallable, ...allValues };
-    setCurrentCallable(newCallable as CallableFunction);
-    onChange?.(newCallable as CallableFunction);
+  const handleSave = () => {
+    form.validateFields().then(values => {
+      onSave({
+        ...values,
+        type: functionType,
+        code: codeValue
+      });
+    });
   };
 
-  const handleSave = async () => {
-    try {
-      const values = await form.validateFields();
-      const newCallable = { ...currentCallable, ...values };
-      onSave?.(newCallable as CallableFunction);
-    } catch (error) {
-      console.error('Validation failed:', error);
+  const handleTypeChange = (type: 'system' | 'custom') => {
+    setFunctionType(type);
+    if (type === 'system') {
+      form.setFieldsValue({
+        name: '',
+        desc: '',
+        params: { type: 'object', properties: {} },
+        returns: { type: 'object', properties: {} }
+      });
+      setCodeValue('');
     }
   };
 
   const handleCodeEdit = () => {
-    setIsCodeEditorVisible(true);
+    if (functionType === 'custom') {
+      setIsCodeEditorVisible(true);
+    }
   };
 
-  const handleCodeChange = (value: string) => {
-    setCodeValue(value);
-    setCurrentCallable(prev => ({
-      ...prev,
-      code: value
-    } as CallableFunction));
+  const handleCodeSave = (code: string) => {
+    setCodeValue(code);
+    setIsCodeEditorVisible(false);
   };
 
   return (
     <Modal
       title={mode === 'create' ? 'Create Callable Function' : 'Edit Callable Function'}
-      open={true}
+      open={visible}
       onOk={handleSave}
       onCancel={onCancel}
       width={800}
     >
-      <Form
-        form={form}
-        layout="vertical"
-        onValuesChange={handleValuesChange}
-        initialValues={value}
-      >
-        <Form.Item
-          name="name"
-          label="Function Name"
-          rules={[{ required: true, message: 'Please input function name!' }]}
+      <CallableEditorWrapper>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={value}
+          disabled={functionType === 'system'}
         >
-          <Input placeholder="Enter function name" />
-        </Form.Item>
-
-        <Form.Item
-          name="desc"
-          label="Description"
-          rules={[{ required: true, message: 'Please input function description!' }]}
-        >
-          <Input.TextArea placeholder="Enter function description" />
-        </Form.Item>
-
-        <Form.Item
-          name="type"
-          label="Function Type"
-          rules={[{ required: true, message: 'Please select function type!' }]}
-        >
-          <Select>
-            <Option value="system">System Function</Option>
-            <Option value="custom">Custom Function</Option>
-          </Select>
-        </Form.Item>
-
-        {form.getFieldValue('type') === 'system' && (
           <Form.Item
-            name="sysId"
-            label="System Function ID"
-            rules={[{ required: true, message: 'Please select system function!' }]}
+            name="type"
+            label="Function Type"
+            rules={[{ required: true }]}
           >
-            <Select>
-              {systemFunctions.map(func => (
-                <Option key={func.sysId} value={func.sysId}>
-                  {func.name}
-                </Option>
-              ))}
+            <Select onChange={handleTypeChange}>
+              <Option value="system">System Function</Option>
+              <Option value="custom">Custom Function</Option>
             </Select>
           </Form.Item>
-        )}
 
-        <Form.Item
-          name="params"
-          label="Parameters Schema"
-          rules={[{ required: true, message: 'Please define parameters schema!' }]}
-        >
-          <JsonSchemaEditor />
-        </Form.Item>
+          {functionType === 'system' && (
+            <Form.Item
+              name="sysId"
+              label="System Function"
+              rules={[{ required: true }]}
+            >
+              <Select>
+                {systemFunctions.map(func => (
+                  <Option key={func.sysId} value={func.sysId}>
+                    {func.name}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
 
-        <Form.Item
-          name="returns"
-          label="Return Type Schema"
-          rules={[{ required: true, message: 'Please define return type schema!' }]}
-        >
-          <JsonSchemaEditor />
-        </Form.Item>
-
-        {form.getFieldValue('type') === 'custom' && (
-          <Form.Item label="Implementation">
-            <Space>
-              <Button onClick={handleCodeEdit}>
-                {currentCallable?.code ? 'Edit Code' : 'Add Code'}
-              </Button>
-              {currentCallable?.code && (
-                <pre style={{ marginTop: 8, padding: 8, background: '#f5f5f5' }}>
-                  {currentCallable.code}
-                </pre>
-              )}
-            </Space>
+          <Form.Item
+            name="name"
+            label="Function Name"
+            rules={[{ required: true }]}
+          >
+            <Input />
           </Form.Item>
-        )}
-      </Form>
 
-      <CodeEditorModal
-        value={codeValue}
-        onChange={handleCodeChange}
-        language="typescript"
-        visible={isCodeEditorVisible}
-        onVisibleChange={setIsCodeEditorVisible}
-        handleOk={() => setIsCodeEditorVisible(false)}
-        handleCancel={() => setIsCodeEditorVisible(false)}
-      />
+          <Form.Item
+            name="desc"
+            label="Description"
+            rules={[{ required: true }]}
+          >
+            <Input.TextArea rows={2} />
+          </Form.Item>
+
+          <Title level={5} style={{ color: '#fff', marginTop: 24 }}>Parameters Schema</Title>
+          <Form.Item
+            name="params"
+            rules={[{ required: true }]}
+          >
+            <Input.TextArea rows={4} />
+          </Form.Item>
+
+          <Title level={5} style={{ color: '#fff', marginTop: 24 }}>Return Type Schema</Title>
+          <Form.Item
+            name="returns"
+            rules={[{ required: true }]}
+          >
+            <Input.TextArea rows={4} />
+          </Form.Item>
+
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Title level={5} style={{ color: '#fff', margin: 0 }}>Implementation Code</Title>
+            {functionType === 'custom' && (
+              <Button
+                type="link"
+                icon={<CodeOutlined />}
+                onClick={handleCodeEdit}
+              >
+                Edit Code
+              </Button>
+            )}
+          </div>
+          <div className="code-preview">
+            {codeValue || '// No implementation code yet'}
+          </div>
+        </Form>
+
+        <CodeEditorModal
+          value={codeValue}
+          onChange={handleCodeSave}
+          language="javascript"
+          visible={isCodeEditorVisible}
+          handleOk={() => setIsCodeEditorVisible(false)}
+          handleCancel={() => setIsCodeEditorVisible(false)}
+          onVisibleChange={setIsCodeEditorVisible}
+          options={{ readOnly: functionType === 'system' }}
+        />
+      </CallableEditorWrapper>
     </Modal>
   );
 }; 

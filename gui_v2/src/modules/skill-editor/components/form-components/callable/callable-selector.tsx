@@ -1,98 +1,161 @@
-import React, { useState } from 'react';
-import { Input, Button, Select, Space } from 'antd';
-import { EditOutlined, PlusOutlined } from '@ant-design/icons';
-import { CallableFunction, CallableSelectorProps } from '../../../typings/callable';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Select, Button, Space, Tooltip } from '@douyinfe/semi-ui';
+import { IconPlus, IconEdit, IconServer, IconCode } from '@douyinfe/semi-icons';
+import { CallableFunction } from '../../../typings/callable';
+import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
 import { CallableSelectorWrapper } from './styles';
 
-const { Option } = Select;
+interface CallableSelectorProps {
+  value?: CallableFunction;
+  onChange?: (value: CallableFunction) => void;
+}
 
 export const CallableSelector: React.FC<CallableSelectorProps> = ({
   value,
-  onChange,
-  onEdit,
-  onAdd,
-  systemFunctions = []
+  onChange
 }) => {
   const [searchText, setSearchText] = useState('');
-  const [isEditorVisible, setIsEditorVisible] = useState(false);
-  const [editingCallable, setEditingCallable] = useState<CallableFunction | undefined>();
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [editingFunction, setEditingFunction] = useState<CallableFunction | null>(null);
+  const [selectedValue, setSelectedValue] = useState<string | undefined>(value?.name);
 
-  // 过滤系统函数
-  const filteredFunctions = systemFunctions.filter(func => 
-    func.name.toLowerCase().includes(searchText.toLowerCase()) ||
-    func.desc.toLowerCase().includes(searchText.toLowerCase())
-  );
+  useEffect(() => {
+    setSelectedValue(value?.name);
+  }, [value]);
 
-  const handleSelect = (funcName: string) => {
-    onChange?.(funcName);
+  // 使用 useMemo 优化过滤函数列表的性能
+  const filteredFunctions = useMemo(() => {
+    if (!searchText) {
+      return [...systemFunctions, ...customFunctions];
+    }
+
+    const searchLower = searchText.toLowerCase();
+    return [...systemFunctions, ...customFunctions].filter(func => {
+      // 检查函数名
+      if (func.name.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      // 检查函数描述
+      if (func.desc.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      // 检查参数名称
+      if (func.params.properties) {
+        const paramNames = Object.keys(func.params.properties);
+        if (paramNames.some(name => name.toLowerCase().includes(searchLower))) {
+          return true;
+        }
+      }
+      // 检查返回值类型
+      if (func.returns.type && func.returns.type.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      return false;
+    });
+  }, [searchText]);
+
+  const handleSelect = (selectedValue: any) => {
+    console.log('Selected value:', selectedValue);
+    const selectedFunction = filteredFunctions.find(func => func.name === selectedValue);
+    console.log('Found function:', selectedFunction);
+    if (selectedFunction && onChange) {
+      setSelectedValue(selectedValue);
+      onChange(selectedFunction);
+    }
   };
 
-  const handleEdit = (func: CallableFunction) => {
-    setEditingCallable(func);
-    setIsEditorVisible(true);
+  const handleEdit = () => {
+    if (value) {
+      setEditingFunction(value);
+      setEditorVisible(true);
+    }
   };
 
   const handleAdd = () => {
-    setEditingCallable(undefined);
-    setIsEditorVisible(true);
+    const newFunction: CallableFunction = {
+      name: 'newFunction',
+      desc: 'New function',
+      params: {
+        type: 'object',
+        properties: {},
+        required: []
+      },
+      returns: {
+        type: 'object',
+        properties: {}
+      },
+      type: 'custom',
+      code: 'function newFunction(params) {\n  // Implement your logic here\n  return {};\n}'
+    };
+    setEditingFunction(newFunction);
+    setEditorVisible(true);
   };
 
-  const handleEditorSave = (func: CallableFunction) => {
-    onEdit?.(func);
-    setIsEditorVisible(false);
+  const handleEditorSave = (updatedFunction: CallableFunction) => {
+    if (onChange) {
+      onChange(updatedFunction);
+    }
+    setEditorVisible(false);
+    setEditingFunction(null);
   };
 
   const handleEditorCancel = () => {
-    setIsEditorVisible(false);
+    setEditorVisible(false);
+    setEditingFunction(null);
   };
+
+  const renderOption = (func: CallableFunction) => (
+    <Tooltip content={func.desc} position="right">
+      <div className="function-option">
+        <span className="function-icon">
+          {func.type === 'system' ? <IconServer /> : <IconCode />}
+        </span>
+        <span className="function-name">{func.name}</span>
+      </div>
+    </Tooltip>
+  );
 
   return (
     <CallableSelectorWrapper>
-      <div className="callable-selector">
+      <Space vertical style={{ width: '100%' }}>
         <Select
-          value={value}
-          onChange={handleSelect}
-          showSearch
-          placeholder="Select or search a function"
-          onSearch={setSearchText}
-          filterOption={false}
-          notFoundContent={null}
-          optionLabelProp="label"
           style={{ width: '100%' }}
-          dropdownMatchSelectWidth={false}
-          dropdownStyle={{ minWidth: '200px' }}
-        >
-          {filteredFunctions.map(func => (
-            <Option 
-              key={func.name} 
-              value={func.name}
-              label={func.name}
-            >
-              <div className="function-option">
-                <div className="function-name">{func.name}</div>
-                <div className="function-desc">{func.desc}</div>
-              </div>
-            </Option>
-          ))}
-        </Select>
-        <Button
-          icon={<EditOutlined />}
-          onClick={() => value && handleEdit(systemFunctions.find(f => f.name === value)!)}
-          disabled={!value}
+          value={selectedValue}
+          onChange={handleSelect}
+          onSearch={setSearchText}
+          showClear
+          filter
+          placeholder="Select a function"
+          optionList={filteredFunctions.map(func => ({
+            value: func.name,
+            label: renderOption(func)
+          }))}
         />
-        <Button
-          icon={<PlusOutlined />}
-          onClick={handleAdd}
-        />
-      </div>
+        <Space>
+          <Button
+            icon={<IconEdit />}
+            onClick={handleEdit}
+            disabled={!selectedValue}
+          >
+            Edit
+          </Button>
+          <Button
+            icon={<IconPlus />}
+            onClick={handleAdd}
+          >
+            Add
+          </Button>
+        </Space>
+      </Space>
 
-      {isEditorVisible && (
+      {editorVisible && editingFunction && (
         <CallableEditor
-          value={editingCallable}
+          visible={editorVisible}
+          value={editingFunction}
           onSave={handleEditorSave}
           onCancel={handleEditorCancel}
-          mode={editingCallable ? 'edit' : 'create'}
+          mode={editingFunction.type === 'system' ? 'edit' : 'edit'}
           systemFunctions={systemFunctions}
         />
       )}
