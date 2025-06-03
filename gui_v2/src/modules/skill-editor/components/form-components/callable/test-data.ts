@@ -37,7 +37,24 @@ export const systemFunctions: CallableFunction[] = [
       }
     },
     type: 'system',
-    sysId: 'calc_total_v1'
+    sysId: 'calc_total_v1',
+    code: `function calculateTotal(params) {
+  const { price, quantity, taxRate } = params;
+  
+  // 计算不含税总价
+  const subtotal = price * quantity;
+  
+  // 计算税额
+  const tax = subtotal * (taxRate / 100);
+  
+  // 计算含税总价
+  const total = subtotal + tax;
+  
+  return {
+    total: Number(total.toFixed(2)),
+    tax: Number(tax.toFixed(2))
+  };
+}`
   },
   {
     name: 'formatDate',
@@ -62,7 +79,26 @@ export const systemFunctions: CallableFunction[] = [
       description: '格式化后的日期字符串'
     },
     type: 'system',
-    sysId: 'format_date_v1'
+    sysId: 'format_date_v1',
+    code: `function formatDate(params) {
+  const { date, format } = params;
+  const d = new Date(date);
+  
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  
+  switch (format) {
+    case 'YYYY-MM-DD':
+      return \`\${year}-\${month}-\${day}\`;
+    case 'DD/MM/YYYY':
+      return \`\${day}/\${month}/\${year}\`;
+    case 'MM/DD/YYYY':
+      return \`\${month}/\${day}/\${year}\`;
+    default:
+      throw new Error('Unsupported date format');
+  }
+}`
   },
   {
     name: 'validateEmail',
@@ -91,15 +127,22 @@ export const systemFunctions: CallableFunction[] = [
       }
     },
     type: 'system',
-    sysId: 'validate_email_v1'
-  }
-];
-
-// 自定义函数示例
-export const customFunctions: CallableFunction[] = [
+    sysId: 'validate_email_v1',
+    code: `function validateEmail(params) {
+  const { email } = params;
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/;
+  
+  const isValid = emailRegex.test(email);
+  
+  return {
+    isValid,
+    message: isValid ? 'Valid email address' : 'Invalid email format'
+  };
+}`
+  },
   {
     name: 'calculateDiscount',
-    desc: '根据用户等级计算折扣',
+    desc: '计算商品折扣价格',
     params: {
       type: 'object',
       properties: {
@@ -107,113 +150,96 @@ export const customFunctions: CallableFunction[] = [
           type: 'number',
           description: '原价'
         },
-        userLevel: {
+        discountType: {
           type: 'string',
-          description: '用户等级',
-          enum: ['normal', 'silver', 'gold', 'platinum']
+          description: '折扣类型',
+          enum: ['percentage', 'fixed']
+        },
+        discountValue: {
+          type: 'number',
+          description: '折扣值（百分比或固定金额）'
         }
       },
-      required: ['price', 'userLevel']
+      required: ['price', 'discountType', 'discountValue']
     },
     returns: {
       type: 'object',
       properties: {
-        finalPrice: {
+        originalPrice: {
           type: 'number',
-          description: '折扣后价格'
+          description: '原价'
         },
-        discount: {
+        discountAmount: {
           type: 'number',
           description: '折扣金额'
+        },
+        finalPrice: {
+          type: 'number',
+          description: '最终价格'
         }
       }
     },
-    type: 'custom',
-    code: `function calculateDiscount(price, userLevel) {
-  const discounts = {
-    normal: 0,
-    silver: 0.1,
-    gold: 0.2,
-    platinum: 0.3
-  };
+    type: 'system',
+    sysId: 'calc_discount_v1',
+    code: `function calculateDiscount(params) {
+  const { price, discountType, discountValue } = params;
   
-  const discount = price * (discounts[userLevel] || 0);
+  let discountAmount = 0;
+  
+  if (discountType === 'percentage') {
+    // 百分比折扣
+    discountAmount = price * (discountValue / 100);
+  } else {
+    // 固定金额折扣
+    discountAmount = Math.min(discountValue, price);
+  }
+  
+  const finalPrice = price - discountAmount;
+  
   return {
-    finalPrice: price - discount,
-    discount: discount
+    originalPrice: Number(price.toFixed(2)),
+    discountAmount: Number(discountAmount.toFixed(2)),
+    finalPrice: Number(finalPrice.toFixed(2))
   };
 }`
-  },
+  }
+];
+
+// 自定义函数列表
+export const customFunctions: CallableFunction[] = [
   {
-    name: 'processOrder',
-    desc: '处理订单状态',
+    name: 'customGreeting',
+    desc: '生成自定义问候语',
     params: {
       type: 'object',
       properties: {
-        orderId: {
+        name: {
           type: 'string',
-          description: '订单ID'
+          description: '姓名'
         },
-        status: {
+        timeOfDay: {
           type: 'string',
-          description: '新状态',
-          enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled']
+          description: '时间段',
+          enum: ['morning', 'afternoon', 'evening']
         }
       },
-      required: ['orderId', 'status']
+      required: ['name', 'timeOfDay']
     },
     returns: {
-      type: 'object',
-      properties: {
-        success: {
-          type: 'boolean',
-          description: '是否成功'
-        },
-        message: {
-          type: 'string',
-          description: '处理结果'
-        },
-        timestamp: {
-          type: 'string',
-          description: '处理时间'
-        }
-      }
+      type: 'string',
+      description: '问候语'
     },
     type: 'custom',
-    code: `async function processOrder(orderId, status) {
-  try {
-    // 模拟数据库操作
-    const timestamp = new Date().toISOString();
-    
-    // 验证状态转换是否合法
-    const validTransitions = {
-      pending: ['processing', 'cancelled'],
-      processing: ['shipped', 'cancelled'],
-      shipped: ['delivered'],
-      delivered: [],
-      cancelled: []
-    };
-    
-    const currentStatus = await getOrderStatus(orderId);
-    if (!validTransitions[currentStatus].includes(status)) {
-      throw new Error('Invalid status transition');
-    }
-    
-    // 更新订单状态
-    await updateOrderStatus(orderId, status);
-    
-    return {
-      success: true,
-      message: 'Order status updated successfully',
-      timestamp
-    };
-  } catch (error) {
-    return {
-      success: false,
-      message: error.message,
-      timestamp: new Date().toISOString()
-    };
-  }
+    code: `function customGreeting(params) {
+  const { name, timeOfDay } = params;
+  
+  const greetings = {
+    morning: '早上好',
+    afternoon: '下午好',
+    evening: '晚上好'
+  };
+  
+  return \`\${greetings[timeOfDay]}，\${name}！\`;
 }`
   }
 ];
