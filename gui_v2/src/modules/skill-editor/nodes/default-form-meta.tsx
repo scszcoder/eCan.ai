@@ -3,12 +3,20 @@ import { autoRenameRefEffect } from '@flowgram.ai/form-materials';
 
 import { FlowNodeJSON } from '../typings';
 import { FormHeader, FormContent, FormInputs, FormOutputs } from '../form-components';
+import { FormCallable } from '../form-components/form-callable';
 
 export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => (
   <>
     <FormHeader />
     <FormContent>
       <FormInputs />
+      <div style={{ 
+        height: '1px', 
+        background: '#e8e8e8', 
+        margin: '12px 0',
+        width: '100%' 
+      }} />
+      <FormCallable />
       <FormOutputs />
     </FormContent>
   </>
@@ -27,6 +35,15 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
         (value === '' || value === undefined || value?.content === '')
       ) {
         return `${valuePropetyKey} is required`;
+      }
+      return undefined;
+    },
+    'data.callable': ({ value }) => {
+      if (value?.type === 'system' && !value.sysId) {
+        return 'System function ID is required';
+      }
+      if (value?.type === 'custom' && !value.code) {
+        return 'Custom function code is required';
       }
       return undefined;
     },
