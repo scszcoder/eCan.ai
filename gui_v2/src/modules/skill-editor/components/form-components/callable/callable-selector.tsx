@@ -74,8 +74,9 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   };
 
   const handleEdit = () => {
-    if (value && onEdit) {
-      onEdit(value);
+    if (value) {
+      setEditingFunction(value);
+      setEditorVisible(true);
     }
   };
 
