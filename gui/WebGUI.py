@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QMessageBox)
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtCore import QTimer
 import sys
@@ -154,6 +154,20 @@ class WebGUI(QMainWindow):
     
     def closeEvent(self, event):
         """窗口关闭事件"""
-        # 停止定时器
-        self.dashboard_timer.stop()
-        super().closeEvent(event) 
+        # 创建确认对话框
+        reply = QMessageBox.question(
+            self,
+            'Confirm Exit',
+            'Are you sure you want to exit the program?',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # 接受关闭事件
+            event.accept()
+            # 结束整个应用程序
+            sys.exit(0)
+        else:
+            # 忽略关闭事件
+            event.ignore() 
