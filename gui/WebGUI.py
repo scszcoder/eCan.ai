@@ -17,7 +17,7 @@ from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, py_login=None):
         super().__init__()
         self.setWindowTitle("ECBot Web Interface")
         self.setGeometry(100, 100, 1200, 800)
@@ -26,12 +26,13 @@ class WebGUI(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        
+        self.py_login = py_login
         # 创建 Web 引擎
-        self.web_engine_view = WebEngineView()
+        self.web_engine_view = WebEngineView(self)
         
         # 创建开发者工具管理器
         self.dev_tools_manager = DevToolsManager(self)
+
         
         # 获取 Web URL
         web_url = app_settings.get_web_url()
@@ -58,7 +59,13 @@ class WebGUI(QMainWindow):
         self.dashboard_timer = QTimer(self)
         self.dashboard_timer.timeout.connect(self.update_dashboard_data)
         self.dashboard_timer.start(5000)  # 每5秒触发一次
-    
+
+    def set_py_login(self, login):
+        self.py_login = login
+
+    def get_py_login(self):
+        return self.py_login
+
     def load_local_html(self):
         """加载本地 HTML 文件"""
         index_path = app_settings.dist_dir / "index.html"

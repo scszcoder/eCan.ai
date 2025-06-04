@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, Select, Typography, App } from 'antd';
+import {  Row, Col, Form, Input, Button, Card, Select, Typography, App } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { createIPCAPI } from '../services/ipc';
@@ -108,8 +108,8 @@ const Login: React.FC = () => {
             <Card className="login-card" style={{ width: 400 }}>
                 <img src={logo} alt="ECBOT" style={{ display: 'block', width: 120, height: 'auto', margin: '0 auto 32px' }} />
                 <div className="login-title">
-                    <Title level={2}>{t('login.title')}</Title>
-                    <Text type="secondary">{t('login.subtitle')}</Text>
+                    <Title level={2} style={{ color: 'white' }}>{t('login.title')}</Title>
+                    <Text type="secondary" style={{ color: 'white' }}>{t('login.subtitle')}</Text>
                 </div>
 
                 <Form<LoginFormValues>
@@ -117,7 +117,7 @@ const Login: React.FC = () => {
                     name="login"
                     onFinish={handleSubmit}
                     initialValues={{
-                        username: 'admin',
+                        username: 'songc@yahoo.com',
                         password: 'admin123#',
                         role: 'commander',
                     }}
@@ -150,6 +150,25 @@ const Login: React.FC = () => {
                             {t('common.login')}
                         </Button>
                     </Form.Item>
+
+                    <Row justify="space-between" align="middle" style={{ width: '100%' }}>
+                      <Col>
+                        <Text
+                          style={{ color: '#40a9ff', cursor: 'pointer' }}
+                          onClick={() => console.log('Forgot clicked')}
+                        >
+                          {t('login.forgotUsernamePassword')}
+                        </Text>
+                      </Col>
+                      <Col>
+                        <Text
+                          style={{ color: '#40a9ff', cursor: 'pointer' }}
+                          onClick={() => console.log('Sign up clicked')}
+                        >
+                          {t('login.signUp')}
+                        </Text>
+                      </Col>
+                    </Row>
                 </Form>
             </Card>
         </div>

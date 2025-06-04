@@ -540,7 +540,7 @@ class Login(QDialog):
                     raise e
         raise Exception("Max retries exceeded")
 
-    def handleLogin(self):
+    def handleLogin(self, uname="", pw=""):
         print("logging in....", self.textPass.text())
         # global commanderServer
         # global commanderXport
@@ -548,7 +548,12 @@ class Login(QDialog):
         try:
             # self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
             #                       client_id=CLIENT_ID, client_secret=CLIENT_SECRET, client=self.aws_client)
-            self.aws_srp = AWSSRP(username=self.textName.text(), password=self.textPass.text(), pool_id=USER_POOL_ID,
+            if not uname:
+                uname = self.textName.text()
+
+            if not pw:
+                pw = self.textPass.text()
+            self.aws_srp = AWSSRP(username=uname, password=pw, pool_id=USER_POOL_ID,
                                   client_id=CLIENT_ID, client=self.aws_client)
 
             # self.tokens = self.aws_srp.authenticate_user()
@@ -648,7 +653,7 @@ class Login(QDialog):
             # print("refrsh tokeN:", refresh_token)
             asyncio.create_task(self.refresh_tokens_periodically(refresh_token))
             # self.refresh_tokens_periodically(refresh_token, CLIENT_ID, self.aws_client, self.cognito_user_id)
-
+            return "Successful"
         # except botocore.errorfactory.ClientError as e:
         except Exception as e:
             # except ClientError as e:
@@ -664,10 +669,12 @@ class Login(QDialog):
                 msgBox.setText(QApplication.translate("QMessageBox", "Login Error.  Try again..."))
 
             ret = msgBox.exec()
+            return str(e)
         except Exception as e:
             ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
 
             print("Exception Error:", ex_stat)
+            return str(e)
 
     async def refresh_tokens_periodically(self, refresh_token, interval=2700):
         """Refresh tokens periodically using the refresh token (async version)"""
