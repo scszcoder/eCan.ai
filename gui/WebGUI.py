@@ -56,9 +56,9 @@ class WebGUI(QMainWindow):
         self._setup_shortcuts()
         
         # # 创建定时器 Demo 测试使用的
-        self.dashboard_timer = QTimer(self)
-        self.dashboard_timer.timeout.connect(self.update_dashboard_data)
-        self.dashboard_timer.start(5000)  # 每5秒触发一次
+        # self.dashboard_timer = QTimer(self)
+        # self.dashboard_timer.timeout.connect(self.update_dashboard_data)
+        # self.dashboard_timer.start(5000)  # 每5秒触发一次
 
     def set_py_login(self, login):
         self.py_login = login

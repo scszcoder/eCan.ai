@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {  Row, Col, Form, Input, Button, Card, Select, Typography, App } from 'antd';
+import {  Row, Col, Form, Input, Button, Card, Select, Typography, App, Switch } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { createIPCAPI } from '../services/ipc';
@@ -27,6 +27,7 @@ const Login: React.FC = () => {
     const [form] = Form.useForm<LoginFormValues>();
     const { message: messageApi } = App.useApp();
     const [loading, setLoading] = useState(false);
+    const [isDevMode, setIsDevMode] = useState(localStorage.getItem('devMode') === 'true');
 
     set_ipc_api(createIPCAPI());
     const api = get_ipc_api()
@@ -50,7 +51,18 @@ const Login: React.FC = () => {
     const handleSubmit = async (values: LoginFormValues) => {
         setLoading(true);
         try {
-            const response = await api.login<LoginResponse>(values.username, values.password);
+            if (isDevMode) {
+                // Development mode - bypass API call
+                logger.info('Development mode: Bypassing login API call');
+                localStorage.setItem('token', 'dev-token');
+                localStorage.setItem('isAuthenticated', 'true');
+                localStorage.setItem('userRole', values.role);
+                messageApi.success('Development mode login successful');
+                navigate('/dashboard');
+                return;
+            }
+
+            const response = await api.login(values.username, values.password);
             if (response.success && response.data) {
                 logger.info('Login successful', response.data);
                 const { token, message: successMessage } = response.data;
@@ -77,10 +89,19 @@ const Login: React.FC = () => {
         localStorage.setItem('language', value);
     };
 
+    const handleDevModeChange = (checked: boolean) => {
+        setIsDevMode(checked);
+        localStorage.setItem('devMode', checked.toString());
+    };
+
     return (
         <div className="login-container">
             <div className="login-decoration" />
             <div style={{ position: 'absolute', top: 20, right: 20, display: 'flex', gap: 12, zIndex: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: 'white' }}>Dev Mode</span>
+                    <Switch checked={isDevMode} onChange={handleDevModeChange} />
+                </div>
                 <Select
                     value={i18n.language}
                     style={{ width: 120 }}
