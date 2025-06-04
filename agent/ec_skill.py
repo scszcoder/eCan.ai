@@ -95,26 +95,6 @@ class EC_Skill(AgentSkill):
             self.set_ui_info(sk_js["ui_info"])
 
 
-async def build_agent_skills(mainwin, skill_path=""):
-    skills = []
-    print(f"tool_schemas: {len(tool_schemas)}.")
-    if not skill_path:
-        print("build agent skills from code......")
-        new_skill = await create_rpa_helper_skill(mainwin)
-        print("test skill mcp client:", len(new_skill.mcp_client.get_tools()))
-        skills.append(new_skill)
-        new_skill = await create_rpa_operator_skill(mainwin)
-        skills.append(new_skill)
-        new_skill = await create_rpa_supervisor_scheduling_skill(mainwin)
-        skills.append(new_skill)
-        new_skill = await create_rpa_supervisor_serve_requests_skill(mainwin)
-        skills.append(new_skill)
-    else:
-        skills = build_agent_skills_from_files(mainwin, skill_path)
-    return skills
-
-def build_agent_skills_from_files(mainwin, skill_path=""):
-    return []
 
 async def wait_until_server_ready(url: str, timeout=5):
     deadline = time.time() + timeout

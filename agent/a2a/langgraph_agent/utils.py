@@ -514,7 +514,7 @@ def set_up_ec_procurement_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        agent_skill = next((sk for sk in agent_skills if sk.name == "ecbot procurement"), None)
+        agent_skill = next((sk for sk in agent_skills if sk.name == "search 1688"), None)
 
         agent_card = AgentCard(
             name="Engineering Procurement Agent",
@@ -544,8 +544,8 @@ def set_up_ec_procurement_agent(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         task = ManagedTask(
             id=task_id,
-            name="ECBot RPA Helper Task",
-            description="Help fix errors/failures during e-commerce RPA run",
+            name="ECBot Part Procurement Task",
+            description="Help sourcing products/parts for product development",
             status=status,  # or whatever default status you need
             sessionId=session_id,
             skill=agent_skill,
@@ -556,7 +556,7 @@ def set_up_ec_procurement_agent(mainwin):
             trigger="schedule",
             schedule=task_schedule
         )
-        marketing_researcher = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
+        produrement_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[agent_skill], tasks=[task])
 
     except Exception as e:
         # Get the traceback information
@@ -568,4 +568,4 @@ def set_up_ec_procurement_agent(mainwin):
             ex_stat = "ErrorSetUpECBOTHelperAgent: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
         return None
-    return marketing_researcher
+    return produrement_agent
