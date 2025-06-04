@@ -93,14 +93,14 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           form={form}
           layout="vertical"
           initialValues={value}
-          disabled={functionType === 'system'}
+          disabled={mode === 'edit' && functionType === 'system'}
         >
           <Form.Item
             name="type"
             label="Function Type"
             rules={[{ required: true }]}
           >
-            <Select onChange={handleTypeChange}>
+            <Select onChange={handleTypeChange} disabled={mode === 'edit'}>
               <Option value="system">System Function</Option>
               <Option value="custom">Custom Function</Option>
             </Select>

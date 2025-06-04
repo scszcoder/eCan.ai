@@ -81,6 +81,21 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   };
 
   const handleAdd = () => {
+    const newFunction: CallableFunction = {
+      name: '',
+      desc: '',
+      params: {
+        type: 'object',
+        properties: {}
+      },
+      returns: {
+        type: 'object',
+        properties: {}
+      },
+      type: 'custom'
+    };
+    setEditingFunction(newFunction);
+    setEditorVisible(true);
     if (onAdd) {
       onAdd();
     }
