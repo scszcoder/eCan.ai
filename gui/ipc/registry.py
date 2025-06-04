@@ -12,7 +12,7 @@ import json
 logger = logger_helper.logger
 
 # 定义处理器函数类型
-HandlerFunc = Callable[[IPCRequest, Optional[Any]], str]
+HandlerFunc = Callable[[IPCRequest, Optional[Any], Optional[Any]], str]
 HandlerType = TypeVar('HandlerType', bound=HandlerFunc)
 
 class IPCHandlerRegistry:
@@ -44,7 +44,7 @@ class IPCHandlerRegistry:
         """
         def decorator(func: HandlerType) -> HandlerType:
             @wraps(func)
-            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> str:
+            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Optional[Any]) -> str:
                 """处理器包装函数
                 
                 Args:
@@ -66,7 +66,7 @@ class IPCHandlerRegistry:
                     
                     # 调用处理器
                     logger.debug(f"Calling handler for method {method}")
-                    return func(request, params)
+                    return func(request, params, py_login)
                     
                 except Exception as e:
                     logger.error(f"Error in handler {method}: {e}")

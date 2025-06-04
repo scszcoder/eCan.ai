@@ -19,11 +19,12 @@ class IPCService(QObject):
     # 定义信号
     python_to_web = Signal(str)  # 发送消息到 Web 的信号
     
-    def __init__(self):
+    def __init__(self, py_login=None):
         super().__init__()
         logger.info("IPC service initialized")
         # 存储请求ID和对应的回调函数的映射
         self._request_callbacks: Dict[str, Callable[[IPCResponse], None]] = {}
+        self.py_login = py_login
     
     @Slot(str, result=str)
     def web_to_python(self, message: str) -> str:
@@ -94,7 +95,7 @@ class IPCService(QObject):
         """
         method = request.get('method')
         params = request.get('params')
-        
+        print("method:", method, "params:", params)
         if not method:
             return json.dumps(create_error_response(
                 request,
@@ -107,7 +108,8 @@ class IPCService(QObject):
         if handler:
             try:
                 # 直接调用处理器，让装饰器处理参数
-                return handler(request, params)
+                print("calling handler.......")
+                return handler(request, params, self.py_login)
             except Exception as e:
                 logger.error(f"Error calling handler for method {method}: {e}")
                 return json.dumps(create_error_response(

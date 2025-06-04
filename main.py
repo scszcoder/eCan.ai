@@ -60,11 +60,11 @@ def main():
         print("Running in production mode (built files)")
     
     # 创建并显示 Web GUI
-    web_gui = WebGUI()
+    web_gui = WebGUI(utils.logger_helper.login)
     web_gui.show()
     
     # 显示登录界面
-    utils.logger_helper.login.show()
+    # utils.logger_helper.login.show()
     loop.run_forever()
 
 if __name__ == '__main__':
