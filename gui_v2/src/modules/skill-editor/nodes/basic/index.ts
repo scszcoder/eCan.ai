@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
 import iconBasic from '../../assets/icon-basic.jpg';
-import { defaultFormMeta } from '../default-form-meta';
+import { formMeta } from './form-meta';
 
 let index = 0;
 export const BasicNodeRegistry: FlowNodeRegistry = {
@@ -27,12 +27,7 @@ export const BasicNodeRegistry: FlowNodeRegistry = {
         inputsValues: {},
         inputs: {
           type: 'object',
-          properties: {
-            input: {
-              type: 'string',
-              description: 'Input value',
-            },
-          },
+          properties: {} as Record<string, { type: string; description: string }>,
         },
         outputs: {
           type: 'object',
@@ -46,5 +41,5 @@ export const BasicNodeRegistry: FlowNodeRegistry = {
       },
     };
   },
-  formMeta: defaultFormMeta,
+  formMeta,
 }; 
