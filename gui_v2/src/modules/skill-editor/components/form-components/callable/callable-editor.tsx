@@ -31,6 +31,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   const [isCodeEditorVisible, setIsCodeEditorVisible] = useState(false);
   const [functionType, setFunctionType] = useState<'system' | 'custom'>(value?.type || 'custom');
   const [codeValue, setCodeValue] = useState(value?.code || '');
+  const [tempCodeValue, setTempCodeValue] = useState('');
   const [language, setLanguage] = useState<'javascript' | 'python'>('python');
 
   useEffect(() => {
@@ -38,11 +39,8 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       form.setFieldsValue(value);
       setFunctionType(value.type);
       setCodeValue(value.code || '');
-      if (value.code?.includes('def ')) {
-        setLanguage('python');
-      } else {
-        setLanguage('javascript');
-      }
+      setTempCodeValue(value.code || '');
+      setLanguage('python');
     }
   }, [value, form]);
 
@@ -71,12 +69,68 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
 
   const handleCodeEdit = () => {
     if (functionType === 'custom') {
+      if (!codeValue) {
+        const functionName = form.getFieldValue('name') || 'my_function';
+        const description = form.getFieldValue('desc') || 'Process the input parameters and return the result.';
+        const defaultCode = `def ${functionName}(params):
+    """
+    ${description}
+    
+    Args:
+        params (dict): A dictionary containing the input parameters.
+            The structure of params is defined by the Parameters Schema.
+    
+    Returns:
+        dict: The result object, structure defined by the Return Type Schema.
+    """
+    # TODO: Implement your function logic here
+    
+    # Example: Access parameters from the params dictionary
+    # param1 = params.get('param1')
+    # param2 = params.get('param2')
+    
+    # Example: Return a result
+    return {
+        # Add your return values here
+    }`;
+        setCodeValue(defaultCode);
+        setTempCodeValue(defaultCode);
+      } else {
+        setTempCodeValue(codeValue);
+      }
+      setLanguage('python');
       setIsCodeEditorVisible(true);
     }
   };
 
-  const handleCodeSave = (code: string) => {
-    setCodeValue(code);
+  const handleCodeChange = (code: string) => {
+    setTempCodeValue(code);
+  };
+
+  const handleCodeSave = () => {
+    setCodeValue(tempCodeValue);
+    
+    // Parse function name and description from code
+    const functionNameMatch = tempCodeValue.match(/def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
+    const docStringMatch = tempCodeValue.match(/"""(.*?)"""/s);
+    
+    if (functionNameMatch) {
+      const newFunctionName = functionNameMatch[1];
+      form.setFieldValue('name', newFunctionName);
+    }
+    
+    if (docStringMatch) {
+      const docString = docStringMatch[1].trim();
+      // Extract the first line of docstring as description
+      const description = docString.split('\n')[0].trim();
+      form.setFieldValue('desc', description);
+    }
+    
+    setIsCodeEditorVisible(false);
+  };
+
+  const handleCodeCancel = () => {
+    setTempCodeValue(codeValue);
     setIsCodeEditorVisible(false);
   };
 
@@ -179,7 +233,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           <div className="code-preview">
             <Editor
               height="200px"
-              defaultLanguage={language}
+              defaultLanguage="python"
               value={codeValue || '// No implementation code yet'}
               theme="vs-dark"
               options={{
@@ -207,12 +261,12 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
         </Form>
 
         <CodeEditorModal
-          value={codeValue}
-          onChange={handleCodeSave}
-          language={language}
+          value={tempCodeValue}
+          onChange={handleCodeChange}
+          language="python"
           visible={isCodeEditorVisible}
-          handleOk={() => setIsCodeEditorVisible(false)}
-          handleCancel={() => setIsCodeEditorVisible(false)}
+          handleOk={handleCodeSave}
+          handleCancel={handleCodeCancel}
           onVisibleChange={setIsCodeEditorVisible}
           options={{ readOnly: functionType === 'system' }}
         />
