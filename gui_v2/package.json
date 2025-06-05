@@ -43,6 +43,8 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@babel/plugin-proposal-class-properties": "^7.18.6",
+    "@babel/plugin-proposal-decorators": "^7.27.1",
     "@flowgram.ai/eslint-config": "^0.2.6",
     "@flowgram.ai/ts-config": "^0.2.6",
     "@rsbuild/core": "^1.3.21",
