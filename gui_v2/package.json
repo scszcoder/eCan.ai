@@ -29,6 +29,7 @@
     "@types/uuid": "^10.0.0",
     "antd": "^5.25.2",
     "axios": "^1.6.7",
+    "crypto-js": "^4.2.0",
     "i18next": "^25.2.0",
     "i18next-browser-languagedetector": "^8.1.0",
     "lodash-es": "^4.17.21",

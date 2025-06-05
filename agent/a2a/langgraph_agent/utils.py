@@ -451,7 +451,7 @@ def set_up_ec_research_agent(mainwin):
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         agent_skill = next((sk for sk in agent_skills if sk.name == "search 1688 web site"), None)
-
+        print("found agent skill:", agent_skill)
         agent_card = AgentCard(
             name="MECA Product Researcher Agent",
             description="MECA Product Research",
@@ -514,8 +514,8 @@ def set_up_ec_procurement_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        agent_skill = next((sk for sk in agent_skills if sk.name == "search 1688"), None)
-
+        agent_skill = next((sk for sk in agent_skills if "search 1688" in sk.name), None)
+        print("ec_procurement skill:", agent_skill.name)
         agent_card = AgentCard(
             name="Engineering Procurement Agent",
             description="Procure parts for product development",
@@ -532,9 +532,9 @@ def set_up_ec_procurement_agent(mainwin):
             repeat_type=Repeat_Types.BY_DAYS,
             repeat_number=1,
             repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120                # seconds.
+            start_date_time="2025-03-31 01:00:00:000",
+            end_date_time="2035-12-31 01:30:00:000",
+            time_out=1800                # seconds.
         )
 
         task_id = str(uuid.uuid4())
@@ -549,7 +549,6 @@ def set_up_ec_procurement_agent(mainwin):
             status=status,  # or whatever default status you need
             sessionId=session_id,
             skill=agent_skill,
-            task=agent_skill.runnable,
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
