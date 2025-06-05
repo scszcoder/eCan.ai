@@ -4,6 +4,7 @@ import { FlowNodeRegistry } from '../../typings';
 import iconCondition from '../../assets/icon-condition.svg';
 import { formMeta } from './form-meta';
 import { WorkflowNodeType } from '../constants';
+import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
 export const ConditionNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Condition,
@@ -35,6 +36,7 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
             value: {},
           },
         ],
+        outputs: DEFAULT_NODE_OUTPUTS,
       },
     };
   },

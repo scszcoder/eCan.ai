@@ -4,6 +4,7 @@ import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
 import iconBasic from '../../assets/icon-basic.jpg';
 import { formMeta } from './form-meta';
+import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
 let index = 0;
 export const BasicNodeRegistry: FlowNodeRegistry = {
@@ -29,15 +30,7 @@ export const BasicNodeRegistry: FlowNodeRegistry = {
           type: 'object',
           properties: {} as Record<string, { type: string; description: string }>,
         },
-        outputs: {
-          type: 'object',
-          properties: {
-            output: {
-              type: 'string',
-              description: 'Output value',
-            },
-          },
-        },
+        outputs: DEFAULT_NODE_OUTPUTS,
       },
     };
   },
