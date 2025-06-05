@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal } from 'antd';
+import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal, Switch } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { createIPCAPI } from '../services/ipc';
@@ -25,6 +25,7 @@ const Login: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
     const [selectedRole, setSelectedRole] = useState('commander');
+    const [isDebugMode, setIsDebugMode] = useState(false);
 
     set_ipc_api(createIPCAPI());
     const api = get_ipc_api();
@@ -46,6 +47,16 @@ const Login: React.FC = () => {
         setLoading(true);
         try {
             if (mode === 'login') {
+                if (isDebugMode) {
+                    // Debug mode: Direct login without any verification
+                    localStorage.setItem('token', 'debug-token');
+                    localStorage.setItem('isAuthenticated', 'true');
+                    localStorage.setItem('userRole', selectedRole);
+                    messageApi.success('Debug mode: Login successful');
+                    navigate('/dashboard');
+                    return;
+                }
+
                 const response = await api.login(values.username, values.password);
                 if (response.success && response.data) {
                     logger.info('Login successful', response.data);
@@ -93,9 +104,20 @@ const Login: React.FC = () => {
         localStorage.setItem('language', value);
     };
 
-    const handleDevModeChange = (checked: boolean) => {
-        setIsDevMode(checked);
-        localStorage.setItem('devMode', checked.toString());
+    const handleDebugModeChange = (checked: boolean) => {
+        setIsDebugMode(checked);
+        
+        if (checked) {
+            // Auto fill default values in debug mode
+            form.setFieldsValue({
+                username: 'debug_user',
+                password: 'debug_password',
+                role: 'commander'
+            });
+        } else {
+            // Clear form when debug mode is turned off
+            form.resetFields();
+        }
     };
 
     return (
@@ -118,6 +140,10 @@ const Login: React.FC = () => {
                     <Select.Option value="platoon">{t('roles.platoon')}</Select.Option>
                     <Select.Option value="staff_office">{t('roles.staff_office')}</Select.Option>
                 </Select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ color: '#fff' }}>Debug</Text>
+                    <Switch checked={isDebugMode} onChange={handleDebugModeChange} />
+                </div>
             </div>
 
             <Card className="login-card" style={{ width: 400 }}>
@@ -140,11 +166,26 @@ const Login: React.FC = () => {
                     className="login-form"
                     preserve={false}
                 >
-                    <Form.Item name="username" rules={[{ required: true, message: t('common.username') }]}> <Input prefix={<UserOutlined />} placeholder={t('common.username')} /> </Form.Item>
-                    <Form.Item name="password" rules={[{ required: true, message: t('common.password') }]}> <Input.Password prefix={<LockOutlined />} placeholder={t('common.password')} /> </Form.Item>
+                    <Form.Item 
+                        name="username" 
+                        rules={[{ required: true, message: t('common.username') }]}
+                    >
+                        <Input prefix={<UserOutlined />} placeholder={t('common.username')} />
+                    </Form.Item>
+                    <Form.Item 
+                        name="password" 
+                        rules={[{ required: true, message: t('common.password') }]}
+                    >
+                        <Input.Password prefix={<LockOutlined />} placeholder={t('common.password')} />
+                    </Form.Item>
 
                     {(mode === 'signup' || mode === 'forgot') && (
-                        <Form.Item name="confirmPassword" rules={[{ required: true, message: t('common.confirmPassword') }]}> <Input.Password prefix={<LockOutlined />} placeholder={t('common.confirmPassword')} /> </Form.Item>
+                        <Form.Item 
+                            name="confirmPassword" 
+                            rules={[{ required: true, message: t('common.confirmPassword') }]}
+                        >
+                            <Input.Password prefix={<LockOutlined />} placeholder={t('common.confirmPassword')} />
+                        </Form.Item>
                     )}
 
                     <Form.Item>
