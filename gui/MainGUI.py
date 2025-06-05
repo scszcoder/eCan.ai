@@ -1130,9 +1130,9 @@ class MainWindow(QMainWindow):
             self.agents.append(set_up_ec_research_agent(self))
         else:
             self.agents.append(set_up_ec_helper_agent(self))
-            self.agents.append(set_up_ec_rpa_supervisor_agent(self))
+            # self.agents.append(set_up_ec_rpa_supervisor_agent(self))
             if "ONLY" not in self.machine_role:
-                self.agents.append(set_up_ec_rpa_operator_agent(self))
+                # self.agents.append(set_up_ec_rpa_operator_agent(self))
                 self.agents.append(set_up_ec_procurement_agent(self))
 
     def get_vehicle_ecbot_op_agent(self, v):

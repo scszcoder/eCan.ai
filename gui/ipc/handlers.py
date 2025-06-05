@@ -138,8 +138,9 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login
         # 获取用户名和密码
         username = data['username']
         password = data['password']
-        print("user name:", username, "password:", password)
-        result = py_login.handleLogin(username, password)
+        machine_role = data['machine_role']
+        print("user name:", username, "password:", password, "machine_role:", machine_role)
+        result = py_login.handleLogin(username, password, machine_role)
         # 简单的密码验证
         if result == 'Successful':
             # 生成随机令牌
@@ -156,6 +157,40 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login
                 'INVALID_CREDENTIALS',
                 'Invalid username or password'
             ))
+    except Exception as e:
+        logger.error(f"Error in login handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during login: {str(e)}"
+        ))
+
+@IPCHandlerRegistry.handler('get_last_login')
+def handle_get_last_login(request: IPCRequest, params: Optional[Any], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get Last Login handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        result = py_login.handleGetLastLogin()
+
+        # 生成Response
+        logger.info(f"Get Last Login Info successful.")
+        return json.dumps(create_success_response(request, {
+            'last_login': result,
+            'message': 'Get Last Login successful'
+        }))
+
     except Exception as e:
         logger.error(f"Error in login handler: {e}")
         return json.dumps(create_error_response(

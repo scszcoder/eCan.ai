@@ -159,12 +159,10 @@ class Goal(TypedDict):
 
 # State for LangGraph
 class NodeState(TypedDict):
-    input: dict
     messages: List[Any]
     attributes: dict
     result: dict
     retries: int
-    resolved: bool
     condition: bool
     case: str
     goals: List[Goal]

@@ -4,6 +4,8 @@ from pydantic import ConfigDict, BaseModel
 import uuid
 from agent.a2a.common.types import *
 from agent.ec_skill import EC_Skill
+from agent.ec_skills.init_skills_run import *
+
 import os
 from fastapi.responses import JSONResponse
 
@@ -499,9 +501,7 @@ class TaskRunner(Generic[Context]):
                         # then run this skill's runnable with the msg
                         if matched_tasks:
                             task2run = matched_tasks[0]
-                            task2run.metadata["state"] = {
-                                "messages": [self.agent, msg]
-                            }
+                            task2run.metadata["state"] = init_skills_run(self.agent)
                             print("ready to run the right task", task2run.name, msg)
                             response = await task2run.astream_run()
                             print("task run response:", response)
