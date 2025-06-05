@@ -770,16 +770,21 @@ class Login(QDialog):
     def get_mainwin(self):
         return self.main_win
 
-    def handleSignUp(self):
+    def handleSignUp(self, uname="", pw=""):
         print("Signing up...." + self.textName.text() + "...." + self.textPass.text())
         if (self.textPass.text() == self.textPass2.text()):
             try:
+                if not uname:
+                    uname = self.textName.text()
+
+                if not pw:
+                    pw = self.textPass.text()
 
                 response = self.aws_client.sign_up(
                     ClientId=CLIENT_ID,
-                    Username=self.textName.text(),
-                    Password=self.textPass.text(),
-                    UserAttributes=[{"Name": "email", "Value": self.textName.text()}]
+                    Username=uname,
+                    Password=pw,
+                    UserAttributes=[{"Name": "email", "Value": uname}]
                 )
                 print(response)
                 msgBox = QMessageBox()
