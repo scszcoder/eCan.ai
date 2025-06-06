@@ -63,8 +63,8 @@ export const SidebarRenderer = () => {
     if (!node) {
       return false;
     }
-    const { disableSideBar = false } = node.getNodeMeta<FlowNodeMeta>();
-    return !disableSideBar;
+    const { sidebarDisable = false } = node.getNodeMeta<FlowNodeMeta>();
+    return !sidebarDisable;
   }, [node]);
 
   if (playground.config.readonly) {
@@ -73,11 +73,12 @@ export const SidebarRenderer = () => {
   /**
    * Add "key" to rerender the sidebar when the node changes
    */
-  const content = node ? (
-    <PlaygroundEntityContext.Provider key={node.id} value={node}>
-      <SidebarNodeRenderer node={node} />
-    </PlaygroundEntityContext.Provider>
-  ) : null;
+  const content =
+    node && visible ? (
+      <PlaygroundEntityContext.Provider key={node.id} value={node}>
+        <SidebarNodeRenderer node={node} />
+      </PlaygroundEntityContext.Provider>
+    ) : null;
 
   return (
     <SideSheet mask={false} visible={visible} onCancel={handleClose}>
