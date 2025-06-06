@@ -1,3 +1,4 @@
+import { nanoid } from "nanoid";
 import iconStart from "../../assets/icon-start.jpg";
 import { FlowNodeRegistry } from "../../typings";
 import { DEFAULT_NODE_OUTPUTS } from "../../typings/node-outputs";
@@ -19,7 +20,7 @@ export const HttpNodeRegistry: FlowNodeRegistry = {
   formMeta,
   onAdd() {
     return {
-      id: `http_${Date.now()}`,
+      id: `http_${nanoid(5)}`,
       type: "http",
       data: {
         title: "http",
