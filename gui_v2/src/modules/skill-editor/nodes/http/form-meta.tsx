@@ -6,6 +6,7 @@ import { Field, FieldRenderProps, FormMeta, FormRenderProps, ValidateTrigger } f
 import { mapValues } from "lodash-es";
 
 import { FormContent, FormHeader, FormItem, FormOutputs, PropertiesEdit, TypeTag } from "../../form-components";
+import { FormCallable } from "../../form-components/form-callable";
 import { useIsSidebar } from "../../hooks";
 import { FlowNodeJSON, JsonSchema } from "../../typings";
 
@@ -32,7 +33,7 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
         <FormHeader />
         <FormContent>
           {/* API 方法和URL */}
-          <Collapse defaultActiveKey={["1", "2", "3", "4", "5", "6"]}>
+          <Collapse defaultActiveKey={["1", "2", "3", "4", "5", "6", "7"]}>
             <Collapse.Panel header="Inputs" itemKey="1">
               <Field
                 name="http.requestParams.properties"
@@ -167,7 +168,7 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
                                   valuesField.onChange(newValues);
                                 };
 
-                                const propertiesEditValue = Object.keys(propertiesField.value || {}).reduce((acc, key) => {
+                                const propertiesEditValue = Object.keys(propertiesField.value || {}).reduce((acc: Record<string, any>, key) => {
                                   const schema = propertiesField.value?.[key];
                                   if (schema && typeof schema === "object") {
                                     acc[key] = {
@@ -176,7 +177,7 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
                                     };
                                   }
                                   return acc;
-                                }, {} as Record<string, any>);
+                                }, {});
 
                                 return (
                                   <PropertiesEdit 
@@ -234,6 +235,9 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
                 }}
               </Field>
             </Collapse.Panel>
+            <Collapse.Panel header="Callable" itemKey="7">
+              <FormCallable />
+            </Collapse.Panel>
           </Collapse>
         </FormContent>
       </>
@@ -247,6 +251,7 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
           <Field name="http.apiMethod">{({ field }: any) => <Tag>{field.value}</Tag>}</Field>
           <Field name="http.apiUrl">{({ field }: any) => <div style={{ fontSize: "14px" }}>{field.value}</div>}</Field>
         </div>
+        <FormCallable />
         <FormOutputs />
       </FormContent>
     </>
