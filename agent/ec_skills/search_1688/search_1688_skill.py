@@ -1,4 +1,4 @@
-
+from bot.Logger import *
 from agent.ec_skill import *
 
 def check_browser_and_drivers(state: NodeState) -> NodeState:
@@ -6,7 +6,7 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     webdriver = mainwin.default_webdriver
     try:
-        url = state["input"]["url"]
+        url = state["attributes"]["url"]
         webdriver.switch_to.window(webdriver.window_handles[0])
         time.sleep(3)
         webdriver.execute_script(f"window.open('{url}', '_blank');")
@@ -19,7 +19,8 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
-        result_state =  NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[], resolved=False)
+        # set up output.
+        result_state =  NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
 
@@ -53,8 +54,8 @@ def goto_site(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
-        result_state = NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[],
-                             resolved=False)
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
         return result_state
 
     except Exception as e:
@@ -89,8 +90,8 @@ async def extract_web_page(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
-        result_state = NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[],
-                             resolved=False)
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
         return result_state
 
     except Exception as e:
@@ -122,8 +123,7 @@ def get_next_action(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
-        result_state = NodeState(input=input_text, messages=[HumanMessage(content=input_text)], retries=0, goals=[],
-                             resolved=False)
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
 
