@@ -4,7 +4,6 @@ import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
 import { CodeEditorModal } from '../../code-editor-modal';
-import { Editor } from '@monaco-editor/react';
 
 const { Option } = Select;
 const { Title } = Typography;
@@ -210,31 +209,17 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             )}
           </div>
           <div className="code-preview">
-            <Editor
-              height="200px"
-              defaultLanguage="python"
+            <CodeEditorModal
               value={codeValue || '// No implementation code yet'}
-              theme="vs-dark"
-              options={{
-                readOnly: true,
-                minimap: { enabled: false },
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                wordWrap: 'on',
-                lineNumbers: 'off',
-                folding: false,
-                glyphMargin: false,
-                lineDecorationsWidth: 0,
-                lineNumbersMinChars: 0,
-                renderLineHighlight: 'none',
-                overviewRulerBorder: false,
-                hideCursorInOverviewRuler: true,
-                overviewRulerLanes: 0,
-                scrollbar: {
-                  vertical: 'hidden',
-                  horizontal: 'hidden'
-                }
-              }}
+              onChange={() => {}}
+              language="python"
+              visible={true}
+              handleOk={() => {}}
+              handleCancel={() => {}}
+              onVisibleChange={() => {}}
+              mode="preview"
+              height="200px"
+              className="code-preview-editor"
             />
           </div>
         </Form>
