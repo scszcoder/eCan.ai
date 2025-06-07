@@ -66,6 +66,7 @@ from telemetry.views import (
 )
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
 from agent.tasks import TaskRunner, ManagedTask
+from agent.human_chatter import *
 import threading
 
 

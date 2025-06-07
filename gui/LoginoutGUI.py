@@ -540,7 +540,11 @@ class Login(QDialog):
                     raise e
         raise Exception("Max retries exceeded")
 
-    def handleLogin(self, uname="", pw=""):
+    def handleGetLastLogin(self):
+        return {"machine_role": self.machine_role, "username": self.textName.text(), "password": self.textPass.text()}
+
+
+    def handleLogin(self, uname="", pw="", mrole = ""):
         print("logging in....", self.textPass.text())
         # global commanderServer
         # global commanderXport
@@ -555,6 +559,9 @@ class Login(QDialog):
                 pw = self.textPass.text()
             self.aws_srp = AWSSRP(username=uname, password=pw, pool_id=USER_POOL_ID,
                                   client_id=CLIENT_ID, client=self.aws_client)
+
+            if not mrole:
+                self.machine_role = mrole
 
             # self.tokens = self.aws_srp.authenticate_user()
 

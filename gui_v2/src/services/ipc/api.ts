@@ -91,8 +91,12 @@ export class IPCAPI {
      * @param password - 密码
      * @returns Promise 对象，解析为登录响应
      */
-    public async login<T>(username: string, password: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('login', { username, password });
+    public async login<T>(username: string, password: string, machine_role: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('login', { username, password, machine_role });
+    }
+
+    public async getLastLoginInfo<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_last_login', {});
     }
 
     public async getAll<T>(username: string): Promise<APIResponse<T>> {

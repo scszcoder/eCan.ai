@@ -64,7 +64,7 @@ def main():
     web_gui.show()
     
     # 显示登录界面
-    # utils.logger_helper.login.show()
+    utils.logger_helper.login.show()
     loop.run_forever()
 
 if __name__ == '__main__':
