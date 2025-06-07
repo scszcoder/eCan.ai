@@ -321,8 +321,8 @@ class MainWindow(QMainWindow):
         self.reminderWin = None
         self.platoonWin = None
         self.botsFingerPrintsReady = False
-        self.default_webdriver = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
-
+        self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
+        self.default_webdriver = None
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QPlainTextEdit()
         self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -410,7 +410,9 @@ class MainWindow(QMainWindow):
                 self.default_wifi = self.general_settings.get("default_wifi", "")
                 self.default_printer = self.general_settings.get("default_printer", "")
                 self.display_resolution = self.general_settings.get("display_resolution", "")
-                self.default_webdriver = self.general_settings.get("default_webdriver", "")
+                self.default_webdriver_path = self.general_settings.get("default_webdriver_path", "")
+                self.build_dom_tree_script_path = self.general_settings.get("build_dom_tree_script_path", "")
+
                 self.new_orders_dir = self.general_settings.get("new_orders_dir", "c:/ding_dan/")
                 self.local_user_db_server = self.general_settings.get("localUserDB_host", "127.0.0.1")
                 self.local_user_db_port = self.general_settings.get("localUserDB_port", "5080")
@@ -1328,10 +1330,29 @@ class MainWindow(QMainWindow):
         return self.wifis
 
     def getWebDriverPath(self):
-        return self.default_webdriver
+        return self.default_webdriver_path
 
     def setWebDriverPath(self, driver_path):
-        self.default_webdriver = driver_path
+        self.default_webdriver_path = driver_path
+
+    def getWebDriver(self):
+        return self.default_webdriver
+
+    def setWebDriver(self, driver):
+        self.default_webdriver = driver
+
+    def load_build_dom_tree_script(self):
+        script = ""
+        try:
+            with open(self.build_dom_tree_script_path, 'r', encoding='utf-8') as file:
+                script = file.read()
+            return script
+        except FileNotFoundError:
+            print(f"Error: The file {self.build_dom_tree_script_path} was not found.")
+            return ""
+        except IOError as e:
+            print(f"Error reading {self.build_dom_tree_script_path}: {e}")
+            return ""
 
     #async def networking(self, platoonCallBack):
     def set_host_role(self, role):

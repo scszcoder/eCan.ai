@@ -1,5 +1,5 @@
 // Initially adopted from open source browser-use project.
-(
+const buildTree = (
   args = {
     doHighlightElements: true,
     focusHighlightIndex: -1,
@@ -852,7 +852,8 @@
     const hasQuickInteractiveAttr = element.hasAttribute("onclick") ||
       element.hasAttribute("role") ||
       element.hasAttribute("tabindex") ||
-      element.startsWith("aria-") ||
+//      element.startsWith("aria-") ||
+      [...element.attributes].some(attr => attr.name.startsWith("aria-")) ||
       element.hasAttribute("data-action") ||
       element.getAttribute("contenteditable") == "true";
 
@@ -1009,15 +1010,20 @@
       // Handle iframes
       if (tagName === "iframe") {
         try {
-          const iframeDoc = node.contentDocument || node.contentWindow?.document;
-          if (iframeDoc) {
-            for (const child of iframeDoc.childNodes) {
-              const domElement = buildDomTree(child, node);
-              if (domElement) nodeData.children.push(domElement);
+            const iframeDoc = node.contentDocument || node.contentWindow?.document;
+            if (
+                iframeDoc &&
+                iframeDoc.location?.origin === window.location.origin
+            ) {
+                for (const child of iframeDoc.childNodes) {
+                    const domElement = buildDomTree(child, node);
+                    if (domElement) nodeData.children.push(domElement);
             }
-          }
+            } else {
+                console.warn("Skipped cross-origin iframe:", node.src || "unknown");
+            }
         } catch (e) {
-          console.warn("Unable to access iframe:", e);
+            console.warn("Unable to access iframe:", e.message);
         }
       }
       // Handle rich text editors and contenteditable elements
@@ -1128,7 +1134,15 @@
     }
   }
 
+  function safeCopy(obj) {
+    return JSON.parse(JSON.stringify(obj));
+  }
   return debugMode ?
-    { rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS } :
-    { rootId, map: DOM_HASH_MAP };
+    safeCopy({ rootId, map: DOM_HASH_MAP, perfMetrics: PERF_METRICS }) :
+    safeCopy({ rootId, map: DOM_HASH_MAP });
 };
+
+// === Actual invocation & logging ===
+const result = buildTree();     // ⬅️ Calls the function with defaults
+console.log(result);           // ⬅️ Shows the result in console
+return result;
