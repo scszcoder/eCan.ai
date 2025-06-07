@@ -4,7 +4,7 @@ import { useClientContext, usePlayground } from '@flowgram.ai/free-layout-editor
 import { Button, Tooltip } from '@douyinfe/semi-ui';
 import { IconTerminal } from '@douyinfe/semi-icons';
 
-import { useModal } from '../../hooks/use-code-editor-modal';
+import { useModal } from '../../hooks/useCodeEditor';
 
 export const Console = () => {
   const ctx = useClientContext();

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-import { CodeEditorModal } from '../components/code-editor-modal';
+import { CodeEditor as CodeEditorModal } from '../components/code-editor';
 
 export const useModal = (initialContent: string, language: string, onOk?: (content: string) => boolean) => {
   const [content, setContent] = useState(initialContent);

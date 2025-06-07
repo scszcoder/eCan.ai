@@ -3,7 +3,7 @@ import { Modal, Form, Input, Select, Button, Typography } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
-import { CodeEditorModal } from '../../code-editor-modal';
+import { CodeEditor as CodeEditorModal } from '../../code-editor';
 
 const { Option } = Select;
 const { Title } = Typography;
