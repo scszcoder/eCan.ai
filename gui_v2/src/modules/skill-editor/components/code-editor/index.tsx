@@ -211,7 +211,7 @@ interface CodeEditorModalProps {
   style?: React.CSSProperties;
 }
 
-export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
+export const CodeEditor: React.FC<CodeEditorModalProps> = ({
   value,
   onChange,
   language,
@@ -266,7 +266,7 @@ export const CodeEditorModal: React.FC<CodeEditorModalProps> = ({
       glyphMargin: false,
       lineDecorationsWidth: 0,
       lineNumbersMinChars: 0,
-      renderLineHighlight: 'none',
+      renderLineHighlight: 'none' as const,
       overviewRulerBorder: false,
       hideCursorInOverviewRuler: true,
       overviewRulerLanes: 0,
