@@ -256,7 +256,7 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
         # Create a Service object using the path to chromedriver
         service = Service(executable_path=driver_path)
         # service = Service(ChromeDriverManager().install())
-
+        print("service", service, "options:", chrome_options, "driver_path:", driver_path, "selenium_address:", selenium_address)
         # Initialize WebDriver with the specified options and service
         driver = webdriver.Chrome(service=service, options=chrome_options)
 

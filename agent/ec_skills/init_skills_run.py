@@ -9,4 +9,5 @@ SKILL_INIT_TABLE = {
 }
 
 def init_skills_run(skillName, agent):
+    print("skill name:", skillName)
     return SKILL_INIT_TABLE[skillName](agent)
