@@ -40,6 +40,7 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks: {
           vendor: ['react', 'react-dom'],
+          monaco: ['monaco-editor'],
         },
       }
     }
@@ -47,6 +48,20 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
+      'monaco-editor': 'monaco-editor/esm/vs/editor/editor.api',
     },
+  },
+  optimizeDeps: {
+    include: [
+      'monaco-editor/esm/vs/editor/editor.api',
+      'monaco-editor/esm/vs/language/typescript/ts.worker',
+      'monaco-editor/esm/vs/language/json/json.worker',
+      'monaco-editor/esm/vs/language/css/css.worker',
+      'monaco-editor/esm/vs/language/html/html.worker',
+      'monaco-editor/esm/vs/basic-languages/python/python.worker',
+    ],
+  },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
   },
 })
