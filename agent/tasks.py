@@ -104,11 +104,14 @@ class ManagedTask(Task):
     async def astream_run(self, in_msg=""):
         try:
             print("running skill:", self.skill.name, in_msg)
+
             if not in_msg:
                 in_args = self.metadata.get("state", {})
             else:
                 in_args = in_msg
+
             print("in_args:", in_args)
+
             async for step in self.skill.runnable.astream(in_args):
                 await self.pause_event.wait()
                 self.status.message = Message(
@@ -501,7 +504,10 @@ class TaskRunner(Generic[Context]):
                         # then run this skill's runnable with the msg
                         if matched_tasks:
                             task2run = matched_tasks[0]
-                            task2run.metadata["state"] = init_skills_run(self.agent)
+                            print("task2run skill name", task2run.skill.name)
+                            task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+
+                            print("task2run init state", task2run.metadata["state"])
                             print("ready to run the right task", task2run.name, msg)
                             response = await task2run.astream_run()
                             print("task run response:", response)
@@ -521,9 +527,10 @@ class TaskRunner(Generic[Context]):
                     task2run = time_to_run(self.agent)
                     print(f"len task2run, {task2run}, {self.agent.card.name}")
                     if task2run:
-                        task2run.metadata["state"] = {
-                            "messages": [self.agent]
-                        }
+                        print("scheduled task2run skill name", task2run.skill.name)
+                        task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+
+                        print("scheduled task2run init state", task2run.metadata["state"])
                         response = await task2run.astream_run()
                         if response:
                             self.agent.a2a_server.task_manager.set_result(task2run.id, response)

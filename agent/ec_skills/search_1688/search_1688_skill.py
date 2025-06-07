@@ -1,12 +1,34 @@
 from bot.Logger import *
 from agent.ec_skill import *
+from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
+from bot.seleniumSkill import execute_js_script
 
 def check_browser_and_drivers(state: NodeState) -> NodeState:
     agent = state["messages"][0]
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver_path = mainwin.default_webdriver_path
+
+    print("inital state:", state)
     try:
         url = state["attributes"]["url"]
+        global ads_config, local_api_key, local_api_port, sk_work_settings
+        ads_port = mainwin.ads_settings['ads_port']
+        ads_api_key = mainwin.ads_settings['ads_api_key']
+        ads_chrome_version = mainwin.ads_settings['chrome_version']
+        scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
+        web_driver_options = ""
+        print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:', ads_chrome_version)
+        profiles = queryAdspowerProfile(ads_api_key, ads_port)
+        loaded_profiles = {}
+        for profile in profiles:
+            loaded_profiles[profile['username']] = {"uid": profile['user_id'], "remark": profile['remark']}
+
+        ads_profile_id = loaded_profiles[scraper_email]['uid']
+        ads_profile_remark = loaded_profiles[scraper_email]['remark']
+        print('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)
+
+        webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
+
         webdriver.switch_to.window(webdriver.window_handles[0])
         time.sleep(3)
         webdriver.execute_script(f"window.open('{url}', '_blank');")
@@ -19,6 +41,7 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
             webdriver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
+        mainwin.setWebDriver(webdriver)
         # set up output.
         result_state =  NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
@@ -30,18 +53,18 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorCheckBrowserAndDrivers:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+            ex_stat = "ErrorCheckBrowserAndDrivers: traceback information not available:" + str(e)
         log3(ex_stat)
 
 
 def goto_site(state: NodeState) -> NodeState:
     agent = state["messages"][-1]
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
     try:
-        url = state["messages"][0]
+        url = state["attributes"]["url"]
+        webdriver = mainwin.getWebDriver()
         webdriver.switch_to.window(webdriver.window_handles[0])
         time.sleep(3)
         webdriver.execute_script(f"window.open('{url}', '_blank');")
@@ -71,24 +94,23 @@ def goto_site(state: NodeState) -> NodeState:
 
 
 async def extract_web_page(state: NodeState) -> NodeState:
-    agent = state["messages"][-1]
+    agent = state["messages"][0]
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
     try:
-        url = state["messages"][0]
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
-
+        webdriver = mainwin.getWebDriver()
+        script = mainwin.load_build_dom_tree_script()
+        # print("dom tree build script to be executed", script)
+        target = None
+        domTree = execute_js_script(webdriver, script, target)
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        print("obtained dom tree:", domTree)
 
         new_state = await mainwin.browser_context.get_state()
         new_selector_map = new_state.selector_map
 
         time.sleep(3)
         # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
@@ -99,16 +121,16 @@ async def extract_web_page(state: NodeState) -> NodeState:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
         log3(ex_stat)
 
 
 def get_next_action(state: NodeState) -> NodeState:
     agent = state["messages"][-1]
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver_path = mainwin.default_webdriver_path
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -253,15 +275,14 @@ async def create_search_1688_skill(mainwin):
         workflow = StateGraph(NodeState)
         workflow.add_node("check_browser", check_browser_and_drivers)
         workflow.set_entry_point("check_browser")
-        workflow.add_node("goto_site", goto_site)
+        # workflow.add_node("goto_site", goto_site)
 
         workflow.add_node("extract_web_page", extract_web_page)
 
         workflow.add_node("get_next_action", get_next_action)
 
 
-        workflow.add_edge("check_browser", "goto_site")
-        workflow.add_edge("goto_site", "extract_web_page")
+        workflow.add_edge("check_browser", "extract_web_page")
         workflow.add_edge("extract_web_page", "get_next_action")
 
         workflow.add_conditional_edges("get_next_action", route_logic, ["extract_web_page", END])
