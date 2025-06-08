@@ -225,6 +225,7 @@ interface CodeEditorProps {
   height?: string | number;
   className?: string;
   style?: React.CSSProperties;
+  onEditorDidMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
 }
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({
@@ -240,9 +241,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   height = 'calc(100vh - 120px)',
   className,
   style,
+  onEditorDidMount,
 }) => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef(value);
 
   const handleCurrentOk = useCallback(() => {
     handleOk?.();
@@ -290,6 +293,8 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         ...editorOptions,
       });
 
+      onEditorDidMount?.(editorRef.current);
+
       const disposable = editorRef.current.onDidChangeModelContent(() => {
         const newValue = editorRef.current?.getValue();
         if (onChange && newValue !== undefined) {
@@ -303,12 +308,16 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         editorRef.current = null;
       };
     }
-  }, [visible, language, editorOptions]);
+  }, [visible, language, editorOptions, onEditorDidMount]);
 
-  // Update editor value
+  // Update editor value only when it changes externally
   useEffect(() => {
-    if (editorRef.current && value !== editorRef.current.getValue()) {
-      editorRef.current.setValue(value);
+    if (editorRef.current && value !== valueRef.current) {
+      valueRef.current = value;
+      const currentValue = editorRef.current.getValue();
+      if (value !== currentValue) {
+        editorRef.current.setValue(value);
+      }
     }
   }, [value]);
 

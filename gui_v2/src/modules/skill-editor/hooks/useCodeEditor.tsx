@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 import { CodeEditor } from '../components/code-editor';
 
@@ -25,11 +25,15 @@ export const useCodeEditor = ({
   language,
   onSave,
 }: UseCodeEditorProps): UseCodeEditorReturn => {
-  const [content, setContent] = useState(initialContent);
   const [isVisible, setIsVisible] = useState(false);
+  const editorRef = useRef<any>(null);
+  const contentRef = useRef(initialContent);
 
   const openEditor = useCallback((newContent: string) => {
-    setContent(newContent);
+    contentRef.current = newContent;
+    if (editorRef.current) {
+      editorRef.current.setValue(newContent);
+    }
     setIsVisible(true);
   }, []);
 
@@ -38,25 +42,31 @@ export const useCodeEditor = ({
   }, []);
 
   const handleChange = useCallback((newContent: string) => {
-    setContent(newContent);
+    contentRef.current = newContent;
   }, []);
 
   const handleSave = useCallback(() => {
     if (onSave) {
-      return onSave(content);
+      return onSave(contentRef.current);
     }
     return true;
-  }, [content, onSave]);
+  }, [onSave]);
+
+  const handleEditorDidMount = useCallback((editor: any) => {
+    editorRef.current = editor;
+    editor.setValue(contentRef.current);
+  }, []);
 
   const editor = (
     <CodeEditor
-      value={content}
+      value={contentRef.current}
       language={language}
       visible={isVisible}
       onVisibleChange={setIsVisible}
       onChange={handleChange}
       handleOk={handleSave}
       options={{ readOnly: false }}
+      onEditorDidMount={handleEditorDidMount}
     />
   );
 
