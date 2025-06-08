@@ -22,27 +22,37 @@ export function ConditionInputs() {
         <>
           {field.map((child, index) => (
             <Field<ConditionValue> key={child.name} name={child.name}>
-              {({ field: childField, fieldState: childState }) => (
-                <FormItem name="if" type="boolean" required={true} labelWidth={40}>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <ConditionRow
-                      readonly={readonly}
-                      style={{ flexGrow: 1 }}
-                      value={childField.value.value}
-                      onChange={(v) => childField.onChange({ value: v, key: childField.value.key })}
-                    />
+              {({ field: childField, fieldState: childState }) => {
+                const isIfCondition = childField.value?.key?.startsWith('if_');
+                const formItemName = isIfCondition ? 'if' : 'else';
+                
+                return (
+                  <FormItem name={formItemName} type="boolean" required={true} labelWidth={40}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <ConditionRow
+                          readonly={readonly || !isIfCondition}
+                          style={{ flexGrow: 1 }}
+                          value={childField.value?.value}
+                          onChange={(v) => childField.onChange({ value: v, key: childField.value.key })}
+                        />
+                        <Button
+                          theme="borderless"
+                          icon={<IconCrossCircleStroked />}
+                          onClick={() => {
+                            if (field.value) {
+                              const newValue = field.value.filter((_, i) => i !== index);
+                              field.onChange(newValue);
+                            }
+                          }}
+                          disabled={!isIfCondition}
+                        />
+                    </div>
 
-                    <Button
-                      theme="borderless"
-                      icon={<IconCrossCircleStroked />}
-                      onClick={() => field.delete(index)}
-                    />
-                  </div>
-
-                  <Feedback errors={childState?.errors} invalid={childState?.invalid} />
-                  <ConditionPort data-port-id={childField.value.key} data-port-type="output" />
-                </FormItem>
-              )}
+                    <Feedback errors={childState?.errors} invalid={childState?.invalid} />
+                    <ConditionPort data-port-id={childField.value?.key} data-port-type="output" />
+                  </FormItem>
+                );
+              }}
             </Field>
           ))}
           {!readonly && (
