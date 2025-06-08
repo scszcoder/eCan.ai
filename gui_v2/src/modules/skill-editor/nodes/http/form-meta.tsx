@@ -249,7 +249,7 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
       <FormContent>
         <div style={{ display: "flex", gap: 10, fontSize: "12px", alignItems: "baseline" }}>
           <Field name="http.apiMethod">{({ field }: any) => <Tag>{field.value}</Tag>}</Field>
-          <Field name="http.apiUrl">{({ field }: any) => <div style={{ fontSize: "14px" }}>{field.value}</div>}</Field>
+          <Field name="http.apiUrl">{({ field }: any) => <div style={{ fontSize: "14px", color: "#333" }}>{field.value}</div>}</Field>
         </div>
         <FormCallable />
         <FormOutputs />
