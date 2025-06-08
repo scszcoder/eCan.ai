@@ -1,42 +1,64 @@
 import { useState, useCallback } from 'react';
 
-import { CodeEditor as CodeEditorModal } from '../components/code-editor';
+import { CodeEditor } from '../components/code-editor';
 
-export const useModal = (initialContent: string, language: string, onOk?: (content: string) => boolean) => {
+interface UseCodeEditorProps {
+  initialContent: string;
+  language: string;
+  onSave?: (content: string) => boolean;
+}
+
+interface UseCodeEditorReturn {
+  openEditor: (content: string) => void;
+  closeEditor: () => void;
+  editor: JSX.Element;
+}
+
+/**
+ * Hook for managing a code editor modal
+ * @param initialContent - Initial content of the editor
+ * @param language - Programming language for syntax highlighting
+ * @param onSave - Optional callback when saving the content
+ */
+export const useCodeEditor = ({
+  initialContent,
+  language,
+  onSave,
+}: UseCodeEditorProps): UseCodeEditorReturn => {
   const [content, setContent] = useState(initialContent);
   const [isVisible, setIsVisible] = useState(false);
 
-  const openModal = (newContent: string) => {
+  const openEditor = useCallback((newContent: string) => {
     setContent(newContent);
     setIsVisible(true);
-  };
+  }, []);
 
-  const closeModal = () => {
+  const closeEditor = useCallback(() => {
     setIsVisible(false);
-  };
+  }, []);
 
   const handleChange = useCallback((newContent: string) => {
     setContent(newContent);
   }, []);
 
-  const handleOk = useCallback(() => {
-    if (onOk) {
-      return onOk(content);
+  const handleSave = useCallback(() => {
+    if (onSave) {
+      return onSave(content);
     }
     return true;
-  }, [content, onOk]);
+  }, [content, onSave]);
 
-  const modal = (
-    <CodeEditorModal
+  const editor = (
+    <CodeEditor
       value={content}
       language={language}
       visible={isVisible}
       onVisibleChange={setIsVisible}
       onChange={handleChange}
-      handleOk={handleOk}
+      handleOk={handleSave}
       options={{ readOnly: false }}
     />
   );
 
-  return { openModal, closeModal, modal };
+  return { openEditor, closeEditor, editor };
 };
