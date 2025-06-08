@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Typography } from 'antd';
+import { Modal, Form, Input, Select, Button, Typography, message } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
@@ -31,6 +31,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   const [codeValue, setCodeValue] = useState(value?.code || '');
   const [tempCodeValue, setTempCodeValue] = useState('');
   const [language, setLanguage] = useState<'javascript' | 'python'>('python');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (value) {
@@ -42,8 +43,17 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
     }
   }, [value, form]);
 
-  const handleSave = () => {
-    form.validateFields().then(values => {
+  const handleSave = async () => {
+    try {
+      setIsSubmitting(true);
+      const values = await form.validateFields();
+      
+      // Validate code for custom functions
+      if (functionType === 'custom' && !codeValue) {
+        message.error('Please implement the function code');
+        return;
+      }
+
       onSave({
         ...values,
         type: functionType,
@@ -51,7 +61,12 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
         params: { type: 'object', properties: {} },
         returns: { type: 'object', properties: {} }
       });
-    });
+    } catch (error) {
+      console.error('Form validation failed:', error);
+      // Form validation errors will be shown automatically by antd
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleTypeChange = (type: 'system' | 'custom') => {
@@ -141,6 +156,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       onOk={handleSave}
       onCancel={onCancel}
       width={800}
+      confirmLoading={isSubmitting}
     >
       <CallableEditorWrapper>
         <Form
@@ -152,7 +168,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           <Form.Item
             name="type"
             label="Function Type"
-            rules={[{ required: true }]}
+            rules={[{ required: true, message: 'Please select a function type' }]}
           >
             <Select onChange={handleTypeChange} disabled={mode === 'edit'}>
               <Option value="system">System Function</Option>
@@ -164,7 +180,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             <Form.Item
               name="name"
               label="Function Name"
-              rules={[{ required: true }]}
+              rules={[{ required: true, message: 'Please select a system function' }]}
             >
               <Select>
                 {systemFunctions.map(func => (
@@ -181,7 +197,10 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
               <Form.Item
                 name="name"
                 label="Function Name"
-                rules={[{ required: true }]}
+                rules={[
+                  { required: true, message: 'Please enter a function name' },
+                  { pattern: /^[a-zA-Z_][a-zA-Z0-9_]*$/, message: 'Invalid function name format' }
+                ]}
               >
                 <Input />
               </Form.Item>
@@ -189,7 +208,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
               <Form.Item
                 name="desc"
                 label="Description"
-                rules={[{ required: true }]}
+                rules={[{ required: true, message: 'Please enter a description' }]}
               >
                 <Input.TextArea rows={2} />
               </Form.Item>

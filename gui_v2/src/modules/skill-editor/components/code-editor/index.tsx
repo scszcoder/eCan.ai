@@ -1,38 +1,32 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import { Modal } from '@douyinfe/semi-ui';
 import * as monaco from 'monaco-editor';
 
-// 配置 monaco-editor 的 worker 路径
-self.MonacoEnvironment = {
+// Monaco Editor worker configuration
+const MONACO_WORKER_CONFIG = {
   getWorkerUrl: function (_moduleId: string, label: string) {
-    if (label === 'typescript' || label === 'javascript') {
-      return './monaco-editor/esm/vs/language/typescript/ts.worker.js';
-    }
-    if (label === 'json') {
-      return './monaco-editor/esm/vs/language/json/json.worker.js';
-    }
-    if (label === 'css') {
-      return './monaco-editor/esm/vs/language/css/css.worker.js';
-    }
-    if (label === 'html') {
-      return './monaco-editor/esm/vs/language/html/html.worker.js';
-    }
-    if (label === 'python') {
-      return './monaco-editor/esm/vs/basic-languages/python/python.worker.js';
-    }
-    return './monaco-editor/esm/vs/editor/editor.worker.js';
+    const workerMap: Record<string, string> = {
+      typescript: './monaco-editor/esm/vs/language/typescript/ts.worker.js',
+      javascript: './monaco-editor/esm/vs/language/typescript/ts.worker.js',
+      json: './monaco-editor/esm/vs/language/json/json.worker.js',
+      css: './monaco-editor/esm/vs/language/css/css.worker.js',
+      html: './monaco-editor/esm/vs/language/html/html.worker.js',
+      python: './monaco-editor/esm/vs/basic-languages/python/python.worker.js'
+    };
+    return workerMap[label] || './monaco-editor/esm/vs/editor/editor.worker.js';
   }
 };
 
-// 注册语言
-monaco.languages.register({ id: 'python' });
-monaco.languages.register({ id: 'javascript' });
-monaco.languages.register({ id: 'typescript' });
-monaco.languages.register({ id: 'html' });
-monaco.languages.register({ id: 'css' });
-monaco.languages.register({ id: 'json' });
+// Initialize Monaco environment
+if (typeof self !== 'undefined') {
+  self.MonacoEnvironment = MONACO_WORKER_CONFIG;
+}
 
-// 配置语言特性
+// Register supported languages
+const SUPPORTED_LANGUAGES = ['python', 'javascript', 'typescript', 'html', 'css', 'json'];
+SUPPORTED_LANGUAGES.forEach(lang => monaco.languages.register({ id: lang }));
+
+// Language configurations
 const languageConfigs: Record<string, monaco.languages.IMonarchLanguage> = {
   python: {
     tokenizer: {
@@ -191,12 +185,34 @@ const languageConfigs: Record<string, monaco.languages.IMonarchLanguage> = {
   },
 };
 
-// 应用语言配置
+// Apply language configurations
 Object.entries(languageConfigs).forEach(([language, config]) => {
   monaco.languages.setMonarchTokensProvider(language, config);
 });
 
-interface CodeEditorModalProps {
+// Default editor options
+const DEFAULT_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
+  fontSize: 14,
+  lineNumbers: 'on',
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  automaticLayout: true,
+  tabSize: 4,
+  wordWrap: 'on',
+  theme: 'vs-dark',
+  renderWhitespace: 'selection',
+  contextmenu: true,
+  quickSuggestions: true,
+  suggestOnTriggerCharacters: true,
+  acceptSuggestionOnEnter: 'on',
+  snippetSuggestions: 'inline',
+  wordBasedSuggestions: 'currentDocument',
+  parameterHints: {
+    enabled: true
+  }
+};
+
+interface CodeEditorProps {
   value: string;
   onChange?: (value: string) => void;
   language: string;
@@ -211,7 +227,7 @@ interface CodeEditorModalProps {
   style?: React.CSSProperties;
 }
 
-export const CodeEditor: React.FC<CodeEditorModalProps> = ({
+export const CodeEditor: React.FC<CodeEditorProps> = ({
   value,
   onChange,
   language,
@@ -238,67 +254,58 @@ export const CodeEditor: React.FC<CodeEditorModalProps> = ({
     onVisibleChange?.(false);
   }, [handleCancel, onVisibleChange]);
 
-  // 默认配置
-  const defaultOptions: monaco.editor.IStandaloneEditorConstructionOptions = {
-    fontSize: 14,
-    lineNumbers: 'on' as const,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    automaticLayout: true,
-    tabSize: 4,
-    wordWrap: 'on',
-    theme: 'vs-dark',
-    ...(language === 'python' ? {
-      insertSpaces: true,
-      detectIndentation: true,
-      trimTrailingWhitespace: true,
-      insertFinalNewline: true,
-    } : {}),
-  };
+  // Memoize editor options
+  const editorOptions = useMemo(() => {
+    const baseOptions = { ...DEFAULT_EDITOR_OPTIONS, ...externalOptions };
+    
+    if (mode === 'preview') {
+      return {
+        ...baseOptions,
+        readOnly: true,
+        lineNumbers: 'off' as const,
+        folding: false,
+        glyphMargin: false,
+        lineDecorationsWidth: 0,
+        lineNumbersMinChars: 0,
+        renderLineHighlight: 'none' as const,
+        overviewRulerBorder: false,
+        hideCursorInOverviewRuler: true,
+        overviewRulerLanes: 0,
+        scrollbar: {
+          vertical: 'hidden' as const,
+          horizontal: 'hidden' as const
+        }
+      } as monaco.editor.IStandaloneEditorConstructionOptions;
+    }
+    
+    return baseOptions;
+  }, [mode, externalOptions]);
 
-  const mergedOptions = { 
-    ...defaultOptions, 
-    ...externalOptions,
-    ...(mode === 'preview' ? {
-      readOnly: true,
-      lineNumbers: 'off' as const,
-      folding: false,
-      glyphMargin: false,
-      lineDecorationsWidth: 0,
-      lineNumbersMinChars: 0,
-      renderLineHighlight: 'none' as const,
-      overviewRulerBorder: false,
-      hideCursorInOverviewRuler: true,
-      overviewRulerLanes: 0,
-      scrollbar: {
-        vertical: 'hidden' as const,
-        horizontal: 'hidden' as const
-      }
-    } : {})
-  };
-
+  // Initialize editor
   useEffect(() => {
     if (visible && containerRef.current && !editorRef.current) {
       editorRef.current = monaco.editor.create(containerRef.current, {
         value,
         language,
-        ...mergedOptions,
+        ...editorOptions,
       });
 
-      editorRef.current.onDidChangeModelContent(() => {
+      const disposable = editorRef.current.onDidChangeModelContent(() => {
         const newValue = editorRef.current?.getValue();
         if (onChange && newValue !== undefined) {
           onChange(newValue);
         }
       });
+
+      return () => {
+        disposable.dispose();
+        editorRef.current?.dispose();
+        editorRef.current = null;
+      };
     }
+  }, [visible, language, editorOptions]);
 
-    return () => {
-      editorRef.current?.dispose();
-      editorRef.current = null;
-    };
-  }, [visible, language]);
-
+  // Update editor value
   useEffect(() => {
     if (editorRef.current && value !== editorRef.current.getValue()) {
       editorRef.current.setValue(value);
@@ -312,7 +319,9 @@ export const CodeEditor: React.FC<CodeEditorModalProps> = ({
       style={{ 
         height,
         width: '100%',
-        border: '1px solid #ccc',
+        border: '1px solid var(--semi-color-border)',
+        borderRadius: '4px',
+        overflow: 'hidden',
         ...style
       }}
     />
