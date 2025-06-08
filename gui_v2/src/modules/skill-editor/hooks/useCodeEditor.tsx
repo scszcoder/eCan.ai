@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import * as monaco from 'monaco-editor';
 
 import { CodeEditor } from '../components/code-editor';
 
@@ -6,6 +7,13 @@ interface UseCodeEditorProps {
   initialContent: string;
   language: string;
   onSave?: (content: string) => boolean;
+  mode?: 'preview' | 'edit';
+  height?: string | number;
+  className?: string;
+  style?: React.CSSProperties;
+  visible?: boolean;
+  options?: monaco.editor.IStandaloneEditorConstructionOptions;
+  onEditorDidMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
 }
 
 interface UseCodeEditorReturn {
@@ -19,13 +27,26 @@ interface UseCodeEditorReturn {
  * @param initialContent - Initial content of the editor
  * @param language - Programming language for syntax highlighting
  * @param onSave - Optional callback when saving the content
+ * @param mode - Editor mode: 'preview' for read-only preview, 'edit' for editable content
+ * @param height - Height of the editor
+ * @param className - Additional CSS class name
+ * @param style - Additional CSS styles
+ * @param visible - Whether the editor is visible
+ * @param options - Additional Monaco editor options
  */
 export const useCodeEditor = ({
   initialContent,
   language,
   onSave,
+  mode = 'edit',
+  height,
+  className,
+  style,
+  visible = false,
+  options: externalOptions,
+  onEditorDidMount,
 }: UseCodeEditorProps): UseCodeEditorReturn => {
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(visible);
   const editorRef = useRef<any>(null);
   const contentRef = useRef(initialContent);
 
@@ -55,7 +76,10 @@ export const useCodeEditor = ({
   const handleEditorDidMount = useCallback((editor: any) => {
     editorRef.current = editor;
     editor.setValue(contentRef.current);
-  }, []);
+    if (onEditorDidMount) {
+      onEditorDidMount(editor);
+    }
+  }, [onEditorDidMount]);
 
   const editor = (
     <CodeEditor
@@ -65,8 +89,29 @@ export const useCodeEditor = ({
       onVisibleChange={setIsVisible}
       onChange={handleChange}
       handleOk={handleSave}
-      options={{ readOnly: false }}
+      options={{ 
+        readOnly: mode === 'preview',
+        lineNumbers: mode === 'edit' ? 'on' : 'off',
+        minimap: { enabled: mode === 'edit' },
+        folding: mode === 'edit',
+        glyphMargin: mode === 'edit',
+        lineDecorationsWidth: mode === 'edit' ? 10 : 0,
+        lineNumbersMinChars: mode === 'edit' ? 3 : 0,
+        renderLineHighlight: mode === 'edit' ? 'all' : 'none',
+        overviewRulerBorder: mode === 'edit',
+        hideCursorInOverviewRuler: mode !== 'edit',
+        overviewRulerLanes: mode === 'edit' ? 2 : 0,
+        scrollbar: {
+          vertical: mode === 'edit' ? 'visible' : 'hidden',
+          horizontal: mode === 'edit' ? 'visible' : 'hidden'
+        },
+        ...externalOptions
+      }}
       onEditorDidMount={handleEditorDidMount}
+      mode={mode}
+      height={height}
+      className={className}
+      style={style}
     />
   );
 
