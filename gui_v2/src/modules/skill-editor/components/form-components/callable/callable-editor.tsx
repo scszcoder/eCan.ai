@@ -3,7 +3,7 @@ import { Modal, Form, Input, Select, Button, Typography, message } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
-import { CodeEditor as CodeEditorModal } from '../../code-editor';
+import { CodeEditor } from '../../code-editor';
 
 const { Option } = Select;
 const { Title } = Typography;
@@ -255,7 +255,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             )}
           </div>
           <div className="code-preview">
-            <CodeEditorModal
+            <CodeEditor
               value={codeValue || '// No implementation code yet'}
               onChange={() => {}}
               language={DEFAULT_LANGUAGE}
@@ -270,7 +270,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           </div>
         </Form>
 
-        <CodeEditorModal
+        <CodeEditor
           value={tempCodeValue}
           onChange={handleCodeChange}
           language={DEFAULT_LANGUAGE}
