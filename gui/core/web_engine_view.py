@@ -16,6 +16,19 @@ from pathlib import Path
 import os
 import shutil
 
+class CustomWebEnginePage(QWebEnginePage):
+    def __init__(self, profile=None, parent=None):
+        super().__init__(profile, parent)
+        self.featurePermissionRequested.connect(self.onFeaturePermissionRequested)
+
+    def onFeaturePermissionRequested(self, url, feature):
+        # Uncomment to debug
+        # print(f"Feature requested: {feature} at {url}")
+        # Grant ALL permissions (camera, microphone, etc)
+        self.setFeaturePermission(
+            url, feature, QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
+        )
+
 logger = logger_helper.logger
 
 class WebEngineView(QWebEngineView):
@@ -50,6 +63,11 @@ class WebEngineView(QWebEngineView):
     
     def __init__(self, parent: Optional[QMainWindow] = None):
         super().__init__(parent)
+        # Use default profile or create a new one
+        profile = QWebEngineProfile.defaultProfile()
+        custom_page = CustomWebEnginePage(profile, self)
+        self.setPage(custom_page)
+
         self._interceptor: Optional[RequestInterceptor] = None
         self._is_loading: bool = False
         self._last_error: Optional[str] = None

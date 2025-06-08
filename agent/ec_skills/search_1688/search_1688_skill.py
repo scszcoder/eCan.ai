@@ -2,6 +2,8 @@ from bot.Logger import *
 from agent.ec_skill import *
 from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 from bot.seleniumSkill import execute_js_script
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 def check_browser_and_drivers(state: NodeState) -> NodeState:
     agent = state["messages"][0]
@@ -104,17 +106,16 @@ async def extract_web_page(state: NodeState) -> NodeState:
         domTree = execute_js_script(webdriver, script, target)
         print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         print("obtained dom tree:", domTree)
+        with open("domtree.json", 'w', encoding="utf-8") as f:
+            json.dump(domTree, f, ensure_ascii=False, indent=4)
+            # self.rebuildHTML()
+            f.close()
 
-        new_state = await mainwin.browser_context.get_state()
-        new_selector_map = new_state.selector_map
+        state.result = domTree
+        state.error = ""            # clear error
+        time.sleep(1)
 
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-
-
-        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
-
-        return result_state
+        return state
 
     except Exception as e:
         # Get the traceback information
@@ -125,10 +126,104 @@ async def extract_web_page(state: NodeState) -> NodeState:
         else:
             ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
         log3(ex_stat)
+        state.error = ex_stat
+        return state
+
+
+
+async def search_product(state: NodeState) -> NodeState:
+    agent = state["messages"][0]
+    mainwin = agent.mainwin
+    try:
+        webdriver = mainwin.getWebDriver()
+        # assuming driver is already created and points to the page
+        input_box = webdriver.find_element(By.ID, "alisearch-input")
+        input_box.clear()
+        search_phrase = state.attributes["search_phrase"]
+        input_box.send_keys(search_phrase)
+        input_box.send_keys(Keys.RETURN)  # if you want to simulate pressing Enter
+
+        time.sleep(3)
+        state.error = ""
+
+        return state
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
+        log3(ex_stat)
+        state.error = ex_stat
+        return state
+
+
+async def review_search_results(state: NodeState) -> NodeState:
+    agent = state["messages"][0]
+    mainwin = agent.mainwin
+    try:
+        webdriver = mainwin.getWebDriver()
+        # assuming driver is already created and points to the page
+        input_box = webdriver.find_element(By.ID, "alisearch-input")
+        input_box.clear()
+        search_phrase = state.attributes["search_phrase"]
+        input_box.send_keys(search_phrase)
+        input_box.send_keys(Keys.RETURN)  # if you want to simulate pressing Enter
+
+        time.sleep(3)
+        state.error = ""
+
+        return state
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
+        log3(ex_stat)
+        state.error = ex_stat
+        return state
+
+
+
+async def review_product_details(state: NodeState) -> NodeState:
+    agent = state["messages"][0]
+    mainwin = agent.mainwin
+    try:
+        webdriver = mainwin.getWebDriver()
+        # assuming driver is already created and points to the page
+        input_box = webdriver.find_element(By.ID, "alisearch-input")
+        input_box.clear()
+        search_phrase = state.attributes["search_phrase"]
+        input_box.send_keys(search_phrase)
+        input_box.send_keys(Keys.RETURN)  # if you want to simulate pressing Enter
+
+        time.sleep(3)
+        state.error = ""
+
+        return state
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
+        log3(ex_stat)
+        state.error = ex_stat
+        return state
 
 
 def get_next_action(state: NodeState) -> NodeState:
-    agent = state["messages"][-1]
+    agent = state["messages"][0]
     mainwin = agent.mainwin
     webdriver_path = mainwin.default_webdriver_path
     try:
@@ -308,6 +403,38 @@ async def create_search_1688_skill(mainwin):
 
 
 #
+
+prompt01 = ChatPromptTemplate.from_messages([
+            ("system", """
+                        You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
+                        - given user's chat message, please understand the user's intent in his/her chat message and summerize to me in
+                        - from one of the following lists:
+                        -  1) search a product or multiple products
+                        -  2) random chat not related to finding a product or service.
+                        - please return a list of clickable products dom object of no more than {max_candidates}.
+                    """),
+            ("human", [
+                {"type": "text", "text": "{input}"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+            ]),
+            ("placeholder", "{messages}"),
+        ])
+
+prompt01 = ChatPromptTemplate.from_messages([
+            ("system", """
+                        You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
+                        - given the user's chat message, and given the user is searching a product or multiple products
+                        - please extract as much info as possible from the user's message and file which could be .xlsx file or image file or pdf file.
+                        - and try to fill out the following json template about the target product(s).
+                        - 
+                    """),
+            ("human", [
+                {"type": "text", "text": "{input}"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+            ]),
+            ("placeholder", "{messages}"),
+        ])
+
 prompt11 = ChatPromptTemplate.from_messages([
             ("system", """
                         You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
