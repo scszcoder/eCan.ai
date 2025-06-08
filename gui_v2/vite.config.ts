@@ -40,7 +40,50 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks: {
           vendor: ['react', 'react-dom'],
-          monaco: ['monaco-editor'],
+          monaco: [
+            // 核心编辑器
+            'monaco-editor/esm/vs/editor/editor.api',
+            'monaco-editor/esm/vs/editor/editor.worker',
+            // 语言支持
+            'monaco-editor/esm/vs/language/typescript/ts.worker',
+            'monaco-editor/esm/vs/language/json/json.worker',
+            'monaco-editor/esm/vs/language/css/css.worker',
+            'monaco-editor/esm/vs/language/html/html.worker',
+            'monaco-editor/esm/vs/basic-languages/python/python.worker',
+            // 基础语言支持
+            'monaco-editor/esm/vs/basic-languages/javascript/javascript.worker',
+            'monaco-editor/esm/vs/basic-languages/typescript/typescript.worker',
+            // 语言特性
+            'monaco-editor/esm/vs/language/typescript/tsMode',
+            'monaco-editor/esm/vs/language/json/jsonMode',
+            'monaco-editor/esm/vs/language/css/cssMode',
+            'monaco-editor/esm/vs/language/html/htmlMode',
+            // 编辑器功能
+            'monaco-editor/esm/vs/editor/standalone/browser/accessibilityHelp/accessibilityHelp',
+            'monaco-editor/esm/vs/editor/standalone/browser/inspectTokens/inspectTokens',
+            'monaco-editor/esm/vs/editor/standalone/browser/iPadShowKeyboard/iPadShowKeyboard',
+            'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickOutline',
+            'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/gotoLine',
+            'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickCommand',
+            // 主题
+            'monaco-editor/esm/vs/editor/standalone/browser/themeService',
+            // 格式化
+            'monaco-editor/esm/vs/editor/standalone/browser/format/format',
+            // 搜索
+            'monaco-editor/esm/vs/editor/standalone/browser/find/find',
+            // 代码折叠
+            'monaco-editor/esm/vs/editor/standalone/browser/folding/folding',
+            // 代码导航
+            'monaco-editor/esm/vs/editor/standalone/browser/navigation/navigation',
+            // 代码补全
+            'monaco-editor/esm/vs/editor/standalone/browser/suggest/suggest',
+            // 参数提示
+            'monaco-editor/esm/vs/editor/standalone/browser/parameterHints/parameterHints',
+            // 代码大纲
+            'monaco-editor/esm/vs/editor/standalone/browser/outline/outline',
+            // 调试支持
+            'monaco-editor/esm/vs/editor/standalone/browser/debug/debug',
+          ],
         },
       }
     }
@@ -53,15 +96,55 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: [
+      // 核心编辑器
       'monaco-editor/esm/vs/editor/editor.api',
+      'monaco-editor/esm/vs/editor/editor.worker',
+      // 语言支持
       'monaco-editor/esm/vs/language/typescript/ts.worker',
       'monaco-editor/esm/vs/language/json/json.worker',
       'monaco-editor/esm/vs/language/css/css.worker',
       'monaco-editor/esm/vs/language/html/html.worker',
       'monaco-editor/esm/vs/basic-languages/python/python.worker',
+      // 基础语言支持
+      'monaco-editor/esm/vs/basic-languages/javascript/javascript.worker',
+      'monaco-editor/esm/vs/basic-languages/typescript/typescript.worker',
+      // 语言特性
+      'monaco-editor/esm/vs/language/typescript/tsMode',
+      'monaco-editor/esm/vs/language/json/jsonMode',
+      'monaco-editor/esm/vs/language/css/cssMode',
+      'monaco-editor/esm/vs/language/html/htmlMode',
+      // 编辑器功能
+      'monaco-editor/esm/vs/editor/standalone/browser/accessibilityHelp/accessibilityHelp',
+      'monaco-editor/esm/vs/editor/standalone/browser/inspectTokens/inspectTokens',
+      'monaco-editor/esm/vs/editor/standalone/browser/iPadShowKeyboard/iPadShowKeyboard',
+      'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickOutline',
+      'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/gotoLine',
+      'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickCommand',
+      // 主题
+      'monaco-editor/esm/vs/editor/standalone/browser/themeService',
+      // 格式化
+      'monaco-editor/esm/vs/editor/standalone/browser/format/format',
+      // 搜索
+      'monaco-editor/esm/vs/editor/standalone/browser/find/find',
+      // 代码折叠
+      'monaco-editor/esm/vs/editor/standalone/browser/folding/folding',
+      // 代码导航
+      'monaco-editor/esm/vs/editor/standalone/browser/navigation/navigation',
+      // 代码补全
+      'monaco-editor/esm/vs/editor/standalone/browser/suggest/suggest',
+      // 参数提示
+      'monaco-editor/esm/vs/editor/standalone/browser/parameterHints/parameterHints',
+      // 代码大纲
+      'monaco-editor/esm/vs/editor/standalone/browser/outline/outline',
+      // 调试支持
+      'monaco-editor/esm/vs/editor/standalone/browser/debug/debug',
     ],
+    esbuildOptions: {
+      target: 'es2020',
+    },
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
+    'global': 'globalThis',
   },
 })
