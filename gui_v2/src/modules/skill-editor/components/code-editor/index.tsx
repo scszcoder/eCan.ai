@@ -9,8 +9,6 @@ const MONACO_WORKER_CONFIG = {
       typescript: './monaco-editor/esm/vs/language/typescript/ts.worker.js',
       javascript: './monaco-editor/esm/vs/language/typescript/ts.worker.js',
       json: './monaco-editor/esm/vs/language/json/json.worker.js',
-      css: './monaco-editor/esm/vs/language/css/css.worker.js',
-      html: './monaco-editor/esm/vs/language/html/html.worker.js',
       python: './monaco-editor/esm/vs/basic-languages/python/python.worker.js'
     };
     return workerMap[label] || './monaco-editor/esm/vs/editor/editor.worker.js';
@@ -23,31 +21,30 @@ if (typeof self !== 'undefined') {
 }
 
 // Register supported languages
-const SUPPORTED_LANGUAGES = ['python', 'javascript', 'typescript', 'html', 'css', 'json'];
+const SUPPORTED_LANGUAGES = ['python', 'javascript', 'typescript', 'json'];
 SUPPORTED_LANGUAGES.forEach(lang => monaco.languages.register({ id: lang }));
+
+// Common token patterns
+const commonTokens: monaco.languages.IMonarchLanguageRule[] = [
+  [/[{}]/, 'delimiter.bracket'],
+  [/[\[\]]/, 'delimiter.array'],
+  [/[()]/, 'delimiter.parenthesis'],
+  [/[+\-*/%<>=!&|]/, 'operator'],
+  [/[0-9]+/, 'number'],
+  [/[a-zA-Z_]\w*/, 'identifier'],
+  [/["].*?["]/, 'string'],
+  [/['].*?[']/, 'string'],
+  [/`.*?`/, 'string']
+];
 
 // Language configurations
 const languageConfigs: Record<string, monaco.languages.IMonarchLanguage> = {
   python: {
     tokenizer: {
       root: [
-        [/[{}]/, 'delimiter.bracket'],
-        [/[\[\]]/, 'delimiter.array'],
-        [/[()]/, 'delimiter.parenthesis'],
-        [/[;]/, 'delimiter'],
-        [/[=]/, 'delimiter'],
-        [/[+\-*/%]/, 'operator'],
-        [/[<>=!&|]/, 'operator'],
-        [/def\b/, 'keyword'],
-        [/class\b/, 'keyword'],
-        [/if\b|else\b|elif\b|while\b|for\b|in\b|try\b|except\b|finally\b|with\b|as\b|return\b|break\b|continue\b|pass\b|raise\b|import\b|from\b/, 'keyword'],
+        ...commonTokens,
+        [/def\b|class\b|if\b|else\b|elif\b|while\b|for\b|in\b|try\b|except\b|finally\b|with\b|as\b|return\b|break\b|continue\b|pass\b|raise\b|import\b|from\b/, 'keyword'],
         [/True\b|False\b|None\b/, 'constant'],
-        [/[0-9]+/, 'number'],
-        [/[a-zA-Z_]\w*/, 'identifier'],
-        [/["].*?["]/, 'string'],
-        [/['].*?[']/, 'string'],
-        [/""".*?"""/, 'string'],
-        [/'''.*?'''/, 'string'],
         [/[#].*$/, 'comment'],
       ],
     },
@@ -55,20 +52,9 @@ const languageConfigs: Record<string, monaco.languages.IMonarchLanguage> = {
   javascript: {
     tokenizer: {
       root: [
-        [/[{}]/, 'delimiter.bracket'],
-        [/[\[\]]/, 'delimiter.array'],
-        [/[()]/, 'delimiter.parenthesis'],
-        [/[;]/, 'delimiter'],
-        [/[=]/, 'delimiter'],
-        [/[+\-*/%]/, 'operator'],
-        [/[<>=!&|]/, 'operator'],
+        ...commonTokens,
         [/function\b|class\b|const\b|let\b|var\b|if\b|else\b|for\b|while\b|do\b|switch\b|case\b|break\b|continue\b|return\b|try\b|catch\b|finally\b|throw\b|new\b|this\b|super\b|import\b|export\b|default\b|async\b|await\b/, 'keyword'],
         [/true\b|false\b|null\b|undefined\b/, 'constant'],
-        [/[0-9]+/, 'number'],
-        [/[a-zA-Z_]\w*/, 'identifier'],
-        [/["].*?["]/, 'string'],
-        [/['].*?[']/, 'string'],
-        [/`.*?`/, 'string'],
         [/\/\/.*$/, 'comment'],
         [/\/\*/, 'comment', '@comment'],
       ],
@@ -82,86 +68,11 @@ const languageConfigs: Record<string, monaco.languages.IMonarchLanguage> = {
   typescript: {
     tokenizer: {
       root: [
-        [/[{}]/, 'delimiter.bracket'],
-        [/[\[\]]/, 'delimiter.array'],
-        [/[()]/, 'delimiter.parenthesis'],
-        [/[;]/, 'delimiter'],
-        [/[=]/, 'delimiter'],
-        [/[+\-*/%]/, 'operator'],
-        [/[<>=!&|]/, 'operator'],
+        ...commonTokens,
         [/function\b|class\b|const\b|let\b|var\b|if\b|else\b|for\b|while\b|do\b|switch\b|case\b|break\b|continue\b|return\b|try\b|catch\b|finally\b|throw\b|new\b|this\b|super\b|import\b|export\b|default\b|async\b|await\b|interface\b|type\b|enum\b|namespace\b|module\b|declare\b|public\b|private\b|protected\b|readonly\b|static\b/, 'keyword'],
         [/true\b|false\b|null\b|undefined\b/, 'constant'],
-        [/[0-9]+/, 'number'],
-        [/[a-zA-Z_]\w*/, 'identifier'],
-        [/["].*?["]/, 'string'],
-        [/['].*?[']/, 'string'],
-        [/`.*?`/, 'string'],
         [/\/\/.*$/, 'comment'],
         [/\/\*/, 'comment', '@comment'],
-      ],
-      comment: [
-        [/[^\/*]+/, 'comment'],
-        [/\*\//, 'comment', '@pop'],
-        [/[\/*]/, 'comment'],
-      ],
-    },
-  },
-  html: {
-    tokenizer: {
-      root: [
-        [/<!DOCTYPE/, 'metatag', '@doctype'],
-        [/<!--/, 'comment', '@comment'],
-        [/(<)(\w+)(\/>)/, ['delimiter', 'tag', 'delimiter']],
-        [/(<)(script)/, ['delimiter', { token: 'tag', next: '@script' }]],
-        [/(<)(style)/, ['delimiter', { token: 'tag', next: '@style' }]],
-        [/(<)(\w+)/, ['delimiter', { token: 'tag', next: '@tag' }]],
-        [/[ \t\r\n]+/, 'white'],
-        [/[^<]+/, 'text'],
-      ],
-      doctype: [
-        [/[^>]+/, 'metatag.content'],
-        [/>/, 'metatag', '@pop'],
-      ],
-      comment: [
-        [/-->/, 'comment', '@pop'],
-        [/[^-]+/, 'comment.content'],
-        [/./, 'comment.content'],
-      ],
-      tag: [
-        [/[ \t\r\n]+/, 'white'],
-        [/(\/)(>)/, ['delimiter', 'delimiter']],
-        [/>/, 'delimiter', '@pop'],
-        [/[^>]+/, 'attribute.name'],
-      ],
-      script: [
-        [/<\/(script)>/, ['delimiter', 'tag', 'delimiter']],
-        [/[^<]+/, 'javascript'],
-      ],
-      style: [
-        [/<\/(style)>/, ['delimiter', 'tag', 'delimiter']],
-        [/[^<]+/, 'css'],
-      ],
-    },
-  },
-  css: {
-    tokenizer: {
-      root: [
-        [/[{}]/, 'delimiter.bracket'],
-        [/[\[\]]/, 'delimiter.array'],
-        [/[()]/, 'delimiter.parenthesis'],
-        [/[;]/, 'delimiter'],
-        [/[=]/, 'delimiter'],
-        [/[+\-*/%]/, 'operator'],
-        [/[<>=!&|]/, 'operator'],
-        [/[a-zA-Z-]+(?=\s*:)/, 'attribute.name'],
-        [/:[^;]+/, 'attribute.value'],
-        [/[0-9]+/, 'number'],
-        [/#[0-9a-fA-F]+/, 'number.hex'],
-        [/[a-zA-Z_]\w*/, 'identifier'],
-        [/["].*?["]/, 'string'],
-        [/['].*?[']/, 'string'],
-        [/\/\*/, 'comment', '@comment'],
-        [/\/\/.*$/, 'comment'],
       ],
       comment: [
         [/[^\/*]+/, 'comment'],
@@ -197,7 +108,7 @@ const DEFAULT_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
   automaticLayout: true,
-  tabSize: 4,
+  tabSize: 2,
   wordWrap: 'on',
   theme: 'vs-dark',
   renderWhitespace: 'selection',
@@ -207,9 +118,39 @@ const DEFAULT_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions
   acceptSuggestionOnEnter: 'on',
   snippetSuggestions: 'inline',
   wordBasedSuggestions: 'currentDocument',
-  parameterHints: {
-    enabled: true
-  }
+  parameterHints: { enabled: true },
+  formatOnPaste: true,
+  formatOnType: true,
+  folding: true,
+  foldingStrategy: 'indentation',
+  showFoldingControls: 'always',
+  matchBrackets: 'always',
+  autoClosingBrackets: 'always',
+  autoClosingQuotes: 'always',
+  autoIndent: 'full',
+  scrollbar: {
+    vertical: 'visible',
+    horizontal: 'visible',
+    useShadows: true,
+    verticalScrollbarSize: 10,
+    horizontalScrollbarSize: 10,
+  },
+  gotoLocation: {
+    multiple: 'goto',
+    multipleDefinitions: 'goto',
+    multipleTypeDefinitions: 'goto',
+    multipleDeclarations: 'goto',
+    multipleImplementations: 'goto',
+    multipleReferences: 'goto',
+    alternativeDefinitionCommand: 'editor.action.goToReferences',
+    alternativeTypeDefinitionCommand: 'editor.action.goToReferences',
+    alternativeDeclarationCommand: 'editor.action.goToReferences',
+  },
+  find: {
+    addExtraSpaceOnTop: false,
+    autoFindInSelection: 'never',
+    seedSearchStringFromSelection: 'selection',
+  },
 };
 
 interface CodeEditorProps {
@@ -257,7 +198,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     onVisibleChange?.(false);
   }, [handleCancel, onVisibleChange]);
 
-  // Memoize editor options
   const editorOptions = useMemo(() => {
     const baseOptions = { ...DEFAULT_EDITOR_OPTIONS, ...externalOptions };
     
@@ -284,7 +224,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     return baseOptions;
   }, [mode, externalOptions]);
 
-  // Initialize editor
   useEffect(() => {
     if (visible && containerRef.current && !editorRef.current) {
       editorRef.current = monaco.editor.create(containerRef.current, {
@@ -310,7 +249,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     }
   }, [visible, language, editorOptions, onEditorDidMount]);
 
-  // Update editor value only when it changes externally
   useEffect(() => {
     if (editorRef.current && value !== valueRef.current) {
       valueRef.current = value;

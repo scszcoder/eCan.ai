@@ -47,8 +47,6 @@ export default defineConfig({
             // 语言支持
             'monaco-editor/esm/vs/language/typescript/ts.worker',
             'monaco-editor/esm/vs/language/json/json.worker',
-            'monaco-editor/esm/vs/language/css/css.worker',
-            'monaco-editor/esm/vs/language/html/html.worker',
             'monaco-editor/esm/vs/basic-languages/python/python.worker',
             // 基础语言支持
             'monaco-editor/esm/vs/basic-languages/javascript/javascript.worker',
@@ -56,12 +54,8 @@ export default defineConfig({
             // 语言特性
             'monaco-editor/esm/vs/language/typescript/tsMode',
             'monaco-editor/esm/vs/language/json/jsonMode',
-            'monaco-editor/esm/vs/language/css/cssMode',
-            'monaco-editor/esm/vs/language/html/htmlMode',
             // 编辑器功能
             'monaco-editor/esm/vs/editor/standalone/browser/accessibilityHelp/accessibilityHelp',
-            'monaco-editor/esm/vs/editor/standalone/browser/inspectTokens/inspectTokens',
-            'monaco-editor/esm/vs/editor/standalone/browser/iPadShowKeyboard/iPadShowKeyboard',
             'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickOutline',
             'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/gotoLine',
             'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickCommand',
@@ -81,8 +75,6 @@ export default defineConfig({
             'monaco-editor/esm/vs/editor/standalone/browser/parameterHints/parameterHints',
             // 代码大纲
             'monaco-editor/esm/vs/editor/standalone/browser/outline/outline',
-            // 调试支持
-            'monaco-editor/esm/vs/editor/standalone/browser/debug/debug',
           ],
         },
       }
@@ -102,8 +94,6 @@ export default defineConfig({
       // 语言支持
       'monaco-editor/esm/vs/language/typescript/ts.worker',
       'monaco-editor/esm/vs/language/json/json.worker',
-      'monaco-editor/esm/vs/language/css/css.worker',
-      'monaco-editor/esm/vs/language/html/html.worker',
       'monaco-editor/esm/vs/basic-languages/python/python.worker',
       // 基础语言支持
       'monaco-editor/esm/vs/basic-languages/javascript/javascript.worker',
@@ -111,12 +101,8 @@ export default defineConfig({
       // 语言特性
       'monaco-editor/esm/vs/language/typescript/tsMode',
       'monaco-editor/esm/vs/language/json/jsonMode',
-      'monaco-editor/esm/vs/language/css/cssMode',
-      'monaco-editor/esm/vs/language/html/htmlMode',
       // 编辑器功能
       'monaco-editor/esm/vs/editor/standalone/browser/accessibilityHelp/accessibilityHelp',
-      'monaco-editor/esm/vs/editor/standalone/browser/inspectTokens/inspectTokens',
-      'monaco-editor/esm/vs/editor/standalone/browser/iPadShowKeyboard/iPadShowKeyboard',
       'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickOutline',
       'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/gotoLine',
       'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickCommand',
@@ -136,8 +122,6 @@ export default defineConfig({
       'monaco-editor/esm/vs/editor/standalone/browser/parameterHints/parameterHints',
       // 代码大纲
       'monaco-editor/esm/vs/editor/standalone/browser/outline/outline',
-      // 调试支持
-      'monaco-editor/esm/vs/editor/standalone/browser/debug/debug',
     ],
     esbuildOptions: {
       target: 'es2020',
