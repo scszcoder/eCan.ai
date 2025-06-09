@@ -5,7 +5,7 @@ import uuid
 from agent.a2a.common.types import *
 from agent.ec_skill import EC_Skill
 from agent.ec_skills.init_skills_run import *
-
+import json
 import os
 from fastapi.responses import JSONResponse
 
@@ -476,7 +476,12 @@ class TaskRunner(Generic[Context]):
 
     def find_suitable_tasks(self, msg):
         # for now, for the simplicity just find the task that's not scheduled.
-        found = [task for task in self.agent.tasks if "operates daily routine task" in task.name.lower()]
+        found = []
+        msg_js = json.loads(msg["message"])         # need , encoding='utf-8'?
+        if msg_js['metadata']["type"] == "send_task":
+            found = [task for task in self.agent.tasks if msg_js['metadata']['task']['name'].lower in task.name.lower()]
+        elif msg_js['metadata']["type"] == "send_chat":
+            found = [task for task in self.agent.tasks if "chatter task" in task.name.lower()]
         return found
 
     async def wait_in_line(self, request):
@@ -488,7 +493,36 @@ class TaskRunner(Generic[Context]):
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
 
-    async def launch_scheduled_run(self):
+    async def launch_scheduled_run(self, task=None):
+        while not self._stop_event.is_set():
+            try:
+                print("checking scheduled task....", self.agent.card.name)
+
+                # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
+                print("Checking schedule.....")
+                task2run = time_to_run(self.agent)
+                print(f"len task2run, {task2run}, {self.agent.card.name}")
+                if task2run:
+                    print("scheduled task2run skill name", task2run.skill.name)
+                    task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+
+                    print("scheduled task2run init state", task2run.metadata["state"])
+                    response = await task2run.astream_run()
+                    if response:
+                        self.agent.a2a_server.task_manager.set_result(task2run.id, response)
+                    else:
+                        self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
+                else:
+                    print("nothing 2 run")
+
+            except Exception as e:
+                ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+                print(f"{ex_stat}")
+
+            await asyncio.sleep(1)  # the loop goes on.....
+
+
+    async def launch_reacted_run(self, task=None):
         while not self._stop_event.is_set():
             try:
                 print("checking a2a queue....", self.agent.card.name)
@@ -499,7 +533,50 @@ class TaskRunner(Generic[Context]):
                         print("A2A message....", msg)
                         # a message could be handled by different task, so first find
                         # a task that that's suitable to handle this message,
-                        matched_tasks = self.find_suitable_tasks(msg)
+                        matched_tasks = self.find_suitable_tasks(msg.params)
+                        print("matched task....", len(matched_tasks))
+                        # then run this skill's runnable with the msg
+                        if matched_tasks:
+                            task2run = matched_tasks[0]
+                            print("task2run skill name", task2run.skill.name)
+                            task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+
+                            print("task2run init state", task2run.metadata["state"])
+                            print("ready to run the right task", task2run.name, msg)
+                            response = await task2run.astream_run()
+                            print("task run response:", response)
+                            task_id = msg.params.id
+                            self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                        self.msg_queue.task_done()
+
+                        # process msg here and the msg could be start a task run.
+                    except asyncio.QueueEmpty:
+                        print("Queue unexpectedly empty when trying to get message.")
+                        pass
+                    except Exception as e:
+                        print(f"Error processing Commander message: {e}")
+
+
+            except Exception as e:
+                ex_stat = "ErrorLaunchReactedRun:" + traceback.format_exc() + " " + str(e)
+                print(f"{ex_stat}")
+
+            await asyncio.sleep(1)  # the loop goes on.....
+
+
+    # this is for chat task
+    async def launch_interacted_run(self, task=None):
+        while True:
+            try:
+                print("checking a2a queue....", self.agent.card.name)
+
+                if not self.msg_queue.empty():
+                    try:
+                        msg = self.msg_queue.get_nowait()
+                        print("A2A message....", msg)
+                        # a message could be handled by different task, so first find
+                        # a task that that's suitable to handle this message,
+                        matched_tasks = self.find_suitable_tasks(msg.params)
                         print("matched task....", len(matched_tasks))
                         # then run this skill's runnable with the msg
                         if matched_tasks:

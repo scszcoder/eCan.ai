@@ -110,15 +110,20 @@ interface Chat {
     status: 'online' | 'offline' | 'busy';
     lastMessage: string;
     lastMessageTime: string;
+    lastSessionTime: string;            //last session's start time.
     unreadCount: number;
 }
 
 interface Message {
     id: number;
+    session_id: number;                 //simply session's epoch time in seconds.
     content: string;
     attachments: File[];
     sender: string;
-    timestamp: string;
+    recipient: string;
+    tx_timestamp: string;
+    rx_timestamp: string;
+    read_timestamp: string;
     status: 'sending' | 'sent' | 'delivered' | 'read';
 }
 
@@ -155,10 +160,14 @@ const initialChats: Chat[] = [
 const initialMessages: Message[] = [
     {
         id: 1,
+        session_id: number
         content: 'Hello! How can I help you today?',
         attachments: [],
         sender: 'Support Bot',
-        timestamp: '10:00 AM',
+        recipient: 'You',
+        tx_timestamp: '10:00 AM',
+        rx_timestamp: '10:01 AM',
+        read_timestamp: '10:01 AM',
         status: 'read',
     },
     {
@@ -166,7 +175,10 @@ const initialMessages: Message[] = [
         content: 'I need help with scheduling a delivery.',
         attachments: [],
         sender: 'You',
-        timestamp: '10:05 AM',
+        recipient: 'Support Bot',
+        tx_timestamp: '10:05 AM',
+        rx_timestamp: '10:06 AM',
+        read_timestamp: '10:06 AM',
         status: 'read',
     },
     {
@@ -177,7 +189,10 @@ const initialMessages: Message[] = [
             new File([new Blob(['Demo agent file content'], { type: 'text/plain' })], 'agent-info.txt'),
         ],
         sender: 'Support Bot',
-        timestamp: '10:06 AM',
+        recipient: 'You',
+        tx_timestamp: '10:06 AM',
+        rx_timestamp: '10:07 AM',
+        read_timestamp: '10:07 AM',
         status: 'read',
     },
     {
@@ -188,7 +203,10 @@ const initialMessages: Message[] = [
             new File([new Blob(['User attached content'], { type: 'text/plain' })], 'user-doc.txt'),
         ],
         sender: 'You',
-        timestamp: '10:10 AM',
+        recipient: 'Support Bot',
+        tx_timestamp: '10:10 AM',
+        rx_timestamp: '10:11 AM',
+        read_timestamp: '10:11 AM',
         status: 'read',
     },
 ];
@@ -232,7 +250,10 @@ const Chat: React.FC = () => {
             content: newMessage,
             attachments: [...attachments], // <--- FIXED: copy over attachments here
             sender: 'You',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            recipient: selectedChat.name,
+            tx_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            rx_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            read_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             status: 'sending',
         };
 

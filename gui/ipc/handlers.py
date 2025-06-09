@@ -9,6 +9,7 @@ from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper
 import json
 import uuid
+import asyncio
 
 logger = logger_helper.logger
 
@@ -30,6 +31,15 @@ def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tu
         return False, None, f"Missing required parameters: {', '.join(missing)}"
     
     return True, params, None
+
+def find_sender(py_login, chat):
+    sender = next((ag for ag in py_login.main_win.agents if chat['sender'] == ag.card.name), None)
+    return sender
+
+
+def find_recipient(py_login, chat):
+    recipient = next((ag for ag in py_login.main_win.agents if chat['recipient'] == ag.card.name), None)
+    return recipient
 
 @IPCHandlerRegistry.handler('get_config')
 def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
@@ -576,13 +586,13 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
 @IPCHandlerRegistry.handler('send_chat')
 def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
-    """处理登录请求
+    """处理Chat
 
     验证用户凭据并返回访问令牌。
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        params: chat message data structure
 
     Returns:
         str: JSON 格式的响应消息
@@ -602,14 +612,27 @@ def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
         # 获取用户名和密码
         chat = data[0]
-        status = sender_agent.a2a_send_message(recipient_agent, {"chat": chat})
+        sender_agent = find_sender(py_login, chat)
+        recipient_agent = find_recipient(py_login,chat)
+        if sender_agent and recipient_agent:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # In this case, you can't call loop.run_until_complete directly in the main thread.
+                # Workaround: Use "asyncio.run_coroutine_threadsafe" (if in a thread) or refactor to be async.
+                # Example (if in a thread):
+                future = asyncio.run_coroutine_threadsafe(sender_agent.a2a_send_chat_message(recipient_agent, {"chat": chat}), loop)
+                result = future.result()
+            else:
+                result = loop.run_until_complete(sender_agent.a2a_send_message(recipient_agent, {"chat": chat}))
+            result_message = json.dumps({"send_chat_response": result})
+
         # 简单的密码验证
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"sending a chat: {chat['content']}")
         return json.dumps(create_success_response(request, {
             'token': token,
-            'message': 'chat message sent'
+            'message': result_message
         }))
 
     except Exception as e:
