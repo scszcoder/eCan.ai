@@ -90,7 +90,7 @@ from langchain_openai import ChatOpenAI
 from agent.ec_agent import EC_Agent
 from agent.runner.service import Runner
 from agent.ec_skills.build_skills import build_agent_skills
-from agent.a2a.langgraph_agent.utils import set_up_ec_helper_agent, set_up_ec_rpa_operator_agent, \
+from agent.a2a.langgraph_agent.utils import set_up_my_twin_agent, set_up_ec_helper_agent, set_up_ec_rpa_operator_agent, \
     set_up_ec_rpa_supervisor_agent, set_up_ec_procurement_agent
 from agent.a2a.langgraph_agent.utils import set_up_ec_customer_support_agent, set_up_ec_marketing_agent, set_up_ec_sales_agent
 from agent.a2a.langgraph_agent.utils import set_up_ec_research_agent
@@ -1126,6 +1126,7 @@ class MainWindow(QMainWindow):
 
     def build_agents(self):
         # for now just build a few agents.
+        self.agents.append(set_up_my_twin_agent(self))
         if "Platoon" in self.machine_role:
             self.agents.append(set_up_ec_helper_agent(self))
             self.agents.append(set_up_ec_rpa_operator_agent(self))
