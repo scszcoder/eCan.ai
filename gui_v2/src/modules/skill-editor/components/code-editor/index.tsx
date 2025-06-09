@@ -1,5 +1,4 @@
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
-import { Modal } from '@douyinfe/semi-ui';
 import * as monaco from 'monaco-editor';
 
 // Monaco Editor worker configuration
@@ -259,6 +258,20 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     }
   }, [value]);
 
+  // Add ESC key handler to match Modal's closeOnEsc behavior
+  useEffect(() => {
+    const handleEscKey = (event: KeyboardEvent) => {
+      if (visible && event.key === 'Escape') {
+        handleCurrentCancel();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscKey);
+    return () => {
+      document.removeEventListener('keydown', handleEscKey);
+    };
+  }, [visible, handleCurrentCancel]);
+
   const editorContent = (
     <div 
       ref={containerRef} 
@@ -278,18 +291,111 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     return editorContent;
   }
 
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal
-      title="Code Editor"
-      visible={visible}
-      onOk={handleCurrentOk}
-      onCancel={handleCurrentCancel}
-      closeOnEsc
-      fullScreen
-      style={{ zIndex: 1000 }}
-      getPopupContainer={() => document.body}
+    <div 
+      className="custom-editor-container"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1000,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)', // Semi Modal overlay background
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        boxSizing: 'border-box'
+      }}
     >
-      {editorContent}
-    </Modal>
+      <div 
+        className="custom-editor-content"
+        style={{
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'var(--semi-color-bg-1)',
+          borderRadius: '8px',
+          boxShadow: 'var(--semi-shadow-elevated)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}
+      >
+        <div 
+          className="custom-editor-header"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 24px',
+            borderBottom: '1px solid var(--semi-color-border)'
+          }}
+        >
+          <div className="custom-editor-title" style={{ 
+            fontSize: '16px', 
+            fontWeight: 600,
+            color: 'var(--semi-color-text-0)'
+          }}>
+            Code Editor
+          </div>
+          <div className="custom-editor-close" onClick={handleCurrentCancel} style={{
+            cursor: 'pointer',
+            fontSize: '20px',
+            lineHeight: 1,
+            color: 'var(--semi-color-text-2)'
+          }}>
+            ×
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: 'hidden', padding: '0 24px' }}>
+          {editorContent}
+        </div>
+        <div 
+          className="custom-editor-footer"
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            padding: '16px 24px',
+            borderTop: '1px solid var(--semi-color-border)'
+          }}
+        >
+          <button 
+            onClick={handleCurrentCancel}
+            style={{
+              marginRight: '8px',
+              padding: '6px 16px',
+              border: '1px solid var(--semi-color-border)',
+              borderRadius: '3px',
+              backgroundColor: 'var(--semi-color-bg-2)',
+              color: 'var(--semi-color-text-0)',
+              cursor: 'pointer',
+              fontSize: '14px',
+              lineHeight: '20px'
+            }}
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={handleCurrentOk}
+            style={{
+              padding: '6px 16px',
+              border: 'none',
+              borderRadius: '3px',
+              backgroundColor: 'var(--semi-color-primary)',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '14px',
+              lineHeight: '20px'
+            }}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
