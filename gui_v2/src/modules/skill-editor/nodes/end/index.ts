@@ -2,6 +2,8 @@ import { FlowNodeRegistry } from '../../typings';
 import iconEnd from '../../assets/icon-end.jpg';
 import { formMeta } from './form-meta';
 import { WorkflowNodeType } from '../constants';
+import { nanoid } from 'nanoid';
+import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
 export const EndNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.End,
@@ -29,4 +31,14 @@ export const EndNodeRegistry: FlowNodeRegistry = {
   canAdd() {
     return false;
   },
+  onAdd() {
+    return {
+      id: `end_${nanoid(5)}`,
+      type: 'end',
+      data: {
+        title: 'End',
+        outputs: DEFAULT_NODE_OUTPUTS,
+      }
+    };
+  }
 };
