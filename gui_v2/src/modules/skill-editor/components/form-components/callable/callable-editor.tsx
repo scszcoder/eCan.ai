@@ -4,7 +4,6 @@ import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
 import { CodeEditorModal } from '../../code-editor-modal';
-import { JsonSchemaEditor } from '@flowgram.ai/form-materials';
 import { Editor } from '@monaco-editor/react';
 
 const { Option } = Select;
@@ -49,7 +48,9 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       onSave({
         ...values,
         type: functionType,
-        code: codeValue
+        code: codeValue,
+        params: { type: 'object', properties: {} },
+        returns: { type: 'object', properties: {} }
       });
     });
   };
@@ -195,28 +196,6 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
               </Form.Item>
             </>
           )}
-
-          <Title level={5} style={{ color: '#fff', marginTop: 24 }}>Parameters Schema</Title>
-          <Form.Item
-            name="params"
-            rules={[{ required: true }]}
-          >
-            <JsonSchemaEditor
-              value={form.getFieldValue('params')}
-              onChange={(value) => form.setFieldValue('params', value)}
-            />
-          </Form.Item>
-
-          <Title level={5} style={{ color: '#fff', marginTop: 24 }}>Return Type Schema</Title>
-          <Form.Item
-            name="returns"
-            rules={[{ required: true }]}
-          >
-            <JsonSchemaEditor
-              value={form.getFieldValue('returns')}
-              onChange={(value) => form.setFieldValue('returns', value)}
-            />
-          </Form.Item>
 
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Title level={5} style={{ color: '#fff', margin: 0 }}>Implementation Code</Title>
