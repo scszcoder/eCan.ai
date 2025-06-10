@@ -1,156 +1,8 @@
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import * as monaco from 'monaco-editor';
-
-// Monaco Editor worker configuration
-const MONACO_WORKER_CONFIG = {
-  getWorkerUrl: function (_moduleId: string, label: string) {
-    const workerMap: Record<string, string> = {
-      typescript: './monaco-editor/esm/vs/language/typescript/ts.worker.js',
-      javascript: './monaco-editor/esm/vs/language/typescript/ts.worker.js',
-      json: './monaco-editor/esm/vs/language/json/json.worker.js',
-      python: './monaco-editor/esm/vs/basic-languages/python/python.worker.js'
-    };
-    return workerMap[label] || './monaco-editor/esm/vs/editor/editor.worker.js';
-  }
-};
-
-// Initialize Monaco environment
-if (typeof self !== 'undefined') {
-  self.MonacoEnvironment = MONACO_WORKER_CONFIG;
-}
-
-// Register supported languages
-const SUPPORTED_LANGUAGES = ['python', 'javascript', 'typescript', 'json'];
-SUPPORTED_LANGUAGES.forEach(lang => monaco.languages.register({ id: lang }));
-
-// Common token patterns
-const commonTokens: monaco.languages.IMonarchLanguageRule[] = [
-  [/[{}]/, 'delimiter.bracket'],
-  [/[\[\]]/, 'delimiter.array'],
-  [/[()]/, 'delimiter.parenthesis'],
-  [/[+\-*/%<>=!&|]/, 'operator'],
-  [/[0-9]+/, 'number'],
-  [/[a-zA-Z_]\w*/, 'identifier'],
-  [/["].*?["]/, 'string'],
-  [/['].*?[']/, 'string'],
-  [/`.*?`/, 'string']
-];
-
-// Language configurations
-const languageConfigs: Record<string, monaco.languages.IMonarchLanguage> = {
-  python: {
-    tokenizer: {
-      root: [
-        ...commonTokens,
-        [/def\b|class\b|if\b|else\b|elif\b|while\b|for\b|in\b|try\b|except\b|finally\b|with\b|as\b|return\b|break\b|continue\b|pass\b|raise\b|import\b|from\b/, 'keyword'],
-        [/True\b|False\b|None\b/, 'constant'],
-        [/[#].*$/, 'comment'],
-      ],
-    },
-  },
-  javascript: {
-    tokenizer: {
-      root: [
-        ...commonTokens,
-        [/function\b|class\b|const\b|let\b|var\b|if\b|else\b|for\b|while\b|do\b|switch\b|case\b|break\b|continue\b|return\b|try\b|catch\b|finally\b|throw\b|new\b|this\b|super\b|import\b|export\b|default\b|async\b|await\b/, 'keyword'],
-        [/true\b|false\b|null\b|undefined\b/, 'constant'],
-        [/\/\/.*$/, 'comment'],
-        [/\/\*/, 'comment', '@comment'],
-      ],
-      comment: [
-        [/[^\/*]+/, 'comment'],
-        [/\*\//, 'comment', '@pop'],
-        [/[\/*]/, 'comment'],
-      ],
-    },
-  },
-  typescript: {
-    tokenizer: {
-      root: [
-        ...commonTokens,
-        [/function\b|class\b|const\b|let\b|var\b|if\b|else\b|for\b|while\b|do\b|switch\b|case\b|break\b|continue\b|return\b|try\b|catch\b|finally\b|throw\b|new\b|this\b|super\b|import\b|export\b|default\b|async\b|await\b|interface\b|type\b|enum\b|namespace\b|module\b|declare\b|public\b|private\b|protected\b|readonly\b|static\b/, 'keyword'],
-        [/true\b|false\b|null\b|undefined\b/, 'constant'],
-        [/\/\/.*$/, 'comment'],
-        [/\/\*/, 'comment', '@comment'],
-      ],
-      comment: [
-        [/[^\/*]+/, 'comment'],
-        [/\*\//, 'comment', '@pop'],
-        [/[\/*]/, 'comment'],
-      ],
-    },
-  },
-  json: {
-    tokenizer: {
-      root: [
-        [/[{}]/, 'delimiter.bracket'],
-        [/[\[\]]/, 'delimiter.array'],
-        [/[,]/, 'delimiter'],
-        [/[:]/, 'delimiter'],
-        [/["].*?["]/, 'string'],
-        [/[0-9]+/, 'number'],
-        [/true|false|null/, 'constant'],
-      ],
-    },
-  },
-};
-
-// Apply language configurations
-Object.entries(languageConfigs).forEach(([language, config]) => {
-  monaco.languages.setMonarchTokensProvider(language, config);
-});
-
-// Default editor options
-const DEFAULT_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
-  fontSize: 14,
-  lineNumbers: 'on',
-  minimap: { enabled: false },
-  scrollBeyondLastLine: false,
-  automaticLayout: true,
-  tabSize: 2,
-  wordWrap: 'on',
-  theme: 'vs-dark',
-  renderWhitespace: 'selection',
-  contextmenu: true,
-  quickSuggestions: true,
-  suggestOnTriggerCharacters: true,
-  acceptSuggestionOnEnter: 'on',
-  snippetSuggestions: 'inline',
-  wordBasedSuggestions: 'currentDocument',
-  parameterHints: { enabled: true },
-  formatOnPaste: true,
-  formatOnType: true,
-  folding: true,
-  foldingStrategy: 'indentation',
-  showFoldingControls: 'always',
-  matchBrackets: 'always',
-  autoClosingBrackets: 'always',
-  autoClosingQuotes: 'always',
-  autoIndent: 'full',
-  scrollbar: {
-    vertical: 'visible',
-    horizontal: 'visible',
-    useShadows: true,
-    verticalScrollbarSize: 10,
-    horizontalScrollbarSize: 10,
-  },
-  gotoLocation: {
-    multiple: 'goto',
-    multipleDefinitions: 'goto',
-    multipleTypeDefinitions: 'goto',
-    multipleDeclarations: 'goto',
-    multipleImplementations: 'goto',
-    multipleReferences: 'goto',
-    alternativeDefinitionCommand: 'editor.action.goToReferences',
-    alternativeTypeDefinitionCommand: 'editor.action.goToReferences',
-    alternativeDeclarationCommand: 'editor.action.goToReferences',
-  },
-  find: {
-    addExtraSpaceOnTop: false,
-    autoFindInSelection: 'never',
-    seedSearchStringFromSelection: 'selection',
-  },
-};
+import { MonacoEditor } from '@/modules/monaco-editor';
+import { DEFAULT_EDITOR_OPTIONS } from '@/modules/monaco-editor/config/editor.config';
+import type { SupportedLanguage } from '@/modules/monaco-editor/config/editor.config';
 
 interface CodeEditorProps {
   value: string;
@@ -184,8 +36,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   onEditorDidMount,
 }) => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const valueRef = useRef(value);
 
   const handleCurrentOk = useCallback(() => {
     handleOk?.();
@@ -223,41 +73,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     return baseOptions;
   }, [mode, externalOptions]);
 
-  useEffect(() => {
-    if (visible && containerRef.current && !editorRef.current) {
-      editorRef.current = monaco.editor.create(containerRef.current, {
-        value,
-        language,
-        ...editorOptions,
-      });
-
-      onEditorDidMount?.(editorRef.current);
-
-      const disposable = editorRef.current.onDidChangeModelContent(() => {
-        const newValue = editorRef.current?.getValue();
-        if (onChange && newValue !== undefined) {
-          onChange(newValue);
-        }
-      });
-
-      return () => {
-        disposable.dispose();
-        editorRef.current?.dispose();
-        editorRef.current = null;
-      };
-    }
-  }, [visible, language, editorOptions, onEditorDidMount]);
-
-  useEffect(() => {
-    if (editorRef.current && value !== valueRef.current) {
-      valueRef.current = value;
-      const currentValue = editorRef.current.getValue();
-      if (value !== currentValue) {
-        editorRef.current.setValue(value);
-      }
-    }
-  }, [value]);
-
   // Add ESC key handler to match Modal's closeOnEsc behavior
   useEffect(() => {
     const handleEscKey = (event: KeyboardEvent) => {
@@ -272,11 +87,34 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     };
   }, [visible, handleCurrentCancel]);
 
+  // Update editor value when value prop changes
+  useEffect(() => {
+    if (editorRef.current) {
+      const currentValue = editorRef.current.getValue();
+      if (currentValue !== value) {
+        editorRef.current.setValue(value);
+        editorRef.current.layout();
+      }
+    }
+  }, [value]);
+
+  const handleEditorDidMount = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
+    editorRef.current = editor;
+    editor.setValue(value);
+    editor.layout();
+    if (onEditorDidMount) {
+      onEditorDidMount(editor);
+    }
+  }, [value, onEditorDidMount]);
+
   const editorContent = (
-    <div 
-      ref={containerRef} 
+    <MonacoEditor
+      value={value}
+      language={language as SupportedLanguage}
+      onChange={onChange}
+      options={editorOptions}
       className={className}
-      style={{ 
+      style={{
         height,
         width: '100%',
         border: '1px solid var(--semi-color-border)',
@@ -284,6 +122,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         overflow: 'hidden',
         ...style
       }}
+      onEditorDidMount={handleEditorDidMount}
     />
   );
 

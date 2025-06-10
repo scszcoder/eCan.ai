@@ -89,24 +89,7 @@ export const useCodeEditor = ({
       onVisibleChange={setIsVisible}
       onChange={handleChange}
       handleOk={handleSave}
-      options={{ 
-        readOnly: mode === 'preview',
-        lineNumbers: mode === 'edit' ? 'on' : 'off',
-        minimap: { enabled: mode === 'edit' },
-        folding: mode === 'edit',
-        glyphMargin: mode === 'edit',
-        lineDecorationsWidth: mode === 'edit' ? 10 : 0,
-        lineNumbersMinChars: mode === 'edit' ? 3 : 0,
-        renderLineHighlight: mode === 'edit' ? 'all' : 'none',
-        overviewRulerBorder: mode === 'edit',
-        hideCursorInOverviewRuler: mode !== 'edit',
-        overviewRulerLanes: mode === 'edit' ? 2 : 0,
-        scrollbar: {
-          vertical: mode === 'edit' ? 'visible' : 'hidden',
-          horizontal: mode === 'edit' ? 'visible' : 'hidden'
-        },
-        ...externalOptions
-      }}
+      options={externalOptions}
       onEditorDidMount={handleEditorDidMount}
       mode={mode}
       height={height}

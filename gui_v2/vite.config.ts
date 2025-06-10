@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import fs from 'fs-extra'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -12,7 +13,42 @@ export default defineConfig({
           ['@babel/plugin-proposal-class-properties', { loose: true }]
         ]
       }
-    })
+    }),
+    {
+      name: 'copy-monaco-workers',
+      apply: 'build',
+      async closeBundle() {
+        const monacoPath = path.resolve(__dirname, 'node_modules/monaco-editor');
+        const publicPath = path.resolve(__dirname, 'public/monaco-editor');
+        const distPath = path.resolve(__dirname, 'dist/monaco-editor');
+        
+        // 确保目标目录存在
+        await fs.ensureDir(publicPath);
+        await fs.ensureDir(distPath);
+        
+        // 复制 worker 文件
+        const workers = [
+          'vs/language/typescript/ts.worker.js',
+          'vs/language/json/json.worker.js',
+          'vs/basic-languages/python/python.worker.js',
+          'vs/editor/editor.worker.js'
+        ];
+        
+        for (const worker of workers) {
+          // 复制到 public 目录（开发环境使用）
+          await fs.copy(
+            path.resolve(monacoPath, worker),
+            path.resolve(publicPath, worker)
+          );
+          
+          // 复制到 dist 目录（生产环境使用）
+          await fs.copy(
+            path.resolve(monacoPath, worker),
+            path.resolve(distPath, worker)
+          );
+        }
+      }
+    }
   ],
   base: './',  // 使用相对路径，支持 file:// 协议
   server: {
