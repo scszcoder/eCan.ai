@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { List, Tag, Typography, Space, Button, Input, Avatar, Card, Badge, Tooltip } from 'antd';
 import {
@@ -234,11 +235,15 @@ export const updateChatsGUI = (data: Message) => {
 
 const Chat: React.FC = () => {
     const { t } = useTranslation();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const agentId = searchParams.get('agentId');
+
     const {
         selectedItem: selectedChat,
         items: chats,
         selectItem,
         updateItem,
+        setItems: setChats,
     } = useDetailView<Chat>(initialChats);
 
     const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -258,15 +263,35 @@ const Chat: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
+    // Handle agentId from URL
     useEffect(() => {
-        scrollToBottom();
-        const unsubscribe = chatsEventBus.subscribe((newData) => {
-            setMessages(newData);
-        });
-        return () => {
-            unsubscribe();
-        };
-    }, [messages]);
+        if (agentId) {
+            const agentChat = chats.find(chat => chat.id.toString() === agentId);
+
+            if (!agentChat) {
+                const newChat: Chat = {
+                    id: parseInt(agentId, 10),
+                    name: `Agent ${agentId}`,
+                    type: 'bot',
+                    status: 'online',
+                    lastMessage: t('pages.chat.startConversation'),
+                    lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    lastSessionTime: new Date().toLocaleDateString(),
+                    unreadCount: 0
+                };
+
+                setChats(prevChats => [...prevChats, newChat]);
+                selectItem(newChat);
+
+                // Clear the agentId from URL
+                searchParams.delete('agentId');
+                setSearchParams(searchParams);
+            } else {
+                selectItem(agentChat);
+            }
+        }
+    }, [agentId, chats, selectItem, setChats, searchParams, setSearchParams, t]);
+
 
     // FIX: Attachments included in new message!
     const handleSendMessage = async () => {
@@ -507,7 +532,12 @@ const Chat: React.FC = () => {
             <List
                 dataSource={chats}
                 renderItem={chat => (
-                    <ChatItem onClick={() => selectItem(chat)}>
+                    <ChatItem
+                        onClick={() => selectItem(chat)}
+                        style={{
+                            backgroundColor: selectedChat?.id === chat.id ? 'var(--bg-tertiary)' : 'inherit'
+                        }}
+                    >
                         <Space direction="vertical" style={{ width: '100%' }}>
                             <Space>
                                 <Badge status={
