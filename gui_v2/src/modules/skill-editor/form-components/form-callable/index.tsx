@@ -8,7 +8,7 @@ export function FormCallable() {
   return (
     <Field<CallableFunction> name="data.callable">
       {({ field: { value, onChange } }: FieldRenderProps<CallableFunction>) => (
-        <FormItem name="tool" type="custom" required>
+        <FormItem name="tool" type="custom" required={false}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <CallableSelector
               value={value}

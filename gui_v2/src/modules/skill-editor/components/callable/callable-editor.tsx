@@ -285,11 +285,18 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           <Input />
         </Form.Item>
         <Form.Item
-          name="desc"
           label="Description"
-          rules={[{ required: true, message: 'Please enter a description' }]}
+          name="desc"
+          rules={[{ required: false, message: 'Please enter description' }]}
         >
-          <Input.TextArea rows={2} />
+          <Input.TextArea
+            rows={2}
+            style={{
+              resize: 'vertical',
+              minHeight: '60px'
+            }}
+            placeholder="Enter function description"
+          />
         </Form.Item>
       </>
     );
