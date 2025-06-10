@@ -32,7 +32,7 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
             value: {},
           },
           {
-            key: `if_${nanoid(5)}`,
+            key: `else_${nanoid(5)}`,
             value: {},
           },
         ],
