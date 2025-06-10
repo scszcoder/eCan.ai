@@ -58,11 +58,12 @@ def main():
         print("Running in development mode (Vite dev server)")
     else:
         print("Running in production mode (built files)")
-    
+
     # 创建并显示 Web GUI
     web_gui = WebGUI(utils.logger_helper.login)
     web_gui.show()
-    
+
+    utils.logger_helper.login.setTopGUI(web_gui)
     # 显示登录界面
     utils.logger_helper.login.show()
     loop.run_forever()

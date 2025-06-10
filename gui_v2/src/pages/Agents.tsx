@@ -63,7 +63,7 @@ interface Agent {
 
 // 创建事件总线
 const agentsEventBus = {
-    listeners: new Set<(data: DashboardStats) => void>(),
+    listeners: new Set<(data: Agent[]) => void>(),
     subscribe(listener: (data: Agent[]) => void) {
         this.listeners.add(listener);
         return () => this.listeners.delete(listener);

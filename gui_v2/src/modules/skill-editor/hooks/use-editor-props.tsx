@@ -6,7 +6,7 @@ import { createMinimapPlugin } from '@flowgram.ai/minimap-plugin';
 import { createFreeSnapPlugin } from '@flowgram.ai/free-snap-plugin';
 import { createFreeNodePanelPlugin } from '@flowgram.ai/free-node-panel-plugin';
 import { createFreeLinesPlugin } from '@flowgram.ai/free-lines-plugin';
-import { FreeLayoutProps, WorkflowNodeLinesData } from '@flowgram.ai/free-layout-editor';
+import { FreeLayoutProps, WorkflowNodeLinesData, Form } from '@flowgram.ai/free-layout-editor';
 import { createFreeGroupPlugin } from '@flowgram.ai/free-group-plugin';
 import { createContainerNodePlugin } from '@flowgram.ai/free-container-plugin';
 
@@ -250,22 +250,33 @@ export function useEditorProps(
           renderer: NodePanel,
         }),
         /**
-         * This is used for the rendering of the loop node sub-canvas
-         * 这个用于 loop 节点子画布的渲染
-         */
-        createContainerNodePlugin({}),
-        /**
          * Group plugin
+         * 分组插件
          */
         createFreeGroupPlugin({
           groupNodeRender: GroupNodeRender,
         }),
         /**
-         * ContextMenu plugin
+         * Container plugin
+         * 容器插件
+         */
+        createContainerNodePlugin({}),
+        /**
+         * Context menu plugin
+         * 右键菜单插件
          */
         createContextMenuPlugin({}),
       ],
+      /**
+       * Scope configuration
+       * 作用域配置
+       */
+      scope: {
+        available: true,
+        variables: true,
+        functions: true,
+      },
     }),
-    []
+    [initialData, nodeRegistries]
   );
 }

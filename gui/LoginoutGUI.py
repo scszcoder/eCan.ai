@@ -52,6 +52,7 @@ class Login(QDialog):
         self.xport = None
         self.ip = commanderIP
         self.main_win = None
+        self.top_gui = None
         self.aws_client = boto3.client('cognito-idp', region_name='us-east-1')
         self.lang = "en"
         self.gui_net_msg_queue = asyncio.Queue()
@@ -285,6 +286,9 @@ class Login(QDialog):
             self.show_visibility = True
         else:
             self.show_visibility = False
+
+    def setTopGUI(self, web_gui):
+        self.top_gui = web_gui
 
     def get_gui_msg_queue(self):
         return self.gui_net_msg_queue
@@ -643,7 +647,7 @@ class Login(QDialog):
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
-
+                self.main_win.set_top_gui(self.top_gui)
                 self.main_win.show()            #comment this out if using new GUI
             else:
                 # global commanderXport
@@ -655,7 +659,9 @@ class Login(QDialog):
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
+                self.main_win.set_top_gui(self.top_gui)
                 self.main_win.show()
+
 
             # print("refrsh tokeN:", refresh_token)
             asyncio.create_task(self.refresh_tokens_periodically(refresh_token))
@@ -765,6 +771,7 @@ class Login(QDialog):
 
         print("faker...")
         self.main_win.setOwner("Nobody")
+        self.main_win.set_top_gui(self.top_gui)
         self.main_win.show()
 
         # using new GUI

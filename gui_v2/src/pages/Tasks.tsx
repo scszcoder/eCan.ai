@@ -111,6 +111,23 @@ const initialTasks: Task[] = [
     },
 ];
 
+const tasksEventBus = {
+    listeners: new Set<(data: Task[]) => void>(),
+    subscribe(listener: (data: Task[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Task[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateTasksGUI = (data: Task[]) => {
+    tasksEventBus.emit(data);
+};
+
+
 const Tasks: React.FC = () => {
     const { t } = useTranslation();
     const {

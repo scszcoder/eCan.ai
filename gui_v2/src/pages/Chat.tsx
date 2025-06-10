@@ -160,7 +160,7 @@ const initialChats: Chat[] = [
 const initialMessages: Message[] = [
     {
         id: 1,
-        session_id: number
+        session_id: 1,
         content: 'Hello! How can I help you today?',
         attachments: [],
         sender: 'Support Bot',
@@ -172,6 +172,7 @@ const initialMessages: Message[] = [
     },
     {
         id: 2,
+        session_id: 1,
         content: 'I need help with scheduling a delivery.',
         attachments: [],
         sender: 'You',
@@ -183,6 +184,7 @@ const initialMessages: Message[] = [
     },
     {
         id: 3,
+        session_id: 1,
         content: 'Sure! Here is the info you requested.',
         attachments: [
             // Simulate an agent-sent file attachment (use a Blob for demo)
@@ -197,6 +199,7 @@ const initialMessages: Message[] = [
     },
     {
         id: 4,
+        session_id: 1,
         content: 'Here is the document.',
         attachments: [
             // User message with attachment for demo
@@ -210,6 +213,23 @@ const initialMessages: Message[] = [
         status: 'read',
     },
 ];
+
+// 创建事件总线
+const chatsEventBus = {
+    listeners: new Set<(data: Message) => void>(),
+    subscribe(listener: (data: Message) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Message) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateChatsGUI = (data: Message) => {
+    chatsEventBus.emit(data);
+};
 
 const Chat: React.FC = () => {
     const { t } = useTranslation();
@@ -239,6 +259,12 @@ const Chat: React.FC = () => {
 
     useEffect(() => {
         scrollToBottom();
+        const unsubscribe = chatsEventBus.subscribe((newData) => {
+            setMessages(newData);
+        });
+        return () => {
+            unsubscribe();
+        };
     }, [messages]);
 
     // FIX: Attachments included in new message!
@@ -311,19 +337,6 @@ const Chat: React.FC = () => {
 
 
 
-//     const sendMessage = async (msg: any) => {
-//       const ipc_api = get_ipc_api();
-//       const payload = {
-//         ...msg,
-//         attachments: msg.attachments.map(file => ({
-//           name: file.name,
-//           path: (file as any).path || null, // only works if WebEngine or your file picker exposes this
-//           // or use file.webkitRelativePath if set, or add your own IPC file dialog that returns the path!
-//         }))
-//       };
-//       await ipc_api.sendChat(payload);
-//     };
-
     const sendMessage = async (msg: any) => {
         console.log("adding 1 chat...", msg);
         const ipc_api = get_ipc_api();
@@ -366,11 +379,7 @@ const Chat: React.FC = () => {
         setShowEmojiPicker(false);
     };
 
-//     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-//         if (!e.target.files) return;
-//         console.log("filessssss:", e.target.files);
-//         setAttachments(prev => [...prev, ...Array.from(e.target.files)]);
-//     };
+
 
     const removeAttachment = (index: number) => {
         setAttachments(prev => prev.filter((_, i) => i !== index));

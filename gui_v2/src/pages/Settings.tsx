@@ -16,6 +16,22 @@ interface SettingsFormData {
   [key: string]: string | boolean;
 }
 
+const settingsEventBus = {
+    listeners: new Set<(data: SettingsFormData) => void>(),
+    subscribe(listener: (data: SettingsFormData) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: SettingsFormData) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateSettingsGUI = (data: SettingsFormData) => {
+    settingsEventBus.emit(data);
+};
+
 const Settings: React.FC = () => {
   const { t, i18n } = useTranslation();
   const { theme, changeTheme } = useTheme();

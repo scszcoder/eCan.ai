@@ -50,6 +50,35 @@ const ToolsDetails = styled(Card)`
   }
 `;
 
+interface Tool {
+    id: number;
+    name: string;
+    type: string;
+    status: 'active' | 'maintenance' | 'offline';
+    battery: number;
+    location: string;
+    lastMaintenance: string;
+    totalDistance: number;
+    currentTask?: string;
+    nextMaintenance?: string;
+}
+
+const toolsEventBus = {
+    listeners: new Set<(data: Tool[]) => void>(),
+    subscribe(listener: (data: Tool[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Tool[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateToolsGUI = (data: Tool[]) => {
+    toolsEventBus.emit(data);
+};
+
 const Tools: React.FC = () => {
   const { t } = useTranslation();
 

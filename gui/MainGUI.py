@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
         self.lang = lang
         self.tz = self.obtainTZ()
         self.file_resource = FileResource(self.homepath)
-
+        self.top_gui = None
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
         self.wan_chat_msg_queue = asyncio.Queue()
@@ -1137,6 +1137,10 @@ class MainWindow(QMainWindow):
             if "ONLY" not in self.machine_role:
                 # self.agents.append(set_up_ec_rpa_operator_agent(self))
                 self.agents.append(set_up_ec_procurement_agent(self))
+
+    def set_top_gui(self, top_gui):
+        self.top_gui = top_gui
+
 
     def get_vehicle_ecbot_op_agent(self, v):
         # obtain agents on a vehicle.

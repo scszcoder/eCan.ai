@@ -33,6 +33,7 @@ import logging
 import traceback
 from starlette.responses import JSONResponse
 from datetime import datetime
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +162,12 @@ class AgentTaskManager(InMemoryTaskManager):
 
             waiter = self.create_waiter(task_id)
             print("created waiter....")
-            agent_wait_response = await self._agent.runner.wait_in_line(request)
+            msg_js = json.loads(request.params["message"])  # need , encoding='utf-8'?
+            if msg_js['metadata']["type"] == "send_task":
+                agent_wait_response = await self._agent.runner.task_wait_in_line(request)
+            elif msg_js['metadata']["type"] == "send_chat":
+                agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
+
             print("waiting for runner response......")
             try:
                 # 2. Wait with timeout

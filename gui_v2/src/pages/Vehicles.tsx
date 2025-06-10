@@ -65,6 +65,22 @@ interface Vehicle {
     nextMaintenance?: string;
 }
 
+const vehiclesEventBus = {
+    listeners: new Set<(data: Vehicle[]) => void>(),
+    subscribe(listener: (data: Vehicle[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Vehicle[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateVehiclesGUI = (data: Vehicle[]) => {
+    vehiclesEventBus.emit(data);
+};
+
 const Vehicles: React.FC = () => {
     const { t } = useTranslation();
     
