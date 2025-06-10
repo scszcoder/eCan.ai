@@ -16,8 +16,8 @@ export const Editor = () => {
   };
 
   // 生产环境不加载初始数据，开发环境根据配置决定
-//   const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
-  const shouldLoadInitialData = false;
+  const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
+//   const shouldLoadInitialData = false;
   const editorProps = useEditorProps(shouldLoadInitialData ? initialData : emptyData, nodeRegistries);
 
   return (

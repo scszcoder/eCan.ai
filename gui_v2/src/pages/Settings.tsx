@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Form, Select, Switch, Button, App } from 'antd';
+import { Card, Form, Select, Switch, Button, App, Space } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { logger } from '../utils/logger';
@@ -38,14 +39,40 @@ const Settings: React.FC = () => {
   const { changeLanguage } = useLanguage();
   const [form] = Form.useForm<SettingsFormData>();
   const { message } = App.useApp();
+  const [loading, setLoading] = useState(false);
 
-  // 初始化表单值
-  const initialValues = {
-    theme: theme,
-    language: localStorage.getItem('language') || 'en-US',
-    notifications: localStorage.getItem('notifications') === 'true',
-    autoUpdate: localStorage.getItem('autoUpdate') === 'true'
-  };
+  // 加载设置
+  const loadSettings = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await ipc_api.get_settings();
+      if (response && response.success && response.data) {
+        const settings = response.data;
+        form.setFieldsValue({
+          theme: settings.theme || theme,
+          language: settings.language || localStorage.getItem('language') || 'en-US',
+          notifications: settings.notifications || localStorage.getItem('notifications') === 'true',
+          autoUpdate: settings.autoUpdate || localStorage.getItem('autoUpdate') === 'true'
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to load settings:', error);
+      message.error(t('settings.loadError'));
+    } finally {
+      setLoading(false);
+    }
+  }, [form, theme, t, message]);
+
+  // 初始化加载设置
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
+  // 处理刷新
+  const handleRefresh = useCallback(async () => {
+    await loadSettings();
+    message.success(t('settings.refreshed'));
+  }, [loadSettings, message, t]);
 
   // 语言切换处理
   const handleLanguageChange = async (value: string) => {
@@ -82,36 +109,62 @@ const Settings: React.FC = () => {
 
   const handleSave = async (values: SettingsFormData) => {
     try {
-      // 更新本地设置
-      localStorage.setItem('language', values.language);
-      localStorage.setItem('notifications', String(values.notifications));
-      localStorage.setItem('autoUpdate', String(values.autoUpdate));
-      
-      // 更新主题
-      changeTheme(values.theme as 'light' | 'dark' | 'system');
-      
-      message.success(t('settings.saved'));
+      setLoading(true);
+      // 保存设置到后端
+      const response = await ipc_api.save_settings(values);
+
+      if (response && response.success) {
+        // 更新本地设置
+        localStorage.setItem('language', values.language);
+        localStorage.setItem('notifications', String(values.notifications));
+        localStorage.setItem('autoUpdate', String(values.autoUpdate));
+
+        // 更新主题
+        changeTheme(values.theme as 'light' | 'dark' | 'system');
+
+        message.success(t('settings.saved'));
+      } else {
+        throw new Error(response?.message || 'Failed to save settings');
+      }
     } catch (error) {
       logger.error('Failed to save settings:', error);
       message.error(t('settings.saveError'));
+    } finally {
+      setLoading(false);
     }
   };
 
+  const cardTitle = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span>{t('settings.title')}</span>
+      <Button
+        type="text"
+        icon={<ReloadOutlined style={{ color: 'white' }} />}
+        onClick={handleRefresh}
+        loading={loading}
+        title={t('settings.refresh')}
+      />
+    </div>
+  );
+
   return (
     <div className="settings-container">
-      <Card title={t('settings.title')} className="settings-card">
+      <Card
+        title={cardTitle}
+        className="settings-card"
+        loading={loading}
+      >
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSave}
-          initialValues={initialValues}
           preserve={false}
         >
           <Form.Item
             label={t('settings.language')}
             name="language"
           >
-            <Select onChange={handleLanguageChange}>
+            <Select onChange={handleLanguageChange} disabled={loading}>
               <Select.Option value="en-US">{t('languages.en-US')}</Select.Option>
               <Select.Option value="zh-CN">{t('languages.zh-CN')}</Select.Option>
             </Select>
@@ -121,7 +174,7 @@ const Settings: React.FC = () => {
             label={t('settings.theme')}
             name="theme"
           >
-            <Select onChange={handleThemeChange}>
+            <Select onChange={handleThemeChange} disabled={loading}>
               <Select.Option value="light">{t('settings.theme.light')}</Select.Option>
               <Select.Option value="dark">{t('settings.theme.dark')}</Select.Option>
               <Select.Option value="system">{t('settings.theme.system')}</Select.Option>
@@ -133,7 +186,10 @@ const Settings: React.FC = () => {
             name="notifications"
             valuePropName="checked"
           >
-            <Switch onChange={handleNotificationChange} />
+            <Switch
+              onChange={handleNotificationChange}
+              disabled={loading}
+            />
           </Form.Item>
 
           <Form.Item
@@ -141,11 +197,18 @@ const Settings: React.FC = () => {
             name="autoUpdate"
             valuePropName="checked"
           >
-            <Switch onChange={handleAutoUpdateChange} />
+            <Switch
+              onChange={handleAutoUpdateChange}
+              disabled={loading}
+            />
           </Form.Item>
 
           <Form.Item>
-            <Button type="primary" htmlType="submit">
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+            >
               {t('common.save')}
             </Button>
           </Form.Item>
@@ -155,4 +218,4 @@ const Settings: React.FC = () => {
   );
 };
 
-export default Settings; 
+export default Settings;

@@ -224,10 +224,10 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Get all called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for login: {error}")
             return json.dumps(create_error_response(
@@ -238,24 +238,18 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
 
         # 获取用户名和密码
         username = data['username']
-        password = data['password']
 
-        # 简单的密码验证
-        if password == 'admin123#':
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            logger.info(f"Login successful for user: {username}")
-            return json.dumps(create_success_response(request, {
-                'token': token,
-                'message': 'Login successful'
-            }))
-        else:
-            logger.warning(f"Invalid password for user: {username}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_CREDENTIALS',
-                'Invalid username or password'
-            ))
+        agents = py_login.main_win.agents
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"Get all successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'agents': agents,
+            'message': 'Get all successful'
+        }))
+
     except Exception as e:
         logger.error(f"Error in login handler: {e}")
         return json.dumps(create_error_response(
@@ -279,7 +273,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Get agents handler called with request: {request}, params: {params}")
         print("get agents:", params)
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
@@ -292,20 +286,23 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
             ))
 
         # 获取用户名和密码
-        username = data['username']
+        agents = py_login.main_win.agents
 
         # 简单的密码验证
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"Login successful for user: {username}")
-        return json.dumps([{"id": 666, "name": "john smith"}])
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'agents': agents,
+            'message': 'Login successful'
+        }))
 
     except Exception as e:
         logger.error(f"Error in login handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during login: {str(e)} "
         ))
 
 

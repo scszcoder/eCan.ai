@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { List, Tag, Typography, Space, Button, Progress, Row, Col, Statistic, Card, Badge } from 'antd';
 import { 
     CarOutlined,
@@ -10,7 +10,8 @@ import {
     ToolOutlined,
     PlusOutlined,
     HistoryOutlined,
-    EditOutlined
+    EditOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
@@ -126,7 +127,33 @@ const Vehicles: React.FC = () => {
         items: vehicles,
         selectItem,
         updateItem,
+        setItems: setVehicles  // Add this line
     } = useDetailView<Vehicle>(initialVehicles);
+
+    const handleRefresh = useCallback(async () => {
+        try {
+            const response = await ipc_api.get_vehicles();
+            console.log('Vehicles refreshed:', response);
+            if (response && response.success && response.data) {
+                setVehicles(response.data);
+            }
+        } catch (error) {
+            console.error('Error refreshing vehicles:', error);
+        }
+    }, [setVehicles]);
+
+    // Add refresh button to the list title
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.vehicles.title')}</span>
+            <Button
+                type="text"
+                icon={<ReloadOutlined style={{ color: 'white' }} />}
+                onClick={handleRefresh}
+                title={t('pages.vehicles.refresh')}
+            />
+        </div>
+    );
 
     const [filters, setFilters] = useState<Record<string, any>>({});
 
@@ -348,7 +375,7 @@ const Vehicles: React.FC = () => {
 
     return (
         <DetailLayout
-            listTitle={t('pages.vehicles.title')}
+            listTitle={listTitle}
             detailsTitle={t('pages.vehicles.vehicleInformation')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
