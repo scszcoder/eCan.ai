@@ -1,24 +1,8 @@
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
-import * as monaco from 'monaco-editor';
 import { MonacoEditor } from '@/modules/monaco-editor';
 import { DEFAULT_EDITOR_OPTIONS } from '@/modules/monaco-editor/config/editor.config';
 import type { SupportedLanguage } from '@/modules/monaco-editor/config/editor.config';
-
-interface CodeEditorProps {
-  value: string;
-  onChange?: (value: string) => void;
-  language: string;
-  visible: boolean;
-  handleOk?: () => void;
-  handleCancel?: () => void;
-  onVisibleChange?: (visible: boolean) => void;
-  options?: monaco.editor.IStandaloneEditorConstructionOptions;
-  mode?: 'preview' | 'edit';
-  height?: string | number;
-  className?: string;
-  style?: React.CSSProperties;
-  onEditorDidMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
-}
+import type { IStandaloneEditorConstructionOptions, IStandaloneCodeEditor, CodeEditorProps } from '@/modules/monaco-editor';
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({
   value,
@@ -35,7 +19,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   style,
   onEditorDidMount,
 }) => {
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<IStandaloneCodeEditor | null>(null);
 
   const handleCurrentOk = useCallback(() => {
     handleOk?.();
@@ -67,7 +51,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           vertical: 'hidden' as const,
           horizontal: 'hidden' as const
         }
-      } as monaco.editor.IStandaloneEditorConstructionOptions;
+      } as IStandaloneEditorConstructionOptions;
     }
     
     return baseOptions;
@@ -98,7 +82,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     }
   }, [value]);
 
-  const handleEditorDidMount = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
+  const handleEditorDidMount = useCallback((editor: IStandaloneCodeEditor) => {
     editorRef.current = editor;
     editor.setValue(value);
     editor.layout();

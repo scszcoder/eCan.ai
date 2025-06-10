@@ -1,19 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
-import * as monaco from 'monaco-editor';
-
 import { CodeEditor } from '../components/code-editor';
+import type { IStandaloneCodeEditor, CodeEditorProps } from '@/modules/monaco-editor';
 
-interface UseCodeEditorProps {
+interface UseCodeEditorProps extends Omit<CodeEditorProps, 'value' | 'onChange'> {
   initialContent: string;
-  language: string;
   onSave?: (content: string) => boolean;
-  mode?: 'preview' | 'edit';
-  height?: string | number;
-  className?: string;
-  style?: React.CSSProperties;
-  visible?: boolean;
-  options?: monaco.editor.IStandaloneEditorConstructionOptions;
-  onEditorDidMount?: (editor: monaco.editor.IStandaloneCodeEditor) => void;
 }
 
 interface UseCodeEditorReturn {
@@ -47,7 +38,7 @@ export const useCodeEditor = ({
   onEditorDidMount,
 }: UseCodeEditorProps): UseCodeEditorReturn => {
   const [isVisible, setIsVisible] = useState(visible);
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<IStandaloneCodeEditor | null>(null);
   const contentRef = useRef(initialContent);
 
   const openEditor = useCallback((newContent: string) => {
@@ -73,7 +64,7 @@ export const useCodeEditor = ({
     return true;
   }, [onSave]);
 
-  const handleEditorDidMount = useCallback((editor: any) => {
+  const handleEditorDidMount = useCallback((editor: IStandaloneCodeEditor) => {
     editorRef.current = editor;
     editor.setValue(contentRef.current);
     if (onEditorDidMount) {
