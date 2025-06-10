@@ -347,7 +347,8 @@ class TaskRunner(Generic[Context]):
         self.running_tasks = []
         self.save_dir = "./task_saves"
         os.makedirs(self.save_dir, exist_ok=True)
-        self.msg_queue = asyncio.Queue()
+        self.a2a_msg_queue = asyncio.Queue()
+        self.chat_msg_queue = asyncio.Queue()
         self._stop_event = asyncio.Event()
 
 
@@ -474,6 +475,19 @@ class TaskRunner(Generic[Context]):
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))
         await self.resume_task(task_id)
 
+    def sendChatToGUI(self, msg):
+        try:
+            ipc_api = self.agent.mainwin.top_gui.get_ipc_api()
+            ipc_api.update_chats([msg])
+        except Exception as e:
+            ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
+    def find_chatter_tasks(self, msg):
+        # for now, for the simplicity just find the task that's not scheduled.
+        found = [task for task in self.agent.tasks if 'chatter' in task.name.lower()]
+        return found
+
     def find_suitable_tasks(self, msg):
         # for now, for the simplicity just find the task that's not scheduled.
         found = []
@@ -484,11 +498,20 @@ class TaskRunner(Generic[Context]):
             found = [task for task in self.agent.tasks if "chatter task" in task.name.lower()]
         return found
 
-    async def wait_in_line(self, request):
+    async def task_wait_in_line(self, request):
         try:
-            print("waiting in line.....")
-            await self.msg_queue.put(request)
-            print("now in line....")
+            print("task waiting in line.....")
+            await self.a2a_msg_queue.put(request)
+            print("task now in line....")
+        except Exception as e:
+            ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
+    async def chat_wait_in_line(self, request):
+        try:
+            print("chat message waiting in line.....")
+            await self.chat_msg_queue.put(request)
+            print("chat now in line....")
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
@@ -516,7 +539,7 @@ class TaskRunner(Generic[Context]):
                     print("nothing 2 run")
 
             except Exception as e:
-                ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+                ex_stat = "ErrorLaunchScheduledRun:" + traceback.format_exc() + " " + str(e)
                 print(f"{ex_stat}")
 
             await asyncio.sleep(1)  # the loop goes on.....
@@ -527,9 +550,9 @@ class TaskRunner(Generic[Context]):
             try:
                 print("checking a2a queue....", self.agent.card.name)
 
-                if not self.msg_queue.empty():
+                if not self.a2a_msg_queue.empty():
                     try:
-                        msg = self.msg_queue.get_nowait()
+                        msg = self.a2a_msg_queue.get_nowait()
                         print("A2A message....", msg)
                         # a message could be handled by different task, so first find
                         # a task that that's suitable to handle this message,
@@ -547,7 +570,7 @@ class TaskRunner(Generic[Context]):
                             print("task run response:", response)
                             task_id = msg.params.id
                             self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                        self.msg_queue.task_done()
+                        self.a2a_msg_queue.task_done()
 
                         # process msg here and the msg could be start a task run.
                     except asyncio.QueueEmpty:
@@ -566,22 +589,23 @@ class TaskRunner(Generic[Context]):
 
     # this is for chat task
     async def launch_interacted_run(self, task=None):
+        cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
+        cached_response_index = 0
+        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
         while True:
             try:
                 print("checking a2a queue....", self.agent.card.name)
-
-                if not self.msg_queue.empty():
+                chatResponse = self.sendChatToGUI("User (q/Q to quit): ")
+                while not self.chat_msg_queue.empty():
                     try:
-                        msg = self.msg_queue.get_nowait()
+                        msg = self.chat_msg_queue.get_nowait()
                         print("A2A message....", msg)
-                        # a message could be handled by different task, so first find
-                        # a task that that's suitable to handle this message,
-                        matched_tasks = self.find_suitable_tasks(msg.params)
-                        print("matched task....", len(matched_tasks))
+                        # a message returned from the other party(human or other agent(s)),
+                        task2run = self.find_chatter_tasks()
+                        print("matched chatter task....", task2run)
                         # then run this skill's runnable with the msg
-                        if matched_tasks:
-                            task2run = matched_tasks[0]
-                            print("task2run skill name", task2run.skill.name)
+                        if task2run:
+                            print("chatter task2run skill name", task2run.skill.name)
                             task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
 
                             print("task2run init state", task2run.metadata["state"])
@@ -590,7 +614,8 @@ class TaskRunner(Generic[Context]):
                             print("task run response:", response)
                             task_id = msg.params.id
                             self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                        self.msg_queue.task_done()
+
+                        self.chat_msg_queue.task_done()
 
                         # process msg here and the msg could be start a task run.
                     except asyncio.QueueEmpty:
@@ -598,29 +623,37 @@ class TaskRunner(Generic[Context]):
                         pass
                     except Exception as e:
                         print(f"Error processing Commander message: {e}")
-                else:
-                    # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
-                    print("Checking schedule.....")
-                    task2run = time_to_run(self.agent)
-                    print(f"len task2run, {task2run}, {self.agent.card.name}")
-                    if task2run:
-                        print("scheduled task2run skill name", task2run.skill.name)
-                        task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
 
-                        print("scheduled task2run init state", task2run.metadata["state"])
-                        response = await task2run.astream_run()
-                        if response:
-                            self.agent.a2a_server.task_manager.set_result(task2run.id, response)
-                        else:
-                            self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
-                    else:
-                        print("nothing 2 run")
 
             except Exception as e:
-                ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+                ex_stat = "ErrorLaunchInteractedRun:" + traceback.format_exc() + " " + str(e)
                 print(f"{ex_stat}")
 
             await asyncio.sleep(1)  # the loop goes on.....
 
 # Remaining application code continues here...
 # (not repeating routing/app setup for brevity)
+
+
+# cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
+# cached_response_index = 0
+# config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+# while True:
+#     try:
+#         user = input("User (q/Q to quit): ")
+#     except:
+#         user = cached_human_responses[cached_response_index]
+#         cached_response_index += 1
+#     print(f"User (q/Q to quit): {user}")
+#     if user in {"q", "Q"}:
+#         print("AI: Byebye")
+#         break
+#     output = None
+#     for output in graph.stream(
+#         {"messages": [HumanMessage(content=user)]}, config=config, stream_mode="updates"
+#     ):
+#         last_message = next(iter(output.values()))["messages"][-1]
+#         last_message.pretty_print()
+#
+#     if output and "prompt" in output:
+#         print("Done!")

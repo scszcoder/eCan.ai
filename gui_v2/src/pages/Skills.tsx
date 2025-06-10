@@ -75,6 +75,23 @@ const getStatusColor = (status: Skill['status']): string => {
     }
 };
 
+
+const skillsEventBus = {
+    listeners: new Set<(data: Skill[]) => void>(),
+    subscribe(listener: (data: Skill[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Skill[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateSkillsGUI = (data: Skill[]) => {
+    skillsEventBus.emit(data);
+};
+
 const Skills: React.FC = () => {
     const { t } = useTranslation();
     

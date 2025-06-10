@@ -65,6 +65,22 @@ interface KnowledgePoint {
     nextMaintenance?: string;
 }
 
+const knowledgeEventBus = {
+    listeners: new Set<(data: KnowledgePoint[]) => void>(),
+    subscribe(listener: (data: KnowledgePoint[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: KnowledgePoint[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateKnowledgeGUI = (data: KnowledgePoint[]) => {
+    knowledgeEventBus.emit(data);
+};
+
 const Knowledge: React.FC = () => {
     const { t } = useTranslation();
     
