@@ -1,4 +1,4 @@
-import { CallableFunction } from '../../../typings/callable';
+import { CallableFunction } from '../../typings/callable';
 
 // 系统函数列表
 export const systemFunctions: CallableFunction[] = [

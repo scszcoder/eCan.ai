@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Form, Input, Select, Button, Typography, message } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
-import { CallableFunction } from '../../../typings/callable';
+import { CallableFunction } from '../../typings/callable';
 import { CallableEditorWrapper } from './styles';
-import { useCodeEditor } from '../../../hooks/useCodeEditor';
+import { useCodeEditor } from '../../hooks/useCodeEditor';
 
 const { Option } = Select;
 const { Title } = Typography;
