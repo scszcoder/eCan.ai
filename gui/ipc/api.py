@@ -229,6 +229,21 @@ class IPCAPI:
         self._send_request('update_knowledges', data=knowledges, callback=callback)
 
 
+    def update_chats(
+            self,
+            chats: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            chats: Chat值
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_chats', data=chats, callback=callback)
+
+
 # 使用示例
 """
 # 获取 IPC API 单例实例

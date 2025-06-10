@@ -166,6 +166,10 @@ export class IPCAPI {
         return this.executeRequest<void>('save_skill', values);
     }
 
+    public async sendChat<T>(values: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('send_chat', values);
+    }
+
     public async selfTest() {
        console.log(">>>>>>>>>>>>>>>>IPC_API instance is live!!!");
     }
