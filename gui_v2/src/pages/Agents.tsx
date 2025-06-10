@@ -9,7 +9,8 @@ import {
     UserOutlined,
     EditOutlined,
     HistoryOutlined,
-    PlusOutlined
+    PlusOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
@@ -92,40 +93,14 @@ const getStatusColor = (status: Agent['status']): string => {
     }
 };
 
-const initialAgents: Agent[] = [
-    {
-        id: 1,
-        name: 'Task Coordinator',
-        role: 'Task Coordinator',
-        status: 'active',
-        skills: ['Task Management', 'Communication', 'Problem Solving'],
-        tasksCompleted: 156,
-        efficiency: 95,
-        lastActive: '2 minutes ago',
-        currentTask: 'Project Planning',
-    },
-    {
-        id: 2,
-        name: 'Data Analyst',
-        role: 'Data Analyst',
-        status: 'busy',
-        skills: ['Data Analysis', 'Reporting', 'Visualization'],
-        tasksCompleted: 89,
-        efficiency: 88,
-        lastActive: '5 minutes ago',
-        currentTask: 'Data Processing',
-    },
-    {
-        id: 3,
-        name: 'Support Specialist',
-        role: 'Support Specialist',
-        status: 'offline',
-        skills: ['Customer Support', 'Troubleshooting', 'Documentation'],
-        tasksCompleted: 234,
-        efficiency: 92,
-        lastActive: '1 hour ago',
-    },
-];
+const getAgents = () => {
+    const ipc_api = get_ipc_api();
+    const response = ipc_api.getAgents([]);
+    console.log("ipc response:", response);
+    return response['result'];
+};
+
+const initialAgents: Agent[] = [];
 
 const Agents: React.FC = () => {
     const { t } = useTranslation();
@@ -352,9 +327,36 @@ const Agents: React.FC = () => {
         };
     }, []);
 
+    // Function to handle refresh button click
+    const handleRefresh = useCallback(async () => {
+        try {
+            const ipc_api = get_ipc_api();
+            const response = await ipc_api.getAgents([]);
+            console.log('Agents refreshed:', response);
+            if (response && response.success && response.data) {
+                updateItems(response.data);
+            }
+        } catch (error) {
+            console.error('Error refreshing agents:', error);
+        }
+    }, [updateItems]);
+
+    // Add refresh button to the list title
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.agents.title')}</span>
+            <Button 
+                type="text" 
+                icon={<ReloadOutlined style={{ color: 'white' }} />} 
+                onClick={handleRefresh}
+                title={t('pages.agents.refresh')}
+            />
+        </div>
+    );
+
     return (
         <DetailLayout
-            listTitle={t('pages.agents.title')}
+            listTitle={listTitle}
             detailsTitle={t('pages.agents.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
@@ -362,4 +364,4 @@ const Agents: React.FC = () => {
     );
 };
 
-export default Agents; 
+export default Agents;

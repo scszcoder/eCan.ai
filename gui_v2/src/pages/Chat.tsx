@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { List, Tag, Typography, Space, Button, Input, Avatar, Card, Badge, Tooltip } from 'antd';
 import {
     MessageOutlined,
@@ -13,7 +13,8 @@ import {
     AudioOutlined,
     CloseOutlined,
     DownloadOutlined,
-    TeamOutlined
+    TeamOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import EmojiPicker from 'emoji-picker-react';
@@ -708,9 +709,38 @@ const Chat: React.FC = () => {
     };
 
 
+    // Function to handle refresh button click
+    const handleRefresh = useCallback(async () => {
+        try {
+            const ipc_api = get_ipc_api();
+            const response = await ipc_api.get_chats();
+            console.log('Chats refreshed:', response);
+            if (response && response.success && response.data) {
+                // Update the chats list with the new data
+                // You might need to adjust this based on your actual data structure
+                setChats(response.data);
+            }
+        } catch (error) {
+            console.error('Error refreshing chats:', error);
+        }
+    }, []);
+
+    // Add refresh button to the list title
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.chat.title')}</span>
+            <Button 
+                type="text" 
+                icon={<ReloadOutlined style={{ color: 'white' }} />} 
+                onClick={handleRefresh}
+                title={t('pages.chat.refresh')}
+            />
+        </div>
+    );
+
     return (
         <DetailLayout
-            listTitle={t('pages.chat.title')}
+            listTitle={listTitle}
             detailsTitle={t('pages.chat.chatDetails')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}

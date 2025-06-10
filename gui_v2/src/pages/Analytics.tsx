@@ -6,7 +6,8 @@ import {
     UserOutlined,
     RobotOutlined,
     CarOutlined,
-    CheckCircleOutlined
+    CheckCircleOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { Line, Bar, Pie } from '@ant-design/plots';
@@ -28,6 +29,7 @@ const ChartCard = styled(Card)`
 const StatisticCard = styled(Card)`
     height: 100%;
 `;
+
 
 const Analytics: React.FC = () => {
     const { t } = useTranslation();
