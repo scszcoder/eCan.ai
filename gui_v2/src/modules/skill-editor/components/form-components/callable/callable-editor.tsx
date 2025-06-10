@@ -1,79 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Typography } from 'antd';
+import React, { useState, useEffect, useRef } from 'react';
+import { Modal, Form, Input, Select, Button, Typography, message } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
 import { CallableFunction } from '../../../typings/callable';
 import { CallableEditorWrapper } from './styles';
-import { CodeEditorModal } from '../../code-editor-modal';
-import { Editor } from '@monaco-editor/react';
+import { useCodeEditor } from '../../../hooks/useCodeEditor';
 
 const { Option } = Select;
 const { Title } = Typography;
+
+// Constants
+const MODAL_WIDTH = 800;
+const CODE_EDITOR_HEIGHT = '200px';
+const DEFAULT_LANGUAGE = 'python';
+
+// Types
+type FunctionType = 'system' | 'custom';
+type EditorMode = 'create' | 'edit';
 
 interface CallableEditorProps {
   value?: CallableFunction;
   onSave: (func: CallableFunction) => void;
   onCancel: () => void;
-  mode: 'create' | 'edit';
+  mode: EditorMode;
   systemFunctions: CallableFunction[];
   visible: boolean;
 }
 
-export const CallableEditor: React.FC<CallableEditorProps> = ({
-  value,
-  onSave,
-  onCancel,
-  mode,
-  systemFunctions,
-  visible
-}) => {
-  const [form] = Form.useForm();
-  const [isCodeEditorVisible, setIsCodeEditorVisible] = useState(false);
-  const [functionType, setFunctionType] = useState<'system' | 'custom'>(value?.type || 'custom');
-  const [codeValue, setCodeValue] = useState(value?.code || '');
-  const [tempCodeValue, setTempCodeValue] = useState('');
-  const [language, setLanguage] = useState<'javascript' | 'python'>('python');
+interface FormValues {
+  name: string;
+  desc: string;
+  type: FunctionType;
+  code?: string;
+  params?: { type: string; properties: Record<string, any> };
+  returns?: { type: string; properties: Record<string, any> };
+}
 
-  useEffect(() => {
-    if (value) {
-      form.setFieldsValue(value);
-      setFunctionType(value.type);
-      setCodeValue(value.code || '');
-      setTempCodeValue(value.code || '');
-      setLanguage('python');
-    }
-  }, [value, form]);
-
-  const handleSave = () => {
-    form.validateFields().then(values => {
-      onSave({
-        ...values,
-        type: functionType,
-        code: codeValue,
-        params: { type: 'object', properties: {} },
-        returns: { type: 'object', properties: {} }
-      });
-    });
-  };
-
-  const handleTypeChange = (type: 'system' | 'custom') => {
-    setFunctionType(type);
-    if (type === 'system') {
-      form.setFieldsValue({
-        name: '',
-        desc: '',
-        params: { type: 'object', properties: {} },
-        returns: { type: 'object', properties: {} }
-      });
-      setCodeValue('');
-    }
-  };
-
-  const handleCodeEdit = () => {
-    if (functionType === 'custom') {
-      if (!codeValue) {
-        const functionName = form.getFieldValue('name') || 'my_function';
-        const description = form.getFieldValue('desc') || 'Process the input parameters and return the result.';
-        const defaultCode = `def ${functionName}(params):
+const generateDefaultCode = (functionName: string, description: string): string => {
+  return `def ${functionName}(params):
     """
     ${description}
     
@@ -94,45 +57,218 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
     return {
         # Add your return values here
     }`;
-        setCodeValue(defaultCode);
-        setTempCodeValue(defaultCode);
-      } else {
-        setTempCodeValue(codeValue);
+};
+
+/**
+ * CallableEditor component for creating and editing callable functions
+ */
+export const CallableEditor: React.FC<CallableEditorProps> = ({
+  value,
+  onSave,
+  onCancel,
+  mode,
+  systemFunctions,
+  visible
+}) => {
+  const [form] = Form.useForm<FormValues>();
+  const [functionType, setFunctionType] = useState<FunctionType>(value?.type || 'custom');
+  const [codeValue, setCodeValue] = useState(value?.code || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const previewEditorRef = useRef<any>(null);
+
+  // Initialize form values when value prop changes
+  useEffect(() => {
+    if (value) {
+      form.setFieldsValue(value);
+      setFunctionType(value.type);
+      setCodeValue(value.code || '');
+    }
+  }, [value, form]);
+
+  // Generate and set default code when function type changes to custom
+  useEffect(() => {
+    if (functionType === 'custom' && !codeValue) {
+      const functionName = form.getFieldValue('name') || 'my_function';
+      const description = form.getFieldValue('desc') || 'Process the input parameters and return the result.';
+      const defaultCode = generateDefaultCode(functionName, description);
+      setCodeValue(defaultCode);
+    }
+  }, [functionType, codeValue, form]);
+
+  const handleSave = async () => {
+    try {
+      setIsSubmitting(true);
+      const values = await form.validateFields();
+      
+      if (functionType === 'custom' && !codeValue) {
+        message.error('Please implement the function code');
+        return;
       }
-      setLanguage('python');
-      setIsCodeEditorVisible(true);
+
+      onSave({
+        ...values,
+        type: functionType,
+        code: codeValue,
+        params: values.params || { type: 'object', properties: {} },
+        returns: values.returns || { type: 'object', properties: {} }
+      });
+    } catch (error) {
+      console.error('Form validation failed:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleCodeChange = (code: string) => {
-    setTempCodeValue(code);
+  const handleTypeChange = (type: FunctionType) => {
+    setFunctionType(type);
+    if (type === 'system') {
+      form.setFieldsValue({
+        name: '',
+        desc: '',
+        params: { type: 'object', properties: {} },
+        returns: { type: 'object', properties: {} }
+      });
+      setCodeValue('');
+    }
   };
 
-  const handleCodeSave = () => {
-    setCodeValue(tempCodeValue);
+  const handleCodeEdit = () => {
+    if (functionType === 'custom') {
+      if (!codeValue) {
+        const functionName = form.getFieldValue('name') || 'my_function';
+        const description = form.getFieldValue('desc') || 'Process the input parameters and return the result.';
+        const defaultCode = generateDefaultCode(functionName, description);
+        setCodeValue(defaultCode);
+      }
+      openEditor(codeValue);
+    }
+  };
+
+  const handleCodeSave = (content: string) => {
+    setCodeValue(content);
     
     // Parse function name and description from code
-    const functionNameMatch = tempCodeValue.match(/def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
-    const docStringMatch = tempCodeValue.match(/"""(.*?)"""/s);
+    const functionNameMatch = content.match(/def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
+    const docStringMatch = content.match(/"""(.*?)"""/s);
     
     if (functionNameMatch) {
-      const newFunctionName = functionNameMatch[1];
-      form.setFieldValue('name', newFunctionName);
+      form.setFieldValue('name', functionNameMatch[1]);
     }
     
     if (docStringMatch) {
       const docString = docStringMatch[1].trim();
-      // Extract the first line of docstring as description
       const description = docString.split('\n')[0].trim();
       form.setFieldValue('desc', description);
     }
-    
-    setIsCodeEditorVisible(false);
+    return true;
   };
 
-  const handleCodeCancel = () => {
-    setTempCodeValue(codeValue);
-    setIsCodeEditorVisible(false);
+  // Editor for full-screen editing
+  const { openEditor, editor } = useCodeEditor({
+    initialContent: codeValue,
+    language: DEFAULT_LANGUAGE,
+    onSave: handleCodeSave,
+    mode: 'edit',
+    height: 'calc(100vh - 200px)'
+  });
+
+  // Preview editor for inline display
+  const { editor: previewEditor } = useCodeEditor({
+    initialContent: codeValue || '// No implementation code yet',
+    language: DEFAULT_LANGUAGE,
+    mode: 'preview',
+    height: CODE_EDITOR_HEIGHT,
+    className: 'code-preview-editor',
+    visible: true,
+    options: {
+      readOnly: true,
+      lineNumbers: 'off',
+      minimap: { enabled: false },
+      folding: false,
+      glyphMargin: false,
+      lineDecorationsWidth: 0,
+      lineNumbersMinChars: 0,
+      renderLineHighlight: 'none',
+      overviewRulerBorder: false,
+      hideCursorInOverviewRuler: true,
+      overviewRulerLanes: 0,
+      scrollbar: {
+        vertical: 'hidden',
+        horizontal: 'hidden'
+      },
+      wordWrap: 'on',
+      automaticLayout: true,
+      contextmenu: false,
+      quickSuggestions: false,
+      suggestOnTriggerCharacters: false,
+      parameterHints: { enabled: false },
+      snippetSuggestions: 'none',
+      wordBasedSuggestions: 'off'
+    },
+    onEditorDidMount: (editor) => {
+      previewEditorRef.current = editor;
+      if (codeValue) {
+        editor.setValue(codeValue);
+      }
+    }
+  });
+
+  // Update preview editor content when codeValue changes
+  useEffect(() => {
+    if (previewEditorRef.current && codeValue) {
+      previewEditorRef.current.setValue(codeValue);
+    }
+  }, [codeValue]);
+
+  const renderFunctionTypeFields = () => {
+    if (functionType === 'system') {
+      return (
+        <Form.Item
+          name="name"
+          label="Function Name"
+          rules={[{ required: true, message: 'Please select a function' }]}
+        >
+          <Select
+            showSearch
+            placeholder="Select a system function"
+            optionFilterProp="children"
+            filterOption={(input, option) =>
+              (option?.children as unknown as string)
+                .toLowerCase()
+                .includes(input.toLowerCase())
+            }
+          >
+            {systemFunctions.map((func) => (
+              <Option key={func.name} value={func.name}>
+                {func.name}
+              </Option>
+            ))}
+          </Select>
+        </Form.Item>
+      );
+    }
+
+    return (
+      <>
+        <Form.Item
+          name="name"
+          label="Function Name"
+          rules={[
+            { required: true, message: 'Please enter a function name' },
+            { pattern: /^[a-zA-Z_][a-zA-Z0-9_]*$/, message: 'Invalid function name format' }
+          ]}
+        >
+          <Input />
+        </Form.Item>
+        <Form.Item
+          name="desc"
+          label="Description"
+          rules={[{ required: true, message: 'Please enter a description' }]}
+        >
+          <Input.TextArea rows={2} />
+        </Form.Item>
+      </>
+    );
   };
 
   return (
@@ -141,7 +277,8 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       open={visible}
       onOk={handleSave}
       onCancel={onCancel}
-      width={800}
+      width={MODAL_WIDTH}
+      confirmLoading={isSubmitting}
     >
       <CallableEditorWrapper>
         <Form
@@ -153,7 +290,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           <Form.Item
             name="type"
             label="Function Type"
-            rules={[{ required: true }]}
+            rules={[{ required: true, message: 'Please select a function type' }]}
           >
             <Select onChange={handleTypeChange} disabled={mode === 'edit'}>
               <Option value="system">System Function</Option>
@@ -161,41 +298,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
             </Select>
           </Form.Item>
 
-          {functionType === 'system' && (
-            <Form.Item
-              name="name"
-              label="Function Name"
-              rules={[{ required: true }]}
-            >
-              <Select>
-                {systemFunctions.map(func => (
-                  <Option key={func.sysId} value={func.name}>
-                    {func.name}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-          )}
-
-          {functionType === 'custom' && (
-            <>
-              <Form.Item
-                name="name"
-                label="Function Name"
-                rules={[{ required: true }]}
-              >
-                <Input />
-              </Form.Item>
-
-              <Form.Item
-                name="desc"
-                label="Description"
-                rules={[{ required: true }]}
-              >
-                <Input.TextArea rows={2} />
-              </Form.Item>
-            </>
-          )}
+          {renderFunctionTypeFields()}
 
           <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Title level={5} style={{ color: '#fff', margin: 0 }}>Implementation Code</Title>
@@ -209,47 +312,12 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
               </Button>
             )}
           </div>
-          <div className="code-preview">
-            <Editor
-              height="200px"
-              defaultLanguage="python"
-              value={codeValue || '// No implementation code yet'}
-              theme="vs-dark"
-              options={{
-                readOnly: true,
-                minimap: { enabled: false },
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                wordWrap: 'on',
-                lineNumbers: 'off',
-                folding: false,
-                glyphMargin: false,
-                lineDecorationsWidth: 0,
-                lineNumbersMinChars: 0,
-                renderLineHighlight: 'none',
-                overviewRulerBorder: false,
-                hideCursorInOverviewRuler: true,
-                overviewRulerLanes: 0,
-                scrollbar: {
-                  vertical: 'hidden',
-                  horizontal: 'hidden'
-                }
-              }}
-            />
+          <div className="code-preview" style={{ marginTop: 8, border: '1px solid var(--semi-color-border)', borderRadius: '4px', overflow: 'hidden' }}>
+            {previewEditor}
           </div>
         </Form>
-
-        <CodeEditorModal
-          value={tempCodeValue}
-          onChange={handleCodeChange}
-          language="python"
-          visible={isCodeEditorVisible}
-          handleOk={handleCodeSave}
-          handleCancel={handleCodeCancel}
-          onVisibleChange={setIsCodeEditorVisible}
-          options={{ readOnly: functionType === 'system' }}
-        />
       </CallableEditorWrapper>
+      {editor}
     </Modal>
   );
 }; 

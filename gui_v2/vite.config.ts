@@ -40,6 +40,42 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks: {
           vendor: ['react', 'react-dom'],
+          monaco: [
+            // 核心编辑器
+            'monaco-editor/esm/vs/editor/editor.api',
+            'monaco-editor/esm/vs/editor/editor.worker',
+            // 语言支持
+            'monaco-editor/esm/vs/language/typescript/ts.worker',
+            'monaco-editor/esm/vs/language/json/json.worker',
+            'monaco-editor/esm/vs/basic-languages/python/python.worker',
+            // 基础语言支持
+            'monaco-editor/esm/vs/basic-languages/javascript/javascript.worker',
+            'monaco-editor/esm/vs/basic-languages/typescript/typescript.worker',
+            // 语言特性
+            'monaco-editor/esm/vs/language/typescript/tsMode',
+            'monaco-editor/esm/vs/language/json/jsonMode',
+            // 编辑器功能
+            'monaco-editor/esm/vs/editor/standalone/browser/accessibilityHelp/accessibilityHelp',
+            'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickOutline',
+            'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/gotoLine',
+            'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickCommand',
+            // 主题
+            'monaco-editor/esm/vs/editor/standalone/browser/themeService',
+            // 格式化
+            'monaco-editor/esm/vs/editor/standalone/browser/format/format',
+            // 搜索
+            'monaco-editor/esm/vs/editor/standalone/browser/find/find',
+            // 代码折叠
+            'monaco-editor/esm/vs/editor/standalone/browser/folding/folding',
+            // 代码导航
+            'monaco-editor/esm/vs/editor/standalone/browser/navigation/navigation',
+            // 代码补全
+            'monaco-editor/esm/vs/editor/standalone/browser/suggest/suggest',
+            // 参数提示
+            'monaco-editor/esm/vs/editor/standalone/browser/parameterHints/parameterHints',
+            // 代码大纲
+            'monaco-editor/esm/vs/editor/standalone/browser/outline/outline',
+          ],
         },
       }
     }
@@ -47,6 +83,52 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
+      'monaco-editor': 'monaco-editor/esm/vs/editor/editor.api',
     },
+  },
+  optimizeDeps: {
+    include: [
+      // 核心编辑器
+      'monaco-editor/esm/vs/editor/editor.api',
+      'monaco-editor/esm/vs/editor/editor.worker',
+      // 语言支持
+      'monaco-editor/esm/vs/language/typescript/ts.worker',
+      'monaco-editor/esm/vs/language/json/json.worker',
+      'monaco-editor/esm/vs/basic-languages/python/python.worker',
+      // 基础语言支持
+      'monaco-editor/esm/vs/basic-languages/javascript/javascript.worker',
+      'monaco-editor/esm/vs/basic-languages/typescript/typescript.worker',
+      // 语言特性
+      'monaco-editor/esm/vs/language/typescript/tsMode',
+      'monaco-editor/esm/vs/language/json/jsonMode',
+      // 编辑器功能
+      'monaco-editor/esm/vs/editor/standalone/browser/accessibilityHelp/accessibilityHelp',
+      'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickOutline',
+      'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/gotoLine',
+      'monaco-editor/esm/vs/editor/standalone/browser/quickOpen/quickCommand',
+      // 主题
+      'monaco-editor/esm/vs/editor/standalone/browser/themeService',
+      // 格式化
+      'monaco-editor/esm/vs/editor/standalone/browser/format/format',
+      // 搜索
+      'monaco-editor/esm/vs/editor/standalone/browser/find/find',
+      // 代码折叠
+      'monaco-editor/esm/vs/editor/standalone/browser/folding/folding',
+      // 代码导航
+      'monaco-editor/esm/vs/editor/standalone/browser/navigation/navigation',
+      // 代码补全
+      'monaco-editor/esm/vs/editor/standalone/browser/suggest/suggest',
+      // 参数提示
+      'monaco-editor/esm/vs/editor/standalone/browser/parameterHints/parameterHints',
+      // 代码大纲
+      'monaco-editor/esm/vs/editor/standalone/browser/outline/outline',
+    ],
+    esbuildOptions: {
+      target: 'es2020',
+    },
+  },
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
+    'global': 'globalThis',
   },
 })

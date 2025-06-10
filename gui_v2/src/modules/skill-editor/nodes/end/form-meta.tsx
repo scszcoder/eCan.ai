@@ -15,7 +15,7 @@ export const renderForm = () => {
         <FormHeader />
         <FormContent>
           <Field
-            name="outputs.properties"
+            name="inputs.properties"
             render={({
               field: { value: propertiesSchemaValue, onChange: propertiesSchemaChange },
             }: FieldRenderProps<Record<string, JsonSchema>>) => (
@@ -43,7 +43,7 @@ export const renderForm = () => {
               </Field>
             )}
           />
-          <FormOutputs />
+          <FormOutputs name="inputs" />
         </FormContent>
       </>
     );
@@ -52,7 +52,7 @@ export const renderForm = () => {
     <>
       <FormHeader />
       <FormContent>
-        <FormOutputs />
+        <FormOutputs name="inputs" />
       </FormContent>
     </>
   );
