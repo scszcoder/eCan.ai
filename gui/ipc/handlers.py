@@ -573,6 +573,53 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         ))
 
 
+
+@IPCHandlerRegistry.handler('send_chat')
+def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"send chat handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, [])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for login: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        chat = data[0]
+        status = sender_agent.a2a_send_message(recipient_agent, {"chat": chat})
+        # 简单的密码验证
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"sending a chat: {chat['content']}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'chat message sent'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in send chat handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'SEND_CHAT_ERROR',
+            f"Error during send chat: {str(e)}"
+        ))
+
 @IPCHandlerRegistry.handler('save_agents')
 def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> str:
     """处理登录请求

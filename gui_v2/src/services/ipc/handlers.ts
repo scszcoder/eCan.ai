@@ -41,6 +41,7 @@ export class IPCHandlers {
         this.registerHandler('update_tasks', this.updateTasks);
         this.registerHandler('update_knowledges', this.updateKnowledges);
         this.registerHandler('update_settings', this.updateSettings);
+        this.registerHandler('update_chats', this.updateChats);
     }
 
     private registerHandler(method: string, handler: Handler): void {
@@ -229,6 +230,31 @@ export class IPCHandlers {
         }
     }
 
+
+    async updateChats(request: IPCRequest): Promise<unknown> {
+        try {
+            const { params } = request;
+            if (!params || typeof params !== 'object') {
+                throw new Error('Invalid parameters');
+            }
+
+            // 验证参数
+            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
+            const stats = params as { [K in typeof requiredFields[number]]: number };
+            for (const field of requiredFields) {
+                if (typeof stats[field] !== 'number') {
+                    throw new Error(`Invalid field type: ${field} must be a number`);
+                }
+            }
+
+            // 更新仪表盘数据
+            updateDashboard(stats);
+            return { refreshed: true };
+        } catch (error) {
+            logger.error('Error in refresh_dashboard handler:', error);
+            throw error;
+        }
+    }
 
 
 }

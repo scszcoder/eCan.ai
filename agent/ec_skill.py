@@ -162,6 +162,7 @@ class NodeState(TypedDict):
     messages: List[Any]
     attributes: dict
     result: dict
+    error: str
     retries: int
     condition: bool
     case: str
