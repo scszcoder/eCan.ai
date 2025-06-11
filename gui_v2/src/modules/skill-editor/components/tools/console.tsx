@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useClientContext, usePlayground } from '@flowgram.ai/free-layout-editor';
 import { Button, Tooltip, Toast } from '@douyinfe/semi-ui';
 import { IconTerminal } from '@douyinfe/semi-icons';
+import { CodeOutlined } from '@ant-design/icons';
 
-import { useCodeEditor } from '../../hooks/useCodeEditor';
+import { useCodeEditor } from '../code-editor';
 
 const TOOLTIP_CONTENT = 'Edit JSON Data';
 const JSON_PARSE_ERROR_MESSAGE = 'Invalid JSON format. Please check your input.';

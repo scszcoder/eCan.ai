@@ -4,7 +4,7 @@ import { CodeOutlined } from '@ant-design/icons';
 import type { editor } from 'monaco-editor';
 import { CallableFunction } from '../../typings/callable';
 import { CallableEditorWrapper } from './styles';
-import { useCodeEditor } from '../../hooks/useCodeEditor';
+import { useCodeEditor } from '../code-editor';
 
 const { Option } = Select;
 const { Title } = Typography;
