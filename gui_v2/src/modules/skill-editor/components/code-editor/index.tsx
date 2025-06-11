@@ -1,20 +1,9 @@
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import type { editor } from 'monaco-editor';
-import Editor, { OnChange, loader } from '@monaco-editor/react';
-import { CodeEditorComponentProps, SupportedLanguage } from './types';
+import Editor, { OnChange } from '@monaco-editor/react';
+import { CodeEditorComponentProps } from './types';
 import { editorStyles } from './styles';
 import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
-import { registerThemes, getCurrentTheme } from './theme';
-
-// // 配置 Monaco Editor 加载器
-// loader.config({
-//   paths: {
-//     vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'
-//   }
-// });
-
-// 注册主题
-registerThemes();
 
 export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
   value,
@@ -44,38 +33,9 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
   }, [handleCancel, onVisibleChange]);
 
   const editorOptions = useMemo(() => {
-    const baseOptions = { 
-      ...DEFAULT_EDITOR_OPTIONS, 
-      ...externalOptions,
-      theme: 'vs-dark'
-    };
+    const baseOptions = { ...DEFAULT_EDITOR_OPTIONS, ...externalOptions };
     return mode === 'preview' ? getPreviewModeOptions(baseOptions) : baseOptions;
   }, [mode, externalOptions]);
-
-  // 监听主题变化
-  useEffect(() => {
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.attributeName === 'data-theme') {
-          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-          if (editorRef.current) {
-            editorRef.current.updateOptions({
-              theme: isDark ? 'vs-dark' : 'vs'
-            });
-          }
-        }
-      });
-    });
-
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['data-theme']
-    });
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
 
   useEffect(() => {
     const handleEscKey = (event: KeyboardEvent) => {
@@ -85,18 +45,13 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
     };
 
     document.addEventListener('keydown', handleEscKey);
-    return () => {
-      document.removeEventListener('keydown', handleEscKey);
-    };
+    return () => document.removeEventListener('keydown', handleEscKey);
   }, [visible, handleCurrentCancel]);
 
   useEffect(() => {
-    if (editorRef.current) {
-      const currentValue = editorRef.current.getValue();
-      if (currentValue !== value) {
-        editorRef.current.setValue(value);
-        editorRef.current.layout();
-      }
+    if (editorRef.current && editorRef.current.getValue() !== value) {
+      editorRef.current.setValue(value);
+      editorRef.current.layout();
     }
   }, [value]);
 
@@ -104,20 +59,11 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
     editorRef.current = editor;
     editor.setValue(value);
     editor.layout();
-    
-    // 设置初始主题
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    editor.updateOptions({
-      theme: isDark ? 'vs-dark' : 'vs'
-    });
-    
     onEditorDidMount?.(editor);
   }, [value, onEditorDidMount]);
 
   const handleChange: OnChange = useCallback((value) => {
-    if (onChange) {
-      onChange(value || '');
-    }
+    onChange?.(value || '');
   }, [onChange]);
 
   const editorContent = (
@@ -141,10 +87,6 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
         height="100%"
         width="100%"
         theme="vs-dark"
-        beforeMount={(monaco) => {
-          // 确保在编辑器挂载前注册主题
-          registerThemes();
-        }}
       />
     </div>
   );
