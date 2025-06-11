@@ -1,20 +1,20 @@
 import { useState, useCallback, useRef } from 'react';
 import type { editor } from 'monaco-editor';
-import { CodeEditor } from '../components/code-editor';
-import type { UseCodeEditorProps, UseCodeEditorReturn } from '../components/code-editor/types';
-import { DEFAULT_EDITOR_OPTIONS } from '../components/code-editor/config';
+import { CodeEditor } from '..';
+import type { UseCodeEditorProps, UseCodeEditorReturn } from '../types';
+import { DEFAULT_EDITOR_OPTIONS } from '../config';
 
 /**
  * Hook for managing a code editor modal
- * @param initialContent - Initial content of the editor
- * @param language - Programming language for syntax highlighting
- * @param onSave - Optional callback when saving the content
- * @param mode - Editor mode: 'preview' for read-only preview, 'edit' for editable content
- * @param height - Height of the editor
- * @param className - Additional CSS class name
- * @param style - Additional CSS styles
- * @param visible - Whether the editor is visible
- * @param options - Additional Monaco editor options
+ * 
+ * Features:
+ * - Modal-based code editor
+ * - Content management
+ * - Editor state management
+ * - Save/Cancel operations
+ * 
+ * @param props - Editor configuration options
+ * @returns Editor management functions and editor component
  */
 export const useCodeEditor = ({
   initialContent = '',
@@ -28,10 +28,12 @@ export const useCodeEditor = ({
   options: externalOptions,
   onEditorDidMount,
 }: UseCodeEditorProps): UseCodeEditorReturn => {
+  // State
   const [isVisible, setIsVisible] = useState(visible);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const contentRef = useRef(initialContent);
 
+  // Editor operations
   const openEditor = useCallback((newContent: string) => {
     contentRef.current = newContent;
     if (editorRef.current) {
@@ -55,6 +57,7 @@ export const useCodeEditor = ({
     return true;
   }, [onSave]);
 
+  // Editor lifecycle
   const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     editor.setValue(contentRef.current);
@@ -62,11 +65,13 @@ export const useCodeEditor = ({
     onEditorDidMount?.(editor);
   }, [onEditorDidMount]);
 
+  // Editor configuration
   const editorOptions = useCallback(() => ({
     ...DEFAULT_EDITOR_OPTIONS,
     ...externalOptions,
   }), [externalOptions]);
 
+  // Render editor component
   const editor = (
     <CodeEditor
       value={contentRef.current}
@@ -85,4 +90,4 @@ export const useCodeEditor = ({
   );
 
   return { openEditor, closeEditor, editor };
-};
+}; 
