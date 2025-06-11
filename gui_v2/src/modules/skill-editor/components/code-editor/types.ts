@@ -1,4 +1,14 @@
-import type { IStandaloneCodeEditor, CodeEditorProps } from '@/modules/monaco-editor';
+import type { editor } from 'monaco-editor';
+import type { EditorProps as MonacoEditorProps } from '@monaco-editor/react';
+
+export type SupportedLanguage = 'javascript' | 'typescript' | 'html' | 'css' | 'json' | 'markdown' | 'plaintext' | 'python';
+
+export interface CodeEditorProps extends Omit<MonacoEditorProps, 'onChange'> {
+  value: string;
+  onChange?: (value: string) => void;
+  language?: SupportedLanguage;
+  options?: Record<string, any>;
+}
 
 export interface CodeEditorComponentProps extends CodeEditorProps {
   visible?: boolean;
@@ -9,7 +19,7 @@ export interface CodeEditorComponentProps extends CodeEditorProps {
   height?: string;
   className?: string;
   style?: React.CSSProperties;
-  onEditorDidMount?: (editor: IStandaloneCodeEditor) => void;
+  onEditorDidMount?: (editor: editor.IStandaloneCodeEditor) => void;
 }
 
 export interface UseCodeEditorProps extends Omit<CodeEditorComponentProps, 'value' | 'onChange'> {

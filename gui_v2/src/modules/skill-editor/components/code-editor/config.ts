@@ -1,21 +1,36 @@
-import type { IStandaloneEditorConstructionOptions } from '@/modules/monaco-editor';
+import type { editor } from 'monaco-editor';
 
-export const DEFAULT_EDITOR_HEIGHT = 'calc(100vh - 120px)';
+export const DEFAULT_EDITOR_HEIGHT = '400px';
 
-export const getPreviewModeOptions = (baseOptions: IStandaloneEditorConstructionOptions): IStandaloneEditorConstructionOptions => ({
+export const DEFAULT_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  fontSize: 14,
+  lineNumbers: 'on',
+  readOnly: false,
+  automaticLayout: true,
+  tabSize: 2,
+  wordWrap: 'on',
+  folding: true,
+  lineDecorationsWidth: 0,
+  lineNumbersMinChars: 3,
+  glyphMargin: false,
+  contextmenu: true,
+  scrollbar: {
+    vertical: 'visible',
+    horizontal: 'visible',
+    useShadows: false,
+    verticalScrollbarSize: 6,
+    horizontalScrollbarSize: 6,
+  },
+};
+
+export const getPreviewModeOptions = (baseOptions: editor.IStandaloneEditorConstructionOptions): editor.IStandaloneEditorConstructionOptions => ({
   ...baseOptions,
   readOnly: true,
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
   lineNumbers: 'off',
   folding: false,
-  glyphMargin: false,
-  lineDecorationsWidth: 0,
-  lineNumbersMinChars: 0,
-  renderLineHighlight: 'none',
-  overviewRulerBorder: false,
-  hideCursorInOverviewRuler: true,
-  overviewRulerLanes: 0,
-  scrollbar: {
-    vertical: 'hidden',
-    horizontal: 'hidden'
-  }
+  contextmenu: false,
 }); 
