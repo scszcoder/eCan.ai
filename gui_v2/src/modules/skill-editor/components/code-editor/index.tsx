@@ -1,11 +1,20 @@
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
-import { MonacoEditor } from '@/modules/monaco-editor';
-import { DEFAULT_EDITOR_OPTIONS } from '@/modules/monaco-editor/config/editor.config';
-import type { SupportedLanguage } from '@/modules/monaco-editor/config/editor.config';
-import type { IStandaloneCodeEditor } from '@/modules/monaco-editor';
-import { CodeEditorComponentProps } from './types';
+import type { editor } from 'monaco-editor';
+import Editor, { OnChange, loader } from '@monaco-editor/react';
+import { CodeEditorComponentProps, SupportedLanguage } from './types';
 import { editorStyles } from './styles';
-import { DEFAULT_EDITOR_HEIGHT, getPreviewModeOptions } from './config';
+import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
+import { registerThemes, getCurrentTheme } from './theme';
+
+// // 配置 Monaco Editor 加载器
+// loader.config({
+//   paths: {
+//     vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'
+//   }
+// });
+
+// 注册主题
+registerThemes();
 
 export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
   value,
@@ -22,7 +31,7 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
   style,
   onEditorDidMount,
 }) => {
-  const editorRef = useRef<IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   const handleCurrentOk = useCallback(() => {
     handleOk?.();
@@ -35,9 +44,38 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
   }, [handleCancel, onVisibleChange]);
 
   const editorOptions = useMemo(() => {
-    const baseOptions = { ...DEFAULT_EDITOR_OPTIONS, ...externalOptions };
+    const baseOptions = { 
+      ...DEFAULT_EDITOR_OPTIONS, 
+      ...externalOptions,
+      theme: 'vs-dark'
+    };
     return mode === 'preview' ? getPreviewModeOptions(baseOptions) : baseOptions;
   }, [mode, externalOptions]);
+
+  // 监听主题变化
+  useEffect(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.attributeName === 'data-theme') {
+          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+          if (editorRef.current) {
+            editorRef.current.updateOptions({
+              theme: isDark ? 'vs-dark' : 'vs'
+            });
+          }
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme']
+    });
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
 
   useEffect(() => {
     const handleEscKey = (event: KeyboardEvent) => {
@@ -62,19 +100,28 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
     }
   }, [value]);
 
-  const handleEditorDidMount = useCallback((editor: IStandaloneCodeEditor) => {
+  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     editor.setValue(value);
     editor.layout();
+    
+    // 设置初始主题
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    editor.updateOptions({
+      theme: isDark ? 'vs-dark' : 'vs'
+    });
+    
     onEditorDidMount?.(editor);
   }, [value, onEditorDidMount]);
 
+  const handleChange: OnChange = useCallback((value) => {
+    if (onChange) {
+      onChange(value || '');
+    }
+  }, [onChange]);
+
   const editorContent = (
-    <MonacoEditor
-      value={value}
-      language={language as SupportedLanguage}
-      onChange={onChange}
-      options={editorOptions}
+    <div
       className={className}
       style={{
         height,
@@ -84,8 +131,22 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
         overflow: 'hidden',
         ...style
       }}
-      onEditorDidMount={handleEditorDidMount}
-    />
+    >
+      <Editor
+        value={value}
+        language={language}
+        onChange={handleChange}
+        options={editorOptions}
+        onMount={handleEditorDidMount}
+        height="100%"
+        width="100%"
+        theme="vs-dark"
+        beforeMount={(monaco) => {
+          // 确保在编辑器挂载前注册主题
+          registerThemes();
+        }}
+      />
+    </div>
   );
 
   if (mode === 'preview') {

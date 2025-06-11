@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import type { editor } from 'monaco-editor';
 import { CodeEditor } from '../components/code-editor';
-import type { IStandaloneCodeEditor } from '@/modules/monaco-editor';
 import type { UseCodeEditorProps, UseCodeEditorReturn } from '../components/code-editor/types';
+import { DEFAULT_EDITOR_OPTIONS } from '../components/code-editor/config';
 
 /**
  * Hook for managing a code editor modal
@@ -28,7 +29,7 @@ export const useCodeEditor = ({
   onEditorDidMount,
 }: UseCodeEditorProps): UseCodeEditorReturn => {
   const [isVisible, setIsVisible] = useState(visible);
-  const editorRef = useRef<IStandaloneCodeEditor | null>(null);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const contentRef = useRef(initialContent);
 
   const openEditor = useCallback((newContent: string) => {
@@ -54,11 +55,25 @@ export const useCodeEditor = ({
     return true;
   }, [onSave]);
 
-  const handleEditorDidMount = useCallback((editor: IStandaloneCodeEditor) => {
+  const handleEditorDidMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
     editor.setValue(contentRef.current);
+    editor.layout();
+    
+    // 设置默认主题为 dark
+    editor.updateOptions({
+      theme: 'dark'
+    });
     onEditorDidMount?.(editor);
   }, [onEditorDidMount]);
+
+  const editorOptions = useCallback(() => {
+    return {
+      ...DEFAULT_EDITOR_OPTIONS,
+      ...externalOptions,
+      theme: 'dark'  // 确保主题设置为 dark
+    };
+  }, [externalOptions]);
 
   const editor = (
     <CodeEditor
@@ -68,7 +83,7 @@ export const useCodeEditor = ({
       onVisibleChange={setIsVisible}
       onChange={handleChange}
       handleOk={handleSave}
-      options={externalOptions}
+      options={editorOptions()}
       onEditorDidMount={handleEditorDidMount}
       mode={mode}
       height={height}

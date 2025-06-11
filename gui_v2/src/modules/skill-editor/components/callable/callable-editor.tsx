@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Form, Input, Select, Button, Typography, message } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
+import type { editor } from 'monaco-editor';
 import { CallableFunction } from '../../typings/callable';
 import { CallableEditorWrapper } from './styles';
 import { useCodeEditor } from '../../hooks/useCodeEditor';
@@ -74,7 +75,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   const [functionType, setFunctionType] = useState<FunctionType>(value?.type || 'custom');
   const [codeValue, setCodeValue] = useState(value?.code || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const previewEditorRef = useRef<any>(null);
+  const previewEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   // Initialize form values when value prop changes
   useEffect(() => {
@@ -169,7 +170,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   };
 
   // 预览编辑器挂载回调
-  const handlePreviewEditorDidMount = (editor: any) => {
+  const handlePreviewEditorDidMount = (editor: editor.IStandaloneCodeEditor) => {
     previewEditorRef.current = editor;
     // 设置初始值
     editor.setValue(codeValue);
@@ -204,7 +205,8 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       quickSuggestions: false,
       parameterHints: { enabled: false },
       snippetSuggestions: 'none',
-      wordBasedSuggestions: 'off'
+      wordBasedSuggestions: 'off',
+      theme: 'dark'
     }
   });
 
@@ -239,7 +241,8 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       suggestOnTriggerCharacters: false,
       parameterHints: { enabled: false },
       snippetSuggestions: 'none',
-      wordBasedSuggestions: 'off'
+      wordBasedSuggestions: 'off',
+      theme: 'dark'
     },
     onEditorDidMount: handlePreviewEditorDidMount
   });
