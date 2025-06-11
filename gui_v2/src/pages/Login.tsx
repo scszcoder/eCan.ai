@@ -37,10 +37,10 @@ const Login: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
     const [passwordValue, setPasswordValue] = useState<string>('');
-
+    const [userNameValue, setUserNameValue] = useState<string>('');
     set_ipc_api(createIPCAPI());
     const api = get_ipc_api();
-    api.selfTest();
+//     api.selfTest();
 
     useEffect(() => {
         const savedLanguage = localStorage.getItem('i18nextLng') || 'zh-CN';
@@ -59,7 +59,7 @@ const Login: React.FC = () => {
                     setTimeout(() => {
                         form.setFieldsValue({
                             username,
-                            password: decrypt(password),
+                            password: password,
                             role: machine_role
                         });
                     }, 0);
@@ -71,12 +71,12 @@ const Login: React.FC = () => {
     }, [i18n, form]);
 
     const handleSubmit = async (values: LoginFormValues) => {
-        const finalPassword = passwordValue;
-        console.log("Submitted values:", { ...values, password: finalPassword });
+        const finalPassword = values.password;
+        console.log("Submitted values:", { ...values, password: values.password });
         setLoading(true);
         try {
             if (mode === 'login') {
-                const response = await api.login(values.username, finalPassword, values.role);
+                const response = await api.login(values.username, values.password, values.role);
                 console.log("login finished....", response);
                 if (response.success && response.data) {
                     logger.info('Login successful', response.data);
@@ -84,9 +84,16 @@ const Login: React.FC = () => {
                     localStorage.setItem('token', token);
                     localStorage.setItem('isAuthenticated', 'true');
                     localStorage.setItem('userRole', values.role);
+                    setPasswordValue(values.password);
+                    setUserNameValue(values.username);
                     messageApi.success(successMessage);
-
                     navigate('/dashboard');
+
+                    //wait for 6 seconds
+                    await new Promise(resolve => setTimeout(resolve, 6000));
+
+                    const response2 = await api.getAll(values.username);
+                    logger.info('Get all successful', response2.data);
                 } else {
                     logger.error('Login failed', response.error);
                     messageApi.error(response.error?.message || t('login.failed'));

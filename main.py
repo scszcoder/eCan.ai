@@ -16,6 +16,7 @@ from gui.WebGUI import WebGUI
 from bot.network import runCommanderLAN, runPlatoonLAN
 # from utils.logger_helper import logger_helper, login
 import utils.logger_helper
+from utils.logger_helper import set_top_web_gui
 
 # from tests.unittests import *
 from tests.unittests import *
@@ -58,11 +59,13 @@ def main():
         print("Running in development mode (Vite dev server)")
     else:
         print("Running in production mode (built files)")
-    
+
     # 创建并显示 Web GUI
     web_gui = WebGUI(utils.logger_helper.login)
+    set_top_web_gui(web_gui)
     web_gui.show()
-    
+
+    utils.logger_helper.login.setTopGUI(web_gui)
     # 显示登录界面
     utils.logger_helper.login.show()
     loop.run_forever()

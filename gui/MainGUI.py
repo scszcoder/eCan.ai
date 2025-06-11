@@ -90,7 +90,7 @@ from langchain_openai import ChatOpenAI
 from agent.ec_agent import EC_Agent
 from agent.runner.service import Runner
 from agent.ec_skills.build_skills import build_agent_skills
-from agent.a2a.langgraph_agent.utils import set_up_ec_helper_agent, set_up_ec_rpa_operator_agent, \
+from agent.a2a.langgraph_agent.utils import set_up_my_twin_agent, set_up_ec_helper_agent, set_up_ec_rpa_operator_agent, \
     set_up_ec_rpa_supervisor_agent, set_up_ec_procurement_agent
 from agent.a2a.langgraph_agent.utils import set_up_ec_customer_support_agent, set_up_ec_marketing_agent, set_up_ec_sales_agent
 from agent.a2a.langgraph_agent.utils import set_up_ec_research_agent
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
         self.lang = lang
         self.tz = self.obtainTZ()
         self.file_resource = FileResource(self.homepath)
-
+        self.top_gui = None
         self.DONE_WITH_TODAY = True
         self.gui_chat_msg_queue = asyncio.Queue()
         self.wan_chat_msg_queue = asyncio.Queue()
@@ -1070,6 +1070,7 @@ class MainWindow(QMainWindow):
         print("DONE build agents.....")
         await self.launch_agents()
         print("DONE launch agents.....")
+        self.top_gui.update_all(self)
         # await self.test_a2a()
 
     def wait_for_server(self, agent, timeout: float = 10.0):
@@ -1126,6 +1127,7 @@ class MainWindow(QMainWindow):
 
     def build_agents(self):
         # for now just build a few agents.
+        self.agents.append(set_up_my_twin_agent(self))
         if "Platoon" in self.machine_role:
             self.agents.append(set_up_ec_helper_agent(self))
             self.agents.append(set_up_ec_rpa_operator_agent(self))
@@ -1136,6 +1138,10 @@ class MainWindow(QMainWindow):
             if "ONLY" not in self.machine_role:
                 # self.agents.append(set_up_ec_rpa_operator_agent(self))
                 self.agents.append(set_up_ec_procurement_agent(self))
+
+    def set_top_gui(self, top_gui):
+        self.top_gui = top_gui
+
 
     def get_vehicle_ecbot_op_agent(self, v):
         # obtain agents on a vehicle.

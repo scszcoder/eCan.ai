@@ -7,7 +7,8 @@ import {
     ClockCircleOutlined,
     StarOutlined,
     EditOutlined,
-    HistoryOutlined
+    HistoryOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
@@ -75,9 +76,27 @@ const getStatusColor = (status: Skill['status']): string => {
     }
 };
 
+
+const skillsEventBus = {
+    listeners: new Set<(data: Skill[]) => void>(),
+    subscribe(listener: (data: Skill[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Skill[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateSkillsGUI = (data: Skill[]) => {
+    skillsEventBus.emit(data);
+};
+
 const Skills: React.FC = () => {
     const { t } = useTranslation();
-    
+    const [loading, setLoading] = useState(false);
+
     const initialSkills: Skill[] = [
         {
             id: 1,
@@ -116,7 +135,30 @@ const Skills: React.FC = () => {
         items: skills,
         selectItem,
         updateItem,
+        setItems: setSkills
     } = useDetailView<Skill>(initialSkills);
+
+    const fetchSkills = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await ipc_api.get_skills();
+            if (response && response.success && response.data) {
+                setSkills(response.data);
+            }
+        } catch (error) {
+            console.error('Error fetching skills:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [setSkills]);
+
+    useEffect(() => {
+        fetchSkills();
+    }, [fetchSkills]);
+
+    const handleRefresh = useCallback(async () => {
+        await fetchSkills();
+    }, [fetchSkills]);
 
     const handleLevelUp = (id: number) => {
         const skill = skills.find(s => s.id === id);
@@ -129,9 +171,23 @@ const Skills: React.FC = () => {
         }
     };
 
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.skills.title')}</span>
+            <Button
+                type="text"
+                icon={<ReloadOutlined style={{ color: 'white' }} />}
+                onClick={handleRefresh}
+                loading={loading}
+                title={t('pages.skills.refresh')}
+            />
+        </div>
+    );
+
     const renderListContent = () => (
         <List
             dataSource={skills}
+            loading={loading}
             renderItem={skill => (
                 <SkillItem onClick={() => selectItem(skill)}>
                     <Space direction="vertical" style={{ width: '100%' }}>
@@ -145,8 +201,8 @@ const Skills: React.FC = () => {
                         </Space>
                         <SkillProgress>
                             <Tooltip title={t('pages.skills.level', { level: skill.level })}>
-                                <Progress 
-                                    percent={skill.level} 
+                                <Progress
+                                    percent={skill.level}
                                     size="small"
                                     status={skill.status === 'learning' ? 'active' : 'normal'}
                                 />
@@ -186,20 +242,20 @@ const Skills: React.FC = () => {
                 <Card>
                     <Space direction="vertical" style={{ width: '100%' }}>
                         <Text strong style={{ color: 'white' }}>{t('pages.skills.skillLevel')}</Text>
-                        <Progress 
-                            percent={selectedSkill.level} 
+                        <Progress
+                            percent={selectedSkill.level}
                             status={selectedSkill.status === 'learning' ? 'active' : 'normal'}
                         />
                         <Text type="secondary"  style={{ color: 'white' }}>
-                            {selectedSkill.level === 100 
+                            {selectedSkill.level === 100
                                 ? t('pages.skills.mastered')
                                 : t('pages.skills.complete', { level: selectedSkill.level })}
                         </Text>
                     </Space>
                 </Card>
                 <Space>
-                    <Button 
-                        type="primary" 
+                    <Button
+                        type="primary"
                         icon={<ThunderboltOutlined />}
                         onClick={() => handleLevelUp(selectedSkill.id)}
                         disabled={selectedSkill.level === 100}
@@ -217,7 +273,7 @@ const Skills: React.FC = () => {
                     onAdd={() => {}}
                     onEdit={() => {}}
                     onDelete={() => {}}
-                    onRefresh={() => {}}
+                    onRefresh={handleRefresh}
                     onExport={() => {}}
                     onImport={() => {}}
                     onSettings={() => {}}
@@ -235,7 +291,7 @@ const Skills: React.FC = () => {
 
     return (
         <DetailLayout
-            listTitle={t('pages.skills.title')}
+            listTitle={listTitle}
             detailsTitle={t('pages.skills.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
@@ -243,4 +299,4 @@ const Skills: React.FC = () => {
     );
 };
 
-export default Skills; 
+export default Skills;

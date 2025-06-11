@@ -180,6 +180,7 @@ class EC_Agent(Generic[Context]):
 
 		# Core components
 		self.tasks = tasks
+		self.running_tasks = []
 		self.llm = llm
 		self.sensitive_data = sensitive_data
 		self.skill_set = skill_set
@@ -1531,7 +1532,16 @@ class EC_Agent(Generic[Context]):
 		self.start_a2a_server_in_thread(self.a2a_server)
 		print("A2A server started....")
 		# kick off TaskExecutor
-		asyncio.create_task(self.runner.launch_scheduled_run())
+		for task in self.tasks:
+			if task.trigger == "schedule":
+				self.running_tasks.append(asyncio.create_task(self.runner.launch_scheduled_run(task)))
+			elif task.trigger == "message":
+				self.running_tasks.append(asyncio.create_task(self.runner.launch_reacted_run(task)))
+			elif task.trigger == "interaction":
+				self.running_tasks.append(asyncio.create_task(self.runner.launch_interacted_run(task)))
+			else:
+				print("WARNING: UNRECOGNIZED task trigger type....")
+
 		# runnable = self.skill_set[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()
@@ -1552,10 +1562,11 @@ class EC_Agent(Generic[Context]):
 		print("client card:", self.get_card().name.lower())
 		if helper:
 			self.a2a_client.set_recipient(helper.get_card())
+			help_msg = Message(role="user", parts=[TextPart(type="text", text="Summarize this report")], metadata={"type": "send_task"})
 			payload = {
 				"id": "task-001X",
 				"sessionId": "sess-abc",
-				"message": Message(role="user", parts=[TextPart(type="text", text="Summarize this report")]),
+				"message": help_msg,
 				"acceptedOutputModes": ["json"],
 				"skill": "resolve_rpa_failure"  # Or whatever your agent expects
 			}
@@ -1571,7 +1582,7 @@ class EC_Agent(Generic[Context]):
 	# 	parts: List[Part]
 	# 	metadata: dict[str, Any] | None = None
 	@time_execution_async('--a2a_send_message (agent, message)')
-	async def a2a_send_message(self, recipient_agent, message):
+	async def a2a_send_chat_message(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
 		print("recipient card:", recipient_agent.get_card().name.lower())
 
@@ -1579,10 +1590,12 @@ class EC_Agent(Generic[Context]):
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
 			print("a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
+			chat_msg = Message(role="user", parts=[TextPart(type="text", text="Summarize this report")], metadata={"type": "send_chat"})
+
 			payload = {
 				"id": "task-001X",
 				"sessionId": "sess-abc",
-				"message": message,
+				"message": chat_msg,
 				"acceptedOutputModes": ["json"],
 				"skill": "resolve_rpa_failure"  # Or whatever your agent expects
 			}

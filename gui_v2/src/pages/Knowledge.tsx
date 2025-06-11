@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { List, Tag, Typography, Space, Button, Progress, Row, Col, Statistic, Card, Badge } from 'antd';
-import { 
+import { List, Tag, Typography, Space, Button, Progress, Row, Col, Statistic, Card, Badge, message } from 'antd';
+import {
     CarOutlined,
-    ClusterOutlined, 
+    ClusterOutlined,
     CheckCircleOutlined,
     ClockCircleOutlined,
     ThunderboltOutlined,
@@ -11,7 +11,8 @@ import {
     PlusOutlined,
     HistoryOutlined,
     ReadOutlined,
-    EditOutlined
+    EditOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
@@ -65,57 +66,76 @@ interface KnowledgePoint {
     nextMaintenance?: string;
 }
 
+const knowledgeEventBus = {
+    listeners: new Set<(data: KnowledgePoint[]) => void>(),
+    subscribe(listener: (data: KnowledgePoint[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: KnowledgePoint[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateKnowledgeGUI = (data: KnowledgePoint[]) => {
+    knowledgeEventBus.emit(data);
+};
+
 const Knowledge: React.FC = () => {
     const { t } = useTranslation();
-    
-    const initialKnowledge: KnowledgePoint[] = [
-        {
-            id: 1,
-            name: 'Product A',
-            type: t('pages.knowledge.groundVehicle'),
-            status: 'active',
-            battery: 85,
-            location: t('pages.knowledge.zoneA'),
-            lastMaintenance: t('pages.knowledge.lastMaintenance', { time: '2 weeks ago' }),
-            totalDistance: 1560,
-            currentTask: t('pages.knowledge.currentTask', { task: 'Delivery Task #123' }),
-            nextMaintenance: t('pages.knowledge.nextMaintenance', { time: '2 weeks from now' }),
-        },
-        {
-            id: 2,
-            name: 'Service Beta',
-            type: t('pages.knowledge.aerialVehicle'),
-            status: 'maintenance',
-            battery: 45,
-            location: t('pages.knowledge.maintenanceBay'),
-            lastMaintenance: t('pages.knowledge.lastMaintenance', { time: '1 day ago' }),
-            totalDistance: 2340,
-            nextMaintenance: t('pages.knowledge.nextMaintenance', { time: '1 week from now' }),
-        },
-        {
-            id: 3,
-            name: 'Product Gamma',
-            type: t('pages.knowledge.groundVehicle'),
-            status: 'offline',
-            battery: 100,
-            location: t('pages.knowledge.chargingStation'),
-            lastMaintenance: t('pages.knowledge.lastMaintenance', { time: '1 month ago' }),
-            totalDistance: 890,
-            nextMaintenance: t('pages.knowledge.nextMaintenance', { time: '3 weeks from now' }),
-        },
-    ];
-
+    const [loading, setLoading] = useState(false);
+    const [filters, setFilters] = useState<Record<string, any>>({});
 
     const {
         selectedItem: selectedKnowledge,
         items: knowledges,
         selectItem,
         updateItem,
-    } = useDetailView<KnowledgePoint>(initialKnowledge);
+        setItems: setKnowledges
+    } = useDetailView<KnowledgePoint>([]);
 
-    const [filters, setFilters] = useState<Record<string, any>>({});
+    // Fetch knowledge points
+    const fetchKnowledgePoints = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await ipc_api.get_knowledge_points();
+            if (response && response.success && response.data) {
+                setKnowledges(response.data);
+            }
+        } catch (error) {
+            console.error('Error fetching knowledge points:', error);
+            message.error(t('pages.knowledge.fetchError'));
+        } finally {
+            setLoading(false);
+        }
+    }, [t]);
 
-    const handleStatusChange = (id: number, newStatus: Vehicle['status']) => {
+    // Initial load
+    useEffect(() => {
+        fetchKnowledgePoints();
+    }, [fetchKnowledgePoints]);
+
+    // Handle refresh
+    const handleRefresh = useCallback(async () => {
+        await fetchKnowledgePoints();
+        message.success(t('pages.knowledge.refreshSuccess'));
+    }, [fetchKnowledgePoints, t]);
+
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.knowledge.title')}</span>
+            <Button
+                type="text"
+                icon={<ReloadOutlined style={{ color: 'white' }} />}
+                onClick={handleRefresh}
+                loading={loading}
+                title={t('common.refresh')}
+            />
+        </div>
+    );
+
+    const handleStatusChange = (id: number, newStatus: 'active' | 'maintenance' | 'offline') => {
         updateItem(id, {
             status: newStatus,
             location: newStatus === 'maintenance' ? t('pages.knowledge.maintenanceBay') :
@@ -161,7 +181,7 @@ const Knowledge: React.FC = () => {
 
     const renderListContent = () => (
         <>
-            <Title level={2}>{t('pages.knowledge.title')}</Title>
+            {listTitle}
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}
@@ -191,7 +211,7 @@ const Knowledge: React.FC = () => {
                 onAdd={() => {}}
                 onEdit={() => {}}
                 onDelete={() => {}}
-                onRefresh={() => {}}
+                onRefresh={handleRefresh}
                 onExport={() => {}}
                 onImport={() => {}}
                 onSettings={() => {}}
@@ -205,6 +225,7 @@ const Knowledge: React.FC = () => {
             />
             <List
                 dataSource={knowledges}
+                loading={loading}
                 renderItem={knowledgePoint => (
                     <KnowledgeItem onClick={() => selectItem(knowledgePoint)}>
                         <Space direction="vertical" style={{ width: '100%' }}>
@@ -223,7 +244,7 @@ const Knowledge: React.FC = () => {
                                 <EnvironmentOutlined />
                                 <Text type="secondary">{knowledgePoint.location}</Text>
                             </Space>
-                            <Progress 
+                            <Progress
                                 percent={knowledgePoint.battery}
                                 size="small"
                                 status={knowledgePoint.battery < 20 ? 'exception' : 'normal'}
@@ -304,22 +325,22 @@ const Knowledge: React.FC = () => {
                     ]}
                 />
                 <Space>
-                    <Button 
-                        type="primary" 
+                    <Button
+                        type="primary"
                         icon={<PlusOutlined />}
                         onClick={() => handleStatusChange(selectedKnowledge.id, 'active')}
                         disabled={selectedKnowledge.status === 'active'}
                     >
                         {t('pages.knowledge.activate')}
                     </Button>
-                    <Button 
+                    <Button
                         icon={<ToolOutlined />}
                         onClick={() => handleMaintenance(selectedKnowledge.id)}
                         disabled={selectedKnowledge.status === 'maintenance'}
                     >
                         {t('pages.knowledge.scheduleMaintenance')}
                     </Button>
-                    <Button 
+                    <Button
                         icon={<HistoryOutlined />}
                         onClick={() => handleStatusChange(selectedKnowledge.id, 'offline')}
                         disabled={selectedKnowledge.status === 'offline'}
@@ -334,6 +355,7 @@ const Knowledge: React.FC = () => {
     return (
         <DetailLayout
             listContent={renderListContent()}
+            detailsContent={renderDetailsContent()}
         />
     );
 };

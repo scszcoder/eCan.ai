@@ -3,6 +3,7 @@ import colorlog
 from logging.handlers import RotatingFileHandler
 
 login = None
+top_web_gui = None
 class LoggerHelper:
     def __init__(self):
         print("init logger helper object")
@@ -52,3 +53,10 @@ class LoggerHelper:
 
 
 logger_helper = LoggerHelper()
+
+def get_top_web_gui():
+    return top_web_gui
+
+def set_top_web_gui(web_gui):
+    global top_web_gui
+    top_web_gui = web_gui

@@ -4,6 +4,16 @@
  */
 import { IPCRequest, IPCResponse } from './types';
 import { updateDashboard } from '../../pages/Dashboard';
+import { updateChatsGUI } from '../../pages/Chat';
+import { updateSkillsGUI } from '../../pages/Skills';
+import { updateSkillEditorGUI } from '../../pages/SkillEditor';
+import { updateTasksGUI } from '../../pages/Tasks';
+import { updateSchedule } from '../../pages/Schedule';
+import { updateAgentsGUI } from '../../pages/Agents';
+import { updateToolsGUI } from '../../pages/Tools';
+import { updateVehiclesGUI } from '../../pages/Vehicles';
+import { updateKnowledgeGUI } from '../../pages/Knowledge';
+import { updateSettingsGUI } from '../../pages/Settings';
 import { logger } from '../../utils/logger';
 
 // 处理器类型定义
@@ -39,9 +49,11 @@ export class IPCHandlers {
         this.registerHandler('update_agents', this.updateAgents);
         this.registerHandler('update_skills', this.updateSkills);
         this.registerHandler('update_tasks', this.updateTasks);
-        this.registerHandler('update_knowledges', this.updateKnowledges);
+        this.registerHandler('update_knowledge', this.updateKnowledge);
         this.registerHandler('update_settings', this.updateSettings);
         this.registerHandler('update_chats', this.updateChats);
+        this.registerHandler('update_tools', this.updateTools);
+        this.registerHandler('update_vehicles', this.updateVehicles);
     }
 
     private registerHandler(method: string, handler: Handler): void {
@@ -144,7 +156,7 @@ export class IPCHandlers {
             }
 
             // 更新仪表盘数据
-            updateDashboard(stats);
+            updateSkillsGUI(stats);
             return { refreshed: true };
         } catch (error) {
             logger.error('Error in refresh_dashboard handler:', error);
@@ -170,7 +182,7 @@ export class IPCHandlers {
             }
 
             // 更新仪表盘数据
-            updateDashboard(stats);
+            updateTasksGUI(stats);
             return { refreshed: true };
         } catch (error) {
             logger.error('Error in refresh_dashboard handler:', error);
@@ -196,7 +208,7 @@ export class IPCHandlers {
             }
 
             // 更新仪表盘数据
-            updateDashboard(stats);
+            updateSettingsGUI(stats);
             return { refreshed: true };
         } catch (error) {
             logger.error('Error in refresh_dashboard handler:', error);
@@ -222,7 +234,7 @@ export class IPCHandlers {
             }
 
             // 更新仪表盘数据
-            updateDashboard(stats);
+            updateKnowledgeGUI(stats);
             return { refreshed: true };
         } catch (error) {
             logger.error('Error in refresh_dashboard handler:', error);
@@ -248,7 +260,7 @@ export class IPCHandlers {
             }
 
             // 更新仪表盘数据
-            updateDashboard(stats);
+            updateChatsGUI(stats);
             return { refreshed: true };
         } catch (error) {
             logger.error('Error in refresh_dashboard handler:', error);

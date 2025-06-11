@@ -92,7 +92,10 @@ class WebEngineView(QWebEngineView):
 
         # # 6. 初始化 IPCAPI 单例
         self._ipc_api = IPCAPI(self._ipc_service)
-    
+
+    def get_ipc_api(self):
+        return self._ipc_api
+
     def init_engine(self):
         """初始化 Web 引擎"""
         try:

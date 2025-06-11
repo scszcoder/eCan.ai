@@ -53,7 +53,8 @@
     "tasks": "Tasks",
     "settings": "Settings",
     "console": "Console",
-    "knowledge": "Knowledge"
+    "knowledge": "Knowledge",
+    "tests": "Tests"
   },
   "login": {
     "title": "Welcome Back",
@@ -471,6 +472,30 @@
       "exportKnowledge": "Export Knowledge",
       "importKnowledge": "Import Knowledge",
       "knowledgeSettings": "Knowledge Settings"
+    },
+    "tests": {
+        "testsToRun": "Tests to run",
+        "selectTest": "Select a test",
+        "testArgument": "Test argument",
+        "argumentPlaceholder": "Enter test arguments (optional)",
+        "runTest": "Click To Run Test",
+        "stopTest": "Stop Test",
+        "testOutput": "Test Output",
+        "runningTest": "Test is running...",
+        "testStopped": "Test was stopped by user",
+        "selectTestWarning": "Please select a test to run",
+        "fetchError": "Failed to fetch tests",
+        "testError": "Test execution failed",
+        "stopError": "Failed to stop test",
+        "title": "Tests",
+        "list": "Test List",
+        "addTest": "Add Test",
+        "editTest": "Edit Test",
+        "deleteTest": "Delete Test",
+        "refreshTest": "Refresh Tests",
+        "exportTest": "Export Tests",
+        "importTest": "Import Tests",
+        "testSettings": "Test Settings"
     }
   }
 } 

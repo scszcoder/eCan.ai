@@ -7,7 +7,8 @@ import {
     StarOutlined,
     DownloadOutlined,
     SettingOutlined,
-    DeleteOutlined
+    DeleteOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
@@ -111,15 +112,71 @@ const initialTasks: Task[] = [
     },
 ];
 
+const tasksEventBus = {
+    listeners: new Set<(data: Task[]) => void>(),
+    subscribe(listener: (data: Task[]) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Task[]) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateTasksGUI = (data: Task[]) => {
+    tasksEventBus.emit(data);
+};
+
+
+
 const Tasks: React.FC = () => {
     const { t } = useTranslation();
+    const [loading, setLoading] = useState(false);
     const {
         selectedItem: selectedTask,
         items: tasks,
         selectItem,
         removeItem,
         updateItem,
+        setItems: setTasks  // Add this line
     } = useDetailView<Task>(initialTasks);
+
+    const fetchTasks = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await ipc_api.get_tasks();
+            if (response && response.success && response.data) {
+                setTasks(response.data);
+            }
+        } catch (error) {
+            console.error('Error fetching tasks:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [setTasks]);
+
+    useEffect(() => {
+        fetchTasks();
+    }, [fetchTasks]);
+
+    const handleRefresh = useCallback(async () => {
+        await fetchTasks();
+    }, [fetchTasks]);
+
+
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.tasks.title')}</span>
+            <Button
+                type="text"
+                icon={<ReloadOutlined style={{ color: 'white' }} />}
+                onClick={handleRefresh}
+                loading={loading}
+                title={t('pages.tasks.refresh')}
+            />
+        </div>
+    );
 
     const translateTask = (task: Task): Task => {
         // 如果已经是翻译后的文本（包含中文或特殊字符），直接返回
@@ -275,11 +332,23 @@ const Tasks: React.FC = () => {
                         {t('pages.tasks.uninstall')}
                     </Button>
                 </Space>
+            </Space>
+        );
+    };
+
+    return (
+        <DetailLayout
+            listTitle={listTitle}
+            detailsTitle={t('pages.tasks.details')}
+            listContent={renderListContent()}
+            detailsContent={
+                <>
+                {renderDetailsContent()}
                 <ActionButtons
                     onAdd={() => {}}
                     onEdit={() => {}}
                     onDelete={() => {}}
-                    onRefresh={() => {}}
+                    onRefresh={handleRefresh}
                     onExport={() => {}}
                     onImport={() => {}}
                     onSettings={() => {}}
@@ -291,18 +360,10 @@ const Tasks: React.FC = () => {
                     importText={t('pages.tasks.importTasks')}
                     settingsText={t('pages.tasks.taskSettings')}
                 />
-            </Space>
-        );
-    };
-
-    return (
-        <DetailLayout
-            listTitle={t('pages.tasks.title')}
-            detailsTitle={t('pages.tasks.details')}
-            listContent={renderListContent()}
-            detailsContent={renderDetailsContent()}
+                </>
+            }
         />
     );
 };
 
-export default Tasks; 
+export default Tasks;
