@@ -4,11 +4,16 @@ IPC 处理器实现模块
 """
 
 from typing import Any, Optional, Dict
+
+import utils.logger_helper
 from .types import IPCRequest, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper
 import json
 import uuid
+import asyncio
+from utils.logger_helper import *
+from gui.ipc.tests import *
 
 logger = logger_helper.logger
 
@@ -30,6 +35,15 @@ def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tu
         return False, None, f"Missing required parameters: {', '.join(missing)}"
     
     return True, params, None
+
+def find_sender(py_login, chat):
+    sender = next((ag for ag in py_login.main_win.agents if chat['sender'] == ag.card.name), None)
+    return sender
+
+
+def find_recipient(py_login, chat):
+    recipient = next((ag for ag in py_login.main_win.agents if chat['recipient'] == ag.card.name), None)
+    return recipient
 
 @IPCHandlerRegistry.handler('get_config')
 def handle_get_config(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
@@ -214,10 +228,10 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Get all called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for login: {error}")
             return json.dumps(create_error_response(
@@ -228,24 +242,18 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
 
         # 获取用户名和密码
         username = data['username']
-        password = data['password']
 
-        # 简单的密码验证
-        if password == 'admin123#':
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            logger.info(f"Login successful for user: {username}")
-            return json.dumps(create_success_response(request, {
-                'token': token,
-                'message': 'Login successful'
-            }))
-        else:
-            logger.warning(f"Invalid password for user: {username}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_CREDENTIALS',
-                'Invalid username or password'
-            ))
+        agents = py_login.main_win.agents
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"Get all successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'agents': agents,
+            'message': 'Get all successful'
+        }))
+
     except Exception as e:
         logger.error(f"Error in login handler: {e}")
         return json.dumps(create_error_response(
@@ -269,7 +277,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Get agents handler called with request: {request}, params: {params}")
         print("get agents:", params)
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
@@ -282,20 +290,23 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
             ))
 
         # 获取用户名和密码
-        username = data['username']
+        agents = py_login.main_win.agents
 
         # 简单的密码验证
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"Login successful for user: {username}")
-        return json.dumps([{"id": 666, "name": "john smith"}])
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'agents': agents,
+            'message': 'Login successful'
+        }))
 
     except Exception as e:
         logger.error(f"Error in login handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during login: {str(e)} "
         ))
 
 
@@ -576,13 +587,13 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
 @IPCHandlerRegistry.handler('send_chat')
 def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
-    """处理登录请求
+    """处理Chat
 
     验证用户凭据并返回访问令牌。
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        params: chat message data structure
 
     Returns:
         str: JSON 格式的响应消息
@@ -602,14 +613,27 @@ def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
         # 获取用户名和密码
         chat = data[0]
-        status = sender_agent.a2a_send_message(recipient_agent, {"chat": chat})
+        sender_agent = find_sender(py_login, chat)
+        recipient_agent = find_recipient(py_login,chat)
+        if sender_agent and recipient_agent:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # In this case, you can't call loop.run_until_complete directly in the main thread.
+                # Workaround: Use "asyncio.run_coroutine_threadsafe" (if in a thread) or refactor to be async.
+                # Example (if in a thread):
+                future = asyncio.run_coroutine_threadsafe(sender_agent.a2a_send_chat_message(recipient_agent, {"chat": chat}), loop)
+                result = future.result()
+            else:
+                result = loop.run_until_complete(sender_agent.a2a_send_message(recipient_agent, {"chat": chat}))
+            result_message = json.dumps({"send_chat_response": result})
+
         # 简单的密码验证
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"sending a chat: {chat['content']}")
         return json.dumps(create_success_response(request, {
             'token': token,
-            'message': 'chat message sent'
+            'message': result_message
         }))
 
     except Exception as e:
@@ -664,6 +688,120 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_logi
             request,
             'LOGIN_ERROR',
             f"Error during login: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('get_available_tests')
+def handle_get_available_tests(request: IPCRequest, params: Optional[Any], py_login:Any) -> str:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get available tests handler called with request: {request}, params: {params}")
+        print("get available tests:", params)
+
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Get available tests successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in get available tests handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during get available tests: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('run_tests')
+def handle_run_tests(request: IPCRequest, params: Optional[Any], py_login: Any) -> str:
+    """处理跑测试请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Run tests handler called with request: {request}, params: {params}")
+        print("run tests:", params)
+
+        tests = params.get('tests', [])
+
+        results = []
+        top_web_gui = get_top_web_gui()
+        for test in tests:
+            test_id = test.get('test_id')
+            test_args = test.get('args', {})
+
+            # Process each test with its arguments
+            if test_id == 'default_test':
+                result = run_default_tests(top_web_gui, py_login.main_win)
+            # Add other test cases as needed
+            else:
+                result = {"status": "error", "message": f"Unknown test: {test_id}"}
+
+            results.append({
+                "test_id": test_id,
+                "result": result
+            })
+
+        return json.dumps(create_success_response(request, {
+            'results': results,
+            'message': 'Tests executed successfully'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in run tests handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during run tests: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('stop_tests')
+def handle_stop_tests(request: IPCRequest, params: Optional[Any], py_login: Any) -> str:
+    """处理停止测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: 测试项
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Stop tests handler called with request: {request}, params: {params}")
+        print("stop tests:", params)
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Stop tests successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in stop tests handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during stop tests: {str(e)}"
         ))
 
 

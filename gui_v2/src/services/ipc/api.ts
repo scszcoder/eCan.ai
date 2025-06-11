@@ -25,6 +25,11 @@ export interface APIResponse<T = unknown> {
     };
 }
 
+export interface TestConfig {
+    test_id: string;  // or test_name, depending on your needs
+    args?: Record<string, any>;  // Optional arguments for the test
+    // Add other test properties as needed
+}
 /**
  * IPC API 类
  * 提供与 Python 后端通信的高级 API 接口
@@ -123,8 +128,16 @@ export class IPCAPI {
         return this.executeRequest<T>('get_tools', { tool_ids });
     }
 
-    public async getChats<T>(agent_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_chats', { agent_ids });
+    public async getChats<T>(chat_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_chats', { chat_ids });
+    }
+
+    public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('run_tests', { tests });
+    }
+
+    public async stopTest<T>(test_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('stop_tests', { test_ids });
     }
 
     /**
@@ -170,8 +183,8 @@ export class IPCAPI {
         return this.executeRequest<void>('send_chat', values);
     }
 
-    public async selfTest() {
-       console.log(">>>>>>>>>>>>>>>>IPC_API instance is live!!!");
+    public async getAvailableTests<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_available_tests', {});
     }
 }
 

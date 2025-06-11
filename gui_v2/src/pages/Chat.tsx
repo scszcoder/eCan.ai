@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { List, Tag, Typography, Space, Button, Input, Avatar, Card, Badge, Tooltip } from 'antd';
 import {
     MessageOutlined,
@@ -13,7 +14,8 @@ import {
     AudioOutlined,
     CloseOutlined,
     DownloadOutlined,
-    TeamOutlined
+    TeamOutlined,
+    ReloadOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import EmojiPicker from 'emoji-picker-react';
@@ -110,15 +112,20 @@ interface Chat {
     status: 'online' | 'offline' | 'busy';
     lastMessage: string;
     lastMessageTime: string;
+    lastSessionTime: string;            //last session's start time.
     unreadCount: number;
 }
 
 interface Message {
     id: number;
+    session_id: number;                 //simply session's epoch time in seconds.
     content: string;
     attachments: File[];
     sender: string;
-    timestamp: string;
+    recipient: string;
+    tx_timestamp: string;
+    rx_timestamp: string;
+    read_timestamp: string;
     status: 'sending' | 'sent' | 'delivered' | 'read';
 }
 
@@ -155,51 +162,88 @@ const initialChats: Chat[] = [
 const initialMessages: Message[] = [
     {
         id: 1,
+        session_id: 1,
         content: 'Hello! How can I help you today?',
         attachments: [],
         sender: 'Support Bot',
-        timestamp: '10:00 AM',
+        recipient: 'You',
+        tx_timestamp: '10:00 AM',
+        rx_timestamp: '10:01 AM',
+        read_timestamp: '10:01 AM',
         status: 'read',
     },
     {
         id: 2,
+        session_id: 1,
         content: 'I need help with scheduling a delivery.',
         attachments: [],
         sender: 'You',
-        timestamp: '10:05 AM',
+        recipient: 'Support Bot',
+        tx_timestamp: '10:05 AM',
+        rx_timestamp: '10:06 AM',
+        read_timestamp: '10:06 AM',
         status: 'read',
     },
     {
         id: 3,
+        session_id: 1,
         content: 'Sure! Here is the info you requested.',
         attachments: [
             // Simulate an agent-sent file attachment (use a Blob for demo)
             new File([new Blob(['Demo agent file content'], { type: 'text/plain' })], 'agent-info.txt'),
         ],
         sender: 'Support Bot',
-        timestamp: '10:06 AM',
+        recipient: 'You',
+        tx_timestamp: '10:06 AM',
+        rx_timestamp: '10:07 AM',
+        read_timestamp: '10:07 AM',
         status: 'read',
     },
     {
         id: 4,
+        session_id: 1,
         content: 'Here is the document.',
         attachments: [
             // User message with attachment for demo
             new File([new Blob(['User attached content'], { type: 'text/plain' })], 'user-doc.txt'),
         ],
         sender: 'You',
-        timestamp: '10:10 AM',
+        recipient: 'Support Bot',
+        tx_timestamp: '10:10 AM',
+        rx_timestamp: '10:11 AM',
+        read_timestamp: '10:11 AM',
         status: 'read',
     },
 ];
 
+// 创建事件总线
+const chatsEventBus = {
+    listeners: new Set<(data: Message) => void>(),
+    subscribe(listener: (data: Message) => void) {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    },
+    emit(data: Message) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// 导出更新数据的函数
+export const updateChatsGUI = (data: Message) => {
+    chatsEventBus.emit(data);
+};
+
 const Chat: React.FC = () => {
     const { t } = useTranslation();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const agentId = searchParams.get('agentId');
+
     const {
         selectedItem: selectedChat,
         items: chats,
         selectItem,
         updateItem,
+        setItems: setChats,
     } = useDetailView<Chat>(initialChats);
 
     const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -219,9 +263,35 @@ const Chat: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
+    // Handle agentId from URL
     useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
+        if (agentId) {
+            const agentChat = chats.find(chat => chat.id.toString() === agentId);
+
+            if (!agentChat) {
+                const newChat: Chat = {
+                    id: parseInt(agentId, 10),
+                    name: `Agent ${agentId}`,
+                    type: 'bot',
+                    status: 'online',
+                    lastMessage: t('pages.chat.startConversation'),
+                    lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    lastSessionTime: new Date().toLocaleDateString(),
+                    unreadCount: 0
+                };
+
+                setChats(prevChats => [...prevChats, newChat]);
+                selectItem(newChat);
+
+                // Clear the agentId from URL
+                searchParams.delete('agentId');
+                setSearchParams(searchParams);
+            } else {
+                selectItem(agentChat);
+            }
+        }
+    }, [agentId, chats, selectItem, setChats, searchParams, setSearchParams, t]);
+
 
     // FIX: Attachments included in new message!
     const handleSendMessage = async () => {
@@ -232,7 +302,10 @@ const Chat: React.FC = () => {
             content: newMessage,
             attachments: [...attachments], // <--- FIXED: copy over attachments here
             sender: 'You',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            recipient: selectedChat.name,
+            tx_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            rx_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            read_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             status: 'sending',
         };
 
@@ -290,19 +363,6 @@ const Chat: React.FC = () => {
 
 
 
-//     const sendMessage = async (msg: any) => {
-//       const ipc_api = get_ipc_api();
-//       const payload = {
-//         ...msg,
-//         attachments: msg.attachments.map(file => ({
-//           name: file.name,
-//           path: (file as any).path || null, // only works if WebEngine or your file picker exposes this
-//           // or use file.webkitRelativePath if set, or add your own IPC file dialog that returns the path!
-//         }))
-//       };
-//       await ipc_api.sendChat(payload);
-//     };
-
     const sendMessage = async (msg: any) => {
         console.log("adding 1 chat...", msg);
         const ipc_api = get_ipc_api();
@@ -345,11 +405,7 @@ const Chat: React.FC = () => {
         setShowEmojiPicker(false);
     };
 
-//     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-//         if (!e.target.files) return;
-//         console.log("filessssss:", e.target.files);
-//         setAttachments(prev => [...prev, ...Array.from(e.target.files)]);
-//     };
+
 
     const removeAttachment = (index: number) => {
         setAttachments(prev => prev.filter((_, i) => i !== index));
@@ -476,7 +532,12 @@ const Chat: React.FC = () => {
             <List
                 dataSource={chats}
                 renderItem={chat => (
-                    <ChatItem onClick={() => selectItem(chat)}>
+                    <ChatItem
+                        onClick={() => selectItem(chat)}
+                        style={{
+                            backgroundColor: selectedChat?.id === chat.id ? 'var(--bg-tertiary)' : 'inherit'
+                        }}
+                    >
                         <Space direction="vertical" style={{ width: '100%' }}>
                             <Space>
                                 <Badge status={
@@ -678,9 +739,38 @@ const Chat: React.FC = () => {
     };
 
 
+    // Function to handle refresh button click
+    const handleRefresh = useCallback(async () => {
+        try {
+            const ipc_api = get_ipc_api();
+            const response = await ipc_api.get_chats();
+            console.log('Chats refreshed:', response);
+            if (response && response.success && response.data) {
+                // Update the chats list with the new data
+                // You might need to adjust this based on your actual data structure
+                setChats(response.data);
+            }
+        } catch (error) {
+            console.error('Error refreshing chats:', error);
+        }
+    }, []);
+
+    // Add refresh button to the list title
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.chat.title')}</span>
+            <Button 
+                type="text" 
+                icon={<ReloadOutlined style={{ color: 'white' }} />} 
+                onClick={handleRefresh}
+                title={t('pages.chat.refresh')}
+            />
+        </div>
+    );
+
     return (
         <DetailLayout
-            listTitle={t('pages.chat.title')}
+            listTitle={listTitle}
             detailsTitle={t('pages.chat.chatDetails')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}

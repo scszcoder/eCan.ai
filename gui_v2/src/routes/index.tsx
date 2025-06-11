@@ -16,6 +16,7 @@ import Tools from '../pages/Tools';
 import Settings from '../pages/Settings';
 import Console from '../pages/Console';
 import Knowledge from '../pages/Knowledge';
+import Tests from '../pages/Tests';
 
 // 路由配置类型
 export interface RouteConfig {
@@ -112,6 +113,10 @@ export const protectedRoutes: RouteConfig[] = [
                 path: 'knowledge',
                 element: <Knowledge />,
             },
+            {
+                path: 'tests',
+                element: <Tests />,
+            },
         ],
     },
 ];
@@ -200,5 +205,10 @@ export const menuItems = [
         key: '/knowledge',
         icon: 'ReadOutlined',
         label: 'menu.knowledge',
+    },
+    {
+        key: '/tests',
+        icon: 'ExperimentOutlined',
+        label: 'menu.tests',
     },
 ]; 

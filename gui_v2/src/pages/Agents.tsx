@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { List, Tag, Typography, Space, Button, Avatar, Statistic, Row, Col, Card, Badge } from 'antd';
-import { 
-    TeamOutlined, 
+import { List, Tag, Typography, Space, Button, Avatar, Statistic, Row, Col, Card, Badge, message } from 'antd';
+import {
+    TeamOutlined,
     CheckCircleOutlined,
     ClockCircleOutlined,
     StarOutlined,
@@ -9,7 +9,9 @@ import {
     UserOutlined,
     EditOutlined,
     HistoryOutlined,
-    PlusOutlined
+    PlusOutlined,
+    ReloadOutlined,
+    MessageOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../components/Layout/DetailLayout';
@@ -17,10 +19,12 @@ import { useDetailView } from '../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../components/Common/ActionButtons';
 import {get_ipc_api} from '../services/ipc_api';
+import { useNavigate } from 'react-router-dom';
 
 const { Text, Title } = Typography;
 
 const AgentItem = styled.div`
+    position: relative;
     padding: 12px;
     border-bottom: 1px solid var(--border-color);
     &:last-child {
@@ -35,6 +39,9 @@ const AgentItem = styled.div`
         background-color: var(--bg-tertiary);
         transform: translateX(4px);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        .chat-button {
+            opacity: 1;
+        }
     }
     .ant-typography {
         color: var(--text-primary);
@@ -45,6 +52,17 @@ const AgentItem = styled.div`
     }
     .ant-progress-text {
         color: var(--text-primary);
+    }
+    .chat-button {
+        position: absolute;
+        right: 8px;
+        top: 8px;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        z-index: 1;
+        &:hover {
+            color: var(--primary-color);
+        }
     }
 `;
 
@@ -63,7 +81,7 @@ interface Agent {
 
 // 创建事件总线
 const agentsEventBus = {
-    listeners: new Set<(data: DashboardStats) => void>(),
+    listeners: new Set<(data: Agent[]) => void>(),
     subscribe(listener: (data: Agent[]) => void) {
         this.listeners.add(listener);
         return () => this.listeners.delete(listener);
@@ -92,43 +110,19 @@ const getStatusColor = (status: Agent['status']): string => {
     }
 };
 
-const initialAgents: Agent[] = [
-    {
-        id: 1,
-        name: 'Task Coordinator',
-        role: 'Task Coordinator',
-        status: 'active',
-        skills: ['Task Management', 'Communication', 'Problem Solving'],
-        tasksCompleted: 156,
-        efficiency: 95,
-        lastActive: '2 minutes ago',
-        currentTask: 'Project Planning',
-    },
-    {
-        id: 2,
-        name: 'Data Analyst',
-        role: 'Data Analyst',
-        status: 'busy',
-        skills: ['Data Analysis', 'Reporting', 'Visualization'],
-        tasksCompleted: 89,
-        efficiency: 88,
-        lastActive: '5 minutes ago',
-        currentTask: 'Data Processing',
-    },
-    {
-        id: 3,
-        name: 'Support Specialist',
-        role: 'Support Specialist',
-        status: 'offline',
-        skills: ['Customer Support', 'Troubleshooting', 'Documentation'],
-        tasksCompleted: 234,
-        efficiency: 92,
-        lastActive: '1 hour ago',
-    },
-];
+const getAgents = () => {
+    const ipc_api = get_ipc_api();
+    const response = ipc_api.getAgents([]);
+    console.log("ipc response:", response);
+    return response['result'];
+};
+
+const initialAgents: Agent[] = [];
 
 const Agents: React.FC = () => {
     const { t } = useTranslation();
+    const navigate = useNavigate();
+    const [loading, setLoading] = useState(false);
     const {
         selectedItem: selectedAgent,
         items: agents,
@@ -152,12 +146,12 @@ const Agents: React.FC = () => {
                 }
                 return t(`pages.agents.skills.${skill.replace(/\s+/g, '')}`);
             }),
-            currentTask: agent.currentTask ? 
-                (agent.currentTask.includes('规划') || agent.currentTask.includes('处理') ? 
-                    agent.currentTask : 
-                    t(`pages.agents.tasks.${agent.currentTask.replace(/\s+/g, '')}`)) 
+            currentTask: agent.currentTask ?
+                (agent.currentTask.includes('规划') || agent.currentTask.includes('处理') ?
+                    agent.currentTask :
+                    t(`pages.agents.tasks.${agent.currentTask.replace(/\s+/g, '')}`))
                 : undefined,
-            lastActive: agent.lastActive === '2 minutes ago' 
+            lastActive: agent.lastActive === '2 minutes ago'
                 ? t('pages.agents.time.minutesAgo', { minutes: 2 })
                 : agent.lastActive === '5 minutes ago'
                 ? t('pages.agents.time.minutesAgo', { minutes: 5 })
@@ -168,44 +162,48 @@ const Agents: React.FC = () => {
     };
 
     const translatedAgents = agents.map(translateAgent);
-    {async () => await add1agent()}
 
-    const save1agent = async (targetAgents) => {
-        console.log("adding 1 agent...");
-        const ipc_api = get_ipc_api();
-        ipc_api.selfTest();
+    // Function to handle chat button click
+    const handleChatWithAgent = useCallback((agent: Agent, e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent triggering the agent selection
 
-        // If T should match the shape of value, infer it
-        await ipc_api.saveAgents(targetAgents);
-    };
+        // Create a chat object for this agent
+        const chatWithAgent = {
+            id: agent.id, // Using agent ID as chat ID for consistency
+            name: agent.name,
+            type: 'bot' as const,
+            status: agent.status === 'offline' ? 'offline' : 'online',
+            lastMessage: t('pages.chat.startConversation'),
+            lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            lastSessionTime: new Date().toLocaleDateString(),
+            unreadCount: 0
+        };
 
+        // Store the chat in localStorage or context/state management
+        const existingChats = JSON.parse(localStorage.getItem('chats') || '[]');
+        const chatExists = existingChats.some((chat: any) => chat.id === chatWithAgent.id);
 
-    const handleStatusChange = (id: number, newStatus: Agent['status']) => {
-        updateItem(id, {
-            status: newStatus,
-            lastActive: t('pages.agents.time.justNow'),
-        });
-    };
-
-
-    const handleTaskComplete = (id: number) => {
-        const agent = agents.find(a => a.id === id);
-        if (agent) {
-            updateItem(id, {
-                tasksCompleted: agent.tasksCompleted + 1,
-                efficiency: Math.min(agent.efficiency + 1, 100),
-                status: 'active',
-                currentTask: undefined,
-                lastActive: t('pages.agents.time.justNow'),
-            });
+        if (!chatExists) {
+            existingChats.push(chatWithAgent);
+            localStorage.setItem('chats', JSON.stringify(existingChats));
         }
-    };
+
+        // Navigate to the chat page with the agent's ID
+        navigate(`/chat?agentId=${agent.id}`);
+    }, [navigate, t]);
 
     const renderListContent = () => (
         <List
             dataSource={translatedAgents}
             renderItem={agent => (
                 <AgentItem onClick={() => selectItem(agent)}>
+                    <Button
+                        className="chat-button"
+                        type="text"
+                        icon={<MessageOutlined />}
+                        onClick={(e) => handleChatWithAgent(agent, e)}
+                        title={t('pages.agents.chatWithAgent', { name: agent.name })}
+                    />
                     <Space direction="vertical" style={{ width: '100%' }}>
                         <Space>
                             <Badge status={getStatusColor(agent.status) as any} />
@@ -352,9 +350,36 @@ const Agents: React.FC = () => {
         };
     }, []);
 
+    // Function to handle refresh button click
+    const handleRefresh = useCallback(async () => {
+        try {
+            const ipc_api = get_ipc_api();
+            const response = await ipc_api.getAgents([]);
+            console.log('Agents refreshed:', response);
+            if (response && response.success && response.data) {
+                updateItems(response.data);
+            }
+        } catch (error) {
+            console.error('Error refreshing agents:', error);
+        }
+    }, [updateItems]);
+
+    // Add refresh button to the list title
+    const listTitle = (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{t('pages.agents.title')}</span>
+            <Button 
+                type="text" 
+                icon={<ReloadOutlined style={{ color: 'white' }} />} 
+                onClick={handleRefresh}
+                title={t('pages.agents.refresh')}
+            />
+        </div>
+    );
+
     return (
         <DetailLayout
-            listTitle={t('pages.agents.title')}
+            listTitle={listTitle}
             detailsTitle={t('pages.agents.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
@@ -362,4 +387,4 @@ const Agents: React.FC = () => {
     );
 };
 
-export default Agents; 
+export default Agents;
