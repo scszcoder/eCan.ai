@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { editor } from 'monaco-editor';
 import { CodeEditor } from '../components/code-editor';
 import type { UseCodeEditorProps, UseCodeEditorReturn } from '../components/code-editor/types';
@@ -17,7 +17,7 @@ import { DEFAULT_EDITOR_OPTIONS } from '../components/code-editor/config';
  * @param options - Additional Monaco editor options
  */
 export const useCodeEditor = ({
-  initialContent,
+  initialContent = '',
   language,
   onSave,
   mode = 'edit',
@@ -59,21 +59,13 @@ export const useCodeEditor = ({
     editorRef.current = editor;
     editor.setValue(contentRef.current);
     editor.layout();
-    
-    // 设置默认主题为 dark
-    editor.updateOptions({
-      theme: 'dark'
-    });
     onEditorDidMount?.(editor);
   }, [onEditorDidMount]);
 
-  const editorOptions = useCallback(() => {
-    return {
-      ...DEFAULT_EDITOR_OPTIONS,
-      ...externalOptions,
-      theme: 'dark'  // 确保主题设置为 dark
-    };
-  }, [externalOptions]);
+  const editorOptions = useCallback(() => ({
+    ...DEFAULT_EDITOR_OPTIONS,
+    ...externalOptions,
+  }), [externalOptions]);
 
   const editor = (
     <CodeEditor

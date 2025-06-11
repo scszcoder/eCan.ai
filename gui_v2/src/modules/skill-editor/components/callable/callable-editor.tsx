@@ -206,7 +206,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       parameterHints: { enabled: false },
       snippetSuggestions: 'none',
       wordBasedSuggestions: 'off',
-      theme: 'dark'
+      theme: 'vs-dark'
     }
   });
 
@@ -242,7 +242,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       parameterHints: { enabled: false },
       snippetSuggestions: 'none',
       wordBasedSuggestions: 'off',
-      theme: 'dark'
+      theme: 'vs-dark'
     },
     onEditorDidMount: handlePreviewEditorDidMount
   });

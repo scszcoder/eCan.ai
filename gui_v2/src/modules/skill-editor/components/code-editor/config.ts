@@ -2,15 +2,17 @@ import type { editor } from 'monaco-editor';
 
 export const DEFAULT_EDITOR_HEIGHT = '400px';
 
+// 基础编辑器配置
 export const DEFAULT_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
-  minimap: { enabled: false },
-  scrollBeyondLastLine: false,
+  theme: 'vs-dark',
   fontSize: 14,
   lineNumbers: 'on',
   readOnly: false,
   automaticLayout: true,
   tabSize: 2,
   wordWrap: 'on',
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
   folding: true,
   lineDecorationsWidth: 0,
   lineNumbersMinChars: 3,
@@ -25,11 +27,10 @@ export const DEFAULT_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions
   },
 };
 
+// 预览模式配置
 export const getPreviewModeOptions = (baseOptions: editor.IStandaloneEditorConstructionOptions): editor.IStandaloneEditorConstructionOptions => ({
   ...baseOptions,
   readOnly: true,
-  minimap: { enabled: false },
-  scrollBeyondLastLine: false,
   lineNumbers: 'off',
   folding: false,
   contextmenu: false,
