@@ -1,17 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { CodeEditor } from '../components/code-editor';
-import type { IStandaloneCodeEditor, CodeEditorProps } from '@/modules/monaco-editor';
-
-interface UseCodeEditorProps extends Omit<CodeEditorProps, 'value' | 'onChange'> {
-  initialContent: string;
-  onSave?: (content: string) => boolean;
-}
-
-interface UseCodeEditorReturn {
-  openEditor: (content: string) => void;
-  closeEditor: () => void;
-  editor: JSX.Element;
-}
+import type { IStandaloneCodeEditor } from '@/modules/monaco-editor';
+import type { UseCodeEditorProps, UseCodeEditorReturn } from '../components/code-editor/types';
 
 /**
  * Hook for managing a code editor modal
@@ -67,9 +57,7 @@ export const useCodeEditor = ({
   const handleEditorDidMount = useCallback((editor: IStandaloneCodeEditor) => {
     editorRef.current = editor;
     editor.setValue(contentRef.current);
-    if (onEditorDidMount) {
-      onEditorDidMount(editor);
-    }
+    onEditorDidMount?.(editor);
   }, [onEditorDidMount]);
 
   const editor = (
