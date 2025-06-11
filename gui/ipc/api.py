@@ -199,6 +199,22 @@ class IPCAPI:
         self._send_request('update_tasks', data=tasks, callback=callback)
 
 
+    def update_tools(
+            self,
+            tools: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            tasks: work to be done
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_tools', data=tools, callback=callback)
+
+
+
     def update_settings(
             self,
             settings: List[Any],
@@ -214,19 +230,19 @@ class IPCAPI:
         self._send_request('update_settings', data=settings, callback=callback)
 
 
-    def update_knowledges(
+    def update_knowledge(
             self,
-            knowledges: List[Any],
+            knowledge: List[Any],
             callback: Optional[Callable[[APIResponse[bool]], None]] = None
     ) -> None:
         """
         设置配置
 
         Args:
-            knowledges: list of knowledge points (RAG vector DB table?)
+            knowledge: list of knowledge points (RAG vector DB table?)
             callback: 回调函数，接收 APIResponse[bool]
         """
-        self._send_request('update_knowledges', data=knowledges, callback=callback)
+        self._send_request('update_knowledge', data=knowledge, callback=callback)
 
 
     def update_chats(
@@ -242,6 +258,21 @@ class IPCAPI:
             callback: 回调函数，接收 APIResponse[bool]
         """
         self._send_request('update_chats', data=chats, callback=callback)
+
+    def update_vehicles(
+            self,
+            vehicles: List[Any],
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            chats: Chat值
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_vehicles', data=vehicles, callback=callback)
+
 
 
 # 使用示例

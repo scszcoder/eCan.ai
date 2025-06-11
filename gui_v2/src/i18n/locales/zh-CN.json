@@ -53,7 +53,8 @@
     "tools": "工具",
     "settings": "设置",
     "console": "日志台",
-    "knowledge": "知识库"
+    "knowledge": "知识库",
+    "tests": "测试"
   },
   "login": {
     "title": "欢迎回来",
@@ -487,6 +488,30 @@
       "preview": "预览",
       "test": "测试",
       "deploy": "部署"
+    },
+    "tests": {
+        "testsToRun": "要运行的测试",
+        "selectTest": "选择测试",
+        "testArgument": "测试参数",
+        "argumentPlaceholder": "输入测试参数（可选）",
+        "runTest": "点击运行测试",
+        "stopTest": "停止测试",
+        "testOutput": "测试输出",
+        "runningTest": "测试运行中...",
+        "testStopped": "测试已被用户停止",
+        "selectTestWarning": "请选择要运行的测试",
+        "fetchError": "获取测试列表失败",
+        "testError": "测试执行失败",
+        "stopError": "停止测试失败",
+        "title": "测试",
+        "list": "测试列表",
+        "addTest": "添加测试",
+        "editTest": "编辑测试",
+        "deleteTest": "删除测试",
+        "refreshTest": "刷新测试",
+        "exportTest": "导出测试",
+        "importTest": "导入测试",
+        "testSettings": "测试设置"
     }
   }
 } 

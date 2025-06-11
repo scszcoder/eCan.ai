@@ -24,7 +24,8 @@ import {
     OrderedListOutlined,
     LogoutOutlined,
     AlignLeftOutlined,
-    SafetyCertificateOutlined
+    SafetyCertificateOutlined,
+    ExperimentOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
@@ -205,6 +206,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             key: '/knowledge',
             icon: <ReadOutlined />,
             label: t('menu.knowledge'),
+        },
+        {
+            key: '/tests',
+            icon: <ExperimentOutlined />,
+            label: t('menu.tests'),
         },
     ], [t]);
 

@@ -40,7 +40,7 @@ const Login: React.FC = () => {
     const [userNameValue, setUserNameValue] = useState<string>('');
     set_ipc_api(createIPCAPI());
     const api = get_ipc_api();
-    api.selfTest();
+//     api.selfTest();
 
     useEffect(() => {
         const savedLanguage = localStorage.getItem('i18nextLng') || 'zh-CN';

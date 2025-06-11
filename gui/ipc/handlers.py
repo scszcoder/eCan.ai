@@ -4,12 +4,16 @@ IPC 处理器实现模块
 """
 
 from typing import Any, Optional, Dict
+
+import utils.logger_helper
 from .types import IPCRequest, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper
 import json
 import uuid
 import asyncio
+from utils.logger_helper import *
+from gui.ipc.tests import *
 
 logger = logger_helper.logger
 
@@ -684,6 +688,120 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_logi
             request,
             'LOGIN_ERROR',
             f"Error during login: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('get_available_tests')
+def handle_get_available_tests(request: IPCRequest, params: Optional[Any], py_login:Any) -> str:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get available tests handler called with request: {request}, params: {params}")
+        print("get available tests:", params)
+
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Get available tests successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in get available tests handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during get available tests: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('run_tests')
+def handle_run_tests(request: IPCRequest, params: Optional[Any], py_login: Any) -> str:
+    """处理跑测试请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Run tests handler called with request: {request}, params: {params}")
+        print("run tests:", params)
+
+        tests = params.get('tests', [])
+
+        results = []
+        top_web_gui = get_top_web_gui()
+        for test in tests:
+            test_id = test.get('test_id')
+            test_args = test.get('args', {})
+
+            # Process each test with its arguments
+            if test_id == 'default_test':
+                result = run_default_tests(top_web_gui, py_login.main_win)
+            # Add other test cases as needed
+            else:
+                result = {"status": "error", "message": f"Unknown test: {test_id}"}
+
+            results.append({
+                "test_id": test_id,
+                "result": result
+            })
+
+        return json.dumps(create_success_response(request, {
+            'results': results,
+            'message': 'Tests executed successfully'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in run tests handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during run tests: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('stop_tests')
+def handle_stop_tests(request: IPCRequest, params: Optional[Any], py_login: Any) -> str:
+    """处理停止测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: 测试项
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Stop tests handler called with request: {request}, params: {params}")
+        print("stop tests:", params)
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Stop tests successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in stop tests handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during stop tests: {str(e)}"
         ))
 
 
