@@ -16,6 +16,7 @@ dist-ssr
 # Vite
 .vite
 .vite-ssg-manifest.json
+vite.config.js
 
 # Editor directories and files
 .vscode/*
