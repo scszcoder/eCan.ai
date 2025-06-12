@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal } from 'antd';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
+import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { createIPCAPI } from '../services/ipc';
 import { set_ipc_api, get_ipc_api } from '../services/ipc_api';
 import { logger } from '../utils/logger';
 import logo from '../assets/logo.png';
-import CryptoJS from 'crypto-js';
 
 const { Title, Text } = Typography;
 
@@ -18,28 +17,20 @@ interface LoginFormValues {
     role: string;
 }
 
-const SECRET_KEY = '1Lyt0J0TOYP-isBzB_KJIfzrfLK8Vaujl1c5YqdlW8c=';
-
-function encrypt(text: string): string {
-    return CryptoJS.AES.encrypt(text, SECRET_KEY).toString();
-}
-
-function decrypt(ciphertext: string): string {
-    const bytes = CryptoJS.AES.decrypt(ciphertext, SECRET_KEY);
-    return bytes.toString(CryptoJS.enc.Utf8);
-}
+type AuthMode = 'login' | 'signup' | 'forgot';
 
 const Login: React.FC = () => {
+    // Hooks
     const navigate = useNavigate();
     const { t, i18n } = useTranslation();
     const [form] = Form.useForm<LoginFormValues>();
     const { message: messageApi } = App.useApp();
+
+    // State
+    const [mode, setMode] = useState<AuthMode>('login');
     const [loading, setLoading] = useState(false);
-    const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
-    const [passwordValue, setPasswordValue] = useState<string>('');
-    const [userNameValue, setUserNameValue] = useState<string>('');
     const [apiInitialized, setApiInitialized] = useState(false);
-    
+
     // Initialize IPC API
     useEffect(() => {
         try {
@@ -50,14 +41,7 @@ const Login: React.FC = () => {
         }
     }, []);
 
-    // Memoize the language change handler
-    const handleLanguageChange = useCallback((value: string) => {
-        i18n.changeLanguage(value);
-        localStorage.setItem('i18nextLng', value);
-        localStorage.setItem('language', value);
-    }, [i18n]);
-
-    // Load login info only after API is initialized
+    // Load saved language and login info
     useEffect(() => {
         if (!apiInitialized) return;
 
@@ -67,24 +51,12 @@ const Login: React.FC = () => {
         const loadLoginInfo = async () => {
             try {
                 const api = get_ipc_api();
-                if (!api) {
-                    console.warn('IPC API not available');
-                    return;
-                }
+                if (!api) return;
 
                 const response = await api.getLastLoginInfo();
-                console.log('Received login info:', response);
-
-                if (response?.uliPath) console.log('uli.json full path:', response.uliPath);
-                if (response?.rolePath) console.log('role.json full path:', response.rolePath);
-
                 if (response?.data?.last_login) {
                     const { username, password, machine_role } = response.data.last_login;
-                    form.setFieldsValue({
-                        username,
-                        password: password,
-                        role: machine_role
-                    });
+                    form.setFieldsValue({ username, password, role: machine_role });
                 }
             } catch (err) {
                 console.warn('Could not load login info from backend', err);
@@ -94,58 +66,34 @@ const Login: React.FC = () => {
         loadLoginInfo();
     }, [i18n, form, apiInitialized]);
 
+    // Handlers
+    const handleLanguageChange = useCallback((value: string) => {
+        i18n.changeLanguage(value);
+        localStorage.setItem('i18nextLng', value);
+        localStorage.setItem('language', value);
+    }, [i18n]);
+
+    const handleModeChange = useCallback((newMode: AuthMode) => {
+        setMode(newMode);
+        form.resetFields();
+    }, [form]);
+
     const handleSubmit = async (values: LoginFormValues) => {
-        const finalPassword = values.password;
-        console.log("Submitted values:", { ...values, password: values.password });
         setLoading(true);
         try {
             const api = get_ipc_api();
-            if (!api) {
-                throw new Error('IPC API not available');
-            }
+            if (!api) throw new Error('IPC API not available');
 
-            if (mode === 'login') {
-                const response = await api.login(values.username, values.password, values.role);
-                console.log("login finished....", response);
-                if (response.success && response.data) {
-                    logger.info('Login successful', response.data);
-                    const { token, message: successMessage } = response.data;
-                    localStorage.setItem('token', token);
-                    localStorage.setItem('isAuthenticated', 'true');
-                    localStorage.setItem('userRole', values.role);
-                    setPasswordValue(values.password);
-                    setUserNameValue(values.username);
-                    messageApi.success(successMessage);
-                    navigate('/dashboard');
-
-                    //wait for 6 seconds
-                    await new Promise(resolve => setTimeout(resolve, 6000));
-
-                    const response2 = await api.getAll(values.username);
-                    logger.info('Get all successful', response2.data);
-                } else {
-                    logger.error('Login failed', response.error);
-                    messageApi.error(response.error?.message || t('login.failed'));
-                }
-            } else if (mode === 'signup') {
-                if (finalPassword !== values.confirmPassword) {
-                    messageApi.error(t('signup.passwordMismatch'));
-                } else {
-                    await api.handle_sign_up(values.username, finalPassword, values.role);
-                    Modal.success({
-                        title: t('signup.confirmTitle'),
-                        content: t('signup.confirmMessage'),
-                        onOk: () => setMode('login')
-                    });
-                }
-            } else if (mode === 'forgot') {
-                if (finalPassword !== values.confirmPassword) {
-                    messageApi.error(t('forgot.passwordMismatch'));
-                } else {
-                    await api.handle_forget_password(values.username, finalPassword);
-                    messageApi.success(t('forgot.success'));
-                    setMode('login');
-                }
+            switch (mode) {
+                case 'login':
+                    await handleLogin(values, api);
+                    break;
+                case 'signup':
+                    await handleSignup(values, api);
+                    break;
+                case 'forgot':
+                    await handleForgotPassword(values, api);
+                    break;
             }
         } catch (error) {
             logger.error(`${mode} error:`, error);
@@ -155,6 +103,49 @@ const Login: React.FC = () => {
         }
     };
 
+    const handleLogin = async (values: LoginFormValues, api: any) => {
+        const response = await api.login(values.username, values.password, values.role);
+        if (response.success && response.data) {
+            const { token, message: successMessage } = response.data;
+            localStorage.setItem('token', token);
+            localStorage.setItem('isAuthenticated', 'true');
+            localStorage.setItem('userRole', values.role);
+            messageApi.success(successMessage);
+            navigate('/dashboard');
+
+            await new Promise(resolve => setTimeout(resolve, 6000));
+            const response2 = await api.getAll(values.username);
+            logger.info('Get all successful', response2.data);
+        } else {
+            logger.error('Login failed', response.error);
+            messageApi.error(response.error?.message || t('login.failed'));
+        }
+    };
+
+    const handleSignup = async (values: LoginFormValues, api: any) => {
+        if (values.password !== values.confirmPassword) {
+            messageApi.error(t('signup.passwordMismatch'));
+            return;
+        }
+        await api.handle_sign_up(values.username, values.password, values.role);
+        Modal.success({
+            title: t('signup.confirmTitle'),
+            content: t('signup.confirmMessage'),
+            onOk: () => handleModeChange('login')
+        });
+    };
+
+    const handleForgotPassword = async (values: LoginFormValues, api: any) => {
+        if (values.password !== values.confirmPassword) {
+            messageApi.error(t('forgot.passwordMismatch'));
+            return;
+        }
+        await api.handle_forget_password(values.username, values.password);
+        messageApi.success(t('forgot.success'));
+        handleModeChange('login');
+    };
+
+    // Render
     return (
         <div className="login-container">
             <div className="login-decoration" />
@@ -172,77 +163,79 @@ const Login: React.FC = () => {
                     <Text type="secondary" style={{ color: 'white' }}>{t(`${mode}.subtitle`)}</Text>
                 </div>
 
-                <Form<LoginFormValues>
-                    form={form}
-                    name="auth"
-                    onFinish={handleSubmit}
-                    onFinishFailed={(errorInfo) => {
-                        console.log('Form validation failed:', errorInfo);
+                <Spin 
+                    spinning={loading} 
+                    indicator={<LoadingOutlined style={{ fontSize: 32, color: '#1890ff' }} spin />}
+                    tip={t('login.verifying')}
+                    wrapperClassName="login-spin-wrapper"
+                    style={{
+                        position: 'relative',
+                        minHeight: '300px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        alignItems: 'center'
                     }}
-                    size="large"
-                    className="login-form"
                 >
-                    <Form.Item name="username" rules={[{ required: true, message: t('common.username') }]}>
-                        <Input prefix={<UserOutlined />} placeholder={t('common.username')} />
-                    </Form.Item>
-
-                    <Form.Item name="password" rules={[{ required: true, message: t('common.password') }]}>
-                        <Input.Password prefix={<LockOutlined />} placeholder={t('common.password')} />
-                    </Form.Item>
-
-                    {(mode === 'signup' || mode === 'forgot') && (
-                        <Form.Item name="confirmPassword" rules={[{ required: true, message: t('common.confirmPassword') }]}>
-                            <Input.Password prefix={<LockOutlined />} placeholder={t('common.confirmPassword')} />
+                    <Form<LoginFormValues>
+                        form={form}
+                        name="auth"
+                        onFinish={handleSubmit}
+                        onFinishFailed={(errorInfo) => {
+                            console.log('Form validation failed:', errorInfo);
+                        }}
+                        size="large"
+                        className="login-form"
+                        style={{
+                            opacity: loading ? 0.5 : 1,
+                            transition: 'opacity 0.3s ease-in-out',
+                            pointerEvents: loading ? 'none' : 'auto'
+                        }}
+                    >
+                        <Form.Item name="username" rules={[{ required: true, message: t('common.username') }]}>
+                            <Input prefix={<UserOutlined />} placeholder={t('common.username')} />
                         </Form.Item>
-                    )}
 
-                    <Form.Item name="role" rules={[{ required: true, message: t('common.selectRole') }]}>
-                        <Select placeholder={t('common.selectRole')}>
-                            <Select.Option value="commander">{t('roles.commander')}</Select.Option>
-                            <Select.Option value="platoon">{t('roles.platoon')}</Select.Option>
-                            <Select.Option value="staff_office">{t('roles.staff_office')}</Select.Option>
-                        </Select>
-                    </Form.Item>
+                        <Form.Item name="password" rules={[{ required: true, message: t('common.password') }]}>
+                            <Input.Password prefix={<LockOutlined />} placeholder={t('common.password')} />
+                        </Form.Item>
 
-                    <Form.Item>
-                        <Button type="primary" htmlType="submit" loading={loading} block>
-                            {t(`common.${mode}`)}
-                        </Button>
-                    </Form.Item>
+                        {(mode === 'signup' || mode === 'forgot') && (
+                            <Form.Item name="confirmPassword" rules={[{ required: true, message: t('common.confirmPassword') }]}>
+                                <Input.Password prefix={<LockOutlined />} placeholder={t('common.confirmPassword')} />
+                            </Form.Item>
+                        )}
 
-                    <Row justify="space-between">
-                        <Col>
-                            {mode !== 'forgot' && (
-                                <Text style={{ color: '#40a9ff', cursor: 'pointer' }} onClick={() => setMode('forgot')}>
-                                    {t('login.forgotUsernamePassword')}
-                                </Text>
-                            )}
-                        </Col>
-                        <Col>
-                            <Text style={{ color: '#40a9ff', cursor: 'pointer' }} onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}>
-                                {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
-                            </Text>
-                        </Col>
-                    </Row>
+                        <Form.Item name="role" rules={[{ required: true, message: t('common.selectRole') }]}>
+                            <Select placeholder={t('common.selectRole')}>
+                                <Select.Option value="commander">{t('roles.commander')}</Select.Option>
+                                <Select.Option value="platoon">{t('roles.platoon')}</Select.Option>
+                                <Select.Option value="staff_office">{t('roles.staff_office')}</Select.Option>
+                            </Select>
+                        </Form.Item>
 
-                    {/* Debug Login Button */}
-                    {/* <Row style={{ marginTop: 16 }}>
-                        <Col span={24}>
-                            <Button 
-                                type="dashed" 
-                                danger 
-                                block 
-                                onClick={() => {
-                                    localStorage.setItem('isAuthenticated', 'true');
-                                    localStorage.setItem('userRole', 'commander');
-                                    navigate('/dashboard');
-                                }}
-                            >
-                                Debug Login (Skip Authentication)
+                        <Form.Item>
+                            <Button type="primary" htmlType="submit" loading={loading} block>
+                                {t(`common.${mode}`)}
                             </Button>
-                        </Col>
-                    </Row> */}
-                </Form>
+                        </Form.Item>
+
+                        <Row justify="space-between">
+                            <Col>
+                                {mode !== 'forgot' && (
+                                    <Text style={{ color: '#40a9ff', cursor: 'pointer' }} onClick={() => handleModeChange('forgot')}>
+                                        {t('login.forgotUsernamePassword')}
+                                    </Text>
+                                )}
+                            </Col>
+                            <Col>
+                                <Text style={{ color: '#40a9ff', cursor: 'pointer' }} onClick={() => handleModeChange(mode === 'signup' ? 'login' : 'signup')}>
+                                    {mode === 'signup' ? t('login.backToLogin') : t('login.signUp')}
+                                </Text>
+                            </Col>
+                        </Row>
+                    </Form>
+                </Spin>
             </Card>
         </div>
     );
