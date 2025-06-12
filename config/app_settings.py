@@ -120,7 +120,7 @@ class AppSettings:
         else:
             index_path = self.dist_dir / "index.html"
             if index_path.exists():
-                return f"file://{index_path}"
+                return f"file://{index_path.absolute().as_posix()}"
             return None
 
 
