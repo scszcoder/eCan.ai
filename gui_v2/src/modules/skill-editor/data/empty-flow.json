@@ -1,0 +1,73 @@
+{
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "meta": {
+        "position": {
+          "x": -392,
+          "y": -200.5
+        }
+      },
+      "data": {
+        "title": "Start",
+        "outputs": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "description": "Node execution result"
+            },
+            "condition": {
+              "type": "boolean",
+              "description": "Node execution condition"
+            },
+            "resolved": {
+              "type": "boolean",
+              "description": "Node execution resolved status"
+            },
+            "case": {
+              "type": "string",
+              "description": "Node execution case"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "meta": {
+        "position": {
+          "x": 202,
+          "y": -181.5
+        }
+      },
+      "data": {
+        "title": "End",
+        "inputs": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "description": "Node execution result"
+            },
+            "condition": {
+              "type": "boolean",
+              "description": "Node execution condition"
+            },
+            "resolved": {
+              "type": "boolean",
+              "description": "Node execution resolved status"
+            },
+            "case": {
+              "type": "string",
+              "description": "Node execution case"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "edges": []
+}
