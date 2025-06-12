@@ -1,9 +1,104 @@
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import type { editor } from 'monaco-editor';
-import Editor, { OnChange } from '@monaco-editor/react';
+import Editor, { OnChange, loader } from '@monaco-editor/react';
 import { CodeEditorComponentProps } from './types';
 import { editorStyles } from './styles';
 import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
+
+// Configure Monaco Editor loader
+loader.config({
+  paths: {
+    vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'
+  }
+});
+
+// Preload Monaco Editor
+loader.init().then(monaco => {
+  // Register languages
+  const languages = ['javascript', 'typescript', 'json', 'html', 'css', 'python'];
+  languages.forEach(lang => {
+    monaco.languages.register({ id: lang });
+  });
+
+  // Configure Python language features
+  monaco.languages.registerCompletionItemProvider('python', {
+    provideCompletionItems: (model, position) => {
+      const word = model.getWordUntilPosition(position);
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn
+      };
+
+      return {
+        suggestions: [
+          {
+            label: 'def',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'def ${1:function_name}(${2:parameters}):\n\t${0:pass}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Function definition',
+            range: range
+          },
+          {
+            label: 'class',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'class ${1:ClassName}:\n\tdef __init__(self):\n\t\t${0:pass}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Class definition',
+            range: range
+          },
+          {
+            label: 'if',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'if ${1:condition}:\n\t${0:pass}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'If statement',
+            range: range
+          },
+          {
+            label: 'for',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'for ${1:item} in ${2:items}:\n\t${0:pass}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'For loop',
+            range: range
+          },
+          {
+            label: 'while',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'while ${1:condition}:\n\t${0:pass}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'While loop',
+            range: range
+          },
+          {
+            label: 'try',
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            insertText: 'try:\n\t${1:pass}\nexcept ${2:Exception} as ${3:e}:\n\t${0:pass}',
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            documentation: 'Try-except block',
+            range: range
+          }
+        ]
+      };
+    }
+  });
+}).catch(error => {
+  console.error('Failed to initialize Monaco Editor:', error);
+});
+
+// 添加语言切换函数
+export const setMonacoLanguage = (language: 'en' | 'zh-cn') => {
+  loader.config({
+    'vs/nls': {
+      availableLanguages: {
+        '*': language
+      }
+    }
+  });
+};
 
 /**
  * CodeEditor component for displaying and editing code
@@ -102,6 +197,7 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
         height="100%"
         width="100%"
         theme="vs-dark"
+        loading={<div>Loading editor...</div>}
       />
     </div>
   );

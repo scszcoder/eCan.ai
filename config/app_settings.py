@@ -91,7 +91,7 @@ class AppSettings:
         
         # Web 模式配置
         self.web_mode = os.getenv('ECBOT_WEB_MODE', 'dev')  # 默认开发模式
-        self.vite_dev_server = "http://localhost:5173"
+        self.vite_dev_server = "http://localhost:3000"
         
         print("init app settings")
         # init application some settings, include create some folder and copy some static files, etc. logs, skill files

@@ -1,0 +1,3 @@
+importScripts('/monaco-editor/vs/base/worker/require.js');
+
+// ... existing code ... 

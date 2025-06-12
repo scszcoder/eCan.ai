@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef } from 'react';
 import type { editor } from 'monaco-editor';
-import { CodeEditor } from '..';
-import type { UseCodeEditorProps, UseCodeEditorReturn } from '../types';
-import { DEFAULT_EDITOR_OPTIONS } from '../config';
+import { CodeEditor } from '../CodeEditor.js';
+import type { UseCodeEditorProps, UseCodeEditorReturn } from '../types.js';
+import { DEFAULT_EDITOR_OPTIONS } from '../config.js';
 
 /**
  * Hook for managing a code editor modal
