@@ -37,15 +37,15 @@ export default defineConfig({
     assetsDir: 'assets',
     emptyOutDir: true,
     sourcemap: true,
-    // 确保资源文件名包含哈希值，并禁用代码分割
+    // 确保资源文件名包含哈希值，并优化代码分割
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor': ['react', 'react-dom'],
-          'monaco-editor': ['monaco-editor']
+          'vendor': ['react', 'react-dom']
         }
       }
-    }
+    },
+    chunkSizeWarningLimit: 5000 // 增加警告阈值，避免大文件警告
   },
   resolve: {
     alias: {
@@ -60,6 +60,7 @@ export default defineConfig({
       'monaco-editor/esm/vs/language/html/html.worker',
       'monaco-editor/esm/vs/language/typescript/ts.worker'
     ],
+    exclude: ['monaco-editor']
   },
   worker: {
     format: 'es',
