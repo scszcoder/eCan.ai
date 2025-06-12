@@ -8,16 +8,13 @@ import { useEditorProps } from './hooks';
 import { Tools } from './components/tools';
 import { SidebarProvider, SidebarRenderer } from './components/sidebar';
 import { FlowDocumentJSON } from './typings';
+import emptyFlowData from './data/empty-flow.json';
 
 export const Editor = () => {
-  const emptyData: FlowDocumentJSON = {
-    nodes: [],
-    edges: []
-  };
+  const emptyData: FlowDocumentJSON = emptyFlowData;
 
   // 生产环境不加载初始数据，开发环境根据配置决定
   const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
-//   const shouldLoadInitialData = false;
   const editorProps = useEditorProps(shouldLoadInitialData ? initialData : emptyData, nodeRegistries);
 
   return (
