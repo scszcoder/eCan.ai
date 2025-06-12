@@ -257,7 +257,8 @@ class IPCAPI:
             chats: Chat值
             callback: 回调函数，接收 APIResponse[bool]
         """
-        self._send_request('update_chats', data=chats, callback=callback)
+        print("about to send chat data to GUI::", chats)
+        self._send_request('update_chats', {'chats': chats}, callback=callback)
 
     def update_vehicles(
             self,
