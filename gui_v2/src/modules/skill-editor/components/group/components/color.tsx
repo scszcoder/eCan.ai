@@ -17,7 +17,7 @@ export const GroupColor: FC = () => (
           content={
             <div className="workflow-group-color-palette">
               {Object.entries(groupColors).map(([name, color]) => (
-                <Tooltip content={name} key={name} mouseEnterDelay={300}>
+                <Tooltip content={name} key={name} mouseEnterDelay={300} mouseLeaveDelay={400}>
                   <span
                     className="workflow-group-color-item"
                     key={name}

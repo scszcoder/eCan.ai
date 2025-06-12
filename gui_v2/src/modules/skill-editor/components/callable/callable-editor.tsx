@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Form, Input, Select, Button, Typography, message } from 'antd';
 import { CodeOutlined } from '@ant-design/icons';
-import { CallableFunction } from '../../../typings/callable';
+import type { editor } from 'monaco-editor';
+import { CallableFunction } from '../../typings/callable';
 import { CallableEditorWrapper } from './styles';
-import { useCodeEditor } from '../../../hooks/useCodeEditor';
+import { useCodeEditor } from '../code-editor';
 
 const { Option } = Select;
 const { Title } = Typography;
@@ -74,7 +75,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   const [functionType, setFunctionType] = useState<FunctionType>(value?.type || 'custom');
   const [codeValue, setCodeValue] = useState(value?.code || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const previewEditorRef = useRef<any>(null);
+  const previewEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   // Initialize form values when value prop changes
   useEffect(() => {
@@ -145,34 +146,71 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   };
 
   const handleCodeSave = (content: string) => {
-    setCodeValue(content);
-    
-    // Parse function name and description from code
-    const functionNameMatch = content.match(/def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
-    const docStringMatch = content.match(/"""(.*?)"""/s);
+    // 解析函数名和描述
+    const functionNameMatch = content.match(/def\s+(\w+)/);
+    const docstringMatch = content.match(/"""(.*?)"""/s);
     
     if (functionNameMatch) {
       form.setFieldValue('name', functionNameMatch[1]);
     }
-    
-    if (docStringMatch) {
-      const docString = docStringMatch[1].trim();
-      const description = docString.split('\n')[0].trim();
-      form.setFieldValue('desc', description);
+    if (docstringMatch) {
+      form.setFieldValue('desc', docstringMatch[1].trim());
     }
+
+    // 更新代码值
+    setCodeValue(content);
+    
+    // 强制更新预览编辑器
+    if (previewEditorRef.current) {
+      previewEditorRef.current.setValue(content);
+      previewEditorRef.current.layout();
+    }
+
     return true;
   };
 
-  // Editor for full-screen editing
-  const { openEditor, editor } = useCodeEditor({
+  // 预览编辑器挂载回调
+  const handlePreviewEditorDidMount = (editor: editor.IStandaloneCodeEditor) => {
+    previewEditorRef.current = editor;
+    // 设置初始值
+    editor.setValue(codeValue);
+    editor.layout();
+  };
+
+  // 监听代码值变化
+  useEffect(() => {
+    if (previewEditorRef.current) {
+      previewEditorRef.current.setValue(codeValue);
+      previewEditorRef.current.layout();
+    }
+  }, [codeValue]);
+
+  // 代码编辑器配置
+  const { openEditor, closeEditor, editor } = useCodeEditor({
     initialContent: codeValue,
     language: DEFAULT_LANGUAGE,
     onSave: handleCodeSave,
     mode: 'edit',
-    height: 'calc(100vh - 200px)'
+    height: 'calc(100vh - 200px)',
+    options: {
+      readOnly: false,
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      lineNumbers: 'on',
+      folding: true,
+      automaticLayout: true,
+      tabSize: 4,
+      wordWrap: 'on',
+      suggestOnTriggerCharacters: false,
+      quickSuggestions: false,
+      parameterHints: { enabled: false },
+      snippetSuggestions: 'none',
+      wordBasedSuggestions: 'off',
+      theme: 'vs-dark'
+    }
   });
 
-  // Preview editor for inline display
+  // 预览编辑器配置
   const { editor: previewEditor } = useCodeEditor({
     initialContent: codeValue || '// No implementation code yet',
     language: DEFAULT_LANGUAGE,
@@ -203,22 +241,11 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       suggestOnTriggerCharacters: false,
       parameterHints: { enabled: false },
       snippetSuggestions: 'none',
-      wordBasedSuggestions: 'off'
+      wordBasedSuggestions: 'off',
+      theme: 'vs-dark'
     },
-    onEditorDidMount: (editor) => {
-      previewEditorRef.current = editor;
-      if (codeValue) {
-        editor.setValue(codeValue);
-      }
-    }
+    onEditorDidMount: handlePreviewEditorDidMount
   });
-
-  // Update preview editor content when codeValue changes
-  useEffect(() => {
-    if (previewEditorRef.current && codeValue) {
-      previewEditorRef.current.setValue(codeValue);
-    }
-  }, [codeValue]);
 
   const renderFunctionTypeFields = () => {
     if (functionType === 'system') {
@@ -261,11 +288,18 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
           <Input />
         </Form.Item>
         <Form.Item
-          name="desc"
           label="Description"
-          rules={[{ required: true, message: 'Please enter a description' }]}
+          name="desc"
+          rules={[{ required: false, message: 'Please enter description' }]}
         >
-          <Input.TextArea rows={2} />
+          <Input.TextArea
+            rows={2}
+            style={{
+              resize: 'vertical',
+              minHeight: '60px'
+            }}
+            placeholder="Enter function description"
+          />
         </Form.Item>
       </>
     );

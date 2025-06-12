@@ -68,7 +68,19 @@
     "invalidCredentials": "Invalid username or password",
     "forgotUsernamePassword":"Forgot username or password",
     "signUp": "Sign Up New Account",
-    "error": "Login failed"
+    "error": "Login failed",
+    "passwordMismatch": "Passwords do not match",
+    "signupSuccess": "Registration Successful",
+    "signupMessage": "Your account has been successfully registered. Please login with your new account",
+    "forgotSuccess": "Password reset successful. Please login with your new password",
+    "usernameRequired": "Please enter your username",
+    "passwordRequired": "Please enter your password",
+    "confirmPasswordRequired": "Please confirm your password",
+    "roleRequired": "Please select a role",
+    "confirmPassword": "Confirm Password",
+    "backToLogin": "Back to Login",
+    "resetPassword": "Reset Password",
+    "verifying": "Verifying..."
   },
   "roles": {
     "commander": "Commander",

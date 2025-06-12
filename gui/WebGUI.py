@@ -73,21 +73,9 @@ class WebGUI(QMainWindow):
         
         if index_path.exists():
             try:
-                # 读取 HTML 内容
-                with open(index_path, 'r', encoding='utf-8') as f:
-                    html_content = f.read()
-                
-                # 设置基础 URL
-                base_url = str(app_settings.dist_dir.absolute())
-                logger_helper.info(f"Base URL: {base_url}")
-                
-                # 修改资源路径为绝对路径
-                html_content = html_content.replace('src="./', f'src="file://{base_url}/')
-                html_content = html_content.replace('href="./', f'href="file://{base_url}/')
-                
-                # 加载 HTML 内容
-                self.web_engine_view.page().setHtml(html_content, base_url)
-                logger_helper.info(f"Production mode: Loading from {index_path}, {base_url}")
+                # 直接加载本地文件
+                self.web_engine_view.load_local_file(index_path)
+                logger_helper.info(f"Production mode: Loading from {index_path}")
                 
             except Exception as e:
                 logger_helper.error(f"Error loading HTML file: {str(e)}")

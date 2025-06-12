@@ -1,7 +1,7 @@
 import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
-import Login from '../pages/Login';
+import Login from '../pages/Login/index';
 import Dashboard from '../pages/Dashboard';
 import Vehicles from '../pages/Vehicles';
 import Schedule from '../pages/Schedule';
