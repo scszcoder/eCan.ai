@@ -7,4 +7,5 @@ export enum WorkflowNodeType {
   Loop = 'loop',
   Comment = 'comment',
   Basic = 'basic',
+  RAG = 'rag',
 }

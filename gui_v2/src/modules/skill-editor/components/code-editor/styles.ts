@@ -1,0 +1,75 @@
+import type { CSSProperties } from 'react';
+
+export const editorStyles: Record<string, CSSProperties> = {
+  container: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  content: {
+    backgroundColor: 'var(--semi-color-bg-1)',
+    borderRadius: '8px',
+    width: '80%',
+    maxWidth: '1200px',
+    maxHeight: '90vh',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+  },
+  header: {
+    padding: '12px 16px',
+    borderBottom: '1px solid var(--semi-color-border)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  title: {
+    fontSize: '16px',
+    fontWeight: 500,
+    color: 'var(--semi-color-text-0)',
+  },
+  closeButton: {
+    fontSize: '20px',
+    color: 'var(--semi-color-text-2)',
+    cursor: 'pointer',
+    padding: '4px',
+    lineHeight: 1,
+    borderRadius: '4px',
+  },
+  editorContainer: {
+    flex: 1,
+    overflow: 'hidden',
+    padding: '16px',
+  },
+  footer: {
+    padding: '12px 16px',
+    borderTop: '1px solid var(--semi-color-border)',
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '8px',
+  },
+  button: {
+    padding: '6px 16px',
+    borderRadius: '4px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    border: 'none',
+    outline: 'none',
+    transition: 'all 0.2s',
+  },
+  cancelButton: {
+    backgroundColor: 'var(--semi-color-fill-0)',
+    color: 'var(--semi-color-text-0)',
+  },
+  okButton: {
+    backgroundColor: 'var(--semi-color-primary)',
+    color: 'var(--semi-color-white)',
+  },
+}; 

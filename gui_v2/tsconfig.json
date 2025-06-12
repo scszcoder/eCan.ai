@@ -23,7 +23,10 @@
     "paths": {
       "@/*": ["src/*"]
     },
-    "types": ["node"]
+    "types": [
+      "monaco-editor",
+      "node"
+    ]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"],

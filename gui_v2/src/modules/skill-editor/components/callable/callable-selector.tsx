@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Select, Button, Space, Tooltip, Dropdown } from '@douyinfe/semi-ui';
 import { IconPlus, IconEdit, IconServer, IconCode, IconSetting } from '@douyinfe/semi-icons';
-import { CallableFunction } from '../../../typings/callable';
+import { CallableFunction } from '../../typings/callable';
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
 import { CallableSelectorWrapper } from './styles';
