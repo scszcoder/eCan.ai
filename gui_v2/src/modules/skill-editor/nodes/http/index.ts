@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import iconStart from "../../assets/icon-start.jpg";
+import iconHttpApi from "../../assets/icon-http-api.png";
 import { FlowNodeRegistry } from "../../typings";
 import { DEFAULT_NODE_OUTPUTS } from "../../typings/node-outputs";
 import { WorkflowNodeType } from "../constants";
@@ -14,7 +14,7 @@ export const HttpNodeRegistry: FlowNodeRegistry = {
     },
   },
   info: {
-    icon: iconStart,
+    icon: iconHttpApi,
     description: "Custom Http Node.",
   },
   formMeta,

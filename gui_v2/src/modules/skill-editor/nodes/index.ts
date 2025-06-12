@@ -8,6 +8,7 @@ import { ConditionNodeRegistry } from './condition';
 import { CommentNodeRegistry } from './comment';
 import { BasicNodeRegistry } from './basic';
 import { HttpNodeRegistry } from './http';
+import { RAGNodeRegistry } from './rag';
 
 export { WorkflowNodeType } from './constants';
 
@@ -20,6 +21,7 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   CommentNodeRegistry,
   BasicNodeRegistry,
   HttpNodeRegistry,
+  RAGNodeRegistry,
 ];
 
 export const visibleNodeRegistries = nodeRegistries.filter(
