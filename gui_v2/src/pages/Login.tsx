@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
@@ -38,16 +38,40 @@ const Login: React.FC = () => {
     const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
     const [passwordValue, setPasswordValue] = useState<string>('');
     const [userNameValue, setUserNameValue] = useState<string>('');
-    set_ipc_api(createIPCAPI());
-    const api = get_ipc_api();
-//     api.selfTest();
-
+    const [apiInitialized, setApiInitialized] = useState(false);
+    
+    // Initialize IPC API
     useEffect(() => {
+        try {
+            set_ipc_api(createIPCAPI());
+            setApiInitialized(true);
+        } catch (error) {
+            console.error('Failed to initialize IPC API:', error);
+        }
+    }, []);
+
+    // Memoize the language change handler
+    const handleLanguageChange = useCallback((value: string) => {
+        i18n.changeLanguage(value);
+        localStorage.setItem('i18nextLng', value);
+        localStorage.setItem('language', value);
+    }, [i18n]);
+
+    // Load login info only after API is initialized
+    useEffect(() => {
+        if (!apiInitialized) return;
+
         const savedLanguage = localStorage.getItem('i18nextLng') || 'zh-CN';
         i18n.changeLanguage(savedLanguage);
 
-        (async () => {
+        const loadLoginInfo = async () => {
             try {
+                const api = get_ipc_api();
+                if (!api) {
+                    console.warn('IPC API not available');
+                    return;
+                }
+
                 const response = await api.getLastLoginInfo();
                 console.log('Received login info:', response);
 
@@ -56,25 +80,30 @@ const Login: React.FC = () => {
 
                 if (response?.data?.last_login) {
                     const { username, password, machine_role } = response.data.last_login;
-                    setTimeout(() => {
-                        form.setFieldsValue({
-                            username,
-                            password: password,
-                            role: machine_role
-                        });
-                    }, 0);
+                    form.setFieldsValue({
+                        username,
+                        password: password,
+                        role: machine_role
+                    });
                 }
             } catch (err) {
                 console.warn('Could not load login info from backend', err);
             }
-        })();
-    }, [i18n, form]);
+        };
+
+        loadLoginInfo();
+    }, [i18n, form, apiInitialized]);
 
     const handleSubmit = async (values: LoginFormValues) => {
         const finalPassword = values.password;
         console.log("Submitted values:", { ...values, password: values.password });
         setLoading(true);
         try {
+            const api = get_ipc_api();
+            if (!api) {
+                throw new Error('IPC API not available');
+            }
+
             if (mode === 'login') {
                 const response = await api.login(values.username, values.password, values.role);
                 console.log("login finished....", response);
@@ -124,12 +153,6 @@ const Login: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    };
-
-    const handleLanguageChange = (value: string) => {
-        i18n.changeLanguage(value);
-        localStorage.setItem('i18nextLng', value);
-        localStorage.setItem('language', value);
     };
 
     return (
@@ -201,6 +224,24 @@ const Login: React.FC = () => {
                             </Text>
                         </Col>
                     </Row>
+
+                    {/* Debug Login Button */}
+                    {/* <Row style={{ marginTop: 16 }}>
+                        <Col span={24}>
+                            <Button 
+                                type="dashed" 
+                                danger 
+                                block 
+                                onClick={() => {
+                                    localStorage.setItem('isAuthenticated', 'true');
+                                    localStorage.setItem('userRole', 'commander');
+                                    navigate('/dashboard');
+                                }}
+                            >
+                                Debug Login (Skip Authentication)
+                            </Button>
+                        </Col>
+                    </Row> */}
                 </Form>
             </Card>
         </div>
