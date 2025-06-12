@@ -11,11 +11,17 @@ import os
 from typing import List, Optional, Dict, Any
 import json
 from contextlib import contextmanager
+import threading
+import time
+
 
 # Constants
+MAX_TOTAL_MESSAGES  = 10000  # Maximum messages before cleanup
+
 MAX_MESSAGES_PER_CONVERSATION = 1000  # Maximum messages before cleanup
 SESSION_TIMEOUT_MINUTES = 15  # Minutes of inactivity before new session
 EDIT_WINDOW_MINUTES = 5  # Time window to edit messages
+MESSAGE_CLEANUP_BATCH_SIZE = 100  # Number of messages to delete when cleaning up
 
 # Database setup
 Base = declarative_base()
@@ -226,30 +232,101 @@ class MessageRead(Base):
     user = relationship("User", back_populates="message_reads")
 
 
-# Event listeners
+
+# Update the check_message_limit function
 @event.listens_for(Message, 'after_insert')
 def check_message_limit(mapper, connection, target):
-    """Enforce message limit per conversation"""
+    """Enforce message limits per conversation and globally"""
     session = db_session()
     try:
-        # Get count of messages for this conversation
-        count = session.query(func.count(Message.id)) \
+        # 1. Check and enforce per-conversation limit
+        conversation_count = session.query(func.count(Message.id)) \
             .filter(Message.conversation_id == target.conversation_id) \
             .scalar()
 
-        if count > MAX_MESSAGES_PER_CONVERSATION:
-            # Find the oldest message to delete
-            oldest_message = session.query(Message) \
+        if conversation_count > MAX_MESSAGES_PER_CONVERSATION:
+            # Delete oldest messages in this conversation
+            oldest_messages = session.query(Message.id) \
                 .filter(Message.conversation_id == target.conversation_id) \
                 .order_by(Message.created_at.asc()) \
-                .first()
+                .limit(conversation_count - MAX_MESSAGES_PER_CONVERSATION + 1) \
+                .subquery()
 
-            if oldest_message:
-                session.delete(oldest_message)
-                session.commit()
+            session.query(Message) \
+                .filter(Message.id.in_(oldest_messages)) \
+                .delete(synchronize_session=False)
+
+        # 2. Check and enforce global message limit
+        total_count = session.query(func.count(Message.id)).scalar()
+        if total_count > MAX_TOTAL_MESSAGES:
+            # Calculate how many messages to delete
+            delete_count = total_count - MAX_TOTAL_MESSAGES + MESSAGE_CLEANUP_BATCH_SIZE
+            delete_count = min(delete_count, MESSAGE_CLEANUP_BATCH_SIZE)
+
+            if delete_count > 0:
+                # Get IDs of oldest messages to delete
+                oldest_message_ids = session.query(Message.id) \
+                    .order_by(Message.created_at.asc()) \
+                    .limit(delete_count) \
+                    .all()
+
+                # Convert list of tuples to list of IDs
+                oldest_message_ids = [msg_id for (msg_id,) in oldest_message_ids]
+
+                # Delete the messages
+                session.query(Message) \
+                    .filter(Message.id.in_(oldest_message_ids)) \
+                    .delete(synchronize_session=False)
+
+        session.commit()
+
     except Exception as e:
         session.rollback()
-        raise e
+        logger.error(f"Error in check_message_limit: {str(e)}")
+        raise
+    finally:
+        session.close()
+
+
+# Add this helper function for manual cleanup
+def cleanup_old_messages(batch_size: int = MESSAGE_CLEANUP_BATCH_SIZE) -> int:
+    """
+    Manually clean up old messages to maintain database size.
+    Returns the number of messages deleted.
+    """
+    session = db_session()
+    try:
+        # Get total count
+        total_count = session.query(func.count(Message.id)).scalar()
+
+        if total_count <= MAX_TOTAL_MESSAGES:
+            return 0
+
+        # Calculate how many to delete
+        delete_count = min(total_count - MAX_TOTAL_MESSAGES + batch_size, batch_size)
+
+        if delete_count <= 0:
+            return 0
+
+        # Get and delete oldest messages
+        oldest_message_ids = session.query(Message.id) \
+            .order_by(Message.created_at.asc()) \
+            .limit(delete_count) \
+            .all()
+
+        oldest_message_ids = [msg_id for (msg_id,) in oldest_message_ids]
+
+        deleted_count = session.query(Message) \
+            .filter(Message.id.in_(oldest_message_ids)) \
+            .delete(synchronize_session=False)
+
+        session.commit()
+        return deleted_count
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error in cleanup_old_messages: {str(e)}")
+        return 0
     finally:
         session.close()
 
@@ -295,7 +372,19 @@ def set_message_session(mapper, connection, target):
         finally:
             session.close()
 
+def periodic_cleanup(interval_minutes=60):
+    while True:
+        try:
+            deleted = cleanup_old_messages()
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} old messages")
+        except Exception as e:
+            logger.error(f"Error during periodic cleanup: {e}")
+        time.sleep(interval_minutes * 60)
 
+# # Start cleanup thread
+# cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
+# cleanup_thread.start()
 
 def get_chats_db():
     """Get database session"""

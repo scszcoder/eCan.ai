@@ -4,7 +4,7 @@ from PySide6.QtCore import QTimer
 import sys
 import os
 import random
-
+from datetime import datetime
 from gui.ipc.api import IPCAPI
 
 # 配置日志以抑制 macOS IMK 警告
@@ -190,12 +190,19 @@ class WebGUI(QMainWindow):
         """更新聊天数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            data = [
+                {
+                    'id': 1,
+                    'session_id': 1,
+                    'sender': "12",
+                    'chat_id': 2,
+                    'is_group': False,
+                    'recipients': [],
+                    'content': "good morning world",
+                    'attachments': [],
+                    'tx_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            ]
 
             # 调用 refresh_dashboard API
             def handle_response(response):
@@ -204,6 +211,7 @@ class WebGUI(QMainWindow):
                 else:
                     logger_helper.error(f"Failed to update Chats data: {response.error}")
 
+            print("about to update GUI chats data....", data)
             IPCAPI.get_instance().update_chats(data, handle_response)
 
         except Exception as e:

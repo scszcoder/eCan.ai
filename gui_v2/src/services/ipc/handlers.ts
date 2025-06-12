@@ -242,29 +242,68 @@ export class IPCHandlers {
         }
     }
 
-
-    async updateChats(request: IPCRequest): Promise<unknown> {
+    async updateChats(request: IPCRequest): Promise<{ success: boolean }> {
         try {
             const { params } = request;
-            if (!params || typeof params !== 'object') {
-                throw new Error('Invalid parameters');
+
+            // Validate params
+            if (!params || typeof params !== 'object' || !('chats' in params)) {
+                throw new Error('Invalid parameters: expected { chats: IncomingMessage[] }');
             }
 
-            // 验证参数
-            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
-            const stats = params as { [K in typeof requiredFields[number]]: number };
-            for (const field of requiredFields) {
-                if (typeof stats[field] !== 'number') {
-                    throw new Error(`Invalid field type: ${field} must be a number`);
+            const { chats } = params;
+            if (!Array.isArray(chats)) {
+                throw new Error('Invalid parameters: "chats" must be an array');
+            }
+
+            // Process each incoming message
+            for (const incomingMsg of chats) {
+                try {
+                    // Convert to the Message type expected by the UI
+                    const message: Message = {
+                        id: incomingMsg.id,
+                        session_id: incomingMsg.session_id,
+                        content: incomingMsg.content,
+                        sender: incomingMsg.sender,
+                        tx_timestamp: incomingMsg.tx_time,
+                        rx_timestamp: new Date().toISOString(), // Set received time to now
+                        read_timestamp: null,
+                        status: 'delivered', // or 'sent' depending on your flow
+                        is_edited: false,
+                        is_retracted: false
+                    };
+
+                    // Check if we need to create a new chat or update existing one
+                    const chatInfo = {
+                        id: incomingMsg.chat_id,
+                        name: `Chat ${incomingMsg.chat_id}`, // You might want to fetch the actual name
+                        type: incomingMsg.is_group ? 'group' : 'agent' as const,
+                        status: 'online' as const,
+                        last_message: message.content,
+                        last_message_time: new Date().toLocaleTimeString(),
+                        last_session_time: new Date(message.tx_timestamp).toLocaleDateString(),
+                        unread_count: 0, // Will be updated by the UI logic
+                        is_group: incomingMsg.is_group,
+                        members: [message.sender, ...incomingMsg.recipients].filter(Boolean),
+                        messages: [message] // The Chat component will merge messages
+                    };
+                    console.log("chatInfo:", chatInfo);
+                    console.log("message:", message);
+                    // Update the UI
+                    updateChatsGUI({
+                        chat: chatInfo,
+                        message
+                    });
+                } catch (error) {
+                    console.error('Error processing chat message:', error, incomingMsg);
+                    // Continue processing other messages even if one fails
                 }
             }
 
-            // 更新仪表盘数据
-            updateChatsGUI(stats);
-            return { refreshed: true };
+            return { success: true };
         } catch (error) {
-            logger.error('Error in refresh_dashboard handler:', error);
-            throw error;
+            console.error('Error in updateChats handler:', error);
+            return { success: false, error: error.message };
         }
     }
 
