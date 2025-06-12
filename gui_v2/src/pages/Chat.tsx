@@ -27,6 +27,7 @@ import StatusTag from '../components/Common/StatusTag';
 import DetailCard from '../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
 import {ipc_api, get_ipc_api} from '../services/ipc_api';
+import { create } from 'zustand';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -96,37 +97,53 @@ const AttachmentItem = styled.div`
     gap: 6px;
 `;
 
-const MessageToolbar = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px;
-    border-top: 1px solid var(--border-color);
-    border-radius: 0 0 8px 8px;
-`;
+const MessageToolbar = styled('div')({
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px',
+    borderTop: '1px solid var(--border-color)',
+    borderRadius: '0 0 8px 8px',
+});
 
-interface Chat {
+export interface Chat {
     id: number;
     name: string;
+    avatar?: string;
     type: 'user' | 'bot' | 'group';
     status: 'online' | 'offline' | 'busy';
     lastMessage: string;
     lastMessageTime: string;
-    lastSessionTime: string;            //last session's start time.
     unreadCount: number;
+    is_group?: boolean;
+    members?: string[]; // user IDs
+    messages?: Message[];
 }
 
-interface Message {
+export interface Message {
     id: number;
     session_id: number;                 //simply session's epoch time in seconds.
     content: string;
     attachments: File[];
     sender: string;
-    recipient: string;
     tx_timestamp: string;
     rx_timestamp: string;
     read_timestamp: string;
     status: 'sending' | 'sent' | 'delivered' | 'read';
+    is_edited?: boolean;
+    is_retracted?: boolean;
+}
+
+interface ChatState {
+  chats: Chat[];
+  activeChatId: number | null;
+  addChat: (chat: Chat) => void;
+  updateChat: (chat: Partial<Chat> & { id: number }) => void;
+  setActiveChat: (chatId: number) => void;
+  addMessage: (chatId: number, message: Message) => void;
+  updateMessageStatus: (messageId: number, status: Message['status']) => void;
+  sendMessage: (content: string) => Promise<void>;
+  initialize: () => void;
 }
 
 const initialChats: Chat[] = [
@@ -166,7 +183,6 @@ const initialMessages: Message[] = [
         content: 'Hello! How can I help you today?',
         attachments: [],
         sender: 'Support Bot',
-        recipient: 'You',
         tx_timestamp: '10:00 AM',
         rx_timestamp: '10:01 AM',
         read_timestamp: '10:01 AM',
@@ -178,7 +194,6 @@ const initialMessages: Message[] = [
         content: 'I need help with scheduling a delivery.',
         attachments: [],
         sender: 'You',
-        recipient: 'Support Bot',
         tx_timestamp: '10:05 AM',
         rx_timestamp: '10:06 AM',
         read_timestamp: '10:06 AM',
@@ -216,6 +231,61 @@ const initialMessages: Message[] = [
     },
 ];
 
+interface UpdateChatsGUIParams {
+    chat: Omit<Chat, 'messages'> & { messages?: Message[] };
+    message: Message;
+}
+
+
+export const useChatStore = create<ChatState>((set) => ({
+    chats: [],
+    activeChatId: null,
+
+    addChat: (chat) => set((state) => ({
+        chats: [chat, ...state.chats],
+        activeChatId: state.activeChatId ?? chat.id
+    })),
+
+    updateChat: (updates) => set((state) => ({
+        chats: state.chats.map(chat =>
+            chat.id === updates.id ? { ...chat, ...updates } : chat
+        )
+    })),
+
+    setActiveChat: (chatId) => set((state) => ({
+        activeChatId: chatId,
+        // Reset unread count when switching to chat
+        chats: state.chats.map(chat =>
+            chat.id === chatId ? { ...chat, unread_count: 0 } : chat
+        )
+    })),
+
+    addMessage: (chatId, message) => set((state) => {
+        const chat = state.chats.find(c => c.id === chatId);
+        if (!chat) return state;
+
+        return {
+            chats: state.chats.map(chat => {
+                if (chat.id !== chatId) return chat;
+
+                // Check if message already exists
+                const messageExists = chat.messages.some(m => m.id === message.id);
+                if (messageExists) return chat;
+
+                return {
+                    ...chat,
+                    messages: [...chat.messages, message],
+                    last_message: message.content,
+                    last_message_time: new Date().toLocaleTimeString(),
+                    last_session_time: new Date(message.tx_timestamp).toLocaleDateString(),
+                    unread_count: state.activeChatId === chatId ? 0 : (chat.unread_count + 1)
+                };
+            })
+        };
+    })
+}));
+
+
 // 创建事件总线
 const chatsEventBus = {
     listeners: new Set<(data: Message) => void>(),
@@ -229,14 +299,210 @@ const chatsEventBus = {
 };
 
 // 导出更新数据的函数
-export const updateChatsGUI = (data: Message) => {
-    chatsEventBus.emit(data);
+export const updateChatsGUI = ({ chat, message }: UpdateChatsGUIParams) => {
+    const chatStore = useChatStore.getState();
+
+    // Check if chat already exists
+    const existingChat = chatStore.chats.find(c => c.id === chat.id);
+    console.log('existingChat', existingChat);
+    if (existingChat) {
+        // Update existing chat
+        console.log('existingChat true', existingChat);
+        chatStore.updateChat({
+            ...existingChat,
+            last_message: message.content,
+            last_message_time: new Date().toLocaleTimeString(),
+            last_session_time: new Date(message.tx_timestamp).toLocaleDateString(),
+            unread_count: chatStore.activeChatId === chat.id ? 0 : (existingChat.unread_count + 1)
+        });
+
+        // Add message to chat
+        console.log('addMessage', message);
+        chatStore.addMessage(chat.id, message);
+    } else {
+        // Create new chat with the message
+        console.log('add new chat', existingChat);
+        chatStore.addChat({
+            ...chat,            messages: [message]
+        });
+    }
 };
 
 const Chat: React.FC = () => {
     const { t } = useTranslation();
     const [searchParams, setSearchParams] = useSearchParams();
     const agentId = searchParams.get('agentId');
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [newMessage, setNewMessage] = useState('');
+    const [attachments, setAttachments] = useState<File[]>([]);
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+    const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const newFiles = Array.from(e.target.files).map(file => ({
+                file,
+                name: file.name,
+                type: file.type,
+                size: file.size,
+                lastModified: file.lastModified
+            }));
+            setAttachments(prev => [...prev, ...newFiles]);
+        }
+        // Reset the input value to allow selecting the same file again
+        if (e.target) {
+            e.target.value = '';
+        }
+    };
+
+    const removeAttachment = (index: number) => {
+        setAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            const audioChunks: Blob[] = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                
+                // Create a file from the blob
+                const audioFile = new File([audioBlob], `recording-${Date.now()}.wav`, {
+                    type: 'audio/wav',
+                });
+
+                // Add to attachments
+                setAttachments(prev => [...prev, {
+                    file: audioFile,
+                    name: `Voice Message ${new Date().toLocaleTimeString()}`,
+                    type: 'audio/wav',
+                    size: audioBlob.size,
+                    url: audioUrl
+                }]);
+
+                // Clean up
+                stream.getTracks().forEach(track => track.stop());
+                setAudioChunks([]);
+            };
+
+            mediaRecorder.start();
+            setMediaRecorder(mediaRecorder);
+            setIsRecording(true);
+            setAudioChunks(audioChunks);
+        } catch (error) {
+            console.error('Error accessing microphone:', error);
+            // TODO: Show error message to user
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorder && isRecording) {
+            mediaRecorder.stop();
+            setIsRecording(false);
+            setMediaRecorder(null);
+        }
+    };
+
+    const handleSendMessage = async () => {
+        if (!selectedChat) return;
+        
+        const messageContent = newMessage.trim();
+        if (!messageContent && attachments.length === 0) return;
+
+        // Create a temporary message with a temporary ID
+        const tempId = Date.now();
+        const newMessageObj: Message = {
+            id: tempId,
+            chat_id: selectedChat.id,
+            sender: 'You',
+            content: messageContent,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            status: 'sending',
+            attachments: attachments.map(att => ({
+                name: att.name || 'Attachment',
+                type: att.type || 'application/octet-stream',
+                size: att.size || 0,
+                content: att.url ? att.url.split(',')[1] : '' // Only store base64 data
+            }))
+        };
+
+        // Add the message to the UI immediately
+        setMessages(prev => [...prev, newMessageObj]);
+        
+        // Clear the input fields
+        setNewMessage('');
+        setAttachments([]);
+        
+        try {
+            // Send the message via IPC
+            const ipc_api = get_ipc_api();
+            const response = await ipc_api.send_message({
+                chat_id: selectedChat.id,
+                content: messageContent,
+                attachments: newMessageObj.attachments
+            });
+
+            if (response && response.success) {
+                // Update the message status to sent
+                setMessages(prev => 
+                    prev.map(msg => 
+                        msg.id === tempId 
+                            ? { ...msg, id: response.message_id, status: 'sent' } 
+                            : msg
+                    )
+                );
+                
+                // Update the chat in the store
+                useChatStore.getState().updateChat({
+                    ...selectedChat,
+                    last_message: messageContent || 'Attachment',
+                    last_message_time: new Date().toISOString(),
+                    unread_count: 0
+                });
+            } else {
+                // Update the message status to failed
+                setMessages(prev => 
+                    prev.map(msg => 
+                        msg.id === tempId 
+                            ? { ...msg, status: 'failed' } 
+                            : msg
+                    )
+                );
+            }
+        } catch (error) {
+            console.error('Failed to send message:', error);
+            // Update the message status to failed
+            setMessages(prev => 
+                prev.map(msg => 
+                    msg.id === tempId 
+                        ? { ...msg, status: 'failed' } 
+                        : msg
+                )
+            );
+        }
+    };
+
+    // Clean up media recorder on unmount
+    useEffect(() => {
+        return () => {
+            if (mediaRecorder) {
+                mediaRecorder.stream?.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [mediaRecorder]);
 
     const {
         selectedItem: selectedChat,
@@ -246,24 +512,8 @@ const Chat: React.FC = () => {
         setItems: setChats,
     } = useDetailView<Chat>(initialChats);
 
-    const [messages, setMessages] = useState<Message[]>(initialMessages);
-    const [newMessage, setNewMessage] = useState('');
-    const [filters, setFilters] = useState<Record<string, any>>({});
-    const [attachments, setAttachments] = useState<File[]>([]);
-    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const [recording, setRecording] = useState(false);
-    const [recordingReady, setRecordingReady] = useState(false);
-    const chunksRef = useRef<Blob[]>([]);
-    const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
-
-    // Handle agentId from URL
+    // Get chats from the store
+    const { chats: storeChats } = useChatStore();
     useEffect(() => {
         if (agentId) {
             const agentChat = chats.find(chat => chat.id.toString() === agentId);
@@ -274,295 +524,115 @@ const Chat: React.FC = () => {
                     name: `Agent ${agentId}`,
                     type: 'bot',
                     status: 'online',
-                    lastMessage: t('pages.chat.startConversation'),
-                    lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    lastSessionTime: new Date().toLocaleDateString(),
-                    unreadCount: 0
+                    last_message: t('pages.chat.startConversation'),
+                    last_message_time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    last_session_time: new Date().toLocaleDateString(),
+                    unread_count: 0,
+                    is_group: false,
+                    members: [],
+                    messages: []
                 };
 
+                // Add the new chat to the store
+                useChatStore.getState().addChat(newChat);
                 setChats(prevChats => [...prevChats, newChat]);
                 selectItem(newChat);
+                useChatStore.getState().setActiveChat(newChat.id);
+        useChatStore.getState().setActiveChat(newChat.id);
 
-                // Clear the agentId from URL
-                searchParams.delete('agentId');
-                setSearchParams(searchParams);
-            } else {
-                selectItem(agentChat);
-            }
-        }
-    }, [agentId, chats, selectItem, setChats, searchParams, setSearchParams, t]);
-
-
-    // FIX: Attachments included in new message!
-    const handleSendMessage = async () => {
-        if ((!newMessage.trim() && attachments.length === 0) || !selectedChat) return;
-
-        const newMsg: Message = {
-            id: messages.length + 1,
-            content: newMessage,
-            attachments: [...attachments], // <--- FIXED: copy over attachments here
-            sender: 'You',
-            recipient: selectedChat.name,
-            tx_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            rx_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            read_timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            status: 'sending',
-        };
-
-        setMessages(prev => [...prev, newMsg]);
-
-        status = sendMessage(newMsg); // send to python section if needed
-        setNewMessage('');
-        setAttachments([]); // <--- Clear after send!
-
-
-        setTimeout(() => {
-            setMessages(prev =>
-                prev.map(msg =>
-                    msg.id === newMsg.id ? { ...msg, status: 'sent' } : msg
-                )
-            );
-        }, 1000);
-
-        setTimeout(() => {
-            setMessages(prev =>
-                prev.map(msg =>
-                    msg.id === newMsg.id ? { ...msg, status: 'delivered' } : msg
-                )
-            );
-        }, 2000);
-
-        setTimeout(() => {
-            const botResponse: Message = {
-                id: messages.length + 2,
-                content: 'I understand. Let me help you with that.',
-                attachments: [],
-                sender: selectedChat.name,
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                status: 'read',
-            };
-            setMessages(prev => [...prev, botResponse]);
-        }, 3000);
-    };
-
-
-    // Read files as base64 (async utility)
-    function fileToBase64(file: File): Promise<string> {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = e => {
-                if (e.target?.result) resolve(e.target.result as string);
-                else reject(new Error('No file result'));
-            };
-            reader.onerror = e => {
-                reject(e);
-            };
-            reader.readAsDataURL(file);
-        });
+        // Clear the agentId from URL
+        searchParams.delete('agentId');
+        setSearchParams(searchParams);
+      } else {
+        selectItem(agentChat);
+        useChatStore.getState().setActiveChat(agentChat.id);
+        // Update messages when selecting an existing chat
+        const storeChat = useChatStore.getState().chats.find(c => c.id === agentChat.id);
+        setMessages(storeChat?.messages || agentChat.messages || []);
+      }
     }
-
-
-
-    const sendMessage = async (msg: any) => {
-        console.log("adding 1 chat...", msg);
-        const ipc_api = get_ipc_api();
-
-        const filesPayload = msg.attachments.map(att => ({
-            name: att.file.name,
-            type: att.file.type,
-            content: att.base64, // send base64 to backend
-        }));
-        const payload = { ...msg, attachments: filesPayload };
-
-        await ipc_api.sendChat([payload]);
-    };
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files) return;
-        const files = Array.from(e.target.files);
-
-        // Immediately process to base64 for sending
-        const processedFiles = await Promise.all(
-            files.map(async (file) => ({
-                file,
-                preview: URL.createObjectURL(file),
-                base64: await fileToBase64(file),
-            }))
-        );
-        // Store these objects (with raw file, preview url, and base64)
-        setAttachments(processedFiles);
-    };
-
-
-    const handleSearch = (value: string) => {};
-    const handleFilterChange = (newFilters: Record<string, any>) => {
-        setFilters(prev => ({ ...prev, ...newFilters }));
-    };
-    const handleReset = () => { setFilters({}); };
-
-    const handleEmojiClick = (emojiData: any) => {
-        setNewMessage(prev => prev + emojiData.emoji);
-        setShowEmojiPicker(false);
-    };
-
-
-
-    const removeAttachment = (index: number) => {
-        setAttachments(prev => prev.filter((_, i) => i !== index));
-    };
-
-    const startRecording = async () => {
-        try {
-            setRecording(true);
-            setRecordingReady(false);
-            console.log("Requesting audio stream...");
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            setRecordingReady(true);
-            const mediaRecorder = new MediaRecorder(stream);
-            mediaRecorderRef.current = mediaRecorder;
-            chunksRef.current = [];
-
-            mediaRecorder.ondataavailable = e => {
-                if (e.data.size > 0) chunksRef.current.push(e.data);
-            };
-            mediaRecorder.onstop = () => {
-                if (chunksRef.current.length > 0) {
-                    const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-                    const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
-                    setAttachments(prev => [...prev, file]);
-                    console.log('Audio file attached:', file);
-                }
-                stream.getTracks().forEach(track => track.stop());
-            };
-            mediaRecorder.start();
-        } catch (err) {
-            setRecording(false);
-            setRecordingReady(false);
-            alert('Microphone permission denied or not available.');
-            console.error('Audio record error:', err);
-        }
-    };
-
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-            setRecording(false);
-            setRecordingReady(false);
-        } else {
-            setRecording(false);
-            setRecordingReady(false);
-        }
-    };
-
-    const handleRecordButton = () => {
-        if (!recording) {
-            startRecording();
-        } else {
-            stopRecording();
-        }
-    };
-    const handleDownload = (att) => {
-        // Instead of downloading via browser, use IPC
-        window.ipc.downloadAttachment(att.name); // send filename or file id to backend
-    };
-
-    const handleDownloadAttachment = (file: File) => {
-        // For a local File, we can trigger download directly:
-        console.log("downloading.... attachment");
-        const url = URL.createObjectURL(file);
-
-        // Create a hidden <a> tag and click it programmatically
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = file.name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-
-        // Release the URL after download
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        console.log("done downloading.... attachment");
-    };
+  }, [agentId, chats, selectItem, setChats, searchParams, setSearchParams, t]);
 
     const renderListContent = () => (
-        <>
-            <Title level={2}>{t('pages.chat.title')}</Title>
-            <SearchFilter
-                onSearch={handleSearch}
-                onFilterChange={handleFilterChange}
-                onReset={handleReset}
-                filterOptions={[
-                    {
-                        key: 'type',
-                        label: t('pages.chat.type'),
-                        options: [
-                            { label: t('pages.chat.user'), value: 'user' },
-                            { label: t('pages.chat.bot'), value: 'bot' },
-                            { label: t('pages.chat.group'), value: 'group' },
-                        ],
-                    },
-                    {
-                        key: 'status',
-                        label: t('pages.chat.status'),
-                        options: [
-                            { label: t('pages.chat.online'), value: 'online' },
-                            { label: t('pages.chat.offline'), value: 'offline' },
-                            { label: t('pages.chat.busy'), value: 'busy' },
-                        ],
-                    },
-                ]}
-                placeholder={t('pages.chat.searchPlaceholder')}
-            />
-            <ActionButtons
-                onAdd={() => {}}
-                onEdit={() => {}}
-                onDelete={() => {}}
-                onRefresh={() => {}}
-                onExport={() => {}}
-                onImport={() => {}}
-                onSettings={() => {}}
-                addText={t('pages.chat.addChat')}
-                editText={t('pages.chat.editChat')}
-                deleteText={t('pages.chat.deleteChat')}
-                refreshText={t('pages.chat.refreshChat')}
-                exportText={t('pages.chat.exportChat')}
-                importText={t('pages.chat.importChat')}
-                settingsText={t('pages.chat.chatSettings')}
-            />
-            <List
-                dataSource={chats}
-                renderItem={chat => (
-                    <ChatItem
-                        onClick={() => selectItem(chat)}
-                        style={{
-                            backgroundColor: selectedChat?.id === chat.id ? 'var(--bg-tertiary)' : 'inherit'
-                        }}
-                    >
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            <Space>
-                                <Badge status={
-                                    chat.status === 'online' ? 'success' :
-                                    chat.status === 'busy' ? 'warning' : 'default'
-                                } />
-                                <Avatar icon={
-                                    chat.type === 'user' ? <UserOutlined /> :
-                                    chat.type === 'bot' ? <RobotOutlined /> : <TeamOutlined />
-                                } />
-                                <Text strong>{chat.name}</Text>
-                                {chat.unreadCount > 0 && (
-                                    <Badge count={chat.unreadCount} />
-                                )}
-                            </Space>
-                            <Space>
-                                <Text type="secondary">{chat.lastMessage}</Text>
-                                <Text type="secondary">{chat.lastMessageTime}</Text>
-                            </Space>
-                        </Space>
-                    </ChatItem>
-                )}
-            />
-        </>
-    );
+    <>
+      <Title level={2}>{t('pages.chat.title')}</Title>
+      <SearchFilter
+        onSearch={() => {}}
+        onFilterChange={() => {}}
+        onReset={() => {}}
+        placeholder={t('pages.chat.searchPlaceholder')}
+      />
+      <ActionButtons
+        onAdd={() => {}}
+        onEdit={() => {}}
+        onDelete={() => {}}
+        onRefresh={() => {}}
+        onExport={() => {}}
+        onImport={() => {}}
+        onSettings={() => {}}
+        addText={t('pages.chat.addChat')}
+        editText={t('pages.chat.editChat')}
+        deleteText={t('pages.chat.deleteChat')}
+        refreshText={t('pages.chat.refreshChat')}
+        exportText={t('pages.chat.exportChat')}
+        importText={t('pages.chat.importChat')}
+        settingsText={t('pages.chat.chatSettings')}
+      />
+      <List
+        dataSource={chats}
+        renderItem={chat => {
+          const storeChat = storeChats.find(c => c.id === chat.id);
+          return (
+            <ChatItem
+              key={chat.id}
+              onClick={() => {
+                selectItem(chat);
+                useChatStore.getState().setActiveChat(chat.id);
+                // Update messages from store when selecting a chat
+                const storeChat = storeChats.find(c => c.id === chat.id);
+                setMessages(storeChat?.messages || chat.messages || []);
+              }}
+              style={{
+                backgroundColor: selectedChat?.id === chat.id ? 'var(--bg-tertiary)' : 'inherit',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s',
+                '&:hover': {
+                  backgroundColor: 'var(--bg-secondary)'
+                }
+              }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Space>
+                  <Badge status={
+                    chat.status === 'online' ? 'success' :
+                    chat.status === 'busy' ? 'warning' : 'default'
+                  } />
+                  <Avatar icon={
+                    chat.type === 'user' ? <UserOutlined /> :
+                    chat.type === 'bot' ? <RobotOutlined /> : <TeamOutlined />
+                  } />
+                  <Text strong>{chat.name}</Text>
+                  {(storeChat?.unread_count || 0) > 0 && (
+                    <Badge count={storeChat?.unread_count} />
+                  )}
+                </Space>
+                <Space>
+                  <Text type="secondary" ellipsis={true} style={{ maxWidth: '200px' }}>
+                    {storeChat?.last_message || chat.last_message || 'No messages yet'}
+                  </Text>
+                  <Text type="secondary">
+                    {new Date(storeChat?.last_message_time || chat.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </Space>
+              </Space>
+            </ChatItem>
+          );
+        }}
+      />
+    </>
+  );
+
+
 
     const renderDetailsContent = () => {
         if (!selectedChat) {
@@ -576,29 +646,30 @@ const Chat: React.FC = () => {
                         <Space>
                             <Badge status={
                                 selectedChat.status === 'online' ? 'success' :
-                                    selectedChat.status === 'busy' ? 'warning' : 'default'
+                                selectedChat.status === 'busy' ? 'warning' : 'default'
                             } />
                             <Avatar icon={
                                 selectedChat.type === 'user' ? <UserOutlined /> :
-                                    selectedChat.type === 'bot' ? <RobotOutlined /> : <TeamOutlined />
+                                selectedChat.type === 'bot' ? <RobotOutlined /> : <TeamOutlined />
                             } />
                             <Text strong>{selectedChat.name}</Text>
                             <Tag color={
                                 selectedChat.type === 'user' ? 'blue' :
-                                    selectedChat.type === 'bot' ? 'green' : 'purple'
+                                selectedChat.type === 'bot' ? 'green' : 'purple'
                             }>
                                 {t(`pages.chat.${selectedChat.type}`)}
                             </Tag>
                         </Space>
                     }
                     extra={<Button icon={<MoreOutlined />} />}
+                    bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', height: '100%' }}
                 >
-                    <div style={{ height: 'calc(100vh - 300px)', overflowY: 'auto' }}>
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
                         {messages.map(message => (
                             <MessageItem key={message.id} isUser={message.sender === 'You'}>
                                 <Avatar icon={
                                     message.sender === 'You' ? <UserOutlined /> :
-                                        message.sender === 'Support Bot' ? <RobotOutlined /> : <TeamOutlined />
+                                    message.sender === 'Support Bot' ? <RobotOutlined /> : <TeamOutlined />
                                 } />
                                 <Space direction="vertical" style={{ maxWidth: '70%' }}>
                                     <MessageContent isUser={message.sender === 'You'}>
@@ -667,72 +738,77 @@ const Chat: React.FC = () => {
                         ))}
                         <div ref={messagesEndRef} />
                     </div>
-                    <MessageToolbar>
-                        <Button icon={<SmileOutlined />} onClick={() => setShowEmojiPicker(p => !p)} />
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            id="filePicker"
-                            style={{ display: 'none' }}
-                            multiple
-                            onChange={handleFileChange}
-                        />
-                        <Button
-                            icon={<PaperClipOutlined />}
-                            onClick={() => fileInputRef.current?.click()}
-                        />
-                        <Button
-                            icon={<AudioOutlined />}
-                            onMouseDown={startRecording}
-                            onMouseUp={stopRecording}
-                            onMouseLeave={stopRecording}
-                            danger={recording}
-                        />
-                        <TextArea
-                            value={newMessage}
-                            onChange={e => setNewMessage(e.target.value)}
-                            placeholder={t('pages.chat.typeMessage')}
-                            autoSize={{ minRows: 1, maxRows: 4 }}
-                            onPressEnter={async e => {
-                                if (!e.shiftKey) {
-                                    e.preventDefault();
-                                    try {
-                                        await handleSendMessage();
-                                    } catch (err) {
-                                        console.error("Failed to send message via Enter:", err);
+
+                    <div style={{ padding: '16px', borderTop: '1px solid #f0f0f0' }}>
+                        <MessageToolbar>
+                            <Button icon={<SmileOutlined />} onClick={() => setShowEmojiPicker(p => !p)} />
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                id="filePicker"
+                                style={{ display: 'none' }}
+                                multiple
+                                onChange={handleFileChange}
+                            />
+                            <Button
+                                icon={<PaperClipOutlined />}
+                                onClick={() => fileInputRef.current?.click()}
+                            />
+                            <Button
+                                icon={<AudioOutlined />}
+                                onMouseDown={startRecording}
+                                onMouseUp={stopRecording}
+                                onMouseLeave={stopRecording}
+                                danger={isRecording}
+                            />
+                            <TextArea
+                                value={newMessage}
+                                onChange={e => setNewMessage(e.target.value)}
+                                placeholder={t('pages.chat.typeMessage')}
+                                autoSize={{ minRows: 1, maxRows: 4 }}
+                                onPressEnter={async e => {
+                                    if (!e.shiftKey) {
+                                        e.preventDefault();
+                                        try {
+                                            await handleSendMessage();
+                                        } catch (err) {
+                                            console.error("Failed to send message via Enter:", err);
+                                        }
                                     }
-                                }
-                            }}
-                        />
-                        <Button
-                            type="primary"
-                            icon={<SendOutlined />}
-                            onClick={handleSendMessage}
-                            disabled={!newMessage.trim() && attachments.length === 0}
-                        >
-                            {t('pages.chat.send')}
-                        </Button>
-                    </MessageToolbar>
-                    {/* File and audio preview (pending attachments before sending) */}
-                    <AttachmentPreview>
-                        {attachments.map((attObj, index) => (
-                            <AttachmentItem key={index}>
-                                <PaperClipOutlined />
-                                <Text style={{ marginLeft: 4 }}>{attObj.file?.name || attObj.name}</Text>
-                                <Button
-                                    size="small"
-                                    type="text"
-                                    icon={<CloseOutlined />}
-                                    onClick={() => removeAttachment(index)}
-                                />
-                            </AttachmentItem>
-                        ))}
-                    </AttachmentPreview>
-                    {showEmojiPicker && (
-                        <div style={{ position: 'absolute', bottom: 70, right: 20 }}>
-                            <EmojiPicker onEmojiClick={handleEmojiClick} />
-                        </div>
-                    )}
+                                }}
+                            />
+                            <Button
+                                type="primary"
+                                icon={<SendOutlined />}
+                                onClick={handleSendMessage}
+                                disabled={!newMessage.trim() && attachments.length === 0}
+                            >
+                                {t('pages.chat.send')}
+                            </Button>
+                        </MessageToolbar>
+
+                        {/* File and audio preview (pending attachments before sending) */}
+                        <AttachmentPreview>
+                            {attachments.map((attObj, index) => (
+                                <AttachmentItem key={index}>
+                                    <PaperClipOutlined />
+                                    <Text style={{ marginLeft: 4 }}>{attObj.file?.name || attObj.name}</Text>
+                                    <Button
+                                        size="small"
+                                        type="text"
+                                        icon={<CloseOutlined />}
+                                        onClick={() => removeAttachment(index)}
+                                    />
+                                </AttachmentItem>
+                            ))}
+                        </AttachmentPreview>
+
+                        {showEmojiPicker && (
+                            <div style={{ position: 'absolute', bottom: 70, right: 20 }}>
+                                <EmojiPicker onEmojiClick={handleEmojiClick} />
+                            </div>
+                        )}
+                    </div>
                 </Card>
             </Space>
         );

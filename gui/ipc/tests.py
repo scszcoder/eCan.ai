@@ -6,6 +6,7 @@ def run_tests(web_gui, data_holder, tests):
 def run_default_tests(web_gui,data_holder):
     # test sending data to frontend
     web_gui.self_confirm()
+
     results = web_gui.update_all(data_holder)
 
     return results

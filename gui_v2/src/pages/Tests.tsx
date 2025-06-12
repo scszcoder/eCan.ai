@@ -15,7 +15,6 @@ const Tests: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isTestRunning, setIsTestRunning] = useState<boolean>(false);
 
-    const ipc_api = get_ipc_api();
 
     // Add default test at the top of the component
     const defaultTest = {
@@ -27,6 +26,7 @@ const Tests: React.FC = () => {
     // Fetch available tests
     const fetchTests = async () => {
         try {
+            const ipc_api = get_ipc_api();
             const response = await ipc_api.getAvailableTests();
             const backendTests = response && response.success && Array.isArray(response.data)
             ? response.data.map(test => ({
@@ -67,16 +67,35 @@ const Tests: React.FC = () => {
         setTestOutput(t('pages.tests.runningTest'));
 
         try {
-            const testConfig = {
-                test_id: selectedTest,
-                args: testArgument ? JSON.parse(testArgument) : {}  // Parse string to object if needed
-            };
+            const ipc_api = get_ipc_api();
+            if (!ipc_api) {
+                throw new Error('IPC API not initialized');
+            }
 
-            const response = await ipc_api.runTest([testConfig]);
-            setTestOutput(JSON.stringify(response, null, 2));
+            // Use the correct IPC method based on the selected test
+            let response;
+            if (selectedTest === 'default_test') {
+                // For default test, use the run_tests method
+                const testConfig = {
+                    test_id: 'default_test',
+                    args: testArgument ? JSON.parse(testArgument) : {}
+                };
+                response = await ipc_api.runTest([testConfig]);
+            } else {
+                // For other tests, use the appropriate method
+                const testConfig = {
+                    test_id: selectedTest,
+                    args: testArgument ? JSON.parse(testArgument) : {}
+                };
+                response = await ipc_api.runTest([testConfig]);
+            }
+            
+            setTestOutput(JSON.stringify(response || 'No response data', null, 2));
+            message.success(t('pages.tests.testCompleted'));
         } catch (error) {
             console.error('Test execution failed:', error);
-            setTestOutput(`Error: ${error.message || 'Unknown error occurred'}`);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+            setTestOutput(`Error: ${errorMessage}`);
             message.error(t('pages.tests.testError'));
         } finally {
             setIsTestRunning(false);
@@ -86,6 +105,7 @@ const Tests: React.FC = () => {
     // Handle test stop
     const handleStopTest = async () => {
         try {
+            const ipc_api = get_ipc_api();
             await ipc_api.stopTest(selectedTest);
             setTestOutput(prev => prev + '\n' + t('pages.tests.testStopped'));
         } catch (error) {
