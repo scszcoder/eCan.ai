@@ -1,8 +1,8 @@
 import React from 'react';
-import { logger } from '../utils/logger';
-import { Editor } from '../modules/skill-editor';
+import { logger } from '../../utils/logger';
+import { Editor } from '../../modules/skill-editor';
 import styled from '@emotion/styled';
-import {ipc_api} from '../services/ipc_api';
+import {ipc_api} from '../../services/ipc_api';
 
 const EditorContainer = styled.div`
   height: 100%;

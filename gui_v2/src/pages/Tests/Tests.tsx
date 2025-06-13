@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Space, Select, Input, Button, Card, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import {get_ipc_api} from '../services/ipc_api';
+import {get_ipc_api} from '../../services/ipc_api';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;

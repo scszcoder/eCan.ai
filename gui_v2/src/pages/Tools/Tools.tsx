@@ -2,8 +2,8 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Layout, Typography, Card, Button } from 'antd';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import ActionButtons from '../components/Common/ActionButtons';
-import {ipc_api} from '../services/ipc_api';
+import ActionButtons from '../../components/Common/ActionButtons';
+import {ipc_api} from '../../services/ipc_api';
 import {
     UserOutlined,
     ToolOutlined,

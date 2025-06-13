@@ -19,14 +19,14 @@ import {
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import EmojiPicker from 'emoji-picker-react';
-import DetailLayout from '../components/Layout/DetailLayout';
-import { useDetailView } from '../hooks/useDetailView';
-import SearchFilter from '../components/Common/SearchFilter';
-import ActionButtons from '../components/Common/ActionButtons';
-import StatusTag from '../components/Common/StatusTag';
-import DetailCard from '../components/Common/DetailCard';
+import DetailLayout from '../../components/Layout/DetailLayout';
+import { useDetailView } from '../../hooks/useDetailView';
+import SearchFilter from '../../components/Common/SearchFilter';
+import ActionButtons from '../../components/Common/ActionButtons';
+import StatusTag from '../../components/Common/StatusTag';
+import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
-import {ipc_api, get_ipc_api} from '../services/ipc_api';
+import {ipc_api, get_ipc_api} from '../../services/ipc_api';
 import { create } from 'zustand';
 
 const { Text, Title } = Typography;
@@ -449,11 +449,7 @@ const Chat: React.FC = () => {
         try {
             // Send the message via IPC
             const ipc_api = get_ipc_api();
-            const response = await ipc_api.send_message({
-                chat_id: selectedChat.id,
-                content: messageContent,
-                attachments: newMessageObj.attachments
-            });
+            const response = await ipc_api.sendChat(newMessageObj);
 
             if (response && response.success) {
                 // Update the message status to sent
