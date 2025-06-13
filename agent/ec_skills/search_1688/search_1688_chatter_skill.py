@@ -14,8 +14,8 @@ async def create_search_1688_chatter_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_skill = EC_Skill(name="meca search 1688 web site",
-                             description="help search a part/component or a product on 1688 website.")
+        searcher_skill = EC_Skill(name="chatter for meca search 1688 web site",
+                             description="chat with human or other agents to help search a part/component or a product on 1688 website.")
 
         await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")

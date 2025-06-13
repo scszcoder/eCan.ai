@@ -3,17 +3,17 @@
  * 实现了与 Python 后端通信的请求处理器
  */
 import { IPCRequest, IPCResponse } from './types';
-import { updateDashboard } from '../../pages/Dashboard';
-import { updateChatsGUI } from '../../pages/Chat';
-import { updateSkillsGUI } from '../../pages/Skills';
-import { updateSkillEditorGUI } from '../../pages/SkillEditor';
-import { updateTasksGUI } from '../../pages/Tasks';
-import { updateSchedule } from '../../pages/Schedule';
-import { updateAgentsGUI } from '../../pages/Agents';
-import { updateToolsGUI } from '../../pages/Tools';
-import { updateVehiclesGUI } from '../../pages/Vehicles';
-import { updateKnowledgeGUI } from '../../pages/Knowledge';
-import { updateSettingsGUI } from '../../pages/Settings';
+import { updateDashboard } from '../../pages/Dashboard/Dashboard';
+import { updateChatsGUI } from '../../pages/Chat/Chat';
+import { updateSkillsGUI } from '../../pages/Skills/Skills';
+import { updateSkillEditorGUI } from '../../pages/SkillEditor/SkillEditor';
+import { updateTasksGUI } from '../../pages/Tasks/Tasks';
+import { updateSchedule } from '../../pages/Schedule/Schedule';
+import { updateAgentsGUI } from '../../pages/Agents/Agents';
+import { updateToolsGUI } from '../../pages/Tools/Tools';
+import { updateVehiclesGUI } from '../../pages/Vehicles/Vehicles';
+import { updateKnowledgeGUI } from '../../pages/Knowledge/Knowledge';
+import { updateSettingsGUI } from '../../pages/Settings/Settings';
 import { logger } from '../../utils/logger';
 
 // 处理器类型定义
