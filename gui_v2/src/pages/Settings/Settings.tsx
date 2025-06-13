@@ -2,10 +2,10 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Space } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { useTheme } from '../contexts/ThemeContext';
-import { useLanguage } from '../contexts/LanguageContext';
-import { logger } from '../utils/logger';
-import {ipc_api} from '../services/ipc_api';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useLanguage } from '../../contexts/LanguageContext';
+import { logger } from '../../utils/logger';
+import {ipc_api} from '../../services/ipc_api';
 
 type Theme = 'light' | 'dark' | 'system';
 
