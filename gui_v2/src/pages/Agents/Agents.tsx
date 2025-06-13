@@ -14,11 +14,11 @@ import {
     MessageOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
-import DetailLayout from '../components/Layout/DetailLayout';
-import { useDetailView } from '../hooks/useDetailView';
+import DetailLayout from '../../components/Layout/DetailLayout';
+import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
-import ActionButtons from '../components/Common/ActionButtons';
-import {get_ipc_api} from '../services/ipc_api';
+import ActionButtons from '../../components/Common/ActionButtons';
+import {get_ipc_api} from '../../services/ipc_api';
 import { useNavigate } from 'react-router-dom';
 
 const { Text, Title } = Typography;

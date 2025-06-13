@@ -2,21 +2,21 @@ import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
 import Login from '../pages/Login/index';
-import Dashboard from '../pages/Dashboard';
-import Vehicles from '../pages/Vehicles';
-import Schedule from '../pages/Schedule';
-import Chat from '../pages/Chat';
-import Skills from '../pages/Skills';
-import SkillEditor from '../pages/SkillEditor';
-import Agents from '../pages/Agents';
-import Analytics from '../pages/Analytics';
-import Apps from '../pages/Apps';
-import Tasks from '../pages/Tasks';
-import Tools from '../pages/Tools';
-import Settings from '../pages/Settings';
-import Console from '../pages/Console';
-import Knowledge from '../pages/Knowledge';
-import Tests from '../pages/Tests';
+import Dashboard from '../pages/Dashboard/Dashboard';
+import Vehicles from '../pages/Vehicles/Vehicles';
+import Schedule from '../pages/Schedule/Schedule';
+import Chat from '../pages/Chat/Chat';
+import Skills from '../pages/Skills/Skills';
+import SkillEditor from '../pages/SkillEditor/SkillEditor';
+import Agents from '../pages/Agents/Agents';
+import Analytics from '../pages/Analytics/Analytics';
+import Apps from '../pages/Apps/Apps';
+import Tasks from '../pages/Tasks/Tasks';
+import Tools from '../pages/Tools/Tools';
+import Settings from '../pages/Settings/Settings';
+import Console from '../pages/Console/Console';
+import Knowledge from '../pages/Knowledge/Knowledge';
+import Tests from '../pages/Tests/Tests';
 
 // 路由配置类型
 export interface RouteConfig {

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Layout, List, Avatar, Select, Card, Typography, Tag, Button, Space } from 'antd';
 import { RocketOutlined, EditOutlined, PauseOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
-import {ipc_api} from '../services/ipc_api';
+import {ipc_api} from '../../services/ipc_api';
 
 const { Content } = Layout;
 const { Text } = Typography;
