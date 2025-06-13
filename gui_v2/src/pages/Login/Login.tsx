@@ -74,7 +74,7 @@ const Login: React.FC = () => {
 		form.setFieldsValue({
 			username,
 			password,
-			role: role.toLowerCase()
+			role: role
 		});
 	};
 
@@ -216,7 +216,7 @@ const Login: React.FC = () => {
 							onFinish={handleSubmit}
 							layout="vertical"
 							requiredMark={false}
-							initialValues={{ role: 'commander' }}
+							initialValues={{ role: 'Commander' }}
 						>
 							<Form.Item
 								name="username"
@@ -275,9 +275,9 @@ const Login: React.FC = () => {
 									size="large"
 									className="form-input"
 								>
-									<Select.Option value="commander">{t('roles.commander')}</Select.Option>
-									<Select.Option value="platoon">{t('roles.platoon')}</Select.Option>
-									<Select.Option value="staff_office">{t('roles.staff_office')}</Select.Option>
+									<Select.Option value="Commander">{t('roles.commander')}</Select.Option>
+									<Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
+									<Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
 								</Select>
 							</Form.Item>
 
@@ -321,7 +321,7 @@ const Login: React.FC = () => {
 							</div>
 
 								{/* Debug Login Button */}
-								<Row style={{ marginTop: 16 }} hidden={true}>
+								<Row style={{ marginTop: 16 }} hidden={false}>
 									<Col span={24}>
 										<Button
 											type="dashed"
@@ -329,7 +329,7 @@ const Login: React.FC = () => {
 											block
 											onClick={() => {
 												localStorage.setItem('isAuthenticated', 'true');
-												localStorage.setItem('userRole', 'commander');
+												localStorage.setItem('userRole', 'Commander');
 												navigate('/dashboard');
 											}}
 										>

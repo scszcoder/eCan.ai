@@ -5,6 +5,7 @@ IPC 处理器实现模块
 
 from typing import Any, Optional, Dict
 
+from gui.LoginoutGUI import Login
 import utils.logger_helper
 from .types import IPCRequest, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
@@ -124,7 +125,7 @@ def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]], py_
         ))
 
 @IPCHandlerRegistry.handler('login')
-def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> str:
     """处理登录请求
     
     验证用户凭据并返回访问令牌。
@@ -137,7 +138,7 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Login handler called with request: {request}")
         
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
