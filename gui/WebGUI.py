@@ -5,6 +5,7 @@ import sys
 import os
 import random
 from datetime import datetime
+from gui.LoginoutGUI import Login
 from gui.ipc.api import IPCAPI
 
 # 配置日志以抑制 macOS IMK 警告
@@ -17,7 +18,7 @@ from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
 
 class WebGUI(QMainWindow):
-    def __init__(self, py_login=None):
+    def __init__(self, py_login: Login=None):
         super().__init__()
         self.setWindowTitle("ECBot Web Interface")
         self.setGeometry(100, 100, 1200, 800)
@@ -26,7 +27,7 @@ class WebGUI(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
-        self.py_login = py_login
+        self.py_login: Login = py_login
         # 创建 Web 引擎
         self.web_engine_view = WebEngineView(self)
         
