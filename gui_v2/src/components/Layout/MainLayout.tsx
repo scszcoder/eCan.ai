@@ -257,13 +257,12 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <StyledHeader>
                     <Button
                         type="text"
-                        icon={collapsed ? <RightSquareFilled /> : <LeftSquareFilled />}
+                        icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                         onClick={() => setCollapsed(!collapsed)}
                         style={{
-                            fontSize: '32px',
-                            color: 'white',
-                            width: 32,
-                            height: 32,
+                            fontSize: '16px',
+                            width: 64,
+                            height: 64,
                         }}
                     />
                     <HeaderRight>

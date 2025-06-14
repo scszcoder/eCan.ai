@@ -321,7 +321,7 @@ const Login: React.FC = () => {
 							</div>
 
 								{/* Debug Login Button */}
-								<Row style={{ marginTop: 16 }} hidden={false}>
+								<Row style={{ marginTop: 16 }} hidden={true}>
 									<Col span={24}>
 										<Button
 											type="dashed"
