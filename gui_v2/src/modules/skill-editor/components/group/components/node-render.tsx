@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { MouseEvent, useEffect } from 'react';
 
 import {
   FlowNodeFormData,
@@ -24,6 +24,12 @@ export const GroupNodeRender = () => {
   const { height, width } = nodeSize ?? {};
   const nodeHeight = height ?? 0;
 
+  useEffect(() => {
+    // prevent lines in outside cannot be selected - 防止外层线条不可选中
+    const element = node.renderData.node;
+    element.style.pointerEvents = 'none';
+  }, [node]);
+
   return (
     <div
       className={`workflow-group-render ${selected ? 'selected' : ''}`}
@@ -42,8 +48,8 @@ export const GroupNodeRender = () => {
       <Form control={formControl}>
         <>
           <GroupHeader
-            onMouseDown={(e) => {
-              startDrag(e);
+            onDrag={(e) => {
+              startDrag(e as MouseEvent);
             }}
             onFocus={onFocus}
             onBlur={onBlur}
