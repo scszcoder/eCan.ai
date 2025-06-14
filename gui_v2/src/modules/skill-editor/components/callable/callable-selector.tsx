@@ -5,6 +5,10 @@ import { CallableFunction } from '../../typings/callable';
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
 import { CallableSelectorWrapper } from './styles';
+import { createIPCAPI } from '../../../../services/ipc/api';
+
+// 配置是否使用远程搜索
+const USE_REMOTE_SEARCH = true;
 
 interface CallableSelectorProps {
   value?: CallableFunction;
@@ -25,13 +29,17 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingFunction, setEditingFunction] = useState<CallableFunction | null>(null);
   const [selectedValue, setSelectedValue] = useState<string | undefined>(value?.name);
+  const [isLoading, setIsLoading] = useState(false);
+  const [remoteFunctions, setRemoteFunctions] = useState<CallableFunction[]>([]);
+
+  const ipcAPI = createIPCAPI();
 
   useEffect(() => {
     setSelectedValue(value?.name);
   }, [value]);
 
-  // 使用 useMemo 优化过滤函数列表的性能
-  const filteredFunctions = useMemo(() => {
+  // 使用 useMemo 优化本地过滤函数列表的性能
+  const localFilteredFunctions = useMemo(() => {
     if (!searchText) {
       return [...propSystemFunctions, ...customFunctions];
     }
@@ -61,9 +69,45 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     });
   }, [searchText, propSystemFunctions]);
 
-  const handleSelect = (selectedValue: any) => {
+  // 处理远程搜索
+  useEffect(() => {
+    const fetchRemoteFunctions = async () => {
+      if (!USE_REMOTE_SEARCH) return;
+      
+      setIsLoading(true);
+      try {
+        console.log('Fetching remote functions with params:', { text: searchText || undefined });
+        const response = await ipcAPI.getCallables<{ data: CallableFunction[] }>({
+          text: searchText || undefined
+        });
+        
+        console.log('Remote functions response:', response);
+        if (response.success && response.data?.data) {
+          const functions = response.data.data;
+          console.log('Processed functions:', functions);
+          setRemoteFunctions(functions);
+        } else {
+          console.error('Failed to fetch remote functions:', response.error);
+          setRemoteFunctions([]); // 发生错误时设置为空数组
+        }
+      } catch (error) {
+        console.error('Error fetching remote functions:', error);
+        setRemoteFunctions([]); // 发生错误时设置为空数组
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(fetchRemoteFunctions, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [searchText]);
+
+  const handleSelect = (selectedValue: string | number | any[] | Record<string, any> | undefined) => {
+    if (typeof selectedValue !== 'string') return;
+    
     console.log('Selected value:', selectedValue);
-    const selectedFunction = filteredFunctions.find(func => func.name === selectedValue);
+    const functions = USE_REMOTE_SEARCH ? remoteFunctions : localFilteredFunctions;
+    const selectedFunction = functions.find(func => func.name === selectedValue);
     console.log('Found function:', selectedFunction);
     if (selectedFunction) {
       setSelectedValue(selectedValue);
@@ -141,18 +185,23 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     }
   ];
 
+  // 确保函数列表始终是数组
+  const functions = USE_REMOTE_SEARCH ? remoteFunctions : localFilteredFunctions;
+  const optionList = Array.isArray(functions) ? functions : [];
+
   return (
     <CallableSelectorWrapper>
       <div className="selector-container">
         <Select
           style={{ width: '100%' }}
-          value={selectedValue}
+          value={value?.name || selectedValue}
           onChange={handleSelect}
           onSearch={setSearchText}
           showClear
           filter
+          loading={isLoading}
           placeholder="Select a function"
-          optionList={filteredFunctions.map(func => ({
+          optionList={optionList.map(func => ({
             value: func.name,
             label: renderOption(func)
           }))}

@@ -73,8 +73,8 @@ export interface CallableEditorProps {
  * 可调用函数选择器属性
  */
 export interface CallableSelectorProps {
-  value?: string;
-  onChange?: (value: string) => void;
+  value?: CallableFunction;
+  onChange?: (value: CallableFunction) => void;
   onEdit?: (value: CallableFunction) => void;
   onAdd?: () => void;
   systemFunctions?: CallableFunction[];
