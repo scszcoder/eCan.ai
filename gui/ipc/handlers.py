@@ -6,15 +6,14 @@ IPC 处理器实现模块
 from typing import Any, Optional, Dict
 
 from gui.LoginoutGUI import Login
-import utils.logger_helper
 from .types import IPCRequest, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper
 import json
 import uuid
 import asyncio
-from utils.logger_helper import *
 from gui.ipc.tests import *
+from .callable.manager import callable_manager
 
 logger = logger_helper.logger
 
@@ -805,6 +804,42 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any], py_login: Any)
             f"Error during stop tests: {str(e)}"
         ))
 
+@IPCHandlerRegistry.handler('get_callables')
+def handle_get_callables(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+    """处理获取可调用函数列表请求
+
+    获取系统中所有可调用函数列表，支持按文本内容（函数名、描述、参数等）和类型过滤。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，可选包含：
+            - text: 文本过滤条件，会搜索函数名、描述和参数
+            - type: 类型过滤条件（'system' 或 'custom'）
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get callables handler called with request: {request}")
+
+        # 使用 CallableManager 获取过滤后的可调用函数列表
+        filtered_callables = callable_manager.get_callables(params)
+        logger.debug(f"Filtered callables count: {len(filtered_callables)}")
+
+        response = create_success_response(request, {
+            'data': filtered_callables,
+            'message': 'Get callables successful'
+        })
+        # logger.debug(f"Response: {response}")
+        return json.dumps(response)
+
+    except Exception as e:
+        logger.error(f"Error in get callables handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'GET_CALLABLES_ERROR',
+            f"Error getting callables: {str(e)}"
+        ))
 
 # 打印所有已注册的处理器
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")
