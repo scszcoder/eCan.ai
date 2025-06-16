@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Select, Button, Space, Tooltip, Dropdown } from '@douyinfe/semi-ui';
-import { IconPlus, IconEdit, IconBox, IconSetting } from '@douyinfe/semi-icons';
+import { Select, Button, Space, Tooltip, Dropdown, Modal } from '@douyinfe/semi-ui';
+import { IconPlus, IconEdit, IconBox, IconSetting, IconMinusCircle } from '@douyinfe/semi-icons';
 import { CallableFunction } from '../../typings/callable';
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
@@ -31,6 +31,8 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   const [selectedValue, setSelectedValue] = useState<string | undefined>(value?.name);
   const [isLoading, setIsLoading] = useState(false);
   const [remoteFunctions, setRemoteFunctions] = useState<CallableFunction[]>([]);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [functionToDelete, setFunctionToDelete] = useState<CallableFunction | null>(null);
 
   const ipcAPI = createIPCAPI();
 
@@ -159,13 +161,46 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     setEditingFunction(null);
   };
 
+  const handleDelete = async (func: CallableFunction) => {
+    setFunctionToDelete(func);
+    setDeleteConfirmVisible(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!functionToDelete) return;
+
+    try {
+      const response = await ipcAPI.manageCallable({
+        action: 'delete',
+        data: functionToDelete
+      });
+
+      if (response.success) {
+        // 刷新函数列表
+        await refreshFunctions();
+        // 如果删除的是当前选中的函数，清空选择
+        if (value?.name === functionToDelete.name) {
+          if (onChange) {
+            onChange(null as any);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting function:', error);
+    } finally {
+      setDeleteConfirmVisible(false);
+      setFunctionToDelete(null);
+    }
+  };
+
   const renderOption = (func: CallableFunction) => (
     <Tooltip content={func.desc} position="right">
       <div style={{ 
         display: 'flex', 
         alignItems: 'center', 
         gap: '8px',
-        padding: '4px 0'
+        padding: '4px 0',
+        width: '100%'
       }}>
         <span style={{ 
           display: 'flex', 
@@ -177,7 +212,29 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
         }}>
           {func.type === 'system' ? <IconBox /> : <IconEdit />}
         </span>
-        <span style={{ color: 'var(--semi-color-text-0)' }}>{func.name}</span>
+        <span style={{ 
+          color: 'var(--semi-color-text-0)',
+          flex: 1
+        }}>{func.name}</span>
+        {func.type === 'custom' && (
+          <Button
+            type="tertiary"
+            theme="borderless"
+            icon={<IconMinusCircle size="small" />}
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete(func);
+            }}
+            style={{ 
+              padding: '2px',
+              color: 'var(--semi-color-text-2)'
+            }}
+            hoverStyle={{
+              color: 'var(--semi-color-danger)'
+            }}
+          />
+        )}
       </div>
     </Tooltip>
   );
@@ -256,6 +313,27 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
           systemFunctions={propSystemFunctions}
         />
       )}
+
+      <Modal
+        title="Delete Function"
+        visible={deleteConfirmVisible}
+        onOk={handleDeleteConfirm}
+        onCancel={() => {
+          setDeleteConfirmVisible(false);
+          setFunctionToDelete(null);
+        }}
+        okType="danger"
+        okText="Delete"
+        cancelText="Cancel"
+      >
+        {functionToDelete && (
+          <div>
+            <p>Are you sure you want to delete the following function?</p>
+            <p><strong>Name:</strong> {functionToDelete.name}</p>
+            <p><strong>Description:</strong> {functionToDelete.desc}</p>
+          </div>
+        )}
+      </Modal>
     </CallableSelectorWrapper>
   );
 }; 
