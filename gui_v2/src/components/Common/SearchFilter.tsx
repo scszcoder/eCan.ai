@@ -208,55 +208,45 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
         onSearch(value);
     };
 
-    const filterDropdown = (
-        <FilterDropdown>
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                {filterOptions.map(option => (
-                    <div key={option.key}>
-                        <div style={{ marginBottom: 8, color: 'var(--text-secondary)' }}>{option.label}</div>
-                        <Select
-                            style={{ width: '100%' }}
-                            placeholder={option.label}
-                            allowClear
-                            value={filters[option.key]}
-                            onChange={value => handleFilterChange(option.key, value)}
-                            options={option.options}
-                        />
-                    </div>
-                ))}
-            </Space>
-        </FilterDropdown>
-    );
-
     return (
         <FilterContainer>
             <SearchWrapper>
                 <StyledSearch
                     placeholder={placeholder}
-                    allowClear
                     value={searchValue}
                     onChange={e => setSearchValue(e.target.value)}
                     onSearch={handleSearch}
-                    prefix={
-                        <Dropdown
-                            overlay={filterDropdown}
-                            trigger={['click']}
-                            placement="bottomLeft"
-                        >
-                            <FilterButton
-                                icon={<FilterOutlined />}
-                                className={Object.keys(activeFilters).length > 0 ? 'active' : ''}
-                            />
-                        </Dropdown>
-                    }
+                    allowClear
                 />
-                {Object.keys(activeFilters).length > 0 && (
-                    <Tooltip title="Reset all filters">
+                {filterOptions.length > 0 && (
+                    <Dropdown
+                        trigger={['click']}
+                        menu={{
+                            items: filterOptions.map(option => ({
+                                key: option.key,
+                                label: option.label,
+                                children: option.options.map(opt => ({
+                                    key: opt.value,
+                                    label: opt.label,
+                                    onClick: () => handleFilterChange(option.key, opt.value)
+                                }))
+                            }))
+                        }}
+                    >
                         <FilterButton
-                            icon={<ReloadOutlined />}
-                            onClick={handleReset}
+                            type="text"
+                            icon={<FilterOutlined />}
+                            className={Object.keys(activeFilters).length > 0 ? 'active' : ''}
                         />
-                    </Tooltip>
+                    </Dropdown>
+                )}
+                {Object.keys(activeFilters).length > 0 && (
+                    <Button
+                        type="text"
+                        icon={<ReloadOutlined />}
+                        onClick={handleReset}
+                        title="Reset filters"
+                    />
                 )}
             </SearchWrapper>
             {Object.keys(activeFilters).length > 0 && (
@@ -264,7 +254,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
                     {Object.entries(activeFilters).map(([key, filter]) => (
                         <FilterTag
                             key={key}
-                            closeIcon={<CloseOutlined />}
+                            closable
                             onClose={() => handleRemoveFilter(key)}
                         >
                             {filter.label}

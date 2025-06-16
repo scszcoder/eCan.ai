@@ -656,7 +656,14 @@ const Chat: React.FC = () => {
                         </Space>
                     }
                     extra={<Button icon={<MoreOutlined />} />}
-                    bodyStyle={{ padding: 0, display: 'flex', flexDirection: 'column', height: '100%' }}
+                    styles={{
+                        body: {
+                            padding: 0,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            height: '100%'
+                        }
+                    }}
                 >
                     <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
                         {messages.map(message => (

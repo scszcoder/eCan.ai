@@ -282,7 +282,13 @@ const Tasks: React.FC = () => {
                 </div>
                 <Row gutter={16}>
                     <Col span={12}>
-                        <Card>
+                        <Card
+                            styles={{
+                                body: {
+                                    padding: '16px'
+                                }
+                            }}
+                        >
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Text>{t('pages.tasks.storageUsage')}</Text>
                                 <Progress percent={75} />
@@ -291,7 +297,13 @@ const Tasks: React.FC = () => {
                         </Card>
                     </Col>
                     <Col span={12}>
-                        <Card>
+                        <Card
+                            styles={{
+                                body: {
+                                    padding: '16px'
+                                }
+                            }}
+                        >
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Text>{t('pages.tasks.userRating')}</Text>
                                 <Progress percent={translatedTask.rating * 20} />
