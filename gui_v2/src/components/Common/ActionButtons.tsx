@@ -1,37 +1,16 @@
 import React from 'react';
-import { Space, Button, Tooltip } from 'antd';
-import { 
-    PlusOutlined, 
-    EditOutlined, 
-    DeleteOutlined, 
+import { Button, Space, Tooltip } from 'antd';
+import {
+    PlusOutlined,
+    EditOutlined,
+    DeleteOutlined,
     ReloadOutlined,
     ExportOutlined,
     ImportOutlined,
     SettingOutlined
 } from '@ant-design/icons';
-import styled from '@emotion/styled';
-
-const ActionContainer = styled.div`
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-`;
-
-interface ActionButton {
-    key: string;
-    label: string;
-    icon: React.ReactNode;
-    type?: 'primary' | 'default' | 'dashed' | 'text' | 'link';
-    danger?: boolean;
-    disabled?: boolean;
-    onClick: () => void;
-}
 
 interface ActionButtonsProps {
-    leftButtons?: ActionButton[];
-    rightButtons?: ActionButton[];
-    showDefaultButtons?: boolean;
     onAdd?: () => void;
     onEdit?: () => void;
     onDelete?: () => void;
@@ -46,12 +25,12 @@ interface ActionButtonsProps {
     exportText?: string;
     importText?: string;
     settingsText?: string;
+    style?: React.CSSProperties;
+    buttonStyle?: React.CSSProperties;
+    iconStyle?: React.CSSProperties;
 }
 
 const ActionButtons: React.FC<ActionButtonsProps> = ({
-    leftButtons = [],
-    rightButtons = [],
-    showDefaultButtons = true,
     onAdd,
     onEdit,
     onDelete,
@@ -59,87 +38,88 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
     onExport,
     onImport,
     onSettings,
-    addText = 'Add',
-    editText = 'Edit',
-    deleteText = 'Delete',
-    refreshText = 'Refresh',
-    exportText = 'Export',
-    importText = 'Import',
-    settingsText = 'Settings',
+    addText,
+    editText,
+    deleteText,
+    refreshText,
+    exportText,
+    importText,
+    settingsText,
+    style,
+    buttonStyle,
+    iconStyle
 }) => {
-    const defaultLeftButtons: ActionButton[] = showDefaultButtons ? [
+    const buttons = [
         {
             key: 'add',
-            label: addText,
-            icon: <PlusOutlined />,
-            type: 'primary',
-            onClick: onAdd || (() => {}),
+            icon: <PlusOutlined style={iconStyle} />,
+            text: addText,
+            onClick: onAdd,
+            tooltip: addText
         },
         {
             key: 'edit',
-            label: editText,
-            icon: <EditOutlined />,
-            onClick: onEdit || (() => {}),
+            icon: <EditOutlined style={iconStyle} />,
+            text: editText,
+            onClick: onEdit,
+            tooltip: editText
         },
         {
             key: 'delete',
-            label: deleteText,
-            icon: <DeleteOutlined />,
-            danger: true,
-            onClick: onDelete || (() => {}),
+            icon: <DeleteOutlined style={iconStyle} />,
+            text: deleteText,
+            onClick: onDelete,
+            tooltip: deleteText,
+            danger: true
         },
-    ] : [];
-
-    const defaultRightButtons: ActionButton[] = showDefaultButtons ? [
         {
             key: 'refresh',
-            label: refreshText,
-            icon: <ReloadOutlined />,
-            onClick: onRefresh || (() => {}),
+            icon: <ReloadOutlined style={iconStyle} />,
+            text: refreshText,
+            onClick: onRefresh,
+            tooltip: refreshText
         },
         {
             key: 'export',
-            label: exportText,
-            icon: <ExportOutlined />,
-            onClick: onExport || (() => {}),
+            icon: <ExportOutlined style={iconStyle} />,
+            text: exportText,
+            onClick: onExport,
+            tooltip: exportText
         },
         {
             key: 'import',
-            label: importText,
-            icon: <ImportOutlined />,
-            onClick: onImport || (() => {}),
+            icon: <ImportOutlined style={iconStyle} />,
+            text: importText,
+            onClick: onImport,
+            tooltip: importText
         },
         {
             key: 'settings',
-            label: settingsText,
-            icon: <SettingOutlined />,
-            onClick: onSettings || (() => {}),
-        },
-    ] : [];
-
-    const renderButton = (button: ActionButton) => (
-        <Tooltip key={button.key} title={button.label}>
-            <Button
-                type={button.type}
-                danger={button.danger}
-                icon={button.icon}
-                onClick={button.onClick}
-                disabled={button.disabled}
-            >
-                {button.label}
-            </Button>
-        </Tooltip>
-    );
+            icon: <SettingOutlined style={iconStyle} />,
+            text: settingsText,
+            onClick: onSettings,
+            tooltip: settingsText
+        }
+    ];
 
     return (
-        <ActionContainer>
-            <Space>
-                {[...defaultLeftButtons, ...leftButtons].map(renderButton)}
+        <div style={style}>
+            <Space wrap size="small">
+                {buttons.map(button => (
+                    <Tooltip key={button.key} title={button.tooltip}>
+                        <Button
+                            type="text"
+                            icon={button.icon}
+                            onClick={button.onClick}
+                            danger={button.danger}
+                            style={buttonStyle}
+                        >
+                            {button.text}
+                        </Button>
+                    </Tooltip>
+                ))}
             </Space>
-            <Space>
-                {[...defaultRightButtons, ...rightButtons].map(renderButton)}
-            </Space>
-        </ActionContainer>
+        </div>
     );
 };
 

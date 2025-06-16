@@ -15,7 +15,7 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -141,7 +141,7 @@ const Skills: React.FC = () => {
     const fetchSkills = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await ipc_api.get_skills();
+            const response = await IPCAPI.getInstance().getSkills([]);
             if (response && response.success && response.data) {
                 setSkills(response.data);
             }
