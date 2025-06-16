@@ -1,4 +1,4 @@
-import styled from '@emotion/styled';
+import styled from 'styled-components';
 
 export const CallableSelectorWrapper = styled.div`
   width: 100%;
@@ -6,38 +6,56 @@ export const CallableSelectorWrapper = styled.div`
 
   .selector-container {
     display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .function-option {
+    display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
+    padding: 4px 0;
 
-    .semi-select {
-      flex: 1;
-    }
-
-    .settings-button {
-      flex-shrink: 0;
-      width: 24px;
-      height: 24px;
-      padding: 0;
+    .function-icon {
       display: flex;
       align-items: center;
       justify-content: center;
       color: var(--semi-color-text-2);
-      border-radius: 4px;
-      
-      &:hover {
-        color: var(--semi-color-text-0);
-        background-color: var(--semi-color-fill-0);
-      }
-
-      .semi-icon {
-        font-size: 14px;
-      }
+      width: 16px;
+      height: 16px;
     }
+
+    .function-name {
+      color: var(--semi-color-text-0);
+    }
+  }
+
+  .settings-button {
+    padding: 4px;
   }
 
   .semi-select-option {
     padding: 8px 12px;
+
+    .function-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+
+      .function-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--semi-color-text-2);
+        width: 16px;
+        height: 16px;
+      }
+
+      .function-name {
+        color: var(--semi-color-text-0);
+      }
+    }
   }
 
   .function-option {
