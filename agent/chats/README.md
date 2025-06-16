@@ -522,4 +522,206 @@ from .chats_db import init_chats_db
 
 # 初始化数据库（创建所有表）
 init_chats_db()
-``` 
+```
+
+# 聊天服务模块
+
+本模块提供了完整的聊天服务功能，包括会话管理、消息处理和数据库操作。
+
+## 文件结构
+
+- `chat_service.py`: 聊天服务主类，提供核心功能
+- `chats_db.py`: 数据库操作类，处理数据持久化
+- `schema.sql`: 数据库表结构定义
+- `er_diagram.puml`: 数据库 ER 图定义
+
+## 数据库结构
+
+使用 SQLite 数据库存储数据，主要表结构包括：
+
+- `chat_users`: 用户信息表
+  - id: 用户ID
+  - username: 用户名
+  - display_name: 显示名称
+  - avatar_url: 头像URL
+  - is_active: 是否活跃
+  - last_seen: 最后在线时间
+
+- `conversations`: 会话表
+  - id: 会话ID
+  - name: 会话名称
+  - is_group: 是否群聊
+  - avatar_url: 会话头像
+  - description: 会话描述
+
+- `chat_sessions`: 聊天会话表
+  - id: 会话ID
+  - conversation_id: 关联的会话ID
+  - started_at: 开始时间
+  - ended_at: 结束时间
+
+- `conversation_members`: 会话成员表
+  - id: 记录ID
+  - conversation_id: 会话ID
+  - user_id: 用户ID
+  - role: 成员角色
+  - joined_at: 加入时间
+  - last_read_at: 最后阅读时间
+
+- `messages`: 消息表
+  - id: 消息ID
+  - conversation_id: 会话ID
+  - session_id: 会话ID
+  - sender_id: 发送者ID
+  - parent_id: 父消息ID
+  - content: 消息内容
+  - message_type: 消息类型
+  - status: 消息状态
+  - is_edited: 是否已编辑
+  - is_retracted: 是否已撤回
+
+- `attachments`: 附件表
+  - id: 附件ID
+  - message_id: 关联的消息ID
+  - file_name: 文件名
+  - file_size: 文件大小
+  - mime_type: 文件类型
+  - file_path: 文件路径
+  - thumbnail_path: 缩略图路径
+
+- `message_reads`: 消息已读表
+  - id: 记录ID
+  - message_id: 消息ID
+  - user_id: 用户ID
+  - read_at: 阅读时间
+
+## 使用说明
+
+### 1. 初始化
+
+```python
+from agent.chats.chat_service import ChatService
+
+# 创建聊天服务实例
+chat_service = ChatService()
+```
+
+### 2. 会话管理
+
+```python
+# 创建新会话
+session = chat_service.create_session(conversation_id="conv_123")
+
+# 获取会话信息
+session_info = chat_service.get_session(session_id="session_123")
+
+# 结束会话
+chat_service.end_session(session_id="session_123")
+```
+
+### 3. 消息处理
+
+```python
+# 发送消息
+message = chat_service.send_message(
+    conversation_id="conv_123",
+    sender_id="user_123",
+    content="Hello, World!",
+    message_type="text"
+)
+
+# 获取会话消息
+messages = chat_service.get_conversation_messages(
+    conversation_id="conv_123",
+    limit=20,
+    before_time="2024-03-20T10:00:00Z"
+)
+
+# 获取未读消息
+unread_messages = chat_service.get_unread_messages(
+    conversation_id="conv_123",
+    user_id="user_123"
+)
+```
+
+### 4. 附件处理
+
+```python
+# 保存附件
+attachment = chat_service.save_attachment(
+    message_id="msg_123",
+    file_name="example.jpg",
+    file_data=b"...",  # 二进制文件数据
+    mime_type="image/jpeg"
+)
+
+# 获取消息附件
+attachments = chat_service.get_message_attachments(message_id="msg_123")
+```
+
+### 5. 会话成员管理
+
+```python
+# 添加会话成员
+chat_service.add_conversation_member(
+    conversation_id="conv_123",
+    user_id="user_123",
+    role="member"
+)
+
+# 获取会话成员
+members = chat_service.get_conversation_members(conversation_id="conv_123")
+```
+
+### 6. 消息状态管理
+
+```python
+# 标记消息为已读
+chat_service.mark_message_read(
+    message_id="msg_123",
+    user_id="user_123"
+)
+
+# 获取消息已读状态
+read_status = chat_service.get_message_read_status(message_id="msg_123")
+```
+
+## 注意事项
+
+1. 数据库操作
+   - 所有数据库操作都通过 `chats_db.py` 中的方法进行
+   - 使用事务确保数据一致性
+   - 注意处理并发访问
+
+2. 文件存储
+   - 附件文件存储在 `attachments` 目录下
+   - 图片附件会自动生成缩略图
+   - 注意定期清理临时文件
+
+3. 性能优化
+   - 使用索引优化查询性能
+   - 大量消息查询时使用分页
+   - 定期清理过期数据
+
+4. 错误处理
+   - 所有方法都包含异常处理
+   - 数据库操作失败时会回滚事务
+   - 文件操作失败时会清理临时文件
+
+## 开发指南
+
+1. 添加新功能
+   - 在 `chat_service.py` 中添加新方法
+   - 在 `chats_db.py` 中添加对应的数据库操作
+   - 更新数据库结构（如需要）
+
+2. 修改数据库结构
+   - 修改 `schema.sql` 文件
+   - 更新 ER 图
+   - 执行数据库迁移
+
+3. 测试
+   - 编写单元测试
+   - 测试数据库操作
+   - 测试文件操作
+   - 测试并发访问 
