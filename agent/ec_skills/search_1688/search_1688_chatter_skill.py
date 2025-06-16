@@ -5,8 +5,107 @@ from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import MemorySaver
+from onnxruntime.transformers.models.stable_diffusion.benchmark import get_negative_prompt_kwargs
+from scipy.stats import chatterjeexi
+
 from bot.Logger import *
 from agent.ec_skill import *
+
+
+def human_approval(state: NodeState) -> Command[Literal["some_node", "another_node"]]:
+    is_approved = interrupt(
+        {
+            "question": "Is this correct?",
+            # Surface the output that should be
+            # reviewed and approved by the human.
+            "llm_output": state["llm_output"]
+        }
+    )
+
+    if is_approved:
+        return Command(goto="some_node")
+    else:
+        return Command(goto="another_node")
+
+def pend_for_human_input_node(state: NodeState):
+    # highlight-next-line
+    print("pend_for_human_input_node:", state)
+    interrupted = interrupt( # (1)!
+        {
+            "prompt_to_human": state["response"] # (2)!
+        }
+    )
+    print("interrupted:", interrupted)
+    return {
+        "pended": interrupted # (3)!
+    }
+
+def human_review_and_edit(state: State):
+    ...
+    result = interrupt(
+        # Interrupt information to surface to the client.
+        # Can be any JSON serializable value.
+        {
+            "task": "Review the output from the LLM and make any necessary edits.",
+            "llm_generated_summary": state["llm_generated_summary"]
+        }
+    )
+
+    # Update the state with the edited text
+    return {
+        "llm_generated_summary": result["edited_text"]
+    }
+
+
+def verify_resolved(state: NodeState) -> NodeState:
+    last_msg = state["messages"][-1].content.lower()
+    if "resolved" in last_msg:
+        state["resolved"] = True
+    else:
+        state["retries"] += 1
+    return state
+
+def any_unknown_part_numbers(state: NodeState) -> NodeState:
+    last_msg = state["messages"][-1].content.lower()
+    if "resolved" in last_msg:
+        state["resolved"] = True
+    else:
+        state["retries"] += 1
+    return state
+
+
+# def gen_prompt_node(state: NodeState) -> Command[Literal["call_llm", "run_tool"]]:
+#     # This is the value we'll be providing via Command(resume=<human_review>)
+#
+async def any_attachment(state: NodeState) -> str:
+    print("any_attachment:", state)
+    if state["job_related"]:
+        return "do_work"
+    return "chat_back"
+
+def chat_or_work(state: NodeState) -> str:
+    print("chat_or_work:", state)
+    if state["job_related"]:
+        return "do_work"
+    return "chat_back"
+
+def all_requirement_filled(state: NodeState) -> str:
+    print("all_requirement_filled:", state)
+    if state["all_requirement_filled"]:
+        return True
+    return False
+
+async def ask_cloud_expert_for_search_parameters(state: NodeState) -> str:
+    print("ask_cloud_expert_for_search_parameters:", state)
+    return ""
+
+async def ask_cloud_expert_for_search_sites(state: NodeState) -> str:
+    print("ask_cloud_expert_for_search_sites:", state)
+    return ""
+
+def read_attachments(state: NodeState) -> str:
+    print("read attachments:", state)
+    return {}
 
 
 async def create_search_1688_chatter_skill(mainwin):
@@ -14,162 +113,209 @@ async def create_search_1688_chatter_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_skill = EC_Skill(name="chatter for meca search 1688 web site",
+        searcher_chatter_skill = EC_Skill(name="chatter for meca search 1688 web site",
                              description="chat with human or other agents to help search a part/component or a product on 1688 website.")
 
         await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
-        all_tools = mcp_client.get_tools()
-        web_search_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
-        web_search_tools = [t for t in all_tools if t.name in web_search_tool_names]
-        print("searcher # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
-        searcher_agent = create_react_agent(llm, web_search_tools)
-        # Prompt Template
+        llm = ChatOpenAI(model="gpt-4.1", temperature=0.5)
         prompt0 = ChatPromptTemplate.from_messages([
             ("system", """
-                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                - given the parameters, please check against our knowledge base to check whether additional parameters or selection criteria needed from the user, if so, prompt user with questions to get the info about the additional parameters or criteria.
-                - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-            ]),
-            ("placeholder", "{messages}"),
+                You're an electronics component procurement expert helping sourcing and procuring components, you job is to chat with your human boss to collect all the requirements for sourcing this component and distill all requirement information in a JSON format.
+                 Of course you can chat with your human boss on any topic, but you should first distinguish whether the current chat message from human boss is directly related to sourcing components or not. if it has nothing to do with the job, or simply
+                 showing the intention of trying to source components without revealing any of the actual component information, like a component name (for example, a resistor or a regulator or a variable capacitor etc.), you should return a json in the form of {'job_related': false}, 
+                 otherwise you should return a json in the form of {'job_related': true}.
+            """)
         ])
+
+        # initial classification node
+        chat_node = prompt0 | llm
 
         prompt1 = ChatPromptTemplate.from_messages([
             ("system", """
-                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                - given the scraped search result web page dom tree, please filter out the products in the search results that don't fit the provided requirement.
-                - please return a list of clickable products dom object of no more than {max_candidates}.
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-            ]),
-            ("placeholder", "{messages}"),
+                You're a personal assistant, given a chat message sequence, please respond to the latest chat message to your best effort.
+            """)
         ])
 
-        prompt1 = ChatPromptTemplate.from_messages([
+        # casual response node
+        chat_back_node = prompt1 | llm
+
+
+        prompt2 = ChatPromptTemplate.from_messages([
             ("system", """
-                        You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                        - given the scraped search result web page dom tree, please filter out the products in the search results that don't fit the provided requirement.
-                        - please return a list of clickable products dom object of no more than {max_candidates}.
-                    """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-            ]),
-            ("placeholder", "{messages}"),
+                You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
+                Given the latest human boss message,  did the human boss provided an attached document? please answer in json format: {'with_attachment': true/false, 'attachment_files': [list of file names] }.
+            """)
         ])
 
-        # Planner node
-        planner_node = prompt0 | llm
+        # initial classification node
+        check_attachment_node = prompt2 | llm
 
 
-        def initial_state(input_text: str) -> NodeState:
-            return {"input": input_text, "messages": [HumanMessage(content=input_text)], "retries": 0, "resolved": False}
 
-        def make_llm_tool_node(session: ClientSession):
-            async def node(state: NodeState) -> NodeState:
-                result = await session.invoke(
-                    input=state["input"],
-                    messages=state["messages"][-1],
-                    tool_choice="auto"  # let the LLM decide
-                )
-                state["messages"].append(result)
-                return state
+        prompt2A = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
+                Given the latest human boss message,  try to understand it and let me know in json format that whether the human boss provided a pasted BOM text or simply looking for source a few components with the following json format {'with_attachment': true/false, 'bom': true/false, 'num_components': int }.
+            """)
+        ])
 
-            return node
+        # initial classification node
+        understand_level0A_node = prompt2A | llm
 
-        async def planner_with_image(state: NodeState):
-            # Call your screenshot tool
-            # REMOTE call over SSE → MCP tool
-            image_b64: str = await searcher_skill.mcp_session.call_tool(
-                "screen_capture", arguments={"params": {}, "context_id": ""}
-            )
+        prompt2B = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
+                Given the latest human boss message, did human boss provide the part number of the component being searched (unless they're passive commodity components like a resistor, capacitor etc.) please answer in json format: {'part_number_or_passives': ['list of part numbers'], 'part_number_unknown': ['list of component names mentioned']} ?.
+            """)
+        ])
 
-            # Build prompt inputs with image
-            inputs = {
-                "input": state["input"],
-                "image_b64": image_b64,
-                "messages": state["messages"]
-            }
-            response = await (prompt | llm).ainvoke(inputs)
+        # initial classification node
+        understand_level0B_node = prompt2B | llm
 
-            # Append response to messages
-            state["messages"].append(response)
-            return state
+        prompt3 = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
+                Given that human boss provided only vague info about the component he is looking for, we should design a series of prompt to get him/her to answer to gather technical parametric requirements. First, lets generate a question prompt
+                to ask human boss about the application and usage of this component (which will have implications on the technical requirements such as temperature range, humidity range, power consumption etc.). Please ask human boss to provide as much details as possible
+                about the product as well as the product's usage environment. so that we can classify this usage environment being consumer or industrial or automotive or aerospace or military. Also don't forget to mention that human boss can tell you to skip this question if
+                he/she doesn't want to answer this question. Please return the question prompt in json format: {'question_prompt': 'question prompt text'}
+            """)
+        ])
+        understand_level1_node = prompt3 | llm
+
+        prompt3A = ChatPromptTemplate.from_messages([
+            ("system", """
+                        You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
+                        Given that human boss' answer regarding the component's usage product information. please try to fill the following json data {'decide_skip': true/false, 'product_name': 'product name', 'product_usage/NA': 'product usage/NA', 'usage_classification': 'consumer/industrial/automotive/aerospace/military/NA'}
+                    """)
+        ])
+        understand_level1A_node = prompt3A | llm
+
+        prompt4 = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're a component procurement expert helping your human boss sourcing components for making a product, for the component being searched, 
+                and given this json about the component's application product and usage, and given the listed keys in the requirements json, which are the parameters we already 
+                know are important and we need to collect detailed data from human boss. To your best knowledge, do you know of any other parameters that might be 
+                important but are missing from the requirements list? Please add to the json like so, leaving the value to empty string {... , 'new_parameter': ''}.
+            """)
+        ])
+        understand_level2_node = prompt4 | llm
+
+        prompt4A = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're a component procurement expert helping your human boss sourcing components for making a product, for the component being searched, 
+                and given this requirements json, let's design a html pop-up form to show to human boss so that he/she can fill in paramters' value requirements.
+                for parameters that could be a range of string name values, make it a pulldown menu of all possible values and let user be able to select multiple 
+                values in case many values are acceptable to his application. For value range, simply use math inequality in string format like "> 0.5 and <= 1.5"
+            """)
+        ])
+        understand_level2A_node = prompt4A | llm
+
+        prompt5 = ChatPromptTemplate.from_messages([
+            ("system", """
+                given the requirements json, are all key's values filled up, please return true or false..
+            """)
+        ])
+        understand_level3_node = prompt5 | llm
+
+        prompt6 = ChatPromptTemplate.from_messages([
+            ("system", """
+                given the requirements json, are all key's values filled up, please return true or false..
+            """)
+        ])
+        understand_level4_node = prompt6 | llm
 
 
-        # Verify node (simple check)
-        def verify_resolved(state: NodeState) -> NodeState:
-            last_msg = state["messages"][-1].content.lower()
-            if "resolved" in last_msg:
-                state["resolved"] = True
-            else:
-                state["retries"] += 1
-            return state
-
-        # Router logic
-        async def route_logic(state: NodeState) -> str:
-            if state["resolved"] or state["retries"] >= 5:
-                return END
-            return "llm_loop"
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
         workflow = StateGraph(NodeState)
-        workflow.add_node("check_browser", check_browser_and_drivers)
-        workflow.set_entry_point("check_browser")
+        workflow.add_node("chat", chat_node)
+        workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)
-
-        workflow.add_node("extract_web_page", extract_web_page)
-
-        workflow.add_node("get_next_action", get_next_action)
+        workflow.add_conditional_edges("chat", chat_or_work, ["chat_back", "do_work"])
 
 
-        workflow.add_edge("check_browser", "extract_web_page")
-        workflow.add_edge("extract_web_page", "get_next_action")
+        workflow.add_node("chat_back", chat_back_node)
+        workflow.add_node("pend_for_human_input", pend_for_human_input_node)
+        workflow.add_edge("chat_back", "pend_for_human_input")
+        workflow.add_edge("pend_for_human_input", "chat")      # chat infinite loop
 
-        workflow.add_conditional_edges("get_next_action", route_logic, ["extract_web_page", END])
 
-        searcher_skill.set_work_flow(workflow)
+        workflow.add_node("do_work", check_attachment_node)
+        workflow.add_node("understand_level0A", understand_level0A_node)
+        # workflow.add_node("do_work", check_attachment_node)
+
+        workflow.add_conditional_edges("do_work", any_attachment, ["read_attachment", "understand_level0A"])
+        # workflow.add_edge("do_work", "understand_level0A")
+        workflow.add_edge("understand_level0A", END)
+
+        workflow.add_node("read_attachment", read_attachments)
+        workflow.add_edge("read_attachment", END)
+
+        # workflow.add_edge("understand_level0A_node", "understand_level0B_node")
+        # workflow.add_node("understand1", understand_level1_node)
+        # workflow.add_edge("understand_level0B_node", "understand_level1_node")
+        # workflow.add_node("understand2", understand_level2_node)
+        # workflow.add_edge("understand_level1_node", "understand_level2_node")
+        # workflow.add_node("understand3", understand_level3_node)
+        # workflow.add_edge("understand_level2_node", "understand_level3_node")
+        # workflow.add_node("understand4", understand_level4_node)
+        # workflow.add_edge("understand_level3_node", "understand_level4_node")
+        # workflow.add_conditional_edges("all_parameters_filled", understand_level4_node, ["ask_to_fill_requirements_node", "confirm_requirements_node"])
+        #
+        # prompt15A = ChatPromptTemplate.from_messages([
+        #     ("system", """
+        #         given yet empty requirements key values, ask human boss to fill them in or skip if they choose to..
+        #     """)
+        # ])
+        # ask_to_fill_requirements_node = prompt15A | llm
+        # workflow.add_node("ask_to_fill_requirements", ask_to_fill_requirements_node)
+        #
+        # prompt15B = ChatPromptTemplate.from_messages([
+        #     ("system", """
+        #         given the all filled requirements json data, ask human boss to review, edit some if needed and confirm.
+        #     """)
+        # ])
+        # confirm_requirements_node = prompt15B | llm
+        # workflow.add_node("confirm_requirements", confirm_requirements_node)
+        #
+        #
+        # # workflow.add_node("ask_parameters", ask_cloud_expert_for_search_parameters)
+        # # workflow.add_node("ask_sites", ask_cloud_expert_for_search_sites)
+
+        # obtain search parameters from search sites.
+
+
+        searcher_chatter_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
-        searcher_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("search1688_skill build is done!")
+        searcher_chatter_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
+        print("search1688chatter_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorCreateSearch1688Skill:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorCreateSearch1688ChatterSkill:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorCreateSearch1688Skill: traceback information not available:" + str(e)
+            ex_stat = "ErrorCreateSearch1688ChatterSkill: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
         return None
 
-    return searcher_skill
+    return searcher_chatter_skill
 
 
 
+# (
+#     "you are a electronics component procurement expert helping sourcing this component {part} you will chat with your human boss to collect "
+#  "all the requirements for sourcing this component and distill all requirement information in a JSON format with the following schema"
+#  " {schema}"
+#  )
 #
-
-prompt01 = ChatPromptTemplate.from_messages([
-            ("system", """
-                        You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                        - given user's chat message, please understand the user's intent in his/her chat message and summerize to me in
-                        - from one of the following lists:
-                        -  1) search a product or multiple products
-                        -  2) random chat not related to finding a product or service.
-                        - please return a list of clickable products dom object of no more than {max_candidates}.
-                    """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-            ]),
-            ("placeholder", "{messages}"),
-        ])
+# "The requirements are divided into three categories: "
+# "1. application and usage which will dictates some of the technical requirements:"
+# ("2. technical requirements this will usually be a list of electrical parameters with value range requirements:"
+# "3. the electrical requirement will usally grouped into DC paramters and AC parameters.additional parameters or selection criteria")

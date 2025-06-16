@@ -8,12 +8,15 @@ from agent.ec_skills.init_skills_run import *
 import json
 import os
 from fastapi.responses import JSONResponse
+import time
 
 from datetime import datetime, timedelta
 import inspect
 import traceback
 from datetime import datetime, timedelta
 from calendar import monthrange
+from langgraph.types import interrupt, Command
+
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
 # self.MONTH_TYPES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -101,7 +104,15 @@ class ManagedTask(Task):
         if cp_name in self.checkpoint_nodes:
             self.checkpoint_nodes.remove(cp_name)
 
-    async def astream_run(self, in_msg=""):
+
+    async def astream_run(self, in_msg="", *, config=None, **kwargs):
+        """Run the task's skill with streaming support.
+
+        Args:
+            in_msg: Input message or state for the skill
+            config: Configuration dictionary for the runnable
+            **kwargs: Additional arguments to pass to the runnable's astream method
+        """
         try:
             print("running skill:", self.skill.name, in_msg)
 
@@ -112,7 +123,26 @@ class ManagedTask(Task):
 
             print("in_args:", in_args)
 
-            async for step in self.skill.runnable.astream(in_args):
+            # Set up default config if not provided
+            if config is None:
+                config = {
+                    "configurable": {
+                        "thread_id": str(uuid.uuid4()),
+                        "checkpoint_ns": "task_checkpoint",
+                        "checkpoint_id": str(self.id)
+                    }
+                }
+
+            # Handle Command objects
+            if isinstance(in_args, Command):
+                if in_args == Command.RESET:
+                    # Handle reset command
+                    config["configurable"]["thread_id"] = str(uuid.uuid4())
+                    in_args = {}  # Reset input args
+                # Add other command handling as needed
+
+            # Pass through any additional kwargs to astream
+            async for step in self.skill.runnable.astream(in_args, config=config, **kwargs):
                 await self.pause_event.wait()
                 self.status.message = Message(
                     role="agent",
@@ -124,12 +154,14 @@ class ManagedTask(Task):
 
             print("task completed...")
             self.status.state = TaskState.COMPLETED
-            return {"success": True}  # ✅ safe here
+            return {"success": True}
 
         except Exception as e:
             ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
             return {"success": False, "Error": ex_stat}
+
+
 
     async def create_scheduler_task(self):
         self.task = asyncio.create_task(self.scheduled_run())
@@ -483,7 +515,7 @@ class TaskRunner(Generic[Context]):
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
 
-    def find_chatter_tasks(self, msg):
+    def find_chatter_tasks(self):
         # for now, for the simplicity just find the task that's not scheduled.
         found = [task for task in self.agent.tasks if 'chatter' in task.name.lower()]
         return found
@@ -592,28 +624,48 @@ class TaskRunner(Generic[Context]):
         cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
         cached_response_index = 0
         config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-        while True:
+        chatNotDone = True
+        justStarted = True
+        print("launch_interacted_run....", self.agent.card.name)
+        while chatNotDone:
             try:
-                print("checking a2a queue....", self.agent.card.name)
-                chatResponse = self.sendChatToGUI("User (q/Q to quit): ")
-                while not self.chat_msg_queue.empty():
+                print("checking chat queue....", self.agent.card.name)
+                # chatResponse = self.sendChatToGUI("User (q/Q to quit): ")
+                thread_config = {"configurable": {"thread_id": uuid.uuid4()}}
+                if not self.chat_msg_queue.empty():
                     try:
                         msg = self.chat_msg_queue.get_nowait()
-                        print("A2A message....", msg)
+                        print("chat queue message....", msg)
                         # a message returned from the other party(human or other agent(s)),
                         task2run = self.find_chatter_tasks()
                         print("matched chatter task....", task2run)
                         # then run this skill's runnable with the msg
                         if task2run:
-                            print("chatter task2run skill name", task2run.skill.name)
-                            task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+                            if justStarted:
+                                print("chatter task2run skill name", task2run.skill.name)
+                                task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
 
-                            print("task2run init state", task2run.metadata["state"])
-                            print("ready to run the right task", task2run.name, msg)
-                            response = await task2run.astream_run()
-                            print("task run response:", response)
-                            task_id = msg.params.id
-                            self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                                print("task2run init state", task2run.metadata["state"])
+                                print("ready to run the right task", task2run.name, msg)
+                                response = await task2run.astream_run()
+                                print("task run response:", response)
+                                task_id = msg.params.id
+                                self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                                justStarted = False
+                            else:
+                                print("resuming after getting human response")
+                                # task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+
+                                # print("task2run init state", task2run.metadata["state"])
+                                # print("ready to run the right task", task2run.name, msg)
+
+                                response = await task2run.astream_run(Command(resume=True), stream_mode="updates",)
+
+
+                                print("task resume response:", response)
+                                task_id = msg.params.id
+                                self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                                justStarted = False
 
                         self.chat_msg_queue.task_done()
 
@@ -623,7 +675,9 @@ class TaskRunner(Generic[Context]):
                         pass
                     except Exception as e:
                         print(f"Error processing Commander message: {e}")
-
+                else:
+                    print("no chat message")
+                    time.sleep(1)
 
             except Exception as e:
                 ex_stat = "ErrorLaunchInteractedRun:" + traceback.format_exc() + " " + str(e)
