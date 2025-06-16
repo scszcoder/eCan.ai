@@ -3,78 +3,38 @@ Callable function management
 Manage callable functions and their operations
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Tuple
 from utils.logger_helper import logger_helper
 from .types import CallableFunction, CallableFilter
 from .storage import CallableStorage
+import uuid
+import logging
 
-logger = logger_helper.logger
+logger = logging.getLogger(__name__)
 
 class CallableManager:
     """Callable function management class"""
     
     def __init__(self):
-        self._storage = CallableStorage()
+        self.storage = CallableStorage()
         logger.debug("Initializing CallableManager")
     
-    def get_callables(self, filter: Optional[CallableFilter] = None) -> List[CallableFunction]:
-        """Get filtered callable functions
+    def get_callables(self, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Get list of callable functions
         
         Args:
-            filter: Filter conditions, optional including:
-                - text: Text filter for function name, description and parameters
-                - type: Type filter ('system' or 'custom')
+            params: Optional filter parameters
+                - text: Text to search for in name, description and parameters
+                - type: Function type to filter by ('system' or 'custom')
                 
         Returns:
-            List[CallableFunction]: Filtered callable functions list
+            List[Dict[str, Any]]: List of callable functions as dictionaries
         """
-        logger.debug(f"Getting callables with filter: {filter}")
-        
-        # Get all callables
-        all_callables = self._storage.get_all_callables()
-        logger.debug(f"Total callables before filtering: {len(all_callables)}")
-        
-        if not filter:
-            logger.debug("No filter applied, returning all callables")
-            return all_callables
-            
-        filtered_callables = []
-        text_filter = filter.get('text', '').lower() if filter.get('text') else ''
-        type_filter = filter.get('type')
-        
-        for callable in all_callables:
-            # Apply type filter
-            if type_filter and callable['type'] != type_filter:
-                continue
-                
-            # If no text filter, add the callable
-            if not text_filter:
-                filtered_callables.append(callable)
-                continue
-                
-            # Apply text filter
-            if text_filter in callable['name'].lower():
-                filtered_callables.append(callable)
-                continue
-                
-            if text_filter in callable['desc'].lower():
-                filtered_callables.append(callable)
-                continue
-                
-            # Check parameters
-            if callable['params'].get('properties'):
-                for param_name in callable['params']['properties']:
-                    if text_filter in param_name.lower():
-                        filtered_callables.append(callable)
-                        break
-                        
-            # Check return type
-            if callable['returns'].get('type') and text_filter in callable['returns']['type'].lower():
-                filtered_callables.append(callable)
-                continue
-                
-        logger.debug(f"Filtered callables count: {len(filtered_callables)}")
-        return filtered_callables
+        try:
+            return self.storage.get_callables(params)
+        except Exception as e:
+            logger.error("Manager Error getting callables: %s", str(e))
+            return []
     
     def add_custom_callable(self, callable: CallableFunction) -> bool:
         """添加自定义函数
@@ -85,7 +45,7 @@ class CallableManager:
         Returns:
             bool: 是否添加成功
         """
-        return self._storage.add_custom_callable(callable)
+        return self.storage.add_custom_callable(callable)
     
     def remove_custom_callable(self, name: str) -> bool:
         """删除自定义函数
@@ -96,7 +56,7 @@ class CallableManager:
         Returns:
             bool: 是否删除成功
         """
-        return self._storage.remove_custom_callable(name)
+        return self.storage.remove_custom_callable(name)
     
     def get_callable(self, name: str) -> Optional[CallableFunction]:
         """Get function by name
@@ -107,7 +67,157 @@ class CallableManager:
         Returns:
             Optional[CallableFunction]: Function definition, returns None if it doesn't exist
         """
-        return self._storage.get_callable(name)
+        return self.storage.get_callable(name)
+
+    def add_callable(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Add a new callable function
+        
+        Args:
+            data: Function data to add
+            
+        Returns:
+            Optional[Dict[str, Any]]: Added function data if successful, None otherwise
+        """
+        try:
+            # Generate new function ID
+            id = str(uuid.uuid4())
+            data['id'] = id
+            logger.debug("Generated new function ID: %s", id)
+            
+            # Create CallableFunction instance
+            function = CallableFunction.from_dict(data)
+            
+            # Add to storage
+            self.storage.add_callable(function.to_dict())
+            logger.info("Added new callable function: %s", function.name)
+            
+            # Return added function data with ID
+            return function.to_dict()
+            
+        except Exception as e:
+            logger.error("Error adding callable: %s", str(e))
+            return None
+        
+    def update_callable(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update an existing callable function.
+        
+        Args:
+            data: Dict containing:
+                - name: Function name
+                - desc: Function description
+                - params: Function parameters
+                - returns: Function return values
+                - type: Function type
+                - code: Function code
+                
+        Returns:
+            Updated function data if successful, None if failed
+            
+        Raises:
+            ValueError: If function not found or update fails
+        """
+        try:
+            # 获取现有函数
+            id = data.get('id')
+            callables = self.storage.get_callables({'id': id})
+            if not callables:
+                raise ValueError(f"Function not found: {id}")
+            existing = callables[0]
+                
+            # 更新函数数据
+            updated_data = {
+                'id': id,
+                'name': data.get('name', existing['name']),
+                'desc': data.get('desc', existing['desc']),
+                'params': data.get('params', existing['params']),
+                'returns': data.get('returns', existing['returns']),
+                'type': data.get('type', existing['type']),
+                'code': data.get('code', existing['code'])  # 确保 code 字段存在
+            }
+            
+            # 创建新的函数对象
+            updated_function = CallableFunction(**updated_data)
+            
+            # 更新存储
+            self.storage.update_callable(id, updated_function.to_dict())
+            
+            # 返回更新后的数据
+            return updated_function.to_dict()
+            
+        except Exception as e:
+            logger.error(f"Error updating callable: {str(e)}")
+            raise ValueError(f"Failed to update function: {str(e)}")
+        
+    def delete_callable(self, id: str) -> None:
+        """删除可调用函数
+        
+        Args:
+            id: 函数ID
+        """
+        try:
+            self.storage.delete_callable(id)
+            logger.info(f"Deleted callable function: {id}")
+        except Exception as e:
+            logger.error(f"Error deleting callable function: {e}")
+            raise
+
+    def manage_callable(self, params: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
+        """Unified entry for managing callable functions.
+        
+        Args:
+            params: Dict containing:
+                - action: Action to perform ('add', 'update', 'delete')
+                - data: Function data including:
+                    - id: Function ID (required for update/delete)
+                    - name: Function name
+                    - desc: Function description
+                    - params: Function parameters
+                    - returns: Function return values
+                    - type: Function type
+                    - code: Function code
+                
+        Returns:
+            Tuple[Optional[Dict[str, Any]], str]: (result, message)
+                - result: Function data if successful, None for delete
+                - message: Success/error message
+                
+        Raises:
+            ValueError: If required parameters are missing or invalid
+        """
+        # 参数验证
+        if not params or 'action' not in params or 'data' not in params:
+            raise ValueError("Missing required parameters: action and data")
+            
+        action = params['action']
+        data = params['data']
+        
+        # 验证 action
+        if action not in ['add', 'update', 'delete']:
+            raise ValueError(f"Invalid action: {action}")
+            
+        # 验证 id
+        if action in ['update', 'delete'] and 'id' not in data:
+            raise ValueError(f"Missing id in data for {action} action")
+            
+        try:
+            if action == 'add':
+                result = self.add_callable(data)
+                if result:
+                    return result, "Function added successfully"
+                else:
+                    raise ValueError("Failed to add function")
+            elif action == 'update':
+                result = self.update_callable(data)
+                if result:
+                    return result, "Function updated successfully"
+                else:
+                    raise ValueError("Failed to update function")
+            elif action == 'delete':
+                self.delete_callable(data['id'])
+                return None, "Function deleted successfully"
+        except Exception as e:
+            logger.error(f"Error in manage_callable: {str(e)}")
+            raise ValueError(str(e))
 
 # Create global instance
 callable_manager = CallableManager() 

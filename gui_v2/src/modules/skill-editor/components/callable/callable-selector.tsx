@@ -34,9 +34,40 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
 
   const ipcAPI = createIPCAPI();
 
+  // 添加刷新函数列表的函数
+  const refreshFunctions = async () => {
+    if (!USE_REMOTE_SEARCH) return;
+    
+    setIsLoading(true);
+    try {
+      const response = await ipcAPI.getCallables<{ data: CallableFunction[] }>({
+        text: searchText || undefined
+      });
+      
+      if (response.success && response.data?.data) {
+        setRemoteFunctions(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error refreshing functions:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 组件挂载时刷新函数列表
+  useEffect(() => {
+    refreshFunctions();
+  }, []);
+
   useEffect(() => {
     setSelectedValue(value?.name);
   }, [value]);
+
+  // 修改远程搜索的 useEffect
+  useEffect(() => {
+    const debounceTimer = setTimeout(refreshFunctions, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [searchText]);
 
   // 使用 useMemo 优化本地过滤函数列表的性能
   const localFilteredFunctions = useMemo(() => {
@@ -68,39 +99,6 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
       return false;
     });
   }, [searchText, propSystemFunctions]);
-
-  // 处理远程搜索
-  useEffect(() => {
-    const fetchRemoteFunctions = async () => {
-      if (!USE_REMOTE_SEARCH) return;
-      
-      setIsLoading(true);
-      try {
-        console.log('Fetching remote functions with params:', { text: searchText || undefined });
-        const response = await ipcAPI.getCallables<{ data: CallableFunction[] }>({
-          text: searchText || undefined
-        });
-        
-        console.log('Remote functions response:', response);
-        if (response.success && response.data?.data) {
-          const functions = response.data.data;
-          console.log('Processed functions:', functions);
-          setRemoteFunctions(functions);
-        } else {
-          console.error('Failed to fetch remote functions:', response.error);
-          setRemoteFunctions([]); // 发生错误时设置为空数组
-        }
-      } catch (error) {
-        console.error('Error fetching remote functions:', error);
-        setRemoteFunctions([]); // 发生错误时设置为空数组
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    const debounceTimer = setTimeout(fetchRemoteFunctions, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [searchText]);
 
   const handleSelect = (selectedValue: string | number | any[] | Record<string, any> | undefined) => {
     if (typeof selectedValue !== 'string') return;
@@ -145,12 +143,15 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     }
   };
 
-  const handleEditorSave = (updatedFunction: CallableFunction) => {
+  const handleEditorSave = async (updatedFunction: CallableFunction) => {
     if (onChange) {
       onChange(updatedFunction);
     }
     setEditorVisible(false);
     setEditingFunction(null);
+
+    // 更新函数列表
+    await refreshFunctions();
   };
 
   const handleEditorCancel = () => {
@@ -239,7 +240,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
           value={editingFunction}
           onSave={handleEditorSave}
           onCancel={handleEditorCancel}
-          mode={editingFunction.type === 'system' ? 'edit' : 'edit'}
+          mode={editingFunction.id ? 'edit' : 'create'}
           systemFunctions={propSystemFunctions}
         />
       )}

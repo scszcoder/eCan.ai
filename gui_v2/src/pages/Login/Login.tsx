@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { createIPCAPI } from '../../services/ipc';
+import { APIResponse, createIPCAPI } from '../../services/ipc';
 import { set_ipc_api, get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
 import logo from '../../assets/logo.png';
@@ -42,7 +42,7 @@ const Login: React.FC = () => {
 				const api = get_ipc_api();
 				if (!api) return;
 
-				const response = await api.getLastLoginInfo();
+				const response: APIResponse<any> = await api.getLastLoginInfo();
 				if (response?.data?.last_login) {
 					const { username, password, machine_role } = response.data.last_login;
 					console.log('last_login', response.data.last_login);

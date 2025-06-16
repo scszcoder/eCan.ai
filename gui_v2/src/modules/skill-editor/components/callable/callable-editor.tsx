@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Modal, Form, Input, Select, Button, Typography, message } from 'antd';
-import { CodeOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Select, Button, Typography, message, Space, Card } from 'antd';
+import { CodeOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { editor } from 'monaco-editor';
 import { CallableFunction } from '../../typings/callable';
 import { CallableEditorWrapper } from './styles';
 import { useCodeEditor } from '../code-editor';
+import { APIResponse, IPCAPI } from '../../../../services/ipc/api';
+import { App } from 'antd';
+import { logger } from '../../../../utils/logger';
 
 const { Option } = Select;
 const { Title } = Typography;
@@ -25,6 +28,7 @@ interface CallableEditorProps {
   mode: EditorMode;
   systemFunctions: CallableFunction[];
   visible: boolean;
+  userId?: string;
 }
 
 interface FormValues {
@@ -69,13 +73,15 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   onCancel,
   mode,
   systemFunctions,
-  visible
+  visible,
+  userId
 }) => {
   const [form] = Form.useForm<FormValues>();
   const [functionType, setFunctionType] = useState<FunctionType>(value?.type || 'custom');
   const [codeValue, setCodeValue] = useState(value?.code || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const previewEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const { message: messageApi } = App.useApp();
 
   // Initialize form values when value prop changes
   useEffect(() => {
@@ -99,22 +105,73 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   const handleSave = async () => {
     try {
       setIsSubmitting(true);
-      const values = await form.validateFields();
+      const formValues = form.getFieldsValue();
       
-      if (functionType === 'custom' && !codeValue) {
-        message.error('Please implement the function code');
-        return;
-      }
+      // Ensure params and returns exist
+      const formParams = Array.isArray(formValues.params) ? formValues.params : [];
+      const formReturns = Array.isArray(formValues.returns) ? formValues.returns : [];
 
-      onSave({
-        ...values,
-        type: functionType,
-        code: codeValue,
-        params: values.params || { type: 'object', properties: {} },
-        returns: values.returns || { type: 'object', properties: {} }
-      });
+      // Assemble parameters
+      const requestParams = {
+        action: mode === 'edit' ? 'update' : 'add',
+        data: {
+          id: mode === 'edit' ? value?.id : undefined,
+          name: formValues.name,
+          desc: formValues.desc,
+          params: formParams.map((param: any) => ({
+            name: param.name,
+            type: param.type,
+            desc: param.desc,
+            required: param.required
+          })),
+          returns: formReturns.map((ret: any) => ({
+            name: ret.name,
+            type: ret.type,
+            desc: ret.desc
+          })),
+          type: formValues.type,
+          code: codeValue
+        }
+      };
+
+      // Call API and handle response
+      const ipcAPI = IPCAPI.getInstance();
+      const response: APIResponse<any> = await ipcAPI.manageCallable<any>(requestParams);
+      logger.debug('Manage callable response:', response);
+
+      // Handle response
+      if (response.success && response.data) {
+        const result = response.data;
+        
+        // Check if add operation returned a new ID
+        if (mode !== 'edit' && !result.data.id) {
+          throw new Error('Function ID not returned from server');
+        }
+
+        // Update form data, ensure ID is included
+        const updatedFunction = {
+          ...result.data,
+          id: result.data.id || value?.id
+        };
+
+        messageApi.success(mode === 'edit' ? 'Updated successfully' : 'Added successfully');
+        onSave(updatedFunction);
+      } else {
+        const errorMsg = response.error?.message || 'Operation failed';
+        messageApi.error(errorMsg);
+        logger.error('Manage callable failed:', response.error);
+      }
     } catch (error) {
-      console.error('Form validation failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      messageApi.error(`Operation failed: ${errorMessage}`);
+      logger.error('Save callable error:', {
+        message: errorMessage,
+        error: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        } : error
+      });
     } finally {
       setIsSubmitting(false);
     }
