@@ -42,8 +42,10 @@ def find_sender(py_login, chat):
 
 
 def find_recipient(py_login, chat):
-    chat_id = chat['params']['chat_id']
+    print("finding recipient for chat:", chat)
+    chat_id = chat['chat_id']
     recipient = next((ag for ag in py_login.main_win.agents if "Engineering Procurement Agent" == ag.card.name), None)
+    print("recipient found:", recipient.card.name)
     return recipient
 
 @IPCHandlerRegistry.handler('get_config')
@@ -603,17 +605,17 @@ def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         logger.debug(f"send chat handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, [])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_PARAMS',
-                error
-            ))
+        # is_valid, data, error = validate_params(params, [])
+        # if not is_valid:
+        #     logger.warning(f"Invalid parameters for login: {error}")
+        #     return json.dumps(create_error_response(
+        #         request,
+        #         'INVALID_PARAMS',
+        #         error
+        #     ))
 
         # 获取用户名和密码
-        chat = data[0]
+        chat = params
         sender_agent = find_sender(py_login, chat)
         recipient_agent = find_recipient(py_login,chat)
         if sender_agent and recipient_agent:
