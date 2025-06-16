@@ -197,6 +197,15 @@ export class IPCAPI {
     public async getCallables<T>(filter?: { text?: string; type?: 'system' | 'custom' }): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_callables', filter);
     }
+
+    /**
+     * Manage callable function (add/update/delete)
+     * @param params - Raw parameters to be sent to IPC
+     * @returns Promise<APIResponse<T>> - Standard API response with typed data
+     */
+    public async manageCallable<T>(params: any): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('manage_callable', params);
+    }
 }
 
 /**

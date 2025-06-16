@@ -95,7 +95,6 @@ class IPCService(QObject):
         """
         method = request.get('method')
         params = request.get('params')
-        print("method:", method, "params:", params)
         if not method:
             return json.dumps(create_error_response(
                 request,
@@ -108,7 +107,6 @@ class IPCService(QObject):
         if handler:
             try:
                 # 直接调用处理器，让装饰器处理参数
-                print("calling handler.......")
                 return handler(request, params, self.py_login)
             except Exception as e:
                 logger.error(f"Error calling handler for method {method}: {e}")
