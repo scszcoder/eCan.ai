@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Layout, List, Table, Input, Button, Select, Space } from 'antd';
 import { SearchOutlined, SaveOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Content } = Layout;
 const { TextArea } = Input;

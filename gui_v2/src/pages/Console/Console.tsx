@@ -20,6 +20,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -159,7 +160,6 @@ const Console: React.FC = () => {
 
     const renderListContent = () => (
         <>
-            <Title level={2}>{t('pages.console.title')}</Title>
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}

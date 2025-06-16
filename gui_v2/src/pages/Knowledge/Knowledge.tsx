@@ -22,6 +22,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -99,7 +100,7 @@ const Knowledge: React.FC = () => {
     const fetchKnowledgePoints = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await ipc_api.get_knowledge_points();
+            const response = await IPCAPI.getInstance().getKnowledgePoints([]);
             if (response && response.success && response.data) {
                 setKnowledges(response.data);
             }

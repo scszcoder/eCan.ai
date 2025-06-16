@@ -21,7 +21,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -132,7 +132,7 @@ const Vehicles: React.FC = () => {
 
     const handleRefresh = useCallback(async () => {
         try {
-            const response = await ipc_api.get_vehicles();
+            const response = await IPCAPI.getInstance().getVehicles([]);
             console.log('Vehicles refreshed:', response);
             if (response && response.success && response.data) {
                 setVehicles(response.data);
@@ -203,7 +203,6 @@ const Vehicles: React.FC = () => {
 
     const renderListContent = () => (
         <>
-            <Title level={2}>{t('pages.vehicles.title')}</Title>
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}

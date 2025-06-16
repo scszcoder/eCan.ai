@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Space, Select, Input, Button, Card, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import {get_ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -26,8 +26,7 @@ const Tests: React.FC = () => {
     // Fetch available tests
     const fetchTests = async () => {
         try {
-            const ipc_api = get_ipc_api();
-            const response = await ipc_api.getAvailableTests();
+            const response = await IPCAPI.getInstance().getAvailableTests();
             const backendTests = response && response.success && Array.isArray(response.data)
             ? response.data.map(test => ({
                 label: test.name || test,
@@ -67,11 +66,6 @@ const Tests: React.FC = () => {
         setTestOutput(t('pages.tests.runningTest'));
 
         try {
-            const ipc_api = get_ipc_api();
-            if (!ipc_api) {
-                throw new Error('IPC API not initialized');
-            }
-
             // Use the correct IPC method based on the selected test
             let response;
             if (selectedTest === 'default_test') {
@@ -80,7 +74,7 @@ const Tests: React.FC = () => {
                     test_id: 'default_test',
                     args: testArgument ? JSON.parse(testArgument) : {}
                 };
-                response = await ipc_api.runTest([testConfig]);
+                response = await IPCAPI.getInstance().runTest([testConfig]);
             } else {
                 // For other tests, use the appropriate method
                 const testConfig = {
@@ -105,8 +99,7 @@ const Tests: React.FC = () => {
     // Handle test stop
     const handleStopTest = async () => {
         try {
-            const ipc_api = get_ipc_api();
-            await ipc_api.stopTest(selectedTest);
+            await IPCAPI.getInstance().stopTest([selectedTest]);
             setTestOutput(prev => prev + '\n' + t('pages.tests.testStopped'));
         } catch (error) {
             console.error('Error stopping test:', error);

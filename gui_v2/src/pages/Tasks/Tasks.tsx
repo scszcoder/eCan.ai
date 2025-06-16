@@ -15,7 +15,7 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -145,7 +145,7 @@ const Tasks: React.FC = () => {
     const fetchTasks = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await ipc_api.get_tasks();
+            const response = await IPCAPI.getInstance().getTasks([]);
             if (response && response.success && response.data) {
                 setTasks(response.data);
             }

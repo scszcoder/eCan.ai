@@ -26,8 +26,8 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
-import {ipc_api, get_ipc_api} from '../../services/ipc_api';
 import { create } from 'zustand';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -448,8 +448,7 @@ const Chat: React.FC = () => {
         
         try {
             // Send the message via IPC
-            const ipc_api = get_ipc_api();
-            const response = await ipc_api.sendChat(newMessageObj);
+            const response = await IPCAPI.getInstance().sendChat(newMessageObj);
 
             if (response && response.success) {
                 // Update the message status to sent
@@ -551,7 +550,6 @@ const Chat: React.FC = () => {
 
     const renderListContent = () => (
     <>
-      <Title level={2}>{t('pages.chat.title')}</Title>
       <SearchFilter
         onSearch={() => {}}
         onFilterChange={() => {}}
@@ -814,8 +812,7 @@ const Chat: React.FC = () => {
     // Function to handle refresh button click
     const handleRefresh = useCallback(async () => {
         try {
-            const ipc_api = get_ipc_api();
-            const response = await ipc_api.get_chats();
+            const response = await IPCAPI.getInstance().getChats([]);
             console.log('Chats refreshed:', response);
             if (response && response.success && response.data) {
                 // Update the chats list with the new data
