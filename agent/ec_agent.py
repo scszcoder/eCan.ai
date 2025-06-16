@@ -18,6 +18,8 @@ from langchain_core.messages import (
 	HumanMessage,
 	SystemMessage,
 )
+from langchain.embeddings import init_embeddings
+from langgraph.store.memory import InMemoryStore
 
 # from lmnr.sdk.decorators import observe
 from pydantic import BaseModel, ValidationError
@@ -178,6 +180,7 @@ class EC_Agent(Generic[Context]):
 		if page_extraction_llm is None:
 			page_extraction_llm = llm
 
+
 		# Core components
 		self.tasks = tasks
 		self.running_tasks = []
@@ -188,6 +191,14 @@ class EC_Agent(Generic[Context]):
 		self.supervisors = supervisors if supervisors is not None else []
 		self.subordinates = subordinates if subordinates is not None else []
 		self.peers = peers if peers is not None else []
+
+		self.embeddings = init_embeddings("openai:text-embedding-3-small")
+		self.store = InMemoryStore(
+			index={
+				"embed": self.embeddings,
+				"dims": 1536,
+			}
+		)
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,

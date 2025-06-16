@@ -8,6 +8,8 @@ from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.runner.service import Runner
+from agent.a2a.langgraph_agent.utils import get_a2a_server_url
+
 from agent.tasks import Repeat_Types
 import traceback
 import socket
@@ -24,7 +26,7 @@ def set_up_ec_procurement_agent(mainwin):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         worker_skill = next((sk for sk in agent_skills if "search 1688" in sk.name), None)
         print("ec_procurement skill:", worker_skill.name)
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "meca procurement chatter"),None)
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for meca search 1688 web site"),None)
 
         agent_card = AgentCard(
             name="Engineering Procurement Agent",
@@ -81,10 +83,10 @@ def set_up_ec_procurement_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="message",
+            trigger="interaction",
             schedule=task_schedule
         )
-        produrement_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+        produrement_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[chatter_task])
 
     except Exception as e:
         # Get the traceback information
