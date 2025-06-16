@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Select, Button, Space, Tooltip, Dropdown } from '@douyinfe/semi-ui';
-import { IconPlus, IconEdit, IconServer, IconCode, IconSetting } from '@douyinfe/semi-icons';
+import { IconPlus, IconEdit, IconBox, IconSetting } from '@douyinfe/semi-icons';
 import { CallableFunction } from '../../typings/callable';
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
@@ -161,11 +161,23 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
 
   const renderOption = (func: CallableFunction) => (
     <Tooltip content={func.desc} position="right">
-      <div className="function-option">
-        <span className="function-icon">
-          {func.type === 'system' ? <IconServer /> : <IconCode />}
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '8px',
+        padding: '4px 0'
+      }}>
+        <span style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          width: '16px',
+          height: '16px',
+          color: 'var(--semi-color-text-2)'
+        }}>
+          {func.type === 'system' ? <IconBox /> : <IconEdit />}
         </span>
-        <span className="function-name">{func.name}</span>
+        <span style={{ color: 'var(--semi-color-text-0)' }}>{func.name}</span>
       </div>
     </Tooltip>
   );
