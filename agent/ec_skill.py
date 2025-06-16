@@ -87,7 +87,8 @@ class EC_Skill(AgentSkill):
 
     def set_work_flow(self, wf):
         self.work_flow = wf
-        self.runnable = wf.compile()
+        checkpointer = InMemorySaver()
+        self.runnable = wf.compile(checkpointer=checkpointer)
 
     def get_work_flow(self):
         return self.work_flow

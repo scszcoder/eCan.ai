@@ -37,12 +37,13 @@ def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tu
     return True, params, None
 
 def find_sender(py_login, chat):
-    sender = next((ag for ag in py_login.main_win.agents if chat['sender'] == ag.card.name), None)
+    sender = next((ag for ag in py_login.main_win.agents if "My Twin Agent" == ag.card.name), None)
     return sender
 
 
 def find_recipient(py_login, chat):
-    recipient = next((ag for ag in py_login.main_win.agents if chat['recipient'] == ag.card.name), None)
+    chat_id = chat['params']['chat_id']
+    recipient = next((ag for ag in py_login.main_win.agents if "Engineering Procurement Agent" == ag.card.name), None)
     return recipient
 
 @IPCHandlerRegistry.handler('get_config')

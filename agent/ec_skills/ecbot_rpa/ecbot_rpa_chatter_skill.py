@@ -431,7 +431,7 @@ async def supervisor_message_handler(state: NodeState) -> NodeState:
 
 
 
-async def create_rpa_supervisor_serve_requests_skill(mainwin):
+async def create_rpa_supervisor_chatter_skill(mainwin):
     try:
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client

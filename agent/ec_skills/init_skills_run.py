@@ -2,7 +2,9 @@ from agent.ec_skills.search_1688.init_search_1688_skill import *
 from agent.ec_skills.search_1688.init_search_1688_chatter_skill import *
 from agent.ec_skills.ecbot_rpa.init_ecbot_rpa_skill import *
 from agent.ec_skills.ecbot_rpa.init_ecbot_rpa_chatter_skill import *
+from agent.ec_skills.my_twin.init_my_twin_chatter_skill import *
 SKILL_INIT_TABLE = {
+    "chatter for my digital twin": init_my_twin_chatter_skill,
     "ecbot rpa helper": init_ecbot_rpa_helper_skill,
     "chatter for ecbot rpa helper": init_ecbot_rpa_helper_chatter_skill,
     "ecbot rpa operator run RPA": init_ecbot_rpa_operator_skill,

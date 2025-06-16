@@ -5,6 +5,7 @@ from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, Mis
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
 from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
+from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.runner.service import Runner
@@ -21,8 +22,8 @@ def set_up_my_twin_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "human chatter"), None)
-
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
+        print("chatter skill:", chatter_skill)
         agent_card = AgentCard(
                 name="My Twin Agent",
                 description="Human Representative",
@@ -48,7 +49,7 @@ def set_up_my_twin_agent(mainwin):
         resume_from = ""
         state = {"top": "ready"}
         status = TaskStatus(state=TaskState.SUBMITTED)
-        task = ManagedTask(
+        chat_task = ManagedTask(
             id=task_id,
             name="Human Chat Task",
             description="Represent human to chat with others",
@@ -58,10 +59,10 @@ def set_up_my_twin_agent(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="message",
+            trigger="interaction",
             schedule=task_schedule
         )
-        helper = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[chatter_skill], tasks=[task])
+        helper = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
 
     except Exception as e:
         # Get the traceback information
