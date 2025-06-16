@@ -9,6 +9,7 @@ from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.runner.service import Runner
 from agent.tasks import Repeat_Types
+from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 import traceback
 import socket
 import uuid
@@ -20,8 +21,9 @@ def set_up_ec_helper_agent(mainwin):
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"),None)
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper chatter"),None)
-
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"),None)
+        print("worker_skill", worker_skill.name)
+        print("chatter_skill", chatter_skill.name)
         agent_card = AgentCard(
                 name="ECBot Helper Agent",
                 description="Helps with ECBot RPA works",
@@ -67,7 +69,7 @@ def set_up_ec_helper_agent(mainwin):
         resume_from = ""
         state = {"top": "ready"}
         status = TaskStatus(state=TaskState.SUBMITTED)
-        helper_task = ManagedTask(
+        chatter_task = ManagedTask(
             id=task_id,
             name="ECBot RPA Helper Chatter Task",
             description="chat with human about anything related to helper work.",

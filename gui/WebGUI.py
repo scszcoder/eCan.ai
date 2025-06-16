@@ -187,6 +187,9 @@ class WebGUI(QMainWindow):
         except Exception as e:
             logger_helper.error(f"Error updating agents data: {e}")
 
+    def get_ipc_api(self):
+        return IPCAPI.get_instance()
+
     def update_chats_data(self, dataHolder):
         """更新聊天数据"""
         try:
