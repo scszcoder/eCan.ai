@@ -700,6 +700,10 @@
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
-    "daysAgo": "{{count}} 天前"
+    "daysAgo": "{{count}} 天前",
+    "ariaSearch": "搜索",
+    "ariaHistory": "查看搜索历史",
+    "ariaFilter": "打开筛选选项",
+    "colon": "："
   }
 } 

@@ -424,6 +424,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
                 <CloseOutlined 
                   className="action-btn"
                   onClick={(e) => handleHistoryItemDelete(e, item)}
+                  aria-label="删除历史"
                 />
               </Tooltip>
             </div>
@@ -513,19 +514,8 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
             onChange={handleSearchInput}
             placeholder={placeholder || t('search.placeholder')}
             prefix={<SearchOutlined />}
-            suffix={
-              searchValue && (
-                <Tooltip title={t('search.clear')}>
-                  <CloseOutlined
-                    style={{ cursor: 'pointer', color: 'var(--text-secondary)' }}
-                    onClick={() => {
-                      setSearchValue('');
-                      onSearch('');
-                    }}
-                  />
-                </Tooltip>
-              )
-            }
+            suffix={value && <CloseOutlined onClick={() => onSearch('')} />}
+            aria-label={t('search.ariaSearch')}
           />
         </SearchInputWrapper>
 
@@ -541,6 +531,8 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
               <ActionButton
                 icon={<HistoryOutlined />}
                 onClick={() => setShowHistory(!showHistory)}
+                aria-label={t('search.ariaHistory')}
+                tabIndex={0}
               >
                 {t('search.history')}
               </ActionButton>
@@ -559,6 +551,8 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
                 icon={<FilterOutlined />}
                 onClick={() => setShowFilters(!showFilters)}
                 className={Object.keys(activeFilters).length > 0 ? 'active' : ''}
+                aria-label={t('search.ariaFilter')}
+                tabIndex={0}
               >
                 {t('search.filters')}
               </ActionButton>
@@ -575,7 +569,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
             const optionItem = option?.options.find(opt => opt.value === value);
             return (
               <FilterTag key={key}>
-                {option?.label}: {optionItem?.label || value}
+                {option?.label}{t('search.colon')} {optionItem?.label || value}
                 <CloseOutlined onClick={() => handleRemoveFilter(key)} />
               </FilterTag>
             );

@@ -688,6 +688,10 @@
     "justNow": "Just now",
     "minutesAgo": "{{count}} minutes ago",
     "hoursAgo": "{{count}} hours ago",
-    "daysAgo": "{{count}} days ago"
+    "daysAgo": "{{count}} days ago",
+    "ariaSearch": "Search",
+    "ariaHistory": "View search history",
+    "ariaFilter": "Open filter options",
+    "colon": ":"
   }
 } 
