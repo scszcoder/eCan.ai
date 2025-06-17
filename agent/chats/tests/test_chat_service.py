@@ -47,12 +47,22 @@ def temp_dir():
 
 @pytest.fixture(scope="session")
 def db_engine():
+    """创建测试数据库引擎"""
     db_path = 'test_chat.db'
     engine = create_engine(f'sqlite:///{db_path}', connect_args={'check_same_thread': False})
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield engine
     Base.metadata.drop_all(engine)
+    if os.path.exists(db_path):
+        os.remove(db_path)
+
+
+@pytest.fixture(scope="function")
+def custom_db_path(temp_dir):
+    """创建自定义数据库路径"""
+    db_path = os.path.join(temp_dir, f'test_db_{uuid.uuid4().hex[:8]}.db')
+    yield db_path
     if os.path.exists(db_path):
         os.remove(db_path)
 
@@ -71,7 +81,14 @@ def db_session(db_engine):
 @pytest.fixture(scope="function")
 def chat_service(db_engine, db_session):
     """创建聊天服务实例"""
-    service = ChatService(db_engine)
+    service = ChatService(engine=db_engine)
+    return service
+
+
+@pytest.fixture(scope="function")
+def custom_chat_service(custom_db_path):
+    """创建使用自定义数据库路径的聊天服务实例"""
+    service = ChatService.initialize(db_path=custom_db_path)
     return service
 
 
@@ -520,4 +537,58 @@ class TestErrorHandling:
         result = self.chat_service.delete_message(message.id)
         assert result is True
         history = self.chat_service.get_conversation_messages(conversation.id)
-        assert all(msg.id != message.id for msg in history) 
+        assert all(msg.id != message.id for msg in history)
+
+
+class TestDatabaseConfiguration:
+    """测试数据库配置相关功能"""
+
+    def test_custom_db_path(self, custom_db_path):
+        """测试使用自定义数据库路径"""
+        # 创建使用自定义路径的服务实例
+        service = ChatService.initialize(db_path=custom_db_path)
+        
+        # 验证数据库文件已创建
+        assert os.path.exists(custom_db_path)
+        
+        # 测试基本功能
+        user = service.create_user(
+            username="test_user",
+            display_name="Test User"
+        )
+        assert user is not None
+        assert user.username == "test_user"
+
+    def test_multiple_db_instances(self, temp_dir):
+        """测试多个数据库实例"""
+        # 创建两个不同的数据库路径
+        db_path1 = os.path.join(temp_dir, 'db1.db')
+        db_path2 = os.path.join(temp_dir, 'db2.db')
+        
+        # 创建两个服务实例
+        service1 = ChatService.initialize(db_path=db_path1)
+        service2 = ChatService.initialize(db_path=db_path2)
+        
+        # 在每个数据库中创建用户
+        user1 = service1.create_user(username="user1", display_name="User 1")
+        user2 = service2.create_user(username="user2", display_name="User 2")
+        
+        # 验证数据隔离
+        assert service1.get_user_by_username("user1") is not None
+        assert service1.get_user_by_username("user2") is None
+        assert service2.get_user_by_username("user2") is not None
+        assert service2.get_user_by_username("user1") is None
+
+    def test_db_path_persistence(self, custom_db_path):
+        """测试数据库路径持久化"""
+        # 创建服务实例并添加数据
+        service = ChatService.initialize(db_path=custom_db_path)
+        user = service.create_user(username="persistent_user", display_name="Persistent User")
+        
+        # 创建新的服务实例，使用相同的数据库路径
+        new_service = ChatService.initialize(db_path=custom_db_path)
+        
+        # 验证数据持久化
+        retrieved_user = new_service.get_user_by_username("persistent_user")
+        assert retrieved_user is not None
+        assert retrieved_user.id == user.id 
