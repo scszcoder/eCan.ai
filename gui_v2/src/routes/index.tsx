@@ -5,7 +5,7 @@ import Login from '../pages/Login/index';
 import Dashboard from '../pages/Dashboard/Dashboard';
 import Vehicles from '../pages/Vehicles/Vehicles';
 import Schedule from '../pages/Schedule/Schedule';
-import Chat from '../pages/Chat/Chat';
+import Chat from '../pages/Chat/index';
 import Skills from '../pages/Skills/Skills';
 import SkillEditor from '../pages/SkillEditor/SkillEditor';
 import Agents from '../pages/Agents/Agents';

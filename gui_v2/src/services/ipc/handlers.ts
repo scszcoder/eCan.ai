@@ -4,7 +4,6 @@
  */
 import { IPCRequest, IPCResponse } from './types';
 import { updateDashboard } from '../../pages/Dashboard/Dashboard';
-import { updateChatsGUI } from '../../pages/Chat/Chat';
 import { updateSkillsGUI } from '../../pages/Skills/Skills';
 import { updateSkillEditorGUI } from '../../pages/SkillEditor/SkillEditor';
 import { updateTasksGUI } from '../../pages/Tasks/Tasks';
@@ -15,6 +14,8 @@ import { updateVehiclesGUI } from '../../pages/Vehicles/Vehicles';
 import { updateKnowledgeGUI } from '../../pages/Knowledge/Knowledge';
 import { updateSettingsGUI } from '../../pages/Settings/Settings';
 import { logger } from '../../utils/logger';
+import { useChatStore } from '../../pages/Chat/hooks/useChatStore';
+import { Message } from '../../pages/Chat/types/chat';
 
 // 处理器类型定义
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -289,8 +290,8 @@ export class IPCHandlers {
                     };
                     console.log("chatInfo:", chatInfo);
                     console.log("message:", message);
-                    // Update the UI
-                    updateChatsGUI({
+                    // Update the UI using the new method
+                    useChatStore.getState().updateChatsGUI({
                         chat: chatInfo,
                         message
                     });
