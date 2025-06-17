@@ -139,6 +139,11 @@ interface ChatListProps {
     onSearch?: (value: string) => void;
     onReset?: () => void;
     onAdd?: () => void;
+    onEdit?: () => void;
+    onRefresh?: () => void;
+    onExport?: () => void;
+    onImport?: () => void;
+    onSettings?: () => void;
 }
 
 const ChatList: React.FC<ChatListProps> = ({
@@ -151,7 +156,12 @@ const ChatList: React.FC<ChatListProps> = ({
     onFilterChange,
     onSearch = () => {},
     onReset = () => {},
-    onAdd = () => {}
+    onAdd = () => {},
+    onEdit = () => {},
+    onRefresh = () => {},
+    onExport = () => {},
+    onImport = () => {},
+    onSettings = () => {}
 }) => {
     const { t } = useTranslation();
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -214,19 +224,20 @@ const ChatList: React.FC<ChatListProps> = ({
             />
             <ActionButtons
                 onAdd={onAdd}
-                onEdit={() => {}}
+                onEdit={onEdit}
                 onDelete={() => {}}
-                onRefresh={() => {}}
-                onExport={() => {}}
-                onImport={() => {}}
-                onSettings={() => {}}
+                onRefresh={onRefresh}
+                onExport={onExport}
+                onImport={onImport}
+                onSettings={onSettings}
                 addText={t('pages.chat.addChat')}
-                editText=""
-                deleteText=""
-                refreshText=""
-                exportText=""
-                importText=""
-                settingsText=""
+                editText={t('pages.chat.editChat')}
+                deleteText={t('pages.chat.deleteChat')}
+                refreshText={t('pages.chat.refreshChat')}
+                exportText={t('pages.chat.exportChat')}
+                importText={t('pages.chat.importChat')}
+                settingsText={t('pages.chat.chatSettings')}
+                visibleButtons={['add', 'refresh']}
             />
             <List
                 dataSource={chats}
