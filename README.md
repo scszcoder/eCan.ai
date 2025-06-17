@@ -579,3 +579,91 @@ pytest tests/
 ## 许可证
 
 MIT License
+
+## 数据库版本管理
+
+本项目内置了数据库版本管理表 `db_version`，用于记录和管理数据库结构的版本信息，方便后续升级和迁移。
+
+- 每次初始化数据库时会自动插入初始版本（1.0.0）。
+- 可通过接口读取当前版本或升级版本。
+
+### 示例代码
+
+```python
+from agent.chats.chats_db import DBVersion, get_engine
+from sqlalchemy.orm import sessionmaker
+
+engine = get_engine('your_db_path.db')
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# 获取当前数据库版本
+current_version = DBVersion.get_current_version(session)
+print(current_version.version)
+
+# 升级数据库版本
+DBVersion.upgrade_version(session, '2.0.0', description='升级到2.0.0')
+
+# 再次获取
+new_version = DBVersion.get_current_version(session)
+print(new_version.version)
+
+session.close()
+```
+
+## 数据库迁移管理
+
+本项目提供了数据库迁移管理功能，支持数据库结构的版本控制和升级。
+
+### 基本用法
+
+```python
+from agent.chats.db_migration import DBMigration
+
+# 创建迁移管理器实例
+migration = DBMigration('your_database.db')
+
+# 获取当前版本
+current_version = migration.get_current_version()
+print(f"当前数据库版本: {current_version}")
+
+# 升级到新版本
+success = migration.upgrade_to_version(
+    "2.0.0",
+    description="升级到2.0.0版本，添加新功能表"
+)
+if success:
+    print("数据库升级成功")
+else:
+    print("数据库升级失败")
+
+# 创建新的迁移脚本模板
+template = migration.create_migration_script(
+    "2.1.0",
+    "添加新字段"
+)
+print(template)
+```
+
+### 版本升级流程
+
+1. 获取当前数据库版本
+2. 确定目标版本
+3. 执行升级操作
+4. 验证升级结果
+
+### 创建新的升级脚本
+
+当需要修改数据库结构时，可以按照以下步骤创建升级脚本：
+
+1. 使用 `create_migration_script` 生成脚本模板
+2. 在模板中实现具体的升级逻辑
+3. 将脚本添加到版本管理系统中
+4. 执行升级操作
+
+### 注意事项
+
+1. 升级前请务必备份数据库
+2. 确保升级脚本的正确性和可回滚性
+3. 在测试环境中验证升级脚本
+4. 记录所有数据库结构变更

@@ -4,14 +4,13 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from contextlib import contextmanager
 from sqlalchemy import select
-
-Base = declarative_base()
+from .models import Base
 
 class Entity(Base):
     """Base entity class for all database models"""
     __abstract__ = True
 
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

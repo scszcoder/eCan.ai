@@ -14,7 +14,9 @@ from typing import List, Optional, Dict, Any
 import json
 import threading
 import time
-from .entity import Entity, Base
+from .models import Base, DBVersion
+from .entity import Entity
+from .db_migration import DBMigration
 
 # Constants
 MAX_TOTAL_MESSAGES = 10000
@@ -265,7 +267,7 @@ class Attachment(Entity):
         })
         return data
 
-class MessageRead(Base):
+class MessageRead(Entity):
     __tablename__ = 'message_reads'
     id = Column(Integer, primary_key=True, autoincrement=True)
     message_id = Column(Integer, ForeignKey('messages.id'), nullable=False)
@@ -300,21 +302,31 @@ def set_message_session(mapper, connection, target):
         session.flush()
         target.session_id = chat_session.id
 
-def init_chats_db(db_path: str = None):
+def init_chats_db(db_path: str = None, target_version: str = "1.0.0"):
     """
-    初始化数据库
+    初始化数据库，并自动升级到目标版本
     
     Args:
         db_path (str, optional): 数据库文件路径
+        target_version (str, optional): 目标数据库版本，默认1.0.0
     
     Returns:
         Engine: SQLAlchemy数据库引擎实例
     """
     engine = get_engine(db_path)
-    # 删除所有表
-    Base.metadata.drop_all(engine)
-    # 创建所有表
+    # 创建所有表（如果不存在）
     Base.metadata.create_all(engine)
+    # 初始化版本表
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    if not session.query(DBVersion).first():
+        session.add(DBVersion(version="1.0.0", description="初始化版本"))
+        session.commit()
+    session.close()
+    # 自动升级到目标版本
+    if target_version and target_version != "1.0.0":
+        migrator = DBMigration(db_path)
+        migrator.upgrade_to_version(target_version, description=f"自动升级到{target_version}")
     return engine
 
 # 在模块加载时初始化数据库
