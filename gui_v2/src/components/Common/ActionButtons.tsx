@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Space, Tooltip } from 'antd';
+import { Button, Space, Tooltip, Dropdown, Menu } from 'antd';
 import {
     PlusOutlined,
     EditOutlined,
@@ -7,7 +7,8 @@ import {
     ReloadOutlined,
     ExportOutlined,
     ImportOutlined,
-    SettingOutlined
+    SettingOutlined,
+    MoreOutlined
 } from '@ant-design/icons';
 
 interface ActionButtonsProps {
@@ -28,6 +29,7 @@ interface ActionButtonsProps {
     style?: React.CSSProperties;
     buttonStyle?: React.CSSProperties;
     iconStyle?: React.CSSProperties;
+    visibleButtons?: ('add' | 'edit' | 'delete' | 'refresh' | 'export' | 'import' | 'settings')[];
 }
 
 const ActionButtons: React.FC<ActionButtonsProps> = ({
@@ -47,27 +49,28 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
     settingsText,
     style,
     buttonStyle,
-    iconStyle
+    iconStyle,
+    visibleButtons = ['add']
 }) => {
-    const buttons = [
+    const allButtons = [
         {
             key: 'add',
             icon: <PlusOutlined style={iconStyle} />,
-            text: addText,
+            label: addText,
             onClick: onAdd,
             tooltip: addText
         },
         {
             key: 'edit',
             icon: <EditOutlined style={iconStyle} />,
-            text: editText,
+            label: editText,
             onClick: onEdit,
             tooltip: editText
         },
         {
             key: 'delete',
             icon: <DeleteOutlined style={iconStyle} />,
-            text: deleteText,
+            label: deleteText,
             onClick: onDelete,
             tooltip: deleteText,
             danger: true
@@ -75,37 +78,54 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
         {
             key: 'refresh',
             icon: <ReloadOutlined style={iconStyle} />,
-            text: refreshText,
+            label: refreshText,
             onClick: onRefresh,
             tooltip: refreshText
         },
         {
             key: 'export',
             icon: <ExportOutlined style={iconStyle} />,
-            text: exportText,
+            label: exportText,
             onClick: onExport,
             tooltip: exportText
         },
         {
             key: 'import',
             icon: <ImportOutlined style={iconStyle} />,
-            text: importText,
+            label: importText,
             onClick: onImport,
             tooltip: importText
         },
         {
             key: 'settings',
             icon: <SettingOutlined style={iconStyle} />,
-            text: settingsText,
+            label: settingsText,
             onClick: onSettings,
             tooltip: settingsText
         }
     ];
 
+    const displayButtons = allButtons.filter(button => 
+        visibleButtons.includes(button.key as any) && button.label
+    );
+    
+    const menuButtons = allButtons.filter(button => 
+        !visibleButtons.includes(button.key as any) && button.label
+    );
+
+    const menu = (
+        <Menu items={menuButtons} />
+    );
+
     return (
-        <div style={style}>
-            <Space wrap size="small">
-                {buttons.map(button => (
+        <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            ...style 
+        }}>
+            <Space size="small">
+                {displayButtons.map(button => (
                     <Tooltip key={button.key} title={button.tooltip}>
                         <Button
                             type="text"
@@ -114,11 +134,21 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
                             danger={button.danger}
                             style={buttonStyle}
                         >
-                            {button.text}
+                            {button.label}
                         </Button>
                     </Tooltip>
                 ))}
             </Space>
+            
+            {menuButtons.length > 0 && (
+                <Dropdown overlay={menu} placement="bottomRight" trigger={['click']}>
+                    <Button
+                        type="text"
+                        icon={<MoreOutlined style={iconStyle} />}
+                        style={buttonStyle}
+                    />
+                </Dropdown>
+            )}
         </div>
     );
 };
