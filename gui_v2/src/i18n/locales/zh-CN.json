@@ -13,6 +13,7 @@
     "edit": "编辑",
     "add": "添加",
     "search": "搜索",
+    "searchPlaceholder": "搜索...",
     "filter": "筛选",
     "reset": "重置",
     "refresh": "刷新",
@@ -39,7 +40,18 @@
     "details": "详情",
     "list": "列表",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "history": "历史",
+    "clear": "清空",
+    "clearSearch": "清除搜索",
+    "searchHistory": "搜索历史",
+    "popularSearches": "热门搜索",
+    "showMoreHistory": "查看更多历史记录",
+    "filterConditions": "筛选条件",
+    "resetFilter": "重置筛选",
+    "totalItems": "共 {{count}} 项",
+    "filteredItems": "筛选出 {{filtered}} / {{total}} 项",
+    "searchTime": "耗时 {{time}}ms"
   },
   "menu": {
     "dashboard": "仪表盘",
@@ -671,5 +683,23 @@
         "importTest": "导入测试",
         "testSettings": "测试设置"
     }
+  },
+  "search": {
+    "placeholder": "搜索...",
+    "clear": "清除",
+    "history": "历史",
+    "filters": "筛选",
+    "deleteHistory": "删除历史",
+    "clearHistory": "清空历史",
+    "moreHistory": "更多历史",
+    "resetFilters": "重置筛选",
+    "selectFilter": "选择{{filter}}",
+    "totalResults": "共 {{count}} 项",
+    "filteredResults": "筛选出 {{count}} 项",
+    "searchTime": "耗时 {{time}}ms",
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前"
   }
 } 

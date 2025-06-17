@@ -13,6 +13,7 @@
     "edit": "Edit",
     "add": "Add",
     "search": "Search",
+    "searchPlaceholder": "Search...",
     "filter": "Filter",
     "reset": "Reset",
     "refresh": "Refresh",
@@ -39,7 +40,18 @@
     "details": "Details",
     "list": "List",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "history": "History",
+    "clear": "Clear",
+    "clearSearch": "Clear search",
+    "searchHistory": "Search History",
+    "popularSearches": "Popular Searches",
+    "showMoreHistory": "Show more history",
+    "filterConditions": "Filter Conditions",
+    "resetFilter": "Reset Filter",
+    "totalItems": "Total {{count}} items",
+    "filteredItems": "Filtered {{filtered}} / {{total}} items",
+    "searchTime": "Search time {{time}}ms"
   },
   "menu": {
     "dashboard": "Dashboard",
@@ -659,5 +671,23 @@
         "importTest": "Import Tests",
         "testSettings": "Test Settings"
     }
+  },
+  "search": {
+    "placeholder": "Search...",
+    "clear": "Clear",
+    "history": "History",
+    "filters": "Filters",
+    "deleteHistory": "Delete history",
+    "clearHistory": "Clear history",
+    "moreHistory": "More history",
+    "resetFilters": "Reset filters",
+    "selectFilter": "Select {{filter}}",
+    "totalResults": "{{count}} total results",
+    "filteredResults": "{{count}} filtered results",
+    "searchTime": "Search time {{time}}ms",
+    "justNow": "Just now",
+    "minutesAgo": "{{count}} minutes ago",
+    "hoursAgo": "{{count}} hours ago",
+    "daysAgo": "{{count}} days ago"
   }
 } 
