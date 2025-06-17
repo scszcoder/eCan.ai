@@ -23,18 +23,41 @@ SESSION_TIMEOUT_MINUTES = 15
 EDIT_WINDOW_MINUTES = 5
 MESSAGE_CLEANUP_BATCH_SIZE = 100
 
-# Database setup
-def get_engine():
-    """获取数据库引擎"""
+# Default database path
+DEFAULT_DB_PATH = 'chat_app.db'
+
+def get_engine(db_path: str = None):
+    """
+    获取数据库引擎
+    
+    Args:
+        db_path (str, optional): 数据库文件路径. 如果为None，则使用环境变量DATABASE_URL或默认路径.
+    
+    Returns:
+        Engine: SQLAlchemy数据库引擎实例
+    """
+    if db_path is None:
+        db_path = os.getenv('DATABASE_URL', f'sqlite:///{DEFAULT_DB_PATH}')
+    elif not db_path.startswith('sqlite:///'):
+        db_path = f'sqlite:///{db_path}'
+        
     return create_engine(
-        os.getenv('DATABASE_URL', 'sqlite:///chat_app.db'),
+        db_path,
         pool_pre_ping=True,
         connect_args={'check_same_thread': False}
     )
 
-def get_session_factory():
-    """获取会话工厂"""
-    engine = get_engine()
+def get_session_factory(db_path: str = None):
+    """
+    获取会话工厂
+    
+    Args:
+        db_path (str, optional): 数据库文件路径
+    
+    Returns:
+        sessionmaker: SQLAlchemy会话工厂
+    """
+    engine = get_engine(db_path)
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # 创建会话工厂
@@ -277,9 +300,17 @@ def set_message_session(mapper, connection, target):
         session.flush()
         target.session_id = chat_session.id
 
-def init_chats_db():
-    """初始化数据库"""
-    engine = get_engine()
+def init_chats_db(db_path: str = None):
+    """
+    初始化数据库
+    
+    Args:
+        db_path (str, optional): 数据库文件路径
+    
+    Returns:
+        Engine: SQLAlchemy数据库引擎实例
+    """
+    engine = get_engine(db_path)
     # 删除所有表
     Base.metadata.drop_all(engine)
     # 创建所有表

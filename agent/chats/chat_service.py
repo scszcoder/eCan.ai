@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .chats_db import (
     ChatUser, Conversation, Message, ChatSession,
     ConversationMember, Attachment, MessageRead,
-    MessageType, MessageStatus, SessionLocal
+    MessageType, MessageStatus, SessionLocal, get_engine, get_session_factory, Base
 )
 from contextlib import contextmanager
 import threading
@@ -18,27 +18,69 @@ class SingletonMeta(type):
     _lock = threading.Lock()
 
     def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
+        # 使用数据库路径作为实例的唯一标识
+        db_path = kwargs.get('db_path')
+        engine = kwargs.get('engine')
+        session = kwargs.get('session')
+        
+        # 生成唯一键
+        if db_path:
+            key = f"db_path_{db_path}"
+        elif engine:
+            key = f"engine_{id(engine)}"
+        elif session:
+            key = f"session_{id(session)}"
+        else:
+            key = "default"
+            
+        if key not in cls._instances:
             with cls._lock:
-                if cls not in cls._instances:
+                if key not in cls._instances:
                     instance = super().__call__(*args, **kwargs)
-                    cls._instances[cls] = instance
-        return cls._instances[cls]
+                    cls._instances[key] = instance
+        return cls._instances[key]
 
 
 class ChatService(metaclass=SingletonMeta):
     """聊天系统服务类，提供所有聊天相关的操作接口"""
 
-    def __init__(self, engine=None, session=None):
+    def __init__(self, db_path: str = None, engine=None, session=None):
+        """
+        初始化聊天服务
+        
+        Args:
+            db_path (str, optional): 数据库文件路径
+            engine: SQLAlchemy引擎实例
+            session: SQLAlchemy会话实例
+        """
         if session is not None:
             self._session = session
         elif engine is not None:
             Session = sessionmaker(bind=engine)
             self._session = Session()
+        elif db_path is not None:
+            engine = get_engine(db_path)
+            Session = get_session_factory(db_path)
+            self._session = Session()
+            # 确保数据库表已创建
+            Base.metadata.create_all(engine)
         else:
-            raise ValueError("Must provide engine or session")
+            raise ValueError("Must provide db_path, engine or session")
         self._initialized = True
         self._lock = threading.Lock()
+
+    @classmethod
+    def initialize(cls, db_path: str = None) -> 'ChatService':
+        """
+        初始化聊天服务实例
+        
+        Args:
+            db_path (str, optional): 数据库文件路径
+            
+        Returns:
+            ChatService: 聊天服务实例
+        """
+        return cls(db_path=db_path)
 
     def _get_session(self) -> Session:
         """获取数据库会话，确保线程安全"""
