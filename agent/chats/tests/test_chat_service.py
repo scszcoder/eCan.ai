@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from agent.chats.chats_db import (
     Base, ChatUser, Conversation, Message, ChatSession,
     ConversationMember, Attachment, MessageRead,
-    MessageType, MessageStatus, init_chats_db, get_engine
+    MessageType, MessageStatus, init_chats_db, get_engine, DBVersion
 )
 from agent.chats.chat_service import ChatService
 import threading
@@ -50,8 +50,7 @@ def db_engine():
     """创建测试数据库引擎"""
     db_path = 'test_chat.db'
     engine = create_engine(f'sqlite:///{db_path}', connect_args={'check_same_thread': False})
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    init_chats_db(db_path)  # 使用 init_chats_db 初始化数据库
     yield engine
     Base.metadata.drop_all(engine)
     if os.path.exists(db_path):
@@ -592,3 +591,27 @@ class TestDatabaseConfiguration:
         retrieved_user = new_service.get_user_by_username("persistent_user")
         assert retrieved_user is not None
         assert retrieved_user.id == user.id 
+
+
+class TestDBVersion:
+    """测试数据库版本管理表"""
+
+    def test_db_version_init(self, db_engine):
+        """测试初始化时版本表存在且为1.0.0"""
+        Session = sessionmaker(bind=db_engine)
+        session = Session()
+        version = session.query(DBVersion).order_by(DBVersion.upgraded_at.desc()).first()
+        assert version is not None
+        assert version.version == "1.0.0"
+        session.close()
+
+    def test_db_version_upgrade(self, db_engine):
+        """测试升级数据库版本"""
+        Session = sessionmaker(bind=db_engine)
+        session = Session()
+        # 升级到2.0.0
+        DBVersion.upgrade_version(session, "2.0.0", description="升级到2.0.0")
+        version = DBVersion.get_current_version(session)
+        assert version.version == "2.0.0"
+        assert version.description == "升级到2.0.0"
+        session.close() 
