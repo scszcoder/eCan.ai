@@ -51,7 +51,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     ...chat,
                     messages: [...(chat.messages || []), message],
                     lastMessage: message.content,
-                    lastMessageTime: new Date().toLocaleTimeString(),
+                    lastMessageTime: new Date().toISOString(),
                     unreadCount: state.activeChatId === chatId ? 0 : (chat.unreadCount + 1)
                 };
             })
@@ -105,7 +105,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             state.updateChat({
                 ...existingChat,
                 lastMessage: message.content,
-                lastMessageTime: new Date().toLocaleTimeString(),
+                lastMessageTime: new Date().toISOString(),
                 unreadCount: state.activeChatId === chat.id ? 0 : (existingChat.unreadCount + 1),
                 messages: existingChat.messages
             });
@@ -115,7 +115,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ...chat,
                 messages: [message],
                 lastMessage: message.content,
-                lastMessageTime: new Date().toLocaleTimeString(),
+                lastMessageTime: new Date().toISOString(),
                 unreadCount: 0
             });
         }
@@ -123,6 +123,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     initialize: () => {
         // Initialize with default chats and messages
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        
         const initialChats: Chat[] = [
             {
                 id: 1,
@@ -130,7 +135,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 type: 'user',
                 status: 'online',
                 lastMessage: 'Can you help me with the delivery schedule?',
-                lastMessageTime: '10:30 AM',
+                lastMessageTime: oneHourAgo.toISOString(),
                 unreadCount: 2,
                 messages: [
                     {
@@ -139,9 +144,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         content: 'Hello! How can I help you today?',
                         attachments: [],
                         sender: 'Support Bot',
-                        txTimestamp: '10:00 AM',
-                        rxTimestamp: '10:01 AM',
-                        readTimestamp: '10:01 AM',
+                        txTimestamp: twoHoursAgo.toISOString(),
+                        rxTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
+                        readTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
                         status: 'read',
                     },
                     {
@@ -150,9 +155,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         content: 'I need help with scheduling a delivery.',
                         attachments: [],
                         sender: 'You',
-                        txTimestamp: '10:05 AM',
-                        rxTimestamp: '10:06 AM',
-                        readTimestamp: '10:06 AM',
+                        txTimestamp: new Date(twoHoursAgo.getTime() + 5 * 60000).toISOString(),
+                        rxTimestamp: new Date(twoHoursAgo.getTime() + 6 * 60000).toISOString(),
+                        readTimestamp: new Date(twoHoursAgo.getTime() + 6 * 60000).toISOString(),
                         status: 'read',
                     },
                     {
@@ -161,8 +166,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         content: 'Can you help me with the delivery schedule?',
                         attachments: [],
                         sender: 'John Doe',
-                        txTimestamp: '10:30 AM',
-                        rxTimestamp: '10:31 AM',
+                        txTimestamp: oneHourAgo.toISOString(),
+                        rxTimestamp: new Date(oneHourAgo.getTime() + 60000).toISOString(),
                         readTimestamp: '',
                         status: 'delivered',
                     }
@@ -174,7 +179,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 type: 'bot',
                 status: 'online',
                 lastMessage: 'How can I assist you today?',
-                lastMessageTime: '09:15 AM',
+                lastMessageTime: twoHoursAgo.toISOString(),
                 unreadCount: 0,
                 messages: [
                     {
@@ -183,9 +188,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         content: 'How can I assist you today?',
                         attachments: [],
                         sender: 'Support Bot',
-                        txTimestamp: '09:15 AM',
-                        rxTimestamp: '09:16 AM',
-                        readTimestamp: '09:16 AM',
+                        txTimestamp: twoHoursAgo.toISOString(),
+                        rxTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
+                        readTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
                         status: 'read',
                     }
                 ]
@@ -196,7 +201,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 type: 'group',
                 status: 'busy',
                 lastMessage: 'Meeting at 2 PM',
-                lastMessageTime: 'Yesterday',
+                lastMessageTime: yesterday.toISOString(),
                 unreadCount: 5,
                 messages: [
                     {
@@ -205,8 +210,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         content: 'Meeting at 2 PM',
                         attachments: [],
                         sender: 'Team Lead',
-                        txTimestamp: 'Yesterday',
-                        rxTimestamp: 'Yesterday',
+                        txTimestamp: yesterday.toISOString(),
+                        rxTimestamp: yesterday.toISOString(),
                         readTimestamp: '',
                         status: 'delivered',
                     }

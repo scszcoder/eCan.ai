@@ -37,7 +37,9 @@
     "voice": "Voice",
     "title": "Title",
     "details": "Details",
-    "list": "List"
+    "list": "List",
+    "yes": "Yes",
+    "no": "No"
   },
   "menu": {
     "dashboard": "Dashboard",
@@ -228,6 +230,8 @@
       "exportChat": "Export Chat",
       "importChat": "Import Chat",
       "chatSettings": "Chat Settings",
+      "deleteConfirmTitle": "Confirm Delete",
+      "deleteConfirmDescription": "Are you sure you want to delete this chat? This action cannot be undone.",
       "emoji": "Emoji",
       "attachment": "Attachment",
       "voice": "Voice"

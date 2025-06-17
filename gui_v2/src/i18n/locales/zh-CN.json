@@ -37,7 +37,9 @@
     "voice": "语音",
     "title": "标题",
     "details": "详情",
-    "list": "列表"
+    "list": "列表",
+    "yes": "是",
+    "no": "否"
   },
   "menu": {
     "dashboard": "仪表盘",
@@ -228,6 +230,8 @@
       "exportChat": "导出聊天",
       "importChat": "导入聊天",
       "chatSettings": "聊天设置",
+      "deleteConfirmTitle": "确认删除",
+      "deleteConfirmDescription": "确定要删除这个聊天吗？此操作无法撤销。",
       "emoji": "表情",
       "attachment": "附件",
       "voice": "语音"
