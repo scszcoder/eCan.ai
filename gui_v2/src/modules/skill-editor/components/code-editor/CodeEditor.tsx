@@ -8,7 +8,7 @@ import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } 
 // Configure Monaco Editor loader
 loader.config({
   paths: {
-    vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs'
+    vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs'
   }
 });
 
