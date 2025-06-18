@@ -141,7 +141,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
             </Space>
             
             {menuButtons.length > 0 && (
-                <Dropdown overlay={menu} placement="bottomRight" trigger={['click']}>
+                <Dropdown menu={{ items: menuButtons }} placement="bottomRight" trigger={['click']}>
                     <Button
                         type="text"
                         icon={<MoreOutlined style={iconStyle} />}

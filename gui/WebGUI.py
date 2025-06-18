@@ -20,7 +20,7 @@ from gui.core.dev_tools_manager import DevToolsManager
 class WebGUI(QMainWindow):
     def __init__(self, py_login: Login=None):
         super().__init__()
-        self.setWindowTitle("ECBot GUI")
+        self.setWindowTitle("ECBot Agent")
         self.setGeometry(100, 100, 1200, 800)
         
         # 创建中心部件和布局
