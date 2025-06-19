@@ -53,6 +53,18 @@ const Logo = styled.div`
     }
 `;
 
+const MenuWrapper = styled.div`
+    flex: 1;
+    overflow: auto;
+    height: calc(100vh - 64px);
+`;
+
+const StyledSider = styled(Sider)`
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+`;
+
 interface AppSiderProps {
     collapsed: boolean;
     onLogoClick: () => void;
@@ -62,21 +74,23 @@ interface AppSiderProps {
 }
 
 const AppSider: React.FC<AppSiderProps> = ({ collapsed, onLogoClick, menuItems, selectedKey, onMenuClick }) => (
-    <Sider trigger={null} collapsible collapsed={collapsed} theme="dark">
+    <StyledSider trigger={null} collapsible collapsed={collapsed} theme="dark">
         <Logo onClick={onLogoClick}>
             <div className="logo-icon">
                 <SafetyCertificateOutlined />
             </div>
             <div className="logo-text">ECBot</div>
         </Logo>
-        <Menu
-            theme="dark"
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            items={menuItems}
-            onClick={onMenuClick}
-        />
-    </Sider>
+        <MenuWrapper>
+            <Menu
+                theme="dark"
+                mode="inline"
+                selectedKeys={[selectedKey]}
+                items={menuItems}
+                onClick={onMenuClick}
+            />
+        </MenuWrapper>
+    </StyledSider>
 );
 
-export default AppSider; 
+export default AppSider;
