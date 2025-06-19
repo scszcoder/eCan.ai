@@ -1069,7 +1069,7 @@ class MainWindow(QMainWindow):
         print("DONE build agent skills.....", len(self.agent_skills))
         build_agents(self)
         print("DONE build agents.....")
-        await self.launch_agents()
+        # await self.launch_agents()
         print("DONE launch agents.....")
         self.top_gui.update_all(self)
         # await self.test_a2a()
