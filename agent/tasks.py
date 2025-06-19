@@ -1,5 +1,6 @@
 import asyncio
-from typing import Any, Dict, List, Literal, Optional, Type, Generic, Tuple, TypeVar, cast
+from typing import Any, ClassVar, Optional,Dict, List, Literal, Type, Generic, Tuple, TypeVar, cast
+from pydantic import Field
 from pydantic import ConfigDict, BaseModel
 import uuid
 from agent.a2a.common.types import *
@@ -16,6 +17,7 @@ import traceback
 from datetime import datetime, timedelta
 from calendar import monthrange
 from langgraph.types import interrupt, Command
+
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
@@ -85,6 +87,8 @@ class ManagedTask(Task):
     already_run_flag: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+    # model_config = ConfigDict(ignored_types=('langgraph.types.Command',), arbitrary_types_allowed=True)
+    # Command: ClassVar = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -104,6 +108,102 @@ class ManagedTask(Task):
         if cp_name in self.checkpoint_nodes:
             self.checkpoint_nodes.remove(cp_name)
 
+    # from langgraph.types import Command
+
+    # async def astream_run(self, in_msg="", *, config=None, **kwargs):
+    #     """Run the task's skill with streaming support.
+    #
+    #     Args:
+    #         in_msg: Input message, state dict, or Command object
+    #         config: Configuration dictionary for the runnable
+    #         **kwargs: Additional arguments to pass to the runnable's astream method
+    #     """
+    #     # Create a queue to collect results
+    #     from langgraph.types import Command
+    #     result_queue = asyncio.Queue()
+    #
+    #     # Initialize config
+    #     config = config or {}
+    #
+    #     async def _generator():
+    #         nonlocal config, in_msg
+    #         try:
+    #             print("running skill:", self.skill.name, in_msg)
+    #             print("astream_run config:", config)
+    #
+    #             # Handle Command objects
+    #             if isinstance(in_msg, Command):
+    #                 if in_msg.resume:
+    #                     print("Resuming task with config:", config)
+    #                     # Ensure config has a thread_id for resuming
+    #                     if "configurable" not in config:
+    #                         config["configurable"] = {}
+    #                     if "thread_id" not in config["configurable"]:
+    #                         config["configurable"]["thread_id"] = str(uuid.uuid4())
+    #                     in_args = getattr(in_msg, "state", {})
+    #                 else:
+    #                     # Handle other command types if needed
+    #                     in_args = {}
+    #             else:
+    #                 # Normal execution
+    #                 if not in_msg:
+    #                     in_args = self.metadata.get("state", {})
+    #                 else:
+    #                     in_args = in_msg
+    #
+    #                 # Set up default config if not provided
+    #                 if not config:
+    #                     config = {
+    #                         "configurable": {
+    #                             "thread_id": str(uuid.uuid4())
+    #                         }
+    #                     }
+    #
+    #             print("in_args:", in_args)
+    #             print("final config:", config)
+    #
+    #             # Run the actual generator
+    #             async for step in self.skill.runnable.astream(in_args, config=config, **kwargs):
+    #                 print("Step output:", step)
+    #                 # Check if we should pause (for cancellation support)
+    #                 if self.pause_event.is_set():
+    #                     await self.pause_event.wait()
+    #
+    #                 # Update status
+    #                 self.status.message = Message(
+    #                     role="agent",
+    #                     parts=[TextPart(type="text", text=str(step))]
+    #                 )
+    #
+    #                 # Check for interrupt conditions
+    #                 if (isinstance(step, dict) and
+    #                         (step.get("require_user_input") or
+    #                          step.get("await_agent") or
+    #                          step.get("__interrupt__"))):
+    #                     self.status.state = TaskState.INPUT_REQUIRED
+    #                     print("input required...", step)
+    #                     await result_queue.put({
+    #                         "success": False,
+    #                         "step": step,
+    #                         "thread_id": config.get("configurable", {}).get("thread_id")
+    #                     })
+    #                     return
+    #
+    #                 yield step
+    #
+    #             print("task completed...")
+    #             self.status.state = TaskState.COMPLETED
+    #             await result_queue.put({"success": True})
+    #
+    #         except Exception as e:
+    #             ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
+    #             print(f"{ex_stat}")
+    #             await result_queue.put({"success": False, "error": ex_stat})
+    #         finally:
+    #             self.status.state = TaskState.CANCELED
+
+        # Rest of the function remains the same...
+
 
     async def astream_run(self, in_msg="", *, config=None, **kwargs):
         """Run the task's skill with streaming support.
@@ -113,54 +213,77 @@ class ManagedTask(Task):
             config: Configuration dictionary for the runnable
             **kwargs: Additional arguments to pass to the runnable's astream method
         """
+        if not in_msg:
+            in_args = self.metadata.get("state", {})
+        else:
+            in_args = in_msg
+
+        print("in_args:", in_args)
+
+        if config is None:
+            config = {
+                "configurable": {
+                    "thread_id": str(uuid.uuid4())
+                    # "thread_id": str(uuid.uuid4()),
+                    # "checkpoint_ns": "task_checkpoint",
+                    # "checkpoint_id": str(self.id)
+                }
+            }
+
+        agen = self.skill.runnable.astream(in_args, config=config, **kwargs)
         try:
             print("running skill:", self.skill.name, in_msg)
+            print("astream_run config:", config)
 
-            if not in_msg:
-                in_args = self.metadata.get("state", {})
-            else:
-                in_args = in_msg
-
-            print("in_args:", in_args)
 
             # Set up default config if not provided
-            if config is None:
-                config = {
-                    "configurable": {
-                        "thread_id": str(uuid.uuid4()),
-                        "checkpoint_ns": "task_checkpoint",
-                        "checkpoint_id": str(self.id)
-                    }
-                }
+
 
             # Handle Command objects
-            if isinstance(in_args, Command):
-                if in_args == Command.RESET:
-                    # Handle reset command
-                    config["configurable"]["thread_id"] = str(uuid.uuid4())
-                    in_args = {}  # Reset input args
+            # if isinstance(in_args, Command):
+            #     if in_args == Command.:
+            #         # Handle reset command
+            #         config["configurable"]["thread_id"] = str(uuid.uuid4())
+            #         in_args = {}  # Reset input args
                 # Add other command handling as needed
 
             # Pass through any additional kwargs to astream
-            async for step in self.skill.runnable.astream(in_args, config=config, **kwargs):
+            step = {}
+
+            async for step in agen:
+                print("Step output:", step)
                 await self.pause_event.wait()
                 self.status.message = Message(
                     role="agent",
                     parts=[TextPart(type="text", text=str(step))]
                 )
-                if step.get("require_user_input") or step.get("await_agent"):
+                if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.status.state = TaskState.INPUT_REQUIRED
-                    return
+                    print("input required...", step)
+                    # yield {"success": False, "step": step}
+                    break
 
-            print("task completed...")
-            self.status.state = TaskState.COMPLETED
-            return {"success": True}
+            if self.status.state == TaskState.INPUT_REQUIRED:
+                success = False
+            else:
+                success = True
+                self.status.state = TaskState.COMPLETED
+                print("task completed...")
+
+            run_result = {"success": success, "step": step}
+            print("astream_run result:", run_result)
+            return run_result
 
         except Exception as e:
             ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
             return {"success": False, "Error": ex_stat}
 
+        finally:
+            # Cleanup code here
+            # self.runner = None
+            self.status.state = TaskState.CANCELED
+            await agen.aclose()
 
 
     async def create_scheduler_task(self):
@@ -169,6 +292,9 @@ class ManagedTask(Task):
     def exit(self):
         if self.task and not self.task.done():
             self.task.cancel()
+
+# from langgraph.types import Command
+# ManagedTask.Command = Command
 
 from agent.a2a.common.types import TaskSendParams, TextPart
 Context = TypeVar('Context')
@@ -509,8 +635,14 @@ class TaskRunner(Generic[Context]):
 
     def sendChatToGUI(self, msg):
         try:
-            ipc_api = self.agent.mainwin.top_gui.get_ipc_api()
-            ipc_api.update_chats([msg])
+            msg_data = {
+                "from": "",
+                "to": "",
+                "message": msg,
+                "time": ""
+            }
+            resp = self.agent.mainwin.top_gui.update_chats_data(msg_data)
+            # ipc_api.update_chats([msg])
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
@@ -518,7 +650,10 @@ class TaskRunner(Generic[Context]):
     def find_chatter_tasks(self):
         # for now, for the simplicity just find the task that's not scheduled.
         found = [task for task in self.agent.tasks if 'chatter' in task.name.lower()]
-        return found
+        if found:
+            return found[0]
+        else:
+            return None
 
     def find_suitable_tasks(self, msg):
         # for now, for the simplicity just find the task that's not scheduled.
@@ -600,6 +735,15 @@ class TaskRunner(Generic[Context]):
                             print("ready to run the right task", task2run.name, msg)
                             response = await task2run.astream_run()
                             print("task run response:", response)
+                            if not response.get("success") and 'step' in response:
+                                print("sending interrupt prompt1")
+                                if '__interrupt__' in response['step']:
+                                    print("sending interrupt prompt2")
+                                    interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                    prompt = interrupt_obj.value["prompt_to_human"]
+                                    # now return this prompt to GUI to display
+                                    self.sendChatToGUI(prompt)
+
                             task_id = msg.params.id
                             self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                         self.a2a_msg_queue.task_done()
@@ -635,7 +779,7 @@ class TaskRunner(Generic[Context]):
                 if not self.chat_msg_queue.empty():
                     try:
                         msg = self.chat_msg_queue.get_nowait()
-                        print("chat queue message....", msg)
+                        print("chat queue message....", type(msg), msg)
                         # a message returned from the other party(human or other agent(s)),
                         task2run = self.find_chatter_tasks()
                         print("matched chatter task....", task2run)
@@ -643,13 +787,32 @@ class TaskRunner(Generic[Context]):
                         if task2run:
                             if justStarted:
                                 print("chatter task2run skill name", task2run.skill.name)
-                                task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+                                task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
 
                                 print("task2run init state", task2run.metadata["state"])
-                                print("ready to run the right task", task2run.name, msg)
+                                print("ready to run the right task", task2run.name, type(msg), msg)
                                 response = await task2run.astream_run()
                                 print("task run response:", response)
-                                task_id = msg.params.id
+
+                                print("msg is now becoming:", type(msg), msg)
+                                # if isinstance(msg, dict):
+                                #     msg = SendTaskRequest(**msg)
+                                # task_id = msg.params.id
+                                print("sending interrupt prompt1")
+                                if '__interrupt__' in response['step']:
+                                    print("sending interrupt prompt2")
+                                    interrupt_obj = response["step"]["__interrupt__"][
+                                        0]  # [0] because it's a tuple with one item
+                                    prompt = interrupt_obj.value["prompt_to_human"]
+                                    # now return this prompt to GUI to display
+                                    print("prompt to human:", prompt)
+                                    self.sendChatToGUI(prompt)
+                                    print("prompt sent to GUI<<<<<<<<<<<")
+
+                                if not isinstance(msg, dict):
+                                    task_id = msg.params.id
+                                else:
+                                    task_id = msg['params']['id']
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                                 justStarted = False
                             else:
@@ -674,7 +837,7 @@ class TaskRunner(Generic[Context]):
                         print("Queue unexpectedly empty when trying to get message.")
                         pass
                     except Exception as e:
-                        print(f"Error processing Commander message: {e}")
+                        print(f"Error launch interacted run: {e}" + traceback.format_exc())
                 else:
                     print("no chat message")
                     time.sleep(1)

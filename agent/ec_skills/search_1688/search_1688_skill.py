@@ -4,9 +4,11 @@ from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 from bot.seleniumSkill import execute_js_script
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from utils.logger_helper import get_agent_by_id
 
 def check_browser_and_drivers(state: NodeState) -> NodeState:
-    agent = state["messages"][0]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     webdriver_path = mainwin.default_webdriver_path
 
@@ -62,7 +64,8 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
 
 
 def goto_site(state: NodeState) -> NodeState:
-    agent = state["messages"][-1]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
         url = state["attributes"]["url"]
@@ -96,7 +99,8 @@ def goto_site(state: NodeState) -> NodeState:
 
 
 async def extract_web_page(state: NodeState) -> NodeState:
-    agent = state["messages"][0]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
         webdriver = mainwin.getWebDriver()
@@ -132,7 +136,8 @@ async def extract_web_page(state: NodeState) -> NodeState:
 
 
 async def search_product(state: NodeState) -> NodeState:
-    agent = state["messages"][0]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
         webdriver = mainwin.getWebDriver()
@@ -162,7 +167,8 @@ async def search_product(state: NodeState) -> NodeState:
 
 
 async def review_search_results(state: NodeState) -> NodeState:
-    agent = state["messages"][0]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
         webdriver = mainwin.getWebDriver()
@@ -193,7 +199,8 @@ async def review_search_results(state: NodeState) -> NodeState:
 
 
 async def review_product_details(state: NodeState) -> NodeState:
-    agent = state["messages"][0]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
         webdriver = mainwin.getWebDriver()
@@ -223,7 +230,8 @@ async def review_product_details(state: NodeState) -> NodeState:
 
 
 def get_next_action(state: NodeState) -> NodeState:
-    agent = state["messages"][0]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     webdriver_path = mainwin.default_webdriver_path
     try:

@@ -55,8 +55,15 @@ class LoggerHelper:
 logger_helper = LoggerHelper()
 
 def get_top_web_gui():
+    global top_web_gui
     return top_web_gui
 
 def set_top_web_gui(web_gui):
     global top_web_gui
     top_web_gui = web_gui
+
+def get_agent_by_id(agent_id):
+    global top_web_gui
+    agent = next((ag for ag in top_web_gui.py_login.main_win.agents if ag.card.id == agent_id), None)
+    print("by id foundagent: ", agent_id, agent.card)
+    return agent

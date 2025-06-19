@@ -34,6 +34,7 @@ import asyncio
 import requests
 import operator
 from agent.ec_skill import *
+from utils.logger_helper import get_agent_by_id
 
 
 async def create_rpa_helper_skill(mainwin):
@@ -413,7 +414,8 @@ async def supervisor_message_handler(state: NodeState) -> NodeState:
     try:
         print("running supervisor_message_handler....")
         msg_type = state["input"]
-        agent = state["messages"][-1]
+        agent_id = state["messages"][0]
+        agent = get_agent_by_id(agent_id)
         mainwin = agent.mainwin
         req_data = state["messages"][-2]
         result = await supervisor_msg_function_mapping[msg_type](mainwin, agent, req_data)
@@ -481,7 +483,8 @@ async def in_browser_scrape_content(state: NodeState) -> NodeState:
     result: list[ActionResult] = []
     step_start_time = time.time()
     tokens = 0
-    agent = state["messages"][-1]
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
 
     try:

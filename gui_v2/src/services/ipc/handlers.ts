@@ -246,13 +246,15 @@ export class IPCHandlers {
     async updateChats(request: IPCRequest): Promise<{ success: boolean }> {
         try {
             const { params } = request;
-
+            console.log('Received request with params:', params);
             // Validate params
             if (!params || typeof params !== 'object' || !('chats' in params)) {
                 throw new Error('Invalid parameters: expected { chats: IncomingMessage[] }');
             }
 
             const { chats } = params;
+            console.log('Received request with chats:', chats);
+
             if (!Array.isArray(chats)) {
                 throw new Error('Invalid parameters: "chats" must be an array');
             }
