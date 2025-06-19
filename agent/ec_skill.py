@@ -98,6 +98,26 @@ class EC_Skill(AgentSkill):
             sk_js = json.load(skjsf)
             self.set_ui_info(sk_js["ui_info"])
 
+    def getWorkFlowJSON(self):
+        flowJS = self.work_flow
+        flowJS = {}
+        return flowJS
+
+    def toDict(self):
+        return {
+            "id": self.id,
+            "work_flow": self.getWorkFlowJSON(),
+            "owner": self.owner,
+            "name": self.name,
+            "description": self.description,
+            "config": self.config,
+            "ui_info": self.ui_info,
+            "objectives": self.objectives,
+            "need_inputs": self.need_inputs,
+            "version": self.version,
+            "level": self.level,
+        }
+
 
 
 async def wait_until_server_ready(url: str, timeout=5):
@@ -164,6 +184,7 @@ class Goal(TypedDict):
 # State for LangGraph
 class NodeState(TypedDict):
     input: str
+    attachments: List[Any]
     messages: List[Any]
     attributes: dict
     result: dict
