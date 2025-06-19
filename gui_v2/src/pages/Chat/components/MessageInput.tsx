@@ -60,13 +60,10 @@ const InputAreaWrapper = styled.div`
 const StyledTextArea = styled(TextArea)`
     border: none !important;
     background: transparent;
-    resize: none;
     font-size: 15px;
     line-height: 1.6;
     color: var(--text-primary);
     padding: 10px 56px 10px 0;
-    min-height: 44px;
-    max-height: 176px; /* 8行 */
     width: 100%;
     box-sizing: border-box;
     border-radius: 16px;
@@ -83,6 +80,11 @@ const StyledTextArea = styled(TextArea)`
         box-shadow: none !important;
         border: none !important;
         background: rgba(255,255,255,0.02);
+    }
+    /* 只设置最大高度，不设置 min-height 和 height，避免干扰 autosize */
+    &&.ant-input, &&.ant-input:focus, &&.ant-input:hover {
+        max-height: 176px;
+        resize: none;
     }
 `;
 
