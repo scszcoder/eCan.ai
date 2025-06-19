@@ -10,18 +10,62 @@ const AttachmentPreviewWrapper = styled.div`
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    margin: 8px 0 0 0;
-    border-top: 1px dashed #e0e0e0;
-    padding-top: 4px;
+    margin: 0;
 `;
 
 const AttachmentItem = styled.div`
-    background: #f6f6f6;
-    padding: 6px 10px;
-    border-radius: 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    border-radius: 16px;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    transition: var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+    
+    &:hover {
+        border-color: var(--primary-color);
+        box-shadow: var(--shadow-md);
+    }
+`;
+
+const AttachmentIcon = styled(PaperClipOutlined)`
+    color: var(--text-secondary);
+    font-size: 14px;
+`;
+
+const AttachmentLink = styled.a`
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    
+    &:hover {
+        color: var(--primary-color);
+    }
+`;
+
+const RemoveButton = styled(Button)`
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    transition: var(--transition-fast);
+    
+    &:hover {
+        background: #ff4d4f;
+        color: white;
+    }
 `;
 
 interface AttachmentPreviewProps {
@@ -39,22 +83,21 @@ const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({
         <AttachmentPreviewWrapper>
             {attachments.map((att) => (
                 <AttachmentItem key={att.id}>
-                    <PaperClipOutlined />
-                    <a
+                    <AttachmentIcon />
+                    <AttachmentLink
                         href={att.url}
                         download={att.name}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ marginLeft: 4, fontSize: 12 }}
                     >
                         {att.name}
-                        <DownloadOutlined style={{ marginLeft: 6 }} />
-                    </a>
+                        <DownloadOutlined style={{ fontSize: 12 }} />
+                    </AttachmentLink>
                     {isPreview && onRemove && (
-                        <Button
+                        <RemoveButton
                             size="small"
                             type="text"
-                            icon={<CloseOutlined />}
+                            icon={<CloseOutlined style={{ fontSize: 12 }} />}
                             onClick={() => onRemove(att.id)}
                         />
                     )}
