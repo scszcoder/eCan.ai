@@ -30,6 +30,9 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
+import AppSider from './AppSider';
+import AppHeader from './AppHeader';
+import AppContent from './AppContent';
 
 const { Header, Sider, Content } = Layout;
 const { Title } = Typography;
@@ -236,56 +239,25 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         },
     ], [t]);
 
+    const onMenuClick = ({ key }: { key: string }) => navigate(key);
+
     return (
         <StyledLayout>
-            <Sider trigger={null} collapsible collapsed={collapsed} theme="dark">
-                <Logo onClick={handleLogoClick}>
-                    <div className="logo-icon">
-                        <SafetyCertificateOutlined />
-                    </div>
-                    <div className="logo-text">ECBot</div>
-                </Logo>
-                <Menu
-                    theme="dark"
-                    mode="inline"
-                    selectedKeys={[location.pathname]}
-                    items={menuItems}
-                    onClick={({ key }) => navigate(key)}
-                />
-            </Sider>
+            <AppSider
+                collapsed={collapsed}
+                onLogoClick={handleLogoClick}
+                menuItems={menuItems}
+                selectedKey={location.pathname}
+                onMenuClick={onMenuClick}
+            />
             <Layout>
-                <StyledHeader>
-                    <Button
-                        type="text"
-                        icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                        onClick={() => setCollapsed(!collapsed)}
-                        style={{
-                            fontSize: '16px',
-                            width: 64,
-                            height: 64,
-                        }}
-                    />
-                    <HeaderRight>
-                        <Badge count={5}>
-                            <Button
-                                type="text"
-                                icon={<BellOutlined />}
-                                style={{ fontSize: '16px', color: 'white' }}
-                            />
-                        </Badge>
-                        <Dropdown
-                            menu={{
-                                items: userMenuItems,
-                            }}
-                        >
-                            <Space style={{ cursor: 'pointer' }}>
-                                <Avatar icon={<UserOutlined />} />
-                                <span>{t('common.username')}</span>
-                            </Space>
-                        </Dropdown>
-                    </HeaderRight>
-                </StyledHeader>
-                <StyledContent>{children}</StyledContent>
+                <AppHeader
+                    collapsed={collapsed}
+                    onCollapse={() => setCollapsed(!collapsed)}
+                    userMenuItems={userMenuItems}
+                    onLogout={handleLogout}
+                />
+                <AppContent>{children}</AppContent>
             </Layout>
         </StyledLayout>
     );
