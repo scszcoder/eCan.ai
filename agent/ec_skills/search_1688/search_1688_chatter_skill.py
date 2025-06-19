@@ -7,7 +7,7 @@ from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import MemorySaver
 from onnxruntime.transformers.models.stable_diffusion.benchmark import get_negative_prompt_kwargs
 from scipy.stats import chatterjeexi
-
+import base64
 from bot.Logger import *
 from agent.ec_skill import *
 
@@ -114,6 +114,45 @@ def debug_node(state: NodeState) -> NodeState:
     return state
 
 
+
+
+def extract_file_text(file_bytes: bytes, filename: str) -> str:
+    # Example for PDFs; add more logic for other file types as needed
+    import io
+    import PyPDF2
+    with io.BytesIO(file_bytes) as buf:
+        reader = PyPDF2.PdfReader(buf)
+        return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+
+def llm_node_with_files(state: dict) -> dict:
+    user_input = state.get("input", "")
+    attachments = state.get("attachments", [])
+    if not attachments:
+        raise ValueError("No files attached!")
+
+    file_list = "\n".join(f"- {att['filename']}" for att in attachments)
+    contents_list = []
+    for att in attachments:
+        filename = att["filename"]
+        file_bytes = att["content"]
+        if isinstance(file_bytes, str):
+            file_bytes = base64.b64decode(file_bytes)
+        file_text = extract_file_text(file_bytes, filename)
+        # Optionally, limit per-file content for LLM context size
+        contents_list.append(f"--- {filename} ---\n{file_text[:2000]}")
+
+    file_contents = "\n\n".join(contents_list)
+
+    prompt_vars = {
+        "user_input": user_input,
+        "file_list": file_list,
+        "file_contents": file_contents
+    }
+
+    llm = ChatOpenAI(model="gpt-4", temperature=0.2)
+    prompt_str = prompt.format(**prompt_vars)
+    result = llm.invoke(prompt_str)
+    return {"llm_response": result.content}
 
 
 
@@ -227,7 +266,8 @@ async def create_search_1688_chatter_skill(mainwin):
             ("system", """
                 You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
                 Given the latest human boss message,  did the human boss provided an attached document? please answer in json format: {'with_attachment': true/false, 'attachment_files': [list of file names] }.
-            """)
+            """),
+            ("human", "{input}")
         ])
 
         # initial classification node
@@ -239,7 +279,8 @@ async def create_search_1688_chatter_skill(mainwin):
             ("system", """
                 You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
                 Given the latest human boss message,  try to understand it and let me know in json format that whether the human boss provided a pasted BOM text or simply looking for source a few components with the following json format {'with_attachment': true/false, 'bom': true/false, 'num_components': int }.
-            """)
+            """),
+            ("human", "{input}")
         ])
 
         # initial classification node
@@ -249,11 +290,22 @@ async def create_search_1688_chatter_skill(mainwin):
             ("system", """
                 You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
                 Given the latest human boss message, did human boss provide the part number of the component being searched (unless they're passive commodity components like a resistor, capacitor etc.) please answer in json format: {'part_number_or_passives': ['list of part numbers'], 'part_number_unknown': ['list of component names mentioned']} ?.
-            """)
+            """),
+            ("human", "{input}")
         ])
 
         # initial classification node
         understand_level0B_node = prompt2B | llm
+
+        prompt2C = ChatPromptTemplate.from_messages([
+            ("system", """
+                You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
+                Given the latest human boss message, did human boss provide the part number of the component being searched (unless they're passive commodity components like a resistor, capacitor etc.) please answer in json format: {'part_number_or_passives': ['list of part numbers'], 'part_number_unknown': ['list of component names mentioned']} ?.
+            """),
+            ("human", "Question: {user_input}\n\n"
+                         "Files:\n{file_list}\n\n"
+                         "File Contents:\n{file_contents}")
+        ])
 
         prompt3 = ChatPromptTemplate.from_messages([
             ("system", """

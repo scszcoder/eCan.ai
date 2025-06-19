@@ -778,3 +778,4 @@ def build_agent_mcp_tools_schemas():
     )
 
     add_tool_schema(tool_schema)
+    return tool_schemas
