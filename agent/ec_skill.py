@@ -103,7 +103,7 @@ class EC_Skill(AgentSkill):
         flowJS = {}
         return flowJS
 
-    def toDict(self):
+    def to_dict(self):
         return {
             "id": self.id,
             "work_flow": self.getWorkFlowJSON(),

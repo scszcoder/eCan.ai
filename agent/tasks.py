@@ -97,6 +97,24 @@ class ManagedTask(Task):
         if self.checkpoint_nodes is None:
             self.checkpoint_nodes = []
 
+    def to_dict(self):
+        taskJS = {
+            "id": self.id,
+            "sessionId": self.sessionId,
+            "skill": self.skill.name,
+            "metadata": self.metadata,
+            "state": self.state,
+            "resume_from": self.resume_from,
+            "trigger": self.trigger,
+            "pause_event": self.pause_event,
+            "schedule": self.schedule,
+            "checkpoint_nodes": self.checkpoint_nodes,
+            "priority": self.priority,
+            "last_run_datetime": self.last_run_datetime,
+            "already_run_flag": self.already_run_flag,
+        }
+        return taskJS
+
     def set_priority(self, p):
         self.priority = p
 
