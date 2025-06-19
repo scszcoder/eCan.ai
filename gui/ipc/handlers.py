@@ -297,10 +297,12 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
 
         # 简单的密码验证
         # 生成随机令牌
+        username = data['username']
         token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"get agents successful for user: {username}")
         return json.dumps(create_success_response(request, {
             'token': token,
-            'agents': agents,
+            'agents': [agent.to_dict() for agent in agents],
             'message': 'Login successful'
         }))
 
@@ -328,38 +330,26 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
-
+        logger.debug(f"Get skills handler called with request: {request}, params: {params}")
+        skills = py_login.main_win.agent_skills
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get skills: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
                 error
             ))
-
-        # 获取用户名和密码
         username = data['username']
-        password = data['password']
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"get skills successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'skills': [sk.toDict() for sk in skills],
+            'message': 'Login successful'
+        }))
 
-        # 简单的密码验证
-        if password == 'admin123#':
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            logger.info(f"Login successful for user: {username}")
-            return json.dumps(create_success_response(request, {
-                'token': token,
-                'message': 'Login successful'
-            }))
-        else:
-            logger.warning(f"Invalid password for user: {username}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_CREDENTIALS',
-                'Invalid username or password'
-            ))
     except Exception as e:
         logger.error(f"Error in login handler: {e}")
         return json.dumps(create_error_response(
@@ -384,43 +374,37 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Get tasks handler called with request: {request}, params: {params}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get tasks: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
                 error
             ))
 
+        agents = py_login.main_win.agents
         # 获取用户名和密码
         username = data['username']
 
         # 简单的密码验证
-        if username == 'admin123#':
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            logger.info(f"Login successful for user: {username}")
-            return json.dumps(create_success_response(request, {
-                'token': token,
-                'message': 'Login successful'
-            }))
-        else:
-            logger.warning(f"Invalid password for user: {username}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_CREDENTIALS',
-                'Invalid username or password'
-            ))
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"Get tasks successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Login successful'
+        }))
+
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get tasks handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during get tasks: {str(e)}"
         ))
 
 
@@ -439,12 +423,12 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Get vehicles handler called with request: {request}, params: {params}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get vehicles: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -455,27 +439,20 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
         username = data['username']
 
         # 简单的密码验证
-        if username == 'admin123#':
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            logger.info(f"Login successful for user: {username}")
-            return json.dumps(create_success_response(request, {
-                'token': token,
-                'message': 'Get vehicles successful'
-            }))
-        else:
-            logger.warning(f"Invalid password for user: {username}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_CREDENTIALS',
-                'Invalid username or password'
-            ))
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"Get vehicles successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Get vehicles successful'
+        }))
+
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get vehicles handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during get vehicles: {str(e)}"
         ))
 
 
@@ -493,12 +470,12 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Get tools handler called with request: {request}, params: {params}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get tools: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -509,27 +486,20 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         username = data['username']
 
         # 简单的密码验证
-        if username == 'admin123#':
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            logger.info(f"Login successful for user: {username}")
-            return json.dumps(create_success_response(request, {
-                'token': token,
-                'message': 'Get tools successful'
-            }))
-        else:
-            logger.warning(f"Invalid password for user: {username}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_CREDENTIALS',
-                'Invalid username or password'
-            ))
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"get tools successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Get tools successful'
+        }))
+
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get tools handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during get tools: {str(e)}"
         ))
 
 
@@ -547,12 +517,12 @@ async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"get chats handler called with request: {request}, params: {params}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get chats: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -563,27 +533,20 @@ async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]
         username = data['username']
 
         # 简单的密码验证
-        if username == 'admin123#':
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            logger.info(f"Login successful for user: {username}")
-            return json.dumps(create_success_response(request, {
-                'token': token,
-                'message': 'Login successful'
-            }))
-        else:
-            logger.warning(f"Invalid password for user: {username}")
-            return json.dumps(create_error_response(
-                request,
-                'INVALID_CREDENTIALS',
-                'Invalid username or password'
-            ))
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"get chats successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'get chats successful'
+        }))
+
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get chats handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during get chats: {str(e)}"
         ))
 
 
@@ -654,12 +617,12 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_logi
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Save agents handler called with request: {request}, params: {params}")
         print("save agents:", params)
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for save agents: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -672,20 +635,210 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_logi
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"Login successful for user: {username}")
+        logger.info(f"save agents successful for user: {username}")
         return json.dumps(create_success_response(request, {
             'token': token,
-            'message': 'Get agents successful'
+            'message': 'Save agents successful'
         }))
 
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in save agents handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during save agents: {str(e)}"
         ))
 
+
+
+@IPCHandlerRegistry.handler('save_skills')
+def handle_save_skills(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Save skills handler called with request: {request}, params: {params}")
+        print("save skills:", params)
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for save skills: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"save skills successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Save skills successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in save skills handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during save skills: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('save_settings')
+def handle_save_settings(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Save settings handler called with request: {request}, params: {params}")
+        print("save settings:", params)
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for save settings: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"save settings successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Save settings successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in save settings handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during save settings: {str(e)}"
+        ))
+
+
+
+@IPCHandlerRegistry.handler('save_tasks')
+def handle_save_tasks(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Save tasks handler called with request: {request}, params: {params}")
+        print("save agents:", params)
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for save tasks: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"save tasks successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Save tasks successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in save tasks handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during save tasks: {str(e)}"
+        ))
+
+
+
+@IPCHandlerRegistry.handler('save_all')
+def handle_save_all(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Save all handler called with request: {request}, params: {params}")
+        print("save agents:", params)
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username', 'password'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for save all: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"save all successful for user: {username}")
+        return json.dumps(create_success_response(request, {
+            'token': token,
+            'message': 'Save all successful'
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in save all handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during save all: {str(e)}"
+        ))
 
 @IPCHandlerRegistry.handler('get_available_tests')
 def handle_get_available_tests(request: IPCRequest, params: Optional[Any], py_login:Any) -> str:

@@ -648,7 +648,7 @@ class Login(QDialog):
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.set_top_gui(self.top_gui)
-                self.main_win.show()            #comment this out if using new GUI
+                # self.main_win.show()            #comment this out if using new GUI
             else:
                 # global commanderXport
                 # self.platoonwin = PlatoonMainWindow(self.tokens, self.textName.text(), commanderXport)
@@ -660,7 +660,7 @@ class Login(QDialog):
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.set_top_gui(self.top_gui)
-                self.main_win.show()
+                # self.main_win.show()
 
 
             # print("refrsh tokeN:", refresh_token)
