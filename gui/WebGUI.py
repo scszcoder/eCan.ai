@@ -201,7 +201,7 @@ class WebGUI(QMainWindow):
                     'chat_id': 2,
                     'is_group': False,
                     'recipients': [],
-                    'content': "good morning world",
+                    'content': dataHolder["message"],
                     'attachments': [],
                     'tx_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }

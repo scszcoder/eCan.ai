@@ -330,6 +330,7 @@ class AgentSkill(BaseModel):
 
 class AgentCard(BaseModel):
     name: str
+    id:  str = Field(default_factory=lambda: uuid4().hex)
     description: str | None = None
     url: str
     provider: AgentProvider | None = None

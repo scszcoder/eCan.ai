@@ -534,7 +534,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
 
 @IPCHandlerRegistry.handler('get_chats')
-def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -589,7 +589,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
 
 @IPCHandlerRegistry.handler('send_chat')
-def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+async def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理Chat
 
     验证用户凭据并返回访问令牌。
@@ -619,16 +619,9 @@ def handle_send_chat(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         sender_agent = find_sender(py_login, chat)
         recipient_agent = find_recipient(py_login,chat)
         if sender_agent and recipient_agent:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # In this case, you can't call loop.run_until_complete directly in the main thread.
-                # Workaround: Use "asyncio.run_coroutine_threadsafe" (if in a thread) or refactor to be async.
-                # Example (if in a thread):
-                future = asyncio.run_coroutine_threadsafe(sender_agent.a2a_send_chat_message(recipient_agent, {"chat": chat}), loop)
-                result = future.result()
-            else:
-                result = loop.run_until_complete(sender_agent.a2a_send_message(recipient_agent, {"chat": chat}))
-            result_message = json.dumps({"send_chat_response": result})
+            # send message to twin agent and let it handle the message from there.
+            agent_wait_response = await sender_agent.runner.chat_wait_in_line(request)
+            result_message = json.dumps({"send_chat_response": agent_wait_response})
 
         # 简单的密码验证
         # 生成随机令牌

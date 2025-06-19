@@ -132,7 +132,7 @@ class AgentTaskManager(InMemoryTaskManager):
 
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         """Handles the 'send task' request."""
-        print("INCOMING REQUEST:", request)
+        print("INCOMING REQUEST:", request, "to:", self._agent.card.name)
         # INCOMING
         # REQUEST: jsonrpc = '2.0'
         # id = 'f4c7470def10498d9963b2b85bd16c62'
@@ -161,14 +161,17 @@ class AgentTaskManager(InMemoryTaskManager):
             task_id = request.params.id
 
             waiter = self.create_waiter(task_id)
-            print("created waiter....")
-            msg_js = json.loads(request.params["message"])  # need , encoding='utf-8'?
-            if msg_js['metadata']["type"] == "send_task":
+            print("created waiter....", request)
+            msg_js = request.params.message  # need , encoding='utf-8'?
+            print("meta type:", msg_js.metadata["type"])
+            if msg_js.metadata["type"] == "send_task":
                 agent_wait_response = await self._agent.runner.task_wait_in_line(request)
-            elif msg_js['metadata']["type"] == "send_chat":
+            elif msg_js.metadata["type"] == "send_chat":
                 agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
+            else:
+                agent_wait_response = {}
 
-            print("waiting for runner response......")
+            print("waiting for runner response......", agent_wait_response)
             try:
                 # 2. Wait with timeout
                 result = await asyncio.wait_for(waiter, timeout=10)
