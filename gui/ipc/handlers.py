@@ -303,7 +303,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get agents: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -321,15 +321,15 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         return json.dumps(create_success_response(request, {
             'token': token,
             'agents': [agent.to_dict() for agent in agents],
-            'message': 'Login successful'
+            'message': 'get agents successful'
         }))
 
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get agents handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)} "
+            f"Error during get agents: {str(e)} "
         ))
 
 
@@ -365,15 +365,15 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_
         return json.dumps(create_success_response(request, {
             'token': token,
             'skills': [sk.to_dict() for sk in skills],
-            'message': 'Login successful'
+            'message': 'get skills successful'
         }))
 
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get skills handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during get skills: {str(e)}"
         ))
 
 
@@ -418,7 +418,7 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         return json.dumps(create_success_response(request, {
             'token': token,
             'tasks': [task.to_dict() for task in all_tasks],
-            'message': 'Login successful'
+            'message': 'get tasks successful'
         }))
 
     except Exception as e:
@@ -833,7 +833,7 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]], py_login:A
     """
     try:
         logger.debug(f"Save all handler called with request: {request}, params: {params}")
-        print("save agents:", params)
+        print("save all:", params)
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
