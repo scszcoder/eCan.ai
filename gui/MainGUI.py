@@ -1056,7 +1056,7 @@ class MainWindow(QMainWindow):
         # before this.
         self.llm = ChatOpenAI(model='gpt-4o')
         self.agents = []
-        build_agent_mcp_tools_schemas()
+        self.mcp_tools_schemas =build_agent_mcp_tools_schemas()
         print("Building agent skills.....")
         asyncio.create_task(self.async_agents_init())
 

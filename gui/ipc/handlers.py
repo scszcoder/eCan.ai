@@ -491,6 +491,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         logger.info(f"get tools successful for user: {username}")
         return json.dumps(create_success_response(request, {
             'token': token,
+            'tools_schemas': py_login.main_win.mcp_tools_schemas,
             'message': 'Get tools successful'
         }))
 
