@@ -1067,7 +1067,7 @@ class MainWindow(QMainWindow):
 
         self.agent_skills = await build_agent_skills(self)
         print("DONE build agent skills.....", len(self.agent_skills))
-        self.agents = build_agents(self)
+        build_agents(self)
         print("DONE build agents.....")
         await self.launch_agents()
         print("DONE launch agents.....")
@@ -1113,7 +1113,7 @@ class MainWindow(QMainWindow):
 
     def get_free_agent_ports(self, n):
         used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]
-        print("port range:", self.local_agents_port_range)
+        print("#agents:", len(self.agents), "used ports:", used_ports, "port range:", self.local_agents_port_range)
         all_ports = range(self.local_agents_port_range[0], self.local_agents_port_range[1]+1)
         free_ports = [port for port in all_ports if port not in used_ports]
 

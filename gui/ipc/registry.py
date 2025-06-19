@@ -3,17 +3,22 @@ IPC 处理器注册器模块
 提供 IPC 请求处理器的注册、查找和管理功能
 """
 
-from typing import Any, Dict, Optional, Callable, TypeVar, cast, ClassVar
+from typing import Any, Dict, Optional, Callable, TypeVar, cast, ClassVar, Union, Awaitable
 from functools import wraps
 from .types import IPCRequest, create_error_response
 from utils.logger_helper import logger_helper
 import json
 import inspect
+import asyncio
 
 logger = logger_helper.logger
 
 # 定义处理器函数类型
-HandlerFunc = Callable[[IPCRequest, Optional[Any], Optional[Any]], str]
+# HandlerFunc = Callable[[IPCRequest, Optional[Any], Optional[Any]], str]
+HandlerFunc = Union[
+    Callable[[IPCRequest, Optional[Any], Optional[Any]], str],
+    Callable[[IPCRequest, Optional[Any], Optional[Any]], Awaitable[str]]
+]
 HandlerType = TypeVar('HandlerType', bound=HandlerFunc)
 
 class IPCHandlerRegistry:
@@ -44,8 +49,9 @@ class IPCHandlerRegistry:
                 pass
         """
         def decorator(func: HandlerType) -> HandlerType:
+            is_coroutine = asyncio.iscoroutinefunction(func)
             @wraps(func)
-            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Optional[Any]) -> str:
+            def sync_wrapper(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Optional[Any]) -> str:
                 """处理器包装函数
                 
                 Args:
@@ -76,13 +82,50 @@ class IPCHandlerRegistry:
                         'HANDLER_ERROR',
                         f"Error in handler {method}: {str(e)}"
                     ))
-            
+
+            @wraps(func)
+            async def async_wrapper(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Optional[Any]) -> str:
+                """处理器包装函数
+
+                Args:
+                    request: IPC 请求对象
+                    params: 请求参数
+
+                Returns:
+                    str: JSON 格式的响应消息
+                """
+                try:
+                    # 验证请求参数
+                    if not isinstance(request, dict):
+                        logger.error(f"Invalid request format for method {method}")
+                        return json.dumps(create_error_response(
+                            request or {},
+                            'INVALID_REQUEST',
+                            "Invalid request format"
+                        ))
+
+                    # 调用处理器
+                    logger.debug(f"Calling handler for method {method}")
+                    return await func(request, params, py_login)
+
+                except Exception as e:
+                    logger.error(f"Error in async handler {method}: {e}")
+                    return json.dumps(create_error_response(
+                        request or {},
+                        'HANDLER_ERROR',
+                        f"Error in async handler {method}: {str(e)}"
+                    ))
+
             # 注册处理器
             if method in cls._handlers:
                 logger.warning(f"Handler for method {method} already exists, overwriting")
-            cls._handlers[method] = cast(HandlerType, wrapper)
+
+            wrapper = async_wrapper if is_coroutine else sync_wrapper
+            # cls._handlers[method] = cast(HandlerType, wrapper)
+            cls._handlers[method] = wrapper
             logger.info(f"Registered handler for method {method}")
-            return cast(HandlerType, wrapper)
+            # return cast(HandlerType, wrapper)
+            return func
         return decorator
     
     @classmethod

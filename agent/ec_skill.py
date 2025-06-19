@@ -163,6 +163,7 @@ class Goal(TypedDict):
 
 # State for LangGraph
 class NodeState(TypedDict):
+    input: str
     messages: List[Any]
     attributes: dict
     result: dict

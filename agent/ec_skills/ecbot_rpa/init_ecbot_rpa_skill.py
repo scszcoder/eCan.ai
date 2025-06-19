@@ -1,24 +1,24 @@
 
 
 
-def init_ecbot_rpa_helper_skill(agent):
-    msg = ""
+def init_ecbot_rpa_helper_skill(agent, msg=''):
+    msg_txt = msg
     return {
-        "messages": [agent, msg],
+        "messages": [agent.card.id, msg],
         "attributes": {}
     }
 
-def init_ecbot_rpa_operator_skill(agent):
-    msg = ""
+def init_ecbot_rpa_operator_skill(agent, msg=''):
+    msg_txt = msg
     return {
-        "messages": [agent, msg],
+        "messages": [agent.card.id, msg_txt],
         "attributes": {}
     }
 
-def init_ecbot_rpa_superviser_skill(agent):
-    msg = ""
+def init_ecbot_rpa_superviser_skill(agent, msg=''):
+    msg_txt = msg
     return {
-        "messages": [agent, msg],
+        "messages": [agent.card.id, msg_txt],
         "attributes": {}
     }
 

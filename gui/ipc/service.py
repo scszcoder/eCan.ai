@@ -10,6 +10,7 @@ from .types import (
     IPCRequest, IPCResponse, create_request, create_error_response
 )
 from .registry import IPCHandlerRegistry
+import asyncio
 
 logger = logger_helper.logger
 
@@ -83,33 +84,42 @@ class IPCService(QObject):
                 'INTERNAL_ERROR',
                 f"Error processing message: {str(e)}"
             ))
-    
-    def _handle_request(self, request: IPCRequest) -> str:
-        """处理 IPC 请求
-        
+
+    async def _handle_request_async(self, request: IPCRequest) -> str:
+        """异步处理 IPC 请求
+
         Args:
             request: IPC 请求对象
-            
+
         Returns:
             str: JSON 格式的响应消息
         """
         method = request.get('method')
         params = request.get('params')
         print("method:", method, "params:", params)
+
         if not method:
             return json.dumps(create_error_response(
                 request,
                 'INVALID_REQUEST',
                 "Missing method in request"
             ))
-        
+
         # 查找并调用对应的处理器
         handler = IPCHandlerRegistry.get_handler(method)
         if handler:
             try:
-                # 直接调用处理器，让装饰器处理参数
-                print("calling handler.......")
-                return handler(request, params, self.py_login)
+                if asyncio.iscoroutinefunction(handler):
+                    print("calling async handler.......")
+                    return await handler(request, params, self.py_login)
+                else:
+                    # 同步处理器在单独的线程中运行
+                    print("calling sync handler.......")
+                    loop = asyncio.get_event_loop()
+                    return await loop.run_in_executor(
+                        None,
+                        lambda: handler(request, params, self.py_login)
+                    )
             except Exception as e:
                 logger.error(f"Error calling handler for method {method}: {e}")
                 return json.dumps(create_error_response(
@@ -123,6 +133,155 @@ class IPCService(QObject):
                 'METHOD_NOT_FOUND',
                 f"Unknown method: {method}"
             ))
+
+    def _handle_request(self, request: IPCRequest) -> str:
+        """处理 IPC 请求
+
+        Args:
+            request: IPC 请求对象
+
+        Returns:
+            str: JSON 格式的响应消息
+        """
+        method = request.get('method')
+        params = request.get('params')
+        print("method:", method, "params:", params)
+
+        if not method:
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_REQUEST',
+                "Missing method in request"
+            ))
+
+        # 查找并调用对应的处理器
+        handler = IPCHandlerRegistry.get_handler(method)
+        print("found handler...")
+        if handler:
+            try:
+                # 检查是否是异步处理器
+                if asyncio.iscoroutinefunction(handler):
+                    # 对于登录等需要同步响应的请求，特殊处理
+                    if method in ['login', 'get_config']:  # 添加其他需要同步处理的方法
+                        print("calling sync-required async handler...")
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            result = loop.run_until_complete(handler(request, params, self.py_login))
+                            return result
+                        finally:
+                            loop.close()
+                    else:
+                        # 对于其他异步请求，使用异步处理
+                        print("calling async handler with background task...")
+
+                        async def process_async():
+                            try:
+                                result = await handler(request, params, self.py_login)
+                                # 发送响应回前端
+                                self.python_to_web.emit(json.dumps({
+                                    **json.loads(result),
+                                    "original_id": request.get("id", "")
+                                }))
+                            except Exception as e:
+                                logger.error(f"Error in async handler {method}: {e}")
+
+                        # 创建任务但不等待它完成
+                        asyncio.create_task(process_async())
+
+                        # 立即返回一个响应，表示请求已接收
+                        return json.dumps({
+                            "id": request.get("id", ""),
+                            "type": "response",
+                            "status": "pending",
+                            "result": {"message": "Request is being processed asynchronously"}
+                        })
+                else:
+                    # 同步处理器直接调用
+                    print("calling sync handler...")
+                    return handler(request, params, self.py_login)
+            except Exception as e:
+                logger.error(f"Error calling handler for method {method}: {e}")
+                return json.dumps(create_error_response(
+                    request,
+                    'HANDLER_ERROR',
+                    f"Error calling handler: {str(e)}"
+                ))
+        else:
+            return json.dumps(create_error_response(
+                request,
+                'METHOD_NOT_FOUND',
+                f"Unknown method: {method}"
+            ))
+
+
+    # def _handle_request(self, request: IPCRequest) -> str:
+    #     """处理 IPC 请求
+    #
+    #     Args:
+    #         request: IPC 请求对象
+    #
+    #     Returns:
+    #         str: JSON 格式的响应消息
+    #     """
+    #     method = request.get('method')
+    #     params = request.get('params')
+    #     print("method:", method, "params:", params)
+    #     if not method:
+    #         return json.dumps(create_error_response(
+    #             request,
+    #             'INVALID_REQUEST',
+    #             "Missing method in request"
+    #         ))
+    #
+    #     # 查找并调用对应的处理器
+    #     handler = IPCHandlerRegistry.get_handler(method)
+    #     print("found handler...")
+    #     if handler:
+    #         try:
+    #             # 检查是否是异步处理器
+    #             if asyncio.iscoroutinefunction(handler):
+    #                 # 对于异步处理器，创建一个任务来运行它
+    #                 async def run_async_handler():
+    #                     try:
+    #                         print("calling async handler.......")
+    #                         result = await handler(request, params, self.py_login)
+    #                         return result
+    #                     except Exception as e:
+    #                         logger.error(f"Error in async handler {method}: {e}")
+    #                         return json.dumps(create_error_response(
+    #                             request,
+    #                             'HANDLER_ERROR',
+    #                             f"Error in async handler: {str(e)}"
+    #                         ))
+    #
+    #                 # 在当前事件循环中调度异步任务
+    #                 loop = asyncio.get_event_loop()
+    #                 if loop.is_running():
+    #                     # 如果在运行中的事件循环中，创建一个任务
+    #                     future = asyncio.run_coroutine_threadsafe(run_async_handler(), loop)
+    #                     return future.result()
+    #                 else:
+    #                     # 如果没有运行中的事件循环，直接运行
+    #                     return loop.run_until_complete(run_async_handler())
+    #             else:
+    #                 # 同步处理器直接调用
+    #                 # 直接调用处理器，让装饰器处理参数
+    #                 print("calling sync handler.......")
+    #                 return handler(request, params, self.py_login)
+    #         except Exception as e:
+    #             logger.error(f"Error calling handler for method {method}: {e}")
+    #             return json.dumps(create_error_response(
+    #                 request,
+    #                 'HANDLER_ERROR',
+    #                 f"Error calling handler: {str(e)}"
+    #             ))
+    #     else:
+    #         return json.dumps(create_error_response(
+    #             request,
+    #             'METHOD_NOT_FOUND',
+    #             f"Unknown method: {method}"
+    #         ))
     
     def _handle_response(self, response: IPCResponse) -> None:
         """处理响应

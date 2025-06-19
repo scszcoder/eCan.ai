@@ -1419,7 +1419,7 @@ class EC_Agent(Generic[Context]):
 		return self.card
 
 	def get_a2a_server_port(self):
-		print(f"a2a server port: {self.a2a_server.agent_card.url.split(':')[-1]}")
+		print(f"get a2a server port: {self.a2a_server.agent_card.url.split(':')[-1]}")
 		return int(self.a2a_server.agent_card.url.split(":")[-1])
 
 	def is_busy(self):
@@ -1596,12 +1596,12 @@ class EC_Agent(Generic[Context]):
 	async def a2a_send_chat_message(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
 		print("recipient card:", recipient_agent.get_card().name.lower())
-
+		print("sending message:", message)
 		try:
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
 			print("a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
-			chat_msg = Message(role="user", parts=[TextPart(type="text", text="Summarize this report")], metadata={"type": "send_chat"})
+			chat_msg = Message(role="user", parts=[TextPart(type="text", text=message['chat'])], metadata={"type": "send_chat"})
 
 			payload = {
 				"id": "task-001X",
