@@ -32,7 +32,7 @@ def pend_for_human_input_node(state: NodeState):
     print("pend_for_human_input_node:", state)
     interrupted = interrupt( # (1)!
         {
-            "prompt_to_human": state["response"] # (2)!
+            "prompt_to_human": state["result"] # (2)!
         }
     )
     print("interrupted:", interrupted)
@@ -78,14 +78,16 @@ def any_unknown_part_numbers(state: NodeState) -> NodeState:
 #     # This is the value we'll be providing via Command(resume=<human_review>)
 #
 async def any_attachment(state: NodeState) -> str:
-    print("any_attachment:", state)
-    if state["job_related"]:
+    print("any_attachment input:", state)
+    state_output = state.messages[-1]
+    if state_output.get("job_related", False):
         return "do_work"
     return "chat_back"
 
 def chat_or_work(state: NodeState) -> str:
-    print("chat_or_work:", state)
-    if state["job_related"]:
+    print("chat_or_work input:", state)
+    state_output = state['result']
+    if state_output.get("job_related", False):
         return "do_work"
     return "chat_back"
 
@@ -107,6 +109,14 @@ def read_attachments(state: NodeState) -> str:
     print("read attachments:", state)
     return {}
 
+def debug_node(state: NodeState) -> NodeState:
+    print("Debug node state:", state)
+    return state
+
+
+
+
+
 
 async def create_search_1688_chatter_skill(mainwin):
     try:
@@ -119,27 +129,98 @@ async def create_search_1688_chatter_skill(mainwin):
         await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
-        llm = ChatOpenAI(model="gpt-4.1", temperature=0.5)
+        llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)
+        print("llm loaded:", llm)
         prompt0 = ChatPromptTemplate.from_messages([
             ("system", """
                 You're an electronics component procurement expert helping sourcing and procuring components, you job is to chat with your human boss to collect all the requirements for sourcing this component and distill all requirement information in a JSON format.
                  Of course you can chat with your human boss on any topic, but you should first distinguish whether the current chat message from human boss is directly related to sourcing components or not. if it has nothing to do with the job, or simply
-                 showing the intention of trying to source components without revealing any of the actual component information, like a component name (for example, a resistor or a regulator or a variable capacitor etc.), you should return a json in the form of {'job_related': false}, 
-                 otherwise you should return a json in the form of {'job_related': true}.
-            """)
+                 showing the intention of trying to source components without revealing any of the actual component information, like a component name (for example, a resistor or a regulator or a variable capacitor etc.), you should return a json in the form of {{'job_related': false}}, 
+                 otherwise you should return a json in the form of {{'job_related': true}}.
+            """),
+            ("human", "{input}")
         ])
 
+        async def process_chat(state: NodeState) -> NodeState:
+            # Get the last message (the actual user input)
+            last_message = state["messages"][-1]
+
+            # Format the prompt with just the message content
+            messages = await prompt0.ainvoke({"input": last_message})
+            print("LLM prompt:", messages)
+            # Call the LLM
+            response = await llm.ainvoke(messages)
+
+            print("LLM response:", response)
+            # Parse the response
+            try:
+                import json
+                import ast  # Add this import at the top of your file
+
+                # Extract content from AIMessage if needed
+                content = response.content if hasattr(response, 'content') else str(response)
+                print("Raw content:", content)  # Debug log
+
+                # Clean up the response
+                content = content.strip('`').strip()
+                if content.startswith('json'):
+                    content = content[4:].strip()
+                # Parse the JSON
+                # Convert to proper JSON string if it's a Python dict string
+                if content.startswith('{') and content.endswith('}'):
+                    # Replace single quotes with double quotes for JSON
+                    content = content.replace("'", '"')
+                    # Convert Python's True/False to JSON's true/false
+                    content = content.replace("True", "true").replace("False", "false")
+
+                # Return the full state with the analysis
+                result = json.loads(content)
+                return {**state, "result": result}
+            except Exception as e:
+                print(f"Error parsing LLM response: {e}")
+                print(f"Raw response: {response}")
+                return {**state, "analysis": {"job_related": False}}
+
         # initial classification node
-        chat_node = prompt0 | llm
+        chat_node = process_chat
 
         prompt1 = ChatPromptTemplate.from_messages([
             ("system", """
                 You're a personal assistant, given a chat message sequence, please respond to the latest chat message to your best effort.
-            """)
+            """),
+            ("human", "{input}")
         ])
 
+        async def gen_chat_back(state: NodeState) -> NodeState:
+            # Get the last message (the actual user input)
+            last_message = state["messages"][-1]
+
+            # Format the prompt with just the message content
+            messages = await prompt1.ainvoke({"input": last_message})
+            print("chat back LLM prompt:", messages)
+            # Call the LLM
+            response = await llm.ainvoke(messages)
+
+            print("chat back LLM response:", response)
+            # Parse the response
+            try:
+                import json
+                import ast  # Add this import at the top of your file
+
+                # Extract content from AIMessage if needed
+                content = response.content if hasattr(response, 'content') else str(response)
+                print("Raw content:", content)  # Debug log
+
+                state["messages"].append(content)
+                # Return the full state with the analysis
+                return {**state, "result": content}
+            except Exception as e:
+                print(f"Error parsing LLM response: {e}")
+                print(f"Raw response: {response}")
+                return {**state, "analysis": {"job_related": False}}
+
         # casual response node
-        chat_back_node = prompt1 | llm
+        chat_back_node = gen_chat_back
 
 
         prompt2 = ChatPromptTemplate.from_messages([
@@ -235,6 +316,7 @@ async def create_search_1688_chatter_skill(mainwin):
         workflow.add_node("chat", chat_node)
         workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)
+        workflow.add_node("debug", debug_node)
         workflow.add_conditional_edges("chat", chat_or_work, ["chat_back", "do_work"])
 
 

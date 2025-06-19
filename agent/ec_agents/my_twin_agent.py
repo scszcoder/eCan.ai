@@ -51,7 +51,7 @@ def set_up_my_twin_agent(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chat_task = ManagedTask(
             id=task_id,
-            name="Human Chat Task",
+            name="Human Chatter Task",
             description="Represent human to chat with others",
             status=status,  # or whatever default status you need
             sessionId=session_id,

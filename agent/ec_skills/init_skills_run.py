@@ -15,6 +15,6 @@ SKILL_INIT_TABLE = {
     "chatter for meca search 1688 web site": init_search_1688_chatter_skill
 }
 
-def init_skills_run(skillName, agent):
+def init_skills_run(skillName, agent, msg=None):
     print("skill name:", skillName)
-    return SKILL_INIT_TABLE[skillName](agent)
+    return SKILL_INIT_TABLE[skillName](agent, msg)
