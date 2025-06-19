@@ -238,7 +238,7 @@ interface UpdateChatsGUIParams {
 
 
 export const useChatStore = create<ChatState>((set) => ({
-    chats: [],
+    chats: [...initialChats],
     activeChatId: null,
 
     addChat: (chat) => set((state) => ({
@@ -269,12 +269,24 @@ export const useChatStore = create<ChatState>((set) => ({
                 if (chat.id !== chatId) return chat;
 
                 // Check if message already exists
-                const messageExists = chat.messages.some(m => m.id === message.id);
+
+//                 const messageExists = chat.messages.some(m => m.id === message.id);
+                const messageExists = chat.messages?.some(m => m.id === message.id) ?? false;
+
                 if (messageExists) return chat;
+
+                const currentMessages = Array.isArray(chat.messages) ? chat.messages : [];
 
                 return {
                     ...chat,
-                    messages: [...chat.messages, message],
+//                     messages: [...chat.messages, message],
+                    messages: [...currentMessages, {
+                    ...message,
+                    // Ensure all required fields have defaults
+                    tx_timestamp: message.tx_timestamp || new Date().toISOString(),
+                    rx_timestamp: message.rx_timestamp || new Date().toISOString(),
+                    status: message.status || 'sent'
+                    }],
                     last_message: message.content,
                     last_message_time: new Date().toLocaleTimeString(),
                     last_session_time: new Date(message.tx_timestamp).toLocaleDateString(),
@@ -298,35 +310,99 @@ const chatsEventBus = {
     }
 };
 
-// 导出更新数据的函数
-export const updateChatsGUI = ({ chat, message }: UpdateChatsGUIParams) => {
+
+export const updateChatsGUI = (params: UpdateChatsGUIParams | Chat[], activeChatId: string | null = null) => {
+    console.log('Updating chats with data:', { params, activeChatId });
+
     const chatStore = useChatStore.getState();
+    const currentChats = [...chatStore.chats];
+    let updated = false;
 
-    // Check if chat already exists
-    const existingChat = chatStore.chats.find(c => c.id === chat.id);
-    console.log('existingChat', existingChat);
-    if (existingChat) {
-        // Update existing chat
-        console.log('existingChat true', existingChat);
-        chatStore.updateChat({
-            ...existingChat,
-            last_message: message.content,
-            last_message_time: new Date().toLocaleTimeString(),
-            last_session_time: new Date(message.tx_timestamp).toLocaleDateString(),
-            unread_count: chatStore.activeChatId === chat.id ? 0 : (existingChat.unread_count + 1)
-        });
+    // Normalize the input to always work with an array of chats
+    const chatsData = Array.isArray(params) ? params : [{
+        ...params.chat,
+        messages: [params.message]
+    }];
 
-        // Add message to chat
-        console.log('addMessage', message);
-        chatStore.addMessage(chat.id, message);
-    } else {
-        // Create new chat with the message
-        console.log('add new chat', existingChat);
-        chatStore.addChat({
-            ...chat,            messages: [message]
-        });
+    chatsData.forEach(chatData => {
+        const existingChatIndex = currentChats.findIndex(c => c.id === chatData.id);
+
+        if (existingChatIndex >= 0) {
+            // Update existing chat
+            const existingChat = currentChats[existingChatIndex];
+            const updatedMessages = [...(existingChat.messages || [])];
+
+            // Add new messages that don't exist
+            (chatData.messages || []).forEach(newMsg => {
+                if (!updatedMessages.some(m => m.id === newMsg.id)) {
+                    updatedMessages.push({
+                        ...newMsg,
+                        tx_timestamp: newMsg.tx_timestamp || new Date().toISOString()
+                    });
+                    updated = true;
+                }
+            });
+
+            currentChats[existingChatIndex] = {
+                ...existingChat,
+                ...chatData,
+                messages: updatedMessages,
+                last_message: chatData.last_message || existingChat.last_message,
+                last_message_time: chatData.last_message_time || existingChat.last_message_time || new Date().toLocaleTimeString(),
+                last_session_time: chatData.last_session_time || existingChat.last_session_time || new Date().toLocaleDateString()
+            };
+        } else {
+            // Add new chat
+            currentChats.push({
+                ...chatData,
+                messages: chatData.messages || [],
+                last_message: chatData.last_message || '',
+                last_message_time: chatData.last_message_time || new Date().toLocaleTimeString(),
+                last_session_time: chatData.last_session_time || new Date().toLocaleDateString()
+            });
+        }
+        updated = true;
+    });
+
+    if (updated || activeChatId !== null) {
+        chatStore.setChats(currentChats);
+        if (activeChatId) {
+            chatStore.setActiveChat(activeChatId);
+        }
     }
 };
+
+
+// 导出更新数据的函数
+// export const updateChatsGUI = ({ chat, message }: UpdateChatsGUIParams) => {
+//     const chatStore = useChatStore.getState();
+//
+//     // Check if chat already exists
+//     chatStore.chats.find(c => c.id === chat.id)
+//     const existingChat = chatStore.chats.find(c => c.id === chat.id);
+//     console.log('existingChat', existingChat, chatStore.chats.length, chat.id, chatStore.chats);
+//     if (existingChat) {
+//         // Update existing chat
+//         console.log('existingChat true', existingChat);
+//         chatStore.updateChat({
+//             ...existingChat,
+//             last_message: message.content,
+//             last_message_time: new Date().toLocaleTimeString(),
+//             last_session_time: new Date(message.tx_timestamp).toLocaleDateString(),
+//             unread_count: chatStore.activeChatId === chat.id ? 0 : (existingChat.unread_count + 1)
+//         });
+//
+//         // Add message to chat
+//         console.log('addMessage', message);
+//         chatStore.addMessage(chat.id, message);
+//     } else {
+//         // Create new chat with the message
+//         console.log('add new chat', existingChat);
+//         chatStore.addChat({
+//             ...chat,            messages: [message]
+//         });
+//     }
+// };
 
 const Chat: React.FC = () => {
     const { t } = useTranslation();
@@ -341,6 +417,15 @@ const Chat: React.FC = () => {
     const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]); // This will run every time messages change
+
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
@@ -509,7 +594,10 @@ const Chat: React.FC = () => {
     } = useDetailView<Chat>(initialChats);
 
     // Get chats from the store
-    const { chats: storeChats } = useChatStore();
+    const { chats: storeChats, activeChatId } = useChatStore();
+    const activeChat = chats.find(chat => chat.id === activeChatId);
+//     const messages = activeChat?.messages || [];
+
     useEffect(() => {
         if (agentId) {
             const agentChat = chats.find(chat => chat.id.toString() === agentId);
