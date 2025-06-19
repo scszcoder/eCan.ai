@@ -1058,8 +1058,8 @@ class MainWindow(QMainWindow):
         self.agents = []
         self.mcp_tools_schemas =build_agent_mcp_tools_schemas()
         print("Building agent skills.....")
-        asyncio.create_task(self.async_agents_init())
-
+        # asyncio.create_task(self.async_agents_init())
+        asyncio.run_coroutine_threadsafe(self.async_agents_init(), loop)
 
     async def async_agents_init(self):
         self.mcp_client = await create_mcp_client()
@@ -1069,7 +1069,7 @@ class MainWindow(QMainWindow):
         print("DONE build agent skills.....", len(self.agent_skills))
         build_agents(self)
         print("DONE build agents.....")
-        # await self.launch_agents()
+        await self.launch_agents()
         print("DONE launch agents.....")
         self.top_gui.update_all(self)
         # await self.test_a2a()

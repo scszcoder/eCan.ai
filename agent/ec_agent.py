@@ -1587,6 +1587,7 @@ class EC_Agent(Generic[Context]):
 			else:
 				print("WARNING: UNRECOGNIZED task trigger type....")
 
+		await asyncio.gather(*self.running_tasks)
 		# runnable = self.skill_set[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()
