@@ -235,20 +235,11 @@ const ChatList: React.FC<ChatListProps> = ({
             />
             <ActionButtons
                 onAdd={onAdd}
-                onEdit={onEdit}
                 onDelete={() => {}}
-                onRefresh={onRefresh}
-                onExport={onExport}
-                onImport={onImport}
                 onSettings={onSettings}
                 addText={t('pages.chat.addChat')}
-                editText={t('pages.chat.editChat')}
                 deleteText={t('pages.chat.deleteChat')}
-                refreshText={t('pages.chat.refreshChat')}
-                exportText={t('pages.chat.exportChat')}
-                importText={t('pages.chat.importChat')}
                 settingsText={t('pages.chat.chatSettings')}
-                visibleButtons={['add', 'refresh']}
             />
             <ChatListArea>
                 <List
