@@ -50,6 +50,8 @@ const MessageList = styled.div`
     padding: 20px;
     background: var(--bg-primary);
     min-height: 0;
+    display: flex;
+    flex-direction: column;
     
     &::-webkit-scrollbar {
         width: 6px;

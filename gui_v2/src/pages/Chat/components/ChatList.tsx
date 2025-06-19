@@ -128,6 +128,19 @@ const ChatItem = styled.div<{ isActive: boolean }>`
     }
 `;
 
+const ChatListContainer = styled.div`
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+`;
+
+const ChatListArea = styled.div`
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+`;
+
 interface ChatListProps {
     chats: Chat[];
     activeChatId: number | null;
@@ -215,11 +228,9 @@ const ChatList: React.FC<ChatListProps> = ({
     };
 
     return (
-        <>
+        <ChatListContainer>
             <SearchFilter
                 onSearch={onSearch}
-                onFilterChange={onFilterChange}
-                onReset={onReset}
                 placeholder={t('pages.chat.searchPlaceholder')}
             />
             <ActionButtons
@@ -239,70 +250,72 @@ const ChatList: React.FC<ChatListProps> = ({
                 settingsText={t('pages.chat.chatSettings')}
                 visibleButtons={['add', 'refresh']}
             />
-            <List
-                dataSource={chats}
-                renderItem={chat => (
-                    <ChatItem
-                        key={chat.id}
-                        isActive={chat.id === activeChatId}
-                        onClick={() => onChatSelect(chat.id)}
-                    >
-                        <div 
-                            className="delete-button-wrapper"
-                            onClick={(e) => e.stopPropagation()}
-                            onMouseDown={(e) => e.stopPropagation()}
+            <ChatListArea>
+                <List
+                    dataSource={chats}
+                    renderItem={chat => (
+                        <ChatItem
+                            key={chat.id}
+                            isActive={chat.id === activeChatId}
+                            onClick={() => onChatSelect(chat.id)}
                         >
-                            <Button
-                                type="text"
-                                size="small"
-                                icon={<MinusOutlined />}
-                                className={`delete-button ${hoveredDeleteButton === chat.id ? 'show' : ''}`}
-                                onClick={() => handleDeleteConfirm(chat.id)}
-                                style={{ 
-                                    fontSize: '11px', 
-                                    lineHeight: '1',
-                                    padding: '0',
-                                    margin: '0',
-                                    width: '18px',
-                                    height: '18px',
-                                    minWidth: '18px',
-                                    border: 'none',
-                                    boxShadow: 'none'
-                                }}
-                                onMouseEnter={() => handleDeleteButtonMouseEnter(chat.id)}
-                                onMouseLeave={handleDeleteButtonMouseLeave}
-                            />
-                        </div>
-                        <div className="chat-content">
-                            <div className="chat-header">
-                                <Badge status={getStatusColor(chat.status)} />
-                                <Avatar icon={getAvatarIcon(chat.type)} size="small" />
-                                <Text strong className="chat-name">{chat.name}</Text>
-                                {chat.unreadCount > 0 && (
-                                    <Badge count={chat.unreadCount} />
-                                )}
+                            <div 
+                                className="delete-button-wrapper"
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                            >
+                                <Button
+                                    type="text"
+                                    size="small"
+                                    icon={<MinusOutlined />}
+                                    className={`delete-button ${hoveredDeleteButton === chat.id ? 'show' : ''}`}
+                                    onClick={() => handleDeleteConfirm(chat.id)}
+                                    style={{ 
+                                        fontSize: '11px', 
+                                        lineHeight: '1',
+                                        padding: '0',
+                                        margin: '0',
+                                        width: '18px',
+                                        height: '18px',
+                                        minWidth: '18px',
+                                        border: 'none',
+                                        boxShadow: 'none'
+                                    }}
+                                    onMouseEnter={() => handleDeleteButtonMouseEnter(chat.id)}
+                                    onMouseLeave={handleDeleteButtonMouseLeave}
+                                />
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <Text type="secondary" className="chat-message">
-                                    {chat.lastMessage || 'No messages yet'}
-                                </Text>
-                                <Text type="secondary" className="chat-time">
-                                    {(() => {
-                                        const date = new Date(chat.lastMessageTime);
-                                        if (isNaN(date.getTime())) {
-                                            return '--:--';
-                                        }
-                                        return date.toLocaleTimeString([], {
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        });
-                                    })()}
-                                </Text>
+                            <div className="chat-content">
+                                <div className="chat-header">
+                                    <Badge status={getStatusColor(chat.status)} />
+                                    <Avatar icon={getAvatarIcon(chat.type)} size="small" />
+                                    <Text strong className="chat-name">{chat.name}</Text>
+                                    {chat.unreadCount > 0 && (
+                                        <Badge count={chat.unreadCount} />
+                                    )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <Text type="secondary" className="chat-message">
+                                        {chat.lastMessage || 'No messages yet'}
+                                    </Text>
+                                    <Text type="secondary" className="chat-time">
+                                        {(() => {
+                                            const date = new Date(chat.lastMessageTime);
+                                            if (isNaN(date.getTime())) {
+                                                return '--:--';
+                                            }
+                                            return date.toLocaleTimeString([], {
+                                                hour: '2-digit',
+                                                minute: '2-digit'
+                                            });
+                                        })()}
+                                    </Text>
+                                </div>
                             </div>
-                        </div>
-                    </ChatItem>
-                )}
-            />
+                        </ChatItem>
+                    )}
+                />
+            </ChatListArea>
             <Modal
                 title={t('common.confirm')}
                 open={isDeleteConfirmOpen}
@@ -329,7 +342,7 @@ const ChatList: React.FC<ChatListProps> = ({
                     </div>
                 </div>
             </Modal>
-        </>
+        </ChatListContainer>
     );
 };
 
