@@ -117,9 +117,10 @@ class EC_Agent(Generic[Context]):
 		supervisors: Optional[List[str]] = None,
 		subordinates: Optional[List[str]] = None,
 		peers: Optional[List[str]] = None,
-		orgnizations: Optional[List[str]] = None,
-		job_descriptsion: Optional[List[str]] = None,
-		personality: Personality | None = None,
+		rank: Optional[str] = None,
+		organizations: Optional[List[str]] = None,
+		job_description: Optional[List[str]] = None,
+		personalities: Optional[List[str]] = None,
 		# runner: Runner[Context] = Runner(),
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
@@ -191,7 +192,10 @@ class EC_Agent(Generic[Context]):
 		self.supervisors = supervisors if supervisors is not None else []
 		self.subordinates = subordinates if subordinates is not None else []
 		self.peers = peers if peers is not None else []
-
+		self.rank = rank if rank is not None else ""
+		self.organizations: organizations if organizations is not None else []
+		self.job_description: job_description if job_description is not None else ""
+		self.personalities: personalities if personalities is not None else []
 		self.embeddings = init_embeddings("openai:text-embedding-3-small")
 		self.store = InMemoryStore(
 			index={
@@ -358,6 +362,36 @@ class EC_Agent(Generic[Context]):
 
 		if self.settings.save_conversation_path:
 			logger.info(f'Saving conversation to {self.settings.save_conversation_path}')
+
+	def to_dict(self):
+		agentJS = {
+			"card": self.card_to_dict(self.card),
+			"supervisors": self.supervisors,
+			"subordinates": self.subordinates,
+			"peers": self.peers,
+			"rank": self.rank,
+			"organizations": self.organizations,
+			"job_description": self.job_description,
+			"personalities": self.personalities,
+		}
+		return agentJS
+
+	def card_to_dict(self, card):
+		cardJS = {
+			"name": card.name,
+			"id": card.id,
+			"description": card.description,
+			"url": card.url,
+			"provider": card.provider,
+			"version": card.version,
+			"documentationUrl": card.documentationUrl,
+			"capabilities": card.capabilities,
+			"authentication": card.authentication,
+			"defaultInputModes": card.defaultInputModes,
+			"defaultOutputModes": card.defaultOutputModes,
+			"skills": card.skills
+		}
+		return cardJS
 
 	def add_tasks(self, tasks):
 		self.tasks += tasks  # or: self.tasks.extend(tasks)
