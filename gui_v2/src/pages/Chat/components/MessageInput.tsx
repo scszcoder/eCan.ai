@@ -6,14 +6,23 @@ import {
     PaperClipOutlined,
     AudioOutlined
 } from '@ant-design/icons';
-import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useAttachmentHandler } from '../hooks/useAttachmentHandler';
 import AttachmentPreview from './AttachmentPreview';
 import { Attachment } from '../types/chat';
+import 'emoji-picker-element';
 
 const { TextArea } = Input;
+
+// 让 TypeScript 识别 <emoji-picker> 自定义元素
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'emoji-picker': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
+    }
+  }
+}
 
 const MessageInputContainer = styled.div`
     position: relative;
@@ -217,6 +226,26 @@ interface MessageInputProps {
     disabled?: boolean;
 }
 
+const EmojiPickerElement: React.FC<{ onEmojiSelect: (emoji: string) => void; style?: React.CSSProperties }> = ({ onEmojiSelect, style }) => {
+    const pickerRef = useRef<any>(null);
+    useEffect(() => {
+        const picker = pickerRef.current;
+        if (!picker) return;
+        const handler = (event: any) => {
+            onEmojiSelect(event.detail.unicode);
+        };
+        picker.addEventListener('emoji-click', handler);
+        return () => picker.removeEventListener('emoji-click', handler);
+    }, [onEmojiSelect]);
+    return (
+        <emoji-picker
+            ref={pickerRef}
+            images-path="/emoji/png/"
+            style={style}
+        ></emoji-picker>
+    );
+};
+
 const MessageInput: React.FC<MessageInputProps> = ({ onSend, disabled }) => {
     const { t } = useTranslation();
     const [message, setMessage] = useState('');
@@ -237,11 +266,6 @@ const MessageInput: React.FC<MessageInputProps> = ({ onSend, disabled }) => {
         if (!message.trim() && attachments.length === 0) return;
         onSend(message, attachments);
         setMessage('');
-    };
-
-    const handleEmojiClick = (emojiData: EmojiClickData) => {
-        setMessage(prev => prev + emojiData.emoji);
-        setShowEmojiPicker(false);
     };
 
     const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -309,7 +333,12 @@ const MessageInput: React.FC<MessageInputProps> = ({ onSend, disabled }) => {
                 </ToolbarContainer>
                 {showEmojiPicker && (
                     <EmojiPickerContainer>
-                        <EmojiPicker onEmojiClick={handleEmojiClick} />
+                        <EmojiPickerElement
+                            onEmojiSelect={(emoji) => {
+                                setMessage(prev => prev + emoji);
+                                setShowEmojiPicker(false);
+                            }}
+                        />
                     </EmojiPickerContainer>
                 )}
             </InputAndToolbarWrapper>
