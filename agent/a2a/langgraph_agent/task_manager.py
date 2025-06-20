@@ -264,7 +264,7 @@ class AgentTaskManager(InMemoryTaskManager):
     async def _process_agent_response(
         self, request: SendTaskRequest, agent_response: dict
     ) -> SendTaskResponse:
-        """Processes the agent's response and updates the task store."""
+        """Processes the agent's response and updates the task stores."""
         task_send_params: TaskSendParams = request.params
         task_id = task_send_params.id
         history_length = task_send_params.historyLength

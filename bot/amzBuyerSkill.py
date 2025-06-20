@@ -1239,7 +1239,7 @@ def genAMZBrowseDetails(lvl, purchase, stepN, worksettings, theme):
     this_step, step_words = genScrollUpUntilLoc("from_us", "anchor text", 20, "product_details", "top", "scroll_adjustment", this_step, worksettings, "amz", theme)
     psk_words = psk_words + step_words
 
-    #if there is purchase action, save the page, scrape it and confirm the title, store, ASIN, price, feedbacks, rating.
+    #if there is purchase action, save the page, scrape it and confirm the title, stores, ASIN, price, feedbacks, rating.
     this_step, step_words = genStepCheckCondition("len("+purchase+") != 0", "", "", this_step)
     psk_words = psk_words + step_words
 
@@ -2310,7 +2310,7 @@ def genWinChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepCheckCondition("int(scroll_resolution) == 250", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # get the location of text "Search" nearest to the specified of the screen and store it in variable "cal_marker".
+    # get the location of text "Search" nearest to the specified of the screen and stores it in variable "cal_marker".
     # loc, txt, screen, tovar, stepN
     this_step, step_words = genStepRecordTxtLineLocation("middle", "", "screen_info", "cal_marker", this_step)
     psk_words = psk_words + step_words
@@ -3444,7 +3444,7 @@ def genStepAMZBrowseDetails(screen, sink, flag, stepN):
     return ((stepN+STEP_GAP), ("\"step " + str(stepN) + "\":\n" + json.dumps(stepjson,indent=4) + ",\n"))
 
 # this is kind of a customized step just for e-commerce. extract relavant information in the detail page.
-# mainly check product's store, asin, size, weight, category ranking, Q&A, review information.
+# mainly check product's stores, asin, size, weight, category ranking, Q&A, review information.
 def genStepAMZSearchReviews(screen, sink, flag, stepN):
     stepjson = {
         "type": "AMZ Search Reviews",

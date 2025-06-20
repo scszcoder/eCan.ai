@@ -171,7 +171,7 @@ class PRODUCT_SUMMERY:
         return {
             "title": self.title,
             "brand": self.brand,
-            "store": self.store,
+            "stores": self.store,
             "asin": self.asin,
             "image": self.image,
             "ac": self.ac,

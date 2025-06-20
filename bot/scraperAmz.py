@@ -189,11 +189,11 @@ def amz_buyer_scrape_product_details(bs_source):
                 match = re.search(pattern, storeTag.text)
 
                 if match:
-                    # Extract the store name from the match object
-                    product_details["store"] = match.group(1)
-                    # print(f"Store name: {product_details['store']}")
+                    # Extract the stores name from the match object
+                    product_details["stores"] = match.group(1)
+                    # print(f"Store name: {product_details['stores']}")
                 # else:
-                # print("No store match found.")
+                # print("No stores match found.")
 
             ratingTag = soup.find("a", attrs={"id": "acrCustomerReviewLink"})
             if ratingTag:
@@ -336,7 +336,7 @@ def amz_buyer_scrape_product_details(bs_source):
     try:
         product_details = {
             "title": "",
-            "store": "",
+            "stores": "",
             "variations": None,
             "varPrices": None,
             "default_price": "",
@@ -843,7 +843,7 @@ def processAmzScrapeMsgList(step, i, mission):
 
             message_components = soup.find_all(class_=re.compile(r'message-component'))
 
-            # Initialize list to store messages
+            # Initialize list to stores messages
             messages = []
 
             # Iterate through message components
@@ -908,7 +908,7 @@ def processAmzScrapeCustomerMsgThread(step, i, mission):
 
             message_components = soup.find_all(class_=re.compile(r'message-component'))
 
-            # Initialize list to store messages
+            # Initialize list to stores messages
             messages = []
 
             # Iterate through message components

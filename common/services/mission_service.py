@@ -36,7 +36,7 @@ MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'defa
                           {'name': 'skills', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'delDate', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'asin', 'type': 'TEXT', 'nullable': True, 'default': ""},
-                          {'name': 'store', 'type': 'TEXT', 'nullable': True, 'default': ""},
+                          {'name': 'stores', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'follow_seller', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'brand', 'type': 'TEXT', 'nullable': True, 'default': ""},
                           {'name': 'img', 'type': 'TEXT', 'nullable': True, 'default': ""},
@@ -185,7 +185,7 @@ class MissionService:
             local_mission.skills = str(jb["skills"])
             local_mission.delDate = jb["delDate"]
             local_mission.asin = mission["asin"]
-            local_mission.store = mission["store"]
+            local_mission.store = mission["stores"]
             local_mission.brand = mission["brand"]
             local_mission.img = mission["image"]
             local_mission.title = mission["title"]
@@ -236,7 +236,7 @@ class MissionService:
             result.skills = amission["skills"]
             result.delDate = amission["delDate"]
             result.asin = amission["asin"]
-            result.store = amission["store"]
+            result.store = amission["stores"]
             result.brand = amission["brand"]
             result.image = amission["image"]
             result.title = amission["title"]

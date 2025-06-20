@@ -1432,7 +1432,7 @@ class EBMISSION(QStandardItem):
         self.setConfig(dj.get("config", "{}"))
         self.setSkills(dj.get("skills", "101"))
         self.setASIN(dj.get("asin", ""))                #this will auto set psudo_asin
-        self.setStore(dj.get("store", "NoneStore"))     #this will auto set psudo_store
+        self.setStore(dj.get("stores", "NoneStore"))     #this will auto set psudo_store
         self.setBrand(dj.get("brand", "NoneBrand"))     #this will auto set psudo_brand
         self.setImagePath(dj.get("img", ""))
         self.setTitle(dj.get("title", ""))
@@ -1498,12 +1498,12 @@ class EBMISSION(QStandardItem):
             self.setMtype("goodFB")
 
         self.setASIN(jd["asin"])        # this will auto set psudo_asin
-        self.setStore(jd["store"])      # this will auto set psudo_store
+        self.setStore(jd["stores"])      # this will auto set psudo_store
         self.setBrand(jd["brand"])      # this will auto set psudo_brand
         self.setTitle(jd["title"])
 
         # self.setPseudoASIN(self.main_win.generateShortHash(jd["asin"]))
-        # self.setPseudoStore(self.main_win.generateShortHash(jd["store"]))
+        # self.setPseudoStore(self.main_win.generateShortHash(jd["stores"]))
         # self.setPseudoBrand(self.main_win.generateShortHash(jd["brand"]))
 
         self.setVariations(jd["variations"])

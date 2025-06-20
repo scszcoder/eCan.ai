@@ -4,7 +4,20 @@ import uuid
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.types import interrupt, Command
+from langgraph.func import entrypoint, task
+from langgraph.graph import add_messages
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.store.base import BaseStore
+from langchain_core.messages.utils import (
+    # highlight-next-line
+    trim_messages,
+    # highlight-next-line
+    count_tokens_approximately
+# highlight-next-line
+)
+from langgraph.prebuilt import create_react_agent
+from langmem.short_term import SummarizationNode
+
 from onnxruntime.transformers.models.stable_diffusion.benchmark import get_negative_prompt_kwargs
 from scipy.stats import chatterjeexi
 import base64
@@ -156,6 +169,28 @@ def llm_node_with_files(state: dict) -> dict:
 
 
 
+def pre_model_hook(state):
+    trimmed_messages = trim_messages(
+        state["messages"],
+        strategy="last",
+        token_counter=count_tokens_approximately,
+        max_tokens=384,
+        start_on="human",
+        end_on=("human", "tool"),
+    )
+    # highlight-next-line
+    return {"llm_input_messages": trimmed_messages}
+
+
+# summarization_node = SummarizationNode(
+#     token_counter=count_tokens_approximately,
+#     model=model,
+#     max_tokens=384,
+#     max_summary_tokens=128,
+#     output_messages_key="llm_input_messages",
+# )
+
+
 
 async def create_search_1688_chatter_skill(mainwin):
     try:
@@ -165,7 +200,7 @@ async def create_search_1688_chatter_skill(mainwin):
         searcher_chatter_skill = EC_Skill(name="chatter for meca search 1688 web site",
                              description="chat with human or other agents to help search a part/component or a product on 1688 website.")
 
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
         llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)

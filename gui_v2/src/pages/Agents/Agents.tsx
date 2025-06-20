@@ -20,9 +20,10 @@ import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
 import {get_ipc_api} from '../../services/ipc_api';
 import { useNavigate } from 'react-router-dom';
+import { useUserStore } from '../../stores/userStore';
 
 const { Text, Title } = Typography;
-
+// const username = useUserStore((state) => state.username);
 const AgentItem = styled.div`
     position: relative;
     padding: 12px;
