@@ -96,7 +96,6 @@ class IPCService(QObject):
         """
         method = request.get('method')
         params = request.get('params')
-        print("method:", method, "params:", params)
 
         if not method:
             return json.dumps(create_error_response(

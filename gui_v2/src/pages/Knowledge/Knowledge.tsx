@@ -23,6 +23,7 @@ import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
 import { IPCAPI } from '@/services/ipc/api';
+import type { DetailItem } from '../../components/Common/DetailCard';
 
 const { Text, Title } = Typography;
 
@@ -186,8 +187,8 @@ const Knowledge: React.FC = () => {
         <>
             <SearchFilter
                 onSearch={handleSearch}
-                onFilterChange={handleFilterChange}
-                onReset={handleReset}
+                onFilter={handleFilterChange}
+                onFilterReset={handleReset}
                 filterOptions={[
                     {
                         key: 'status',
@@ -226,7 +227,7 @@ const Knowledge: React.FC = () => {
                 settingsText={t('pages.knowledge.knowledgeSettings')}
             />
             <List
-                dataSource={knowledges}
+                dataSource={Array.isArray(knowledges) ? knowledges : []}
                 loading={loading}
                 renderItem={knowledgePoint => (
                     <KnowledgeItem onClick={() => selectItem(knowledgePoint)}>
@@ -280,7 +281,7 @@ const Knowledge: React.FC = () => {
                         },
                         {
                             label: t('pages.knowledge.status'),
-                            value: <StatusTag status={selectedKnowledge.status} />,
+                            value: (<StatusTag status={selectedKnowledge.status} />) as React.ReactNode,
                             icon: <CheckCircleOutlined />,
                         },
                         {
@@ -288,7 +289,7 @@ const Knowledge: React.FC = () => {
                             value: selectedKnowledge.location,
                             icon: <EnvironmentOutlined />,
                         },
-                    ]}
+                    ] as DetailItem[]}
                 />
                 <DetailCard
                     title={t('pages.knowledge.performanceMetrics')}
@@ -301,7 +302,7 @@ const Knowledge: React.FC = () => {
                                     suffix="%"
                                     prefix={<ThunderboltOutlined />}
                                 />
-                            ),
+                            ) as React.ReactNode,
                             icon: <ThunderboltOutlined />,
                         },
                         {
@@ -311,20 +312,20 @@ const Knowledge: React.FC = () => {
                                     value={selectedKnowledge.totalDistance}
                                     suffix="km"
                                 />
-                            ),
+                            ) as React.ReactNode,
                             icon: <ClusterOutlined />,
                         },
                         {
                             label: t('pages.knowledge.lastMaintenance'),
-                            value: selectedKnowledge.lastMaintenance,
+                            value: selectedKnowledge.lastMaintenance || '',
                             icon: <ToolOutlined />,
                         },
                         {
                             label: t('pages.knowledge.nextMaintenance'),
-                            value: selectedKnowledge.nextMaintenance,
+                            value: selectedKnowledge.nextMaintenance || '',
                             icon: <ClockCircleOutlined />,
                         },
-                    ]}
+                    ] as DetailItem[]}
                 />
                 <Space>
                     <Button

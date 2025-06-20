@@ -11,7 +11,19 @@ const Container = styled.div`
 const ListCard = styled(Card)`
     width: 300px;
     height: 100%;
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    .ant-card-head {
+        flex-shrink: 0;
+    }
+    .ant-card-body {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+    }
     .ant-card-head-title {
         color: white;
     }
@@ -20,7 +32,19 @@ const ListCard = styled(Card)`
 const DetailsCard = styled(Card)`
     flex: 1;
     height: 100%;
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    .ant-card-head {
+        flex-shrink: 0;
+    }
+    .ant-card-body {
+        flex: 1 1 0;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+    }
     .ant-card-head-title {
         color: white;
     }

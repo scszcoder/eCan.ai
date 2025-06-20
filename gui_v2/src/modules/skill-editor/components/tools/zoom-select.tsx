@@ -6,7 +6,7 @@ import { Divider, Dropdown } from '@douyinfe/semi-ui';
 import { SelectZoom } from './styles';
 
 export const ZoomSelect = () => {
-  const tools = usePlaygroundTools();
+  const tools = usePlaygroundTools({ maxZoom: 2, minZoom: 0.25 });
   const playground = usePlayground();
   const [dropDownVisible, openDropDown] = useState(false);
   return (
