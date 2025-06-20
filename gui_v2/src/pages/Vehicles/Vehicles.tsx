@@ -22,6 +22,7 @@ import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
 import { IPCAPI } from '@/services/ipc/api';
+import { useUserStore } from '../../stores/userStore';
 
 const { Text, Title } = Typography;
 
@@ -130,9 +131,11 @@ const Vehicles: React.FC = () => {
         setItems: setVehicles  // Add this line
     } = useDetailView<Vehicle>(initialVehicles);
 
+    const username = useUserStore((state) => state.username);
+
     const handleRefresh = useCallback(async () => {
         try {
-            const response = await IPCAPI.getInstance().getVehicles([]);
+            const response = await IPCAPI.getInstance().getVehicles(username,[]);
             console.log('Vehicles refreshed:', response);
             if (response && response.success && response.data) {
                 setVehicles(response.data);

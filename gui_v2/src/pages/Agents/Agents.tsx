@@ -131,6 +131,8 @@ const Agents: React.FC = () => {
         updateItems,
     } = useDetailView<Agent>(initialAgents);
 
+    const username = useUserStore((state) => state.username);
+
     const translateAgent = (agent: Agent): Agent => {
         if (agent.name.includes('协调员') || agent.name.includes('分析师') || agent.name.includes('专员')) {
             return agent;
@@ -353,7 +355,7 @@ const Agents: React.FC = () => {
     // Function to handle refresh button click
     const handleRefresh = useCallback(async () => {
         try {
-            const response: APIResponse<Agent[]> = await IPCAPI.getInstance().getAgents([]);
+            const response: APIResponse<Agent[]> = await IPCAPI.getInstance().getAgents(username, []);
             console.log('Agents refreshed:', response);
             if (response && response.success && response.data) {
                 updateItems(response.data);

@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { logger } from '../../utils/logger';
 import { IPCAPI } from '@/services/ipc/api';
+import { useUserStore } from '../../stores/userStore';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -40,12 +41,13 @@ const Settings: React.FC = () => {
   const [form] = Form.useForm<SettingsFormData>();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
+  const username = useUserStore((state) => state.username);
 
   // 加载设置
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await IPCAPI.getInstance().getSettings([]);
+      const response = await IPCAPI.getInstance().getSettings(username);
       if (response && response.success && response.data) {
         const settings = response.data;
         form.setFieldsValue({

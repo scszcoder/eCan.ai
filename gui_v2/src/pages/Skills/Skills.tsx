@@ -16,6 +16,7 @@ import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
 import { IPCAPI } from '@/services/ipc/api';
+import { useUserStore } from '../../stores/userStore';
 
 const { Text, Title } = Typography;
 
@@ -138,12 +139,14 @@ const Skills: React.FC = () => {
         setItems: setSkills
     } = useDetailView<Skill>(initialSkills);
 
+    const username = useUserStore((state) => state.username);
+
     const fetchSkills = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await IPCAPI.getInstance().getSkills([]);
+            const response = await IPCAPI.getInstance().getSkills(username, []);
             if (response && response.success && response.data) {
-                setSkills(response.data);
+//                 setSkills(response.data);
             }
         } catch (error) {
             console.error('Error fetching skills:', error);
