@@ -1,0 +1,38 @@
+export interface Chat {
+    id: number;
+    name: string;
+    avatar?: string;
+    type: 'user' | 'bot' | 'group';
+    status: 'online' | 'offline' | 'busy';
+    agentId?: string;
+    lastMessage: string;
+    lastMessageTime: string;
+    unreadCount: number;
+    isGroup?: boolean;
+    members?: string[];
+    messages: Message[];
+}
+
+export interface Message {
+    id: number;
+    sessionId: number;
+    content: string;
+    attachments: Attachment[];
+    sender: string;
+    txTimestamp: string;
+    rxTimestamp: string;
+    readTimestamp: string;
+    status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+    isEdited?: boolean;
+    isRetracted?: boolean;
+}
+
+export interface Attachment {
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    url?: string;
+    content?: string; // base64
+    file?: File;
+} 

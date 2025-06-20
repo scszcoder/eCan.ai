@@ -15,7 +15,7 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 

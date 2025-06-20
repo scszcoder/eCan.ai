@@ -7,6 +7,8 @@ import subprocess
 import re
 import time
 import traceback
+import platform
+import os
 
 # select webbrowser - exe path
 # select auto run time.
@@ -134,8 +136,25 @@ class SettingsWidget(QMainWindow):
 
     def list_printers(self):
         try:
-            printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
-            self.printers = printers
+            if platform.system() == 'Windows':
+                printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
+                self.printers = printers
+            else:  # macOS
+                # Use lpstat to get printer list
+                result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True)
+                printer_lines = result.stdout.strip().split('\n')
+                
+                # Format to match Windows structure: (flags, description, name, comment)
+                self.printers = []
+                for line in printer_lines:
+                    if line.startswith('printer'):
+                        # Extract printer name from the line
+                        printer_name = line.split(' ')[1]
+                        # Create tuple with same structure as Windows
+                        # (flags, description, name, comment)
+                        printer_info = (0, '', printer_name, '')
+                        self.printers.append(printer_info)
+                
             print([p[2] for p in self.printers])
         except Exception as e:
             # Get the traceback information
@@ -150,7 +169,34 @@ class SettingsWidget(QMainWindow):
     def list_wifi_networks(self):
         for i in range(3):  # Try scanning multiple times
             # Run the command to list available Wi-Fi networks
-            result = subprocess.run(["netsh", "wlan", "show", "networks"], capture_output=True, text=True)
+            if platform.system() == 'Windows':
+                result = subprocess.run(["netsh", "wlan", "show", "networks"], capture_output=True, text=True)
+            else:  # macOS
+                # First try to find the airport command
+                airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+                if not os.path.exists(airport_path):
+                    airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport'
+                
+                if os.path.exists(airport_path):
+                    # Run airport command to scan for networks
+                    result = subprocess.run([airport_path, '-s'], capture_output=True, text=True)
+                    # Format output to match Windows netsh format
+                    lines = result.stdout.strip().split('\n')[1:]  # Skip header
+                    formatted_output = ""
+                    for i, line in enumerate(lines, 1):
+                        parts = line.split()
+                        if parts:
+                            formatted_output += f"SSID {i} : {parts[0]}\n"
+                    result.stdout = formatted_output
+                else:
+                    # Fallback to networksetup command
+                    result = subprocess.run(['networksetup', '-listpreferredwirelessnetworks', 'en0'], capture_output=True, text=True)
+                    # Format output to match Windows netsh format
+                    networks = [line.strip() for line in result.stdout.split('\n') if line.strip()]
+                    formatted_output = ""
+                    for i, network in enumerate(networks, 1):
+                        formatted_output += f"SSID {i} : {network}\n"
+                    result.stdout = formatted_output
 
             # Output the result
             networks_output = result.stdout

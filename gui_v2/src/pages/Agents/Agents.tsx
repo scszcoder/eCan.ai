@@ -18,12 +18,12 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
-import {get_ipc_api} from '../../services/ipc_api';
 import { useNavigate } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
+import { APIResponse, IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
-// const username = useUserStore((state) => state.username);
+
 const AgentItem = styled.div`
     position: relative;
     padding: 12px;
@@ -111,11 +111,10 @@ const getStatusColor = (status: Agent['status']): string => {
     }
 };
 
-const getAgents = () => {
-    const ipc_api = get_ipc_api();
-    const response = ipc_api.getAgents([]);
+const getAgents = async () => {
+    const response: APIResponse<Agent[]> = await IPCAPI.getInstance().getAgents([]);
     console.log("ipc response:", response);
-    return response['result'];
+    return response.data;
 };
 
 const initialAgents: Agent[] = [];
@@ -354,8 +353,7 @@ const Agents: React.FC = () => {
     // Function to handle refresh button click
     const handleRefresh = useCallback(async () => {
         try {
-            const ipc_api = get_ipc_api();
-            const response = await ipc_api.getAgents([]);
+            const response: APIResponse<Agent[]> = await IPCAPI.getInstance().getAgents([]);
             console.log('Agents refreshed:', response);
             if (response && response.success && response.data) {
                 updateItems(response.data);

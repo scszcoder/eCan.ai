@@ -19,7 +19,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -137,7 +137,6 @@ const Schedule: React.FC = () => {
 
     const renderListContent = () => (
         <>
-            <Title level={2}>{t('pages.schedule.title')}</Title>
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}

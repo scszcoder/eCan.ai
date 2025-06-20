@@ -5,16 +5,16 @@ IPC 处理器实现模块
 
 from typing import Any, Optional, Dict
 
-import utils.logger_helper
+from gui.LoginoutGUI import Login
 from .types import IPCRequest, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper
 import json
 import uuid
 import asyncio
-from utils.logger_helper import *
 from gui.ipc.tests import *
 import traceback
+from .callable.manager import callable_manager
 
 logger = logger_helper.logger
 
@@ -128,7 +128,7 @@ def handle_set_config(request: IPCRequest, params: Optional[Dict[str, Any]], py_
         ))
 
 @IPCHandlerRegistry.handler('login')
-def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> str:
     """处理登录请求
     
     验证用户凭据并返回访问令牌。
@@ -141,7 +141,7 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Login handler called with request: {request}, params: {params}")
+        logger.debug(f"Login handler called with request: {request}")
         
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
@@ -980,6 +980,81 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any], py_login: Any)
             f"Error during stop tests: {str(e)}"
         ))
 
+@IPCHandlerRegistry.handler('get_callables')
+def handle_get_callables(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+    """Handle get callables request
+
+    Args:
+        request: IPC request object
+        params: Request parameters, optional including:
+            - text: Text filter for function name, description and parameters
+            - type: Type filter ('system' or 'custom')
+        py_login: Python login object
+
+    Returns:
+        str: JSON formatted response message
+    """
+    try:
+        # Get callable functions
+        functions = callable_manager.get_callables(params)
+        logger.debug("Filtered callables count: %d", len(functions))
+
+        response = create_success_response(request, {
+            'data': functions,
+            'message': 'Get callables successful'
+        })
+        return json.dumps(response)
+
+    except Exception as e:
+        logger.error("Error in get callables handler: %s", str(e))
+        return json.dumps(create_error_response(
+            request,
+            'GET_CALLABLES_ERROR',
+            f"Handlers Error getting callables: {str(e)}"
+        ))
+
+@IPCHandlerRegistry.handler('manage_callable')
+def handle_manage_callable(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+    """Handle manage_callable IPC request.
+
+    Args:
+        request: Dict containing:
+            - id: Request ID
+            - type: Request type
+            - method: Method name
+        params: Dict containing:
+            - action: Action to perform ('add', 'update', 'delete')
+            - data: Function data including:
+                - id: Function ID (required for update/delete)
+                - name: Function name
+                - desc: Function description
+                - params: Function parameters
+                - returns: Function return values
+                - type: Function type
+                - code: Function code
+        py_login: Login context
+
+    Returns:
+        JSON string containing:
+            - success: bool, whether the operation was successful
+            - data: Optional[Dict], result data if successful
+            - error: Optional[Dict], error information if failed
+    """
+    try:
+        # 直接使用 params 参数
+        result, message = callable_manager.manage_callable(params)
+        return json.dumps(create_success_response(request, {
+            'data': result,
+            'message': message
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in handle_manage_callable: {str(e)}")
+        return json.dumps(create_error_response(
+            request=request,
+            code='MANAGE_CALLABLE_ERROR',
+            message=str(e)
+        ))
 
 # 打印所有已注册的处理器
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")

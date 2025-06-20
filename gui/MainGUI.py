@@ -878,8 +878,30 @@ class MainWindow(QMainWindow):
         if self.platform == "win":
             wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
         elif self.platform == 'dar':
-            wifi_info = subprocess.check_output(['/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport', '-I'])
+            # Try to find the airport command
+            airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
+            if not os.path.exists(airport_path):
+                airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport'
+            
+            if os.path.exists(airport_path):
+                wifi_info = subprocess.check_output([airport_path, '-I'])
+                # Convert macOS output to match Windows format
+                if wifi_info:
+                    try:
+                        wifi_data = wifi_info.decode('utf-8')
+                        # Parse macOS output and format it like Windows
+                        formatted_output = ""
+                        for line in wifi_data.split('\n'):
+                            if ' SSID' in line:
+                                # Extract SSID and format like Windows
+                                ssid = line.split(':')[1].strip()
+                                formatted_output += f"    SSID                   : {ssid}\n"
+                        wifi_info = formatted_output.encode('utf-8')
+                    except Exception as e:
+                        print(f"Error formatting WiFi info: {str(e)}")
+                        wifi_info = None
 
+        logger_helper.info(f"wifi_info:{wifi_info}")
         if wifi_info:
             try:
                 wifi_data = wifi_info.decode('utf-8')

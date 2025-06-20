@@ -200,6 +200,8 @@ class IPCService(QObject):
                     # 同步处理器直接调用
                     print("calling sync handler...")
                     return handler(request, params, self.py_login)
+                # 直接调用处理器，让装饰器处理参数
+                return handler(request, params, self.py_login)
             except Exception as e:
                 logger.error(f"Error calling handler for method {method}: {e}")
                 return json.dumps(create_error_response(

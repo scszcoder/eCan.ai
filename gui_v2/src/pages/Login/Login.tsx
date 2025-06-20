@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { createIPCAPI } from '../../services/ipc';
+import { APIResponse, createIPCAPI } from '../../services/ipc';
 import { set_ipc_api, get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
 import { useUserStore } from '../../stores/userStore';
@@ -45,7 +45,7 @@ const Login: React.FC = () => {
 				const api = get_ipc_api();
 				if (!api) return;
 
-				const response = await api.getLastLoginInfo();
+				const response: APIResponse<any> = await api.getLastLoginInfo();
 				if (response?.data?.last_login) {
 					const { username, password, machine_role } = response.data.last_login;
 					console.log('last_login', response.data.last_login);
@@ -77,7 +77,7 @@ const Login: React.FC = () => {
 		form.setFieldsValue({
 			username,
 			password,
-			role: role.toLowerCase()
+			role: role
 		});
 	};
 
@@ -219,7 +219,7 @@ const Login: React.FC = () => {
 							onFinish={handleSubmit}
 							layout="vertical"
 							requiredMark={false}
-							initialValues={{ role: 'commander' }}
+							initialValues={{ role: 'Commander' }}
 						>
 							<Form.Item
 								name="username"
@@ -278,9 +278,9 @@ const Login: React.FC = () => {
 									size="large"
 									className="form-input"
 								>
-									<Select.Option value="commander">{t('roles.commander')}</Select.Option>
-									<Select.Option value="platoon">{t('roles.platoon')}</Select.Option>
-									<Select.Option value="staff_office">{t('roles.staff_office')}</Select.Option>
+									<Select.Option value="Commander">{t('roles.commander')}</Select.Option>
+									<Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
+									<Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
 								</Select>
 							</Form.Item>
 
@@ -332,7 +332,7 @@ const Login: React.FC = () => {
 											block
 											onClick={() => {
 												localStorage.setItem('isAuthenticated', 'true');
-												localStorage.setItem('userRole', 'commander');
+												localStorage.setItem('userRole', 'Commander');
 												navigate('/dashboard');
 											}}
 										>

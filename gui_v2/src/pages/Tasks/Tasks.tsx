@@ -15,7 +15,7 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -145,7 +145,7 @@ const Tasks: React.FC = () => {
     const fetchTasks = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await ipc_api.get_tasks();
+            const response = await IPCAPI.getInstance().getTasks([]);
             if (response && response.success && response.data) {
                 setTasks(response.data);
             }
@@ -179,23 +179,14 @@ const Tasks: React.FC = () => {
     );
 
     const translateTask = (task: Task): Task => {
-        // 如果已经是翻译后的文本（包含中文或特殊字符），直接返回
-        if (task.name.includes('管理器') || task.name.includes('分析器') || task.name.includes('监视器')) {
-            return task;
-        }
-
         return {
             ...task,
-            name: t(`pages.tasks.tasks.${task.name}.name`),
-            category: t(`pages.tasks.categories.${task.category}`),
-            description: t(`pages.tasks.tasks.${task.name}.description`),
-            features: task.features.map(feature => {
-                // 如果功能名称已经是中文，直接返回
-                if (feature.includes('创建') || feature.includes('跟踪') || feature.includes('协作')) {
-                    return feature;
-                }
-                return t(`pages.tasks.tasks.${task.name}.features.${feature}`);
-            }),
+            name: t(`pages.tasks.tasks.${task.name}.name`, { defaultValue: task.name }),
+            category: t(`pages.tasks.categories.${task.category}`, { defaultValue: task.category }),
+            description: t(`pages.tasks.tasks.${task.name}.description`, { defaultValue: task.description }),
+            features: task.features.map(feature => 
+                t(`pages.tasks.tasks.${task.name}.features.${feature}`, { defaultValue: feature })
+            ),
             lastUpdated: task.lastUpdated === '2 days ago'
                 ? t('pages.tasks.time.daysAgo', { days: 2 })
                 : task.lastUpdated === '1 hour ago'
@@ -291,7 +282,13 @@ const Tasks: React.FC = () => {
                 </div>
                 <Row gutter={16}>
                     <Col span={12}>
-                        <Card>
+                        <Card
+                            styles={{
+                                body: {
+                                    padding: '16px'
+                                }
+                            }}
+                        >
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Text>{t('pages.tasks.storageUsage')}</Text>
                                 <Progress percent={75} />
@@ -300,7 +297,13 @@ const Tasks: React.FC = () => {
                         </Card>
                     </Col>
                     <Col span={12}>
-                        <Card>
+                        <Card
+                            styles={{
+                                body: {
+                                    padding: '16px'
+                                }
+                            }}
+                        >
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Text>{t('pages.tasks.userRating')}</Text>
                                 <Progress percent={translatedTask.rating * 20} />

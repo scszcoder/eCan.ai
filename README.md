@@ -405,3 +405,265 @@ Here is the message format in a chat window.
 
 Example: 
 here is the string for show/hide logs： ":<cmd>show<logs>all</logs></cmd>" or ":<cmd>hide<logs>all</logs></cmd>"
+
+# Chat Service
+
+一个基于 SQLAlchemy 的聊天服务实现，支持用户管理、会话管理、消息处理等功能。
+
+## 功能特性
+
+- 用户管理（创建、查询、更新、删除）
+- 会话管理（创建、查询、成员管理）
+- 消息处理（发送、编辑、删除、状态管理）
+- 附件支持
+- 消息状态追踪
+- 会话管理
+- 线程安全
+- 可配置的数据库路径
+
+## 安装
+
+```bash
+pip install -r requirements.txt
+```
+
+## 使用方法
+
+### 基本使用
+
+```python
+from agent.chats.chat_service import ChatService
+
+# 使用默认数据库路径
+chat_service = ChatService.initialize()
+
+# 使用自定义数据库路径
+chat_service = ChatService.initialize('custom/path/to/database.db')
+```
+
+### 用户管理
+
+```python
+# 创建用户
+user = chat_service.create_user(
+    username="john_doe",
+    display_name="John Doe",
+    avatar_url="https://example.com/avatar.jpg"
+)
+
+# 获取用户
+user = chat_service.get_user(user_id)
+user = chat_service.get_user_by_username("john_doe")
+
+# 更新用户
+updated_user = chat_service.update_user(
+    user_id,
+    display_name="John Updated",
+    avatar_url="https://example.com/new_avatar.jpg"
+)
+
+# 删除用户
+success = chat_service.delete_user(user_id)
+```
+
+### 会话管理
+
+```python
+# 创建会话
+conversation = chat_service.create_conversation(
+    name="Group Chat",
+    is_group=True,
+    description="Team discussion"
+)
+
+# 获取会话
+conversation = chat_service.get_conversation(conversation_id)
+
+# 获取用户的所有会话
+conversations = chat_service.get_user_conversations(user_id)
+
+# 添加用户到会话
+member = chat_service.add_user_to_conversation(
+    conversation_id=conversation_id,
+    user_id=user_id,
+    role="member"
+)
+
+# 从会话中移除用户
+success = chat_service.remove_user_from_conversation(
+    conversation_id,
+    user_id
+)
+```
+
+### 消息处理
+
+```python
+# 发送消息
+message = chat_service.send_message(
+    conversation_id=conversation_id,
+    sender_id=user_id,
+    content="Hello, world!",
+    message_type=MessageType.TEXT
+)
+
+# 获取会话消息
+messages = chat_service.get_conversation_messages(
+    conversation_id,
+    limit=50,
+    offset=0
+)
+
+# 编辑消息
+updated_message = chat_service.edit_message(
+    message_id,
+    content="Updated message"
+)
+
+# 删除消息
+success = chat_service.delete_message(message_id)
+```
+
+## 数据库配置
+
+聊天服务支持多种数据库配置方式：
+
+1. 使用默认数据库路径：
+```python
+chat_service = ChatService.initialize()
+```
+
+2. 使用自定义数据库路径：
+```python
+chat_service = ChatService.initialize('custom/path/to/database.db')
+```
+
+3. 使用环境变量：
+```bash
+export DATABASE_URL='sqlite:///custom/path/to/database.db'
+chat_service = ChatService.initialize()
+```
+
+4. 使用现有的数据库引擎：
+```python
+from sqlalchemy import create_engine
+engine = create_engine('sqlite:///database.db')
+chat_service = ChatService(engine=engine)
+```
+
+5. 使用现有的数据库会话：
+```python
+from sqlalchemy.orm import Session
+session = Session()
+chat_service = ChatService(session=session)
+```
+
+## 测试
+
+运行测试：
+```bash
+pytest tests/
+```
+
+## 注意事项
+
+1. 数据库文件路径必须是有效的文件系统路径
+2. 确保应用程序对数据库文件所在目录有读写权限
+3. 在多进程环境中，建议使用不同的数据库文件路径
+4. 数据库文件会自动创建，但目录必须存在
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request。
+
+## 许可证
+
+MIT License
+
+## 数据库版本管理
+
+本项目内置了数据库版本管理表 `db_version`，用于记录和管理数据库结构的版本信息，方便后续升级和迁移。
+
+- 每次初始化数据库时会自动插入初始版本（1.0.0）。
+- 可通过接口读取当前版本或升级版本。
+
+### 示例代码
+
+```python
+from agent.chats.chats_db import DBVersion, get_engine
+from sqlalchemy.orm import sessionmaker
+
+engine = get_engine('your_db_path.db')
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# 获取当前数据库版本
+current_version = DBVersion.get_current_version(session)
+print(current_version.version)
+
+# 升级数据库版本
+DBVersion.upgrade_version(session, '2.0.0', description='升级到2.0.0')
+
+# 再次获取
+new_version = DBVersion.get_current_version(session)
+print(new_version.version)
+
+session.close()
+```
+
+## 数据库迁移管理
+
+本项目提供了数据库迁移管理功能，支持数据库结构的版本控制和升级。
+
+### 基本用法
+
+```python
+from agent.chats.db_migration import DBMigration
+
+# 创建迁移管理器实例
+migration = DBMigration('your_database.db')
+
+# 获取当前版本
+current_version = migration.get_current_version()
+print(f"当前数据库版本: {current_version}")
+
+# 升级到新版本
+success = migration.upgrade_to_version(
+    "2.0.0",
+    description="升级到2.0.0版本，添加新功能表"
+)
+if success:
+    print("数据库升级成功")
+else:
+    print("数据库升级失败")
+
+# 创建新的迁移脚本模板
+template = migration.create_migration_script(
+    "2.1.0",
+    "添加新字段"
+)
+print(template)
+```
+
+### 版本升级流程
+
+1. 获取当前数据库版本
+2. 确定目标版本
+3. 执行升级操作
+4. 验证升级结果
+
+### 创建新的升级脚本
+
+当需要修改数据库结构时，可以按照以下步骤创建升级脚本：
+
+1. 使用 `create_migration_script` 生成脚本模板
+2. 在模板中实现具体的升级逻辑
+3. 将脚本添加到版本管理系统中
+4. 执行升级操作
+
+### 注意事项
+
+1. 升级前请务必备份数据库
+2. 确保升级脚本的正确性和可回滚性
+3. 在测试环境中验证升级脚本
+4. 记录所有数据库结构变更
