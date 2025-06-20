@@ -15,10 +15,14 @@ export interface Chat {
 
 export interface Message {
     id: number;
+    chatId: number;
     sessionId: number;
     content: string;
     attachments: Attachment[];
-    sender: string;
+    sender_id: string;sender_id: string;
+    sender_name: string;
+    recipient_id: string;
+    recipient_name: string;
     txTimestamp: string;
     rxTimestamp: string;
     readTimestamp: string;
