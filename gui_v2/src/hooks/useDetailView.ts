@@ -21,7 +21,7 @@ export function useDetailView<T>(initialItems: T[]) {
     const updateItems = (items: T[]) => {
         setState(prev => ({
             ...prev,
-            items,
+            items: Array.isArray(items) ? items : [],
         }));
     };
 
