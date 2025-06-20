@@ -304,7 +304,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         logger.debug(f"Get agents handler called with request: {request}, params: {params}")
         print("get agents:", params)
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get agents: {error}")
             return json.dumps(create_error_response(
@@ -321,11 +321,13 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         username = data['username']
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get agents successful for user: {username}")
-        return json.dumps(create_success_response(request, {
+        resultJS = {
             'token': token,
             'agents': [agent.to_dict() for agent in agents],
-            'message': 'get agents successful'
-        }))
+            'message': 'Get all successful'
+        }
+        print('get agents resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
         logger.error(f"Error in get agents handler: {e}")
@@ -365,11 +367,13 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_
         username = data['username']
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get skills successful for user: {username}")
-        return json.dumps(create_success_response(request, {
+        resultJS = {
             'token': token,
             'skills': [sk.to_dict() for sk in skills],
-            'message': 'get skills successful'
-        }))
+            'message': 'Get all successful'
+        }
+        print('get skills resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
         logger.error(f"Error in get skills handler: {e}")
@@ -398,7 +402,7 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         logger.debug(f"Get tasks handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get tasks: {error}")
             return json.dumps(create_error_response(
@@ -418,11 +422,13 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"Get tasks successful for user: {username}")
-        return json.dumps(create_success_response(request, {
+        resultJS = {
             'token': token,
             'tasks': [task.to_dict() for task in all_tasks],
-            'message': 'get tasks successful'
-        }))
+            'message': 'Get all successful'
+        }
+        print('get tasks resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
         logger.error(f"Error in get tasks handler: {e}")
@@ -451,7 +457,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
         logger.debug(f"Get vehicles handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get vehicles: {error}")
             return json.dumps(create_error_response(
@@ -467,11 +473,15 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"Get vehicles successful for user: {username}")
-        return json.dumps(create_success_response(request, {
+        vehicles = py_login.main_win.vehicles
+
+        resultJS = {
             'token': token,
-            'vehicles': [vehicle.genJson() for vehicle in py_login.main_win.vehicles],
-            'message': 'Get vehicles successful'
-        }))
+            'vehicles': [vehicle.genJson() for vehicle in vehicles],
+            'message': 'Get all successful'
+        }
+        print('resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
         logger.error(f"Error in get vehicles handler: {e}")
@@ -499,7 +509,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         logger.debug(f"Get tools handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get tools: {error}")
             return json.dumps(create_error_response(
@@ -515,11 +525,13 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get tools successful for user: {username}")
-        return json.dumps(create_success_response(request, {
+        resultJS = {
             'token': token,
-            'tools_schemas': py_login.main_win.mcp_tools_schemas,
-            'message': 'Get tools successful'
-        }))
+            'tools': [tool.model_dump() for tool in py_login.main_win.mcp_tools_schemas],
+            'message': 'Get all successful'
+        }
+        print('resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
         logger.error(f"Error in get tools handler: {e}")
@@ -547,7 +559,7 @@ async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]
         logger.debug(f"get chats handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'password'])
+        is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get chats: {error}")
             return json.dumps(create_error_response(
@@ -563,10 +575,14 @@ async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get chats successful for user: {username}")
-        return json.dumps(create_success_response(request, {
+        chats = {}
+        resultJS = {
             'token': token,
-            'message': 'get chats successful'
-        }))
+            'chats': chats,
+            'message': 'Get all successful'
+        }
+        print('resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
         logger.error(f"Error in get chats handler: {e}")
@@ -574,6 +590,109 @@ async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]
             request,
             'LOGIN_ERROR',
             f"Error during get chats: {str(e)}"
+        ))
+
+
+@IPCHandlerRegistry.handler('get_settings')
+async def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"get settings handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for get settings: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+        # 简单的密码验证
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"get settings successful for user: {username}")
+        settings = py_login.main_win.general_settings
+        resultJS = {
+            'token': token,
+            'settings': settings,
+            'message': 'Get settings successful'
+        }
+        print('resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
+
+    except Exception as e:
+        logger.error(f"Error in get settings handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during get settings: {str(e)}"
+        ))
+
+
+
+@IPCHandlerRegistry.handler('get_knowledges')
+async def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+    """处理登录请求
+
+    验证用户凭据并返回访问令牌。
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数，必须包含 'username' 和 'password' 字段
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"get knowledges handler called with request: {request}, params: {params}")
+
+        # 验证参数
+        is_valid, data, error = validate_params(params, ['username'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for get knowledges: {error}")
+            return json.dumps(create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            ))
+
+        # 获取用户名和密码
+        username = data['username']
+
+        # 简单的密码验证
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        logger.info(f"get knowledges successful for user: {username}")
+        knowledges = {}
+        resultJS = {
+            'token': token,
+            'knowledges': knowledges,
+            'message': 'Get settings successful'
+        }
+        print('resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
+
+    except Exception as e:
+        logger.error(f"Error in get knowledges handler: {e}")
+        return json.dumps(create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during get knowledges: {str(e)}"
         ))
 
 

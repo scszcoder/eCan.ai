@@ -5,6 +5,7 @@ import DetailLayout from '../../components/Layout/DetailLayout';
 import { useChatStore } from './hooks/useChatStore';
 import ChatList from './components/ChatList';
 import ChatDetail from './components/ChatDetail';
+import { useUserStore } from '../../stores/userStore';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();

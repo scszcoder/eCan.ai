@@ -16,6 +16,7 @@ import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
 import { IPCAPI } from '@/services/ipc/api';
+import { useUserStore } from '../../stores/userStore';
 
 const { Text, Title } = Typography;
 
@@ -142,12 +143,14 @@ const Tasks: React.FC = () => {
         setItems: setTasks  // Add this line
     } = useDetailView<Task>(initialTasks);
 
+    const username = useUserStore((state) => state.username);
+
     const fetchTasks = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await IPCAPI.getInstance().getTasks([]);
+            const response = await IPCAPI.getInstance().getTasks(username,[]);
             if (response && response.success && response.data) {
-                setTasks(response.data);
+//                 setTasks(response.data);
             }
         } catch (error) {
             console.error('Error fetching tasks:', error);

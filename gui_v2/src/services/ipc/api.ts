@@ -108,28 +108,36 @@ export class IPCAPI {
         return this.executeRequest<T>('get_all', { username });
     }
 
-    public async getAgents<T>(agent_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_agents', { agent_ids });
+    public async getAgents<T>(username: string, skill_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_agents', { username, skill_ids });
     }
 
-    public async getSkills<T>(skill_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_skills', { skill_ids });
+    public async getSkills<T>(username: string,skill_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_skills', { username, skill_ids });
     }
 
-    public async getTasks<T>(task_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_tasks', { task_ids });
+    public async getTasks<T>(username: string, task_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_tasks', {username, task_ids });
     }
 
-    public async getVehicles<T>(v_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_vehicles', { v_ids });
+    public async getVehicles<T>(username: string, v_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_vehicles', {username, v_ids });
     }
 
-    public async getTools<T>(tool_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_tools', { tool_ids });
+    public async getTools<T>(username: string, tool_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_tools', {username, tool_ids });
     }
 
-    public async getChats<T>(chat_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_chats', { chat_ids });
+    public async getChats<T>(username: string, chat_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_chats', {username, chat_ids });
+    }
+
+    public async getKnowledges<T>(username: string, knowledge_ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_knowledges', {username, knowledge_ids });
+    }
+
+    public async getSettings<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_settings', {username});
     }
 
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
@@ -175,9 +183,19 @@ export class IPCAPI {
         return this.executeRequest<void>('save_skills', values);
     }
 
-    public async saveSkill<T>(values: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_skill', values);
+    public async saveSkill<T>(value: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_skill', value);
     }
+
+    public async saveSettings<T>(value: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_settings', value);
+    }
+
+    public async saveKnowledges<T>(values: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_knowledges', values);
+    }
+
+
 
     public async sendChat<T>(values: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('send_chat', values);
