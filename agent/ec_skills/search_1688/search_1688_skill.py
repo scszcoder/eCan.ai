@@ -271,13 +271,15 @@ async def create_search_1688_skill(mainwin):
         searcher_skill = EC_Skill(name="meca search 1688 web site",
                              description="help search a part/component or a product on 1688 website.")
 
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
-        all_tools = mcp_client.get_tools()
-        web_search_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
-        web_search_tools = [t for t in all_tools if t.name in web_search_tool_names]
-        print("searcher # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
+        # all_tools = mcp_client.get_tools()
+        # web_search_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
+        # web_search_tools = [t for t in all_tools if t.name in web_search_tool_names]
+        # print("searcher # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
+
+        web_search_tools = []
         searcher_agent = create_react_agent(llm, web_search_tools)
         # Prompt Template
         prompt0 = ChatPromptTemplate.from_messages([

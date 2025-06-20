@@ -193,9 +193,9 @@ class EC_Agent(Generic[Context]):
 		self.subordinates = subordinates if subordinates is not None else []
 		self.peers = peers if peers is not None else []
 		self.rank = rank if rank is not None else ""
-		self.organizations: organizations if organizations is not None else []
-		self.job_description: job_description if job_description is not None else ""
-		self.personalities: personalities if personalities is not None else []
+		self.organizations = organizations if organizations is not None else []
+		self.job_description = job_description if job_description is not None else ""
+		self.personalities = personalities if personalities is not None else []
 		self.embeddings = init_embeddings("openai:text-embedding-3-small")
 		self.store = InMemoryStore(
 			index={
@@ -372,7 +372,7 @@ class EC_Agent(Generic[Context]):
 			"rank": self.rank,
 			"organizations": self.organizations,
 			"job_description": self.job_description,
-			"personalities": self.personalities,
+			"personalities": self.personalities
 		}
 		return agentJS
 
@@ -385,11 +385,11 @@ class EC_Agent(Generic[Context]):
 			"provider": card.provider,
 			"version": card.version,
 			"documentationUrl": card.documentationUrl,
-			"capabilities": card.capabilities,
+			"capabilities": card.capabilities.dict(),
 			"authentication": card.authentication,
 			"defaultInputModes": card.defaultInputModes,
 			"defaultOutputModes": card.defaultOutputModes,
-			"skills": card.skills
+			# "skills": card.skills
 		}
 		return cardJS
 
@@ -738,7 +738,7 @@ class EC_Agent(Generic[Context]):
 		result: list[ActionResult],
 		metadata: Optional[StepMetadata] = None,
 	) -> None:
-		"""Create and store history item"""
+		"""Create and stores history item"""
 
 		if model_output:
 			interacted_elements = AgentHistory.get_interacted_element(model_output, state.selector_map)
@@ -1572,22 +1572,31 @@ class EC_Agent(Generic[Context]):
 		if self.a2a_server_thread and self.a2a_server_thread.is_alive():
 			self.a2a_server_thread.join(timeout=5)
 
+	def new_thread(self,tid):
+		task_thread = threading.Thread()
+		self.running_tasks.append({'id': tid, 'thread': task_thread})
+		return task_thread
+
 	async def start(self):
 		# kick off a2a server:
 		self.start_a2a_server_in_thread(self.a2a_server)
 		print("A2A server started....")
+		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor
-		for task in self.tasks:
-			if task.trigger == "schedule":
-				self.running_tasks.append(asyncio.create_task(self.runner.launch_scheduled_run(task)))
-			elif task.trigger == "message":
-				self.running_tasks.append(asyncio.create_task(self.runner.launch_reacted_run(task)))
-			elif task.trigger == "interaction":
-				self.running_tasks.append(asyncio.create_task(self.runner.launch_interacted_run(task)))
-			else:
-				print("WARNING: UNRECOGNIZED task trigger type....")
+		# for task in self.tasks:
+		# 	# new_thread = self.new_thread(task.id)
+		# 	if task.trigger == "schedule":
+		# 		await self.runner.launch_scheduled_run(task)
+		# 		# await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
+		# 	elif task.trigger == "message":
+		# 		await self.runner.launch_reacted_run(task)
+		# 		# await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
+		# 	elif task.trigger == "interaction":
+		# 		await self.runner.launch_interacted_run(task)
+		# 		# await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
+		# 	else:
+		# 		print("WARNING: UNRECOGNIZED task trigger type....")
 
-		await asyncio.gather(*self.running_tasks)
 		# runnable = self.skill_set[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()

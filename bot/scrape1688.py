@@ -37,7 +37,7 @@ def extract_product_details(product):
         sold_recently = None
 
     try:
-        store_name = product.find_element(By.CSS_SELECTOR, 'a[class^="store"]').text
+        store_name = product.find_element(By.CSS_SELECTOR, 'a[class^="stores"]').text
     except:
         store_name = None
 
@@ -56,7 +56,7 @@ def extract_product_details(product):
         "image_link": image_link,
         "ranking": ranking,
         "# sold recently": sold_recently,
-        "store name": store_name,
+        "stores name": store_name,
         "price": price,
         "discount": discount
     }

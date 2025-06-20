@@ -14,6 +14,7 @@ import uuid
 import asyncio
 from utils.logger_helper import *
 from gui.ipc.tests import *
+import traceback
 
 logger = logger_helper.logger
 
@@ -243,6 +244,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
                 error
             ))
 
+        print("user name:", data['username'])
         # 获取用户名和密码
         username = data['username']
 
@@ -253,34 +255,35 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
 
         skills = py_login.main_win.agent_skills
         vehicles = py_login.main_win.vehicles
-        settings = py_login.main_win.settings
-        knowledges = py_login.main_win.knowledges
-        chats = py_login.main_win.chats
-        settings = {}
+        settings = py_login.main_win.general_settings
+        # knowledges = py_login.main_win.knowledges
+        # chats = py_login.main_win.chats
         knowledges = {}
         chats = {}
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"Get all successful for user: {username}")
-        return json.dumps(create_success_response(request, {
+        resultJS = {
             'token': token,
             'agents': [agent.to_dict() for agent in agents],
             'skills': [sk.to_dict() for sk in skills],
-            'tools': py_login.main_win.mcp_tools_schemas,
+            'tools': [tool.model_dump() for tool in py_login.main_win.mcp_tools_schemas],
             'tasks': [task.to_dict() for task in all_tasks],
             'vehicles': [vehicle.genJson() for vehicle in vehicles],
             'settings': settings,
             'knowledges': knowledges,
             'chats': chats,
             'message': 'Get all successful'
-        }))
+        }
+        print('resultJS:', resultJS)
+        return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get all handler: {e} {traceback.format_exc()}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during get all: {str(e)}"
         ))
 
 

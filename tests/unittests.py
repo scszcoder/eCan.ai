@@ -582,7 +582,7 @@ def test_sqlite3(mw):
     # mw.bot_service.add_column("vehicle", Text, "createon")
     mw.mission_service.describe_table()
     mw.mission_service.find_all_missions()
-    # mw.mission_service.add_column("follow_seller", Text, "store")
+    # mw.mission_service.add_column("follow_seller", Text, "stores")
     # mw.mission_service.add_column("follow_price", REAL, "price")
     #mw.mission_service.describe_table()
     # sql = ''' INSERT INTO bots(botid, owner, levels, gender, birthday, interests, location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr, phone, email, epw, backemail, ebpw)

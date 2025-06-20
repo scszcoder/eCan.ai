@@ -64,7 +64,7 @@ async def create_my_twin_chatter_skill(mainwin):
         chatter_skill = EC_Skill(name="chatter for my digital twin",
                              description="chat on behalf of human.")
 
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
 
         workflow = StateGraph(NodeState)
         workflow.add_node("relay", parrot)
