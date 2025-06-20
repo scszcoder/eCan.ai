@@ -1,4 +1,4 @@
-export interface Chat {
+export interface ChatSession {
     id: number;
     name: string;
     avatar?: string;
@@ -19,12 +19,17 @@ export interface Message {
     content: string;
     attachments: Attachment[];
     sender: string;
+    receiver: string;
+    type: 'text' | 'image' | 'file' | 'system';
     txTimestamp: string;
     rxTimestamp: string;
     readTimestamp: string;
     status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
     isEdited?: boolean;
     isRetracted?: boolean;
+    ext?: Record<string, any>;
+    replyTo?: number;
+    atList?: string[];
 }
 
 export interface Attachment {
