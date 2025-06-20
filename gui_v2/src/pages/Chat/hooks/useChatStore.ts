@@ -1,17 +1,18 @@
 import { create } from 'zustand';
-import { Chat, Message } from '../types/chat';
+import { ChatSession, Message } from '../types/chat';
 import { IPCAPI } from '@/services/ipc/api';
+import { demoChats, enableDemoData } from './demoData';
 
 interface ChatState {
-    chats: Chat[];
+    chats: ChatSession[];
     activeChatId: number | null;
-    addChat: (chat: Chat) => void;
-    updateChat: (chat: Partial<Chat> & { id: number }) => void;
+    addChat: (chat: ChatSession) => void;
+    updateChat: (chat: Partial<ChatSession> & { id: number }) => void;
     setActiveChat: (chatId: number) => void;
     addMessage: (chatId: number, message: Message) => void;
     updateMessageStatus: (messageId: number, status: Message['status']) => void;
-    sendMessage: (chatId: number, content: string, attachments: any[]) => Promise<void>;
-    updateChatsGUI: (params: { chat: Omit<Chat, 'messages'> & { messages?: Message[] }, message: Message }) => void;
+    sendMessage: (chatId: number, content: string, attachments: any[], options?: { ext?: any; replyTo?: number; atList?: string[] }) => Promise<void>;
+    updateChatsGUI: (params: { chat: Omit<ChatSession, 'messages'> & { messages?: Message[] }, message: Message }) => void;
     initialize: () => void;
 }
 
@@ -67,23 +68,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }))
     })),
 
-    sendMessage: async (chatId, content, attachments) => {
+    sendMessage: async (chatId, content, attachments, options = {}) => {
         const tempId = Date.now();
+        const state = get();
+        const chat = state.chats.find(c => c.id === chatId);
+        // 推断 receiver
+        let receiver = '';
+        if (chat) {
+            if (chat.type === 'user') {
+                receiver = chat.name;
+            } else if (chat.type === 'group') {
+                receiver = String(chat.id);
+            } else if (chat.type === 'bot') {
+                receiver = chat.agentId || '';
+            }
+        }
+        // 推断 type
+        let msgType: Message['type'] = 'text';
+        if (attachments && attachments.length > 0) {
+            const firstType = attachments[0].type;
+            if (firstType.startsWith('image')) msgType = 'image';
+            else if (firstType.startsWith('audio')) msgType = 'file'; // 可细分
+            else msgType = 'file';
+        }
+        // 组装消息
         const newMessage: Message = {
             id: tempId,
             sessionId: chatId,
             content,
             attachments,
             sender: 'You',
+            receiver,
+            type: msgType,
             txTimestamp: new Date().toISOString(),
             rxTimestamp: '',
             readTimestamp: '',
-            status: 'sending'
+            status: 'sending',
+            ext: options.ext || {},
+            replyTo: options.replyTo,
+            atList: options.atList || [],
         };
-
         // Add message to UI immediately
         get().addMessage(chatId, newMessage);
-
         try {
             const response = await IPCAPI.getInstance().sendChat(newMessage);
             if (response?.success) {
@@ -122,102 +148,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     },
 
     initialize: () => {
-        // Initialize with default chats and messages
-        const now = new Date();
-        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
-        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        
-        const initialChats: Chat[] = [
-            {
-                id: 1,
-                name: 'John Doe',
-                type: 'user',
-                status: 'online',
-                lastMessage: 'Can you help me with the delivery schedule?',
-                lastMessageTime: oneHourAgo.toISOString(),
-                unreadCount: 2,
-                messages: [
-                    {
-                        id: 1,
-                        sessionId: 1,
-                        content: 'Hello! How can I help you today?',
-                        attachments: [],
-                        sender: 'Support Bot',
-                        txTimestamp: twoHoursAgo.toISOString(),
-                        rxTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
-                        readTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
-                        status: 'read',
-                    },
-                    {
-                        id: 2,
-                        sessionId: 1,
-                        content: 'I need help with scheduling a delivery.',
-                        attachments: [],
-                        sender: 'You',
-                        txTimestamp: new Date(twoHoursAgo.getTime() + 5 * 60000).toISOString(),
-                        rxTimestamp: new Date(twoHoursAgo.getTime() + 6 * 60000).toISOString(),
-                        readTimestamp: new Date(twoHoursAgo.getTime() + 6 * 60000).toISOString(),
-                        status: 'read',
-                    },
-                    {
-                        id: 3,
-                        sessionId: 1,
-                        content: 'Can you help me with the delivery schedule?',
-                        attachments: [],
-                        sender: 'John Doe',
-                        txTimestamp: oneHourAgo.toISOString(),
-                        rxTimestamp: new Date(oneHourAgo.getTime() + 60000).toISOString(),
-                        readTimestamp: '',
-                        status: 'delivered',
-                    }
-                ]
-            },
-            {
-                id: 2,
-                name: 'Support Bot',
-                type: 'bot',
-                status: 'online',
-                lastMessage: 'How can I assist you today?',
-                lastMessageTime: twoHoursAgo.toISOString(),
-                unreadCount: 0,
-                messages: [
-                    {
-                        id: 4,
-                        sessionId: 2,
-                        content: 'How can I assist you today?',
-                        attachments: [],
-                        sender: 'Support Bot',
-                        txTimestamp: twoHoursAgo.toISOString(),
-                        rxTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
-                        readTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
-                        status: 'read',
-                    }
-                ]
-            },
-            {
-                id: 3,
-                name: 'Team Alpha',
-                type: 'group',
-                status: 'busy',
-                lastMessage: 'Meeting at 2 PM',
-                lastMessageTime: yesterday.toISOString(),
-                unreadCount: 5,
-                messages: [
-                    {
-                        id: 5,
-                        sessionId: 3,
-                        content: 'Meeting at 2 PM',
-                        attachments: [],
-                        sender: 'Team Lead',
-                        txTimestamp: yesterday.toISOString(),
-                        rxTimestamp: yesterday.toISOString(),
-                        readTimestamp: '',
-                        status: 'delivered',
-                    }
-                ]
-            }
-        ];
-        set({ chats: initialChats, activeChatId: 1 });
+        if (enableDemoData) {
+            set({ chats: demoChats, activeChatId: demoChats[0]?.id || null });
+        } else {
+            set({ chats: [], activeChatId: null });
+        }
     }
 })); 

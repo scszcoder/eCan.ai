@@ -3,7 +3,7 @@ import { Badge, Avatar, Space, Typography, Button } from 'antd';
 import { UserOutlined, RobotOutlined, TeamOutlined, MoreOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import { Chat, Message, Attachment } from '../types/chat';
+import { ChatSession, Message, Attachment } from '../types/chat';
 import { useChatStore } from '../hooks/useChatStore';
 import MessageItem from './MessageItem';
 import MessageInput from './MessageInput';
