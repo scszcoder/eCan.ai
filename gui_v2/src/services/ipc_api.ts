@@ -3,14 +3,16 @@
  * 提供与 Python 后端通信的高级 API
  */
 
+import { IPCAPI } from "./ipc/api";
 
-let ipc_api: any = null;
 
-export function set_ipc_api(ii: any): void {
+let ipc_api: IPCAPI;
+
+export function set_ipc_api(ii: IPCAPI): void {
     ipc_api = ii;
 }
 
-export function get_ipc_api(): any {
+export function get_ipc_api(): IPCAPI {
     return ipc_api;
 }
 

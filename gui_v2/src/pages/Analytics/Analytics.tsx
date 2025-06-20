@@ -12,7 +12,7 @@ import {
 import styled from '@emotion/styled';
 import { Line, Bar, Pie } from '@ant-design/plots';
 import { useTranslation } from 'react-i18next';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;

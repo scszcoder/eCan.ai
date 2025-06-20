@@ -3,7 +3,7 @@ import React, { useState, useContext } from 'react';
 import { WorkflowPortRender } from '@flowgram.ai/free-layout-editor';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
-import { useNodeRenderContext } from '../../hooks';
+import { useNodeRenderContext, usePortClick } from '../../hooks';
 import { SidebarContext } from '../../context';
 import { scrollToView } from './utils';
 import { NodeWrapperStyle } from './styles';
@@ -25,8 +25,11 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const sidebar = useContext(SidebarContext);
   const form = nodeRender.form;
   const ctx = useClientContext();
+  const onPortClick = usePortClick();
 
-  const portsRender = ports.map((p) => <WorkflowPortRender key={p.id} entity={p} />);
+  const portsRender = ports.map((p) => (
+    <WorkflowPortRender key={p.id} entity={p} onClick={onPortClick} />
+  ));
 
   return (
     <>
@@ -36,6 +39,10 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         draggable
         onDragStart={(e) => {
           startDrag(e);
+          setIsDragging(true);
+        }}
+        onTouchStart={(e) => {
+          startDrag(e as unknown as React.MouseEvent);
           setIsDragging(true);
         }}
         onClick={(e) => {

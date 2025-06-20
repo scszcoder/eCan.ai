@@ -1,3 +1,8 @@
-export { CallableSelector } from './callable-selector';
-export { CallableEditor } from './callable-editor';
-export * from './styles'; 
+import { CallableFunction } from '../../typings/callable';
+import { CallableEditor } from './callable-editor';
+
+export {
+  CallableEditor
+};
+
+export type { CallableFunction }; 

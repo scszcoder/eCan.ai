@@ -22,6 +22,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
+import { IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
 
@@ -92,14 +93,16 @@ const Knowledge: React.FC = () => {
         items: knowledges,
         selectItem,
         updateItem,
-        setItems: setKnowledges
+        updateItems: setKnowledges
     } = useDetailView<KnowledgePoint>([]);
 
     // Fetch knowledge points
     const fetchKnowledgePoints = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await ipc_api.get_knowledge_points();
+            // 从 localStorage 或其他地方获取当前用户名
+            const username = localStorage.getItem('username') || '';
+            const response = await IPCAPI.getInstance().getAll<KnowledgePoint[]>(username);
             if (response && response.success && response.data) {
                 setKnowledges(response.data);
             }
@@ -181,7 +184,6 @@ const Knowledge: React.FC = () => {
 
     const renderListContent = () => (
         <>
-            {listTitle}
             <SearchFilter
                 onSearch={handleSearch}
                 onFilterChange={handleFilterChange}
@@ -215,13 +217,13 @@ const Knowledge: React.FC = () => {
                 onExport={() => {}}
                 onImport={() => {}}
                 onSettings={() => {}}
-                addText={t('pages.knowledge.addVehicle')}
-                editText={t('pages.knowledge.editVehicle')}
-                deleteText={t('pages.knowledge.deleteVehicle')}
-                refreshText={t('pages.knowledge.refreshVehicles')}
-                exportText={t('pages.knowledge.exportVehicles')}
-                importText={t('pages.knowledge.importVehicles')}
-                settingsText={t('pages.knowledge.vehicleSettings')}
+                addText={t('pages.knowledge.addKnowledge')}
+                editText={t('pages.knowledge.editKnowledge')}
+                deleteText={t('pages.knowledge.deleteKnowledge')}
+                refreshText={t('pages.knowledge.refreshKnowledge')}
+                exportText={t('pages.knowledge.exportKnowledge')}
+                importText={t('pages.knowledge.importKnowledge')}
+                settingsText={t('pages.knowledge.knowledgeSettings')}
             />
             <List
                 dataSource={knowledges}
@@ -258,7 +260,7 @@ const Knowledge: React.FC = () => {
 
     const renderDetailsContent = () => {
         if (!selectedKnowledge) {
-            return <Text type="secondary">{t('pages.knowledge.selectVehicle')}</Text>;
+            return <Text type="secondary">{t('pages.knowledge.selectKnowledge')}</Text>;
         }
 
         return (
@@ -354,6 +356,8 @@ const Knowledge: React.FC = () => {
 
     return (
         <DetailLayout
+            listTitle={listTitle}
+            detailsTitle={t('pages.knowledge.details')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
         />

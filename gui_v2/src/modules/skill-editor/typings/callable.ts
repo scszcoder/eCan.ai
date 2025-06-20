@@ -6,6 +6,11 @@ import { JsonSchema } from './json-schema';
  */
 export interface CallableFunction {
   /**
+   * Function ID
+   * 函数标识符
+   */
+  id?: string;
+  /**
    * Function name
    * 函数名称
    */
@@ -18,20 +23,26 @@ export interface CallableFunction {
   desc: string;
   
   /**
-   * Function parameters schema
-   * 函数参数模式
+   * Function parameters
+   * 函数参数
    */
-  params: JsonSchema;
+  params: {
+    type: string;
+    properties: Record<string, any>;
+  };
   
   /**
-   * Function return type schema
-   * 函数返回类型模式
+   * Function return type
+   * 函数返回类型
    */
-  returns: JsonSchema;
+  returns: {
+    type: string;
+    properties: Record<string, any>;
+  };
   
   /**
-   * Function implementation type
-   * 函数实现类型
+   * Function type: system or custom
+   * 函数类型：系统或自定义
    */
   type: 'system' | 'custom';
   
@@ -53,6 +64,12 @@ export interface CallableFunction {
    * @deprecated
    */
   impl?: string;
+  
+  /**
+   * User ID (only for custom functions)
+   * 用户 ID（仅用于自定义函数）
+   */
+  userId?: string;
 }
 
 /**
@@ -73,8 +90,8 @@ export interface CallableEditorProps {
  * 可调用函数选择器属性
  */
 export interface CallableSelectorProps {
-  value?: string;
-  onChange?: (value: string) => void;
+  value?: CallableFunction;
+  onChange?: (value: CallableFunction) => void;
   onEdit?: (value: CallableFunction) => void;
   onAdd?: () => void;
   systemFunctions?: CallableFunction[];
@@ -88,4 +105,14 @@ export interface CallableFormFieldProps {
   value?: CallableFunction;
   onChange?: (value: CallableFunction) => void;
   systemFunctions?: CallableFunction[];
+}
+
+/**
+ * Callable function filter type
+ */
+export interface CallableFilter {
+  /** Text filter for searching in name, description, etc. */
+  text?: string;
+  /** Type filter: system or custom */
+  type?: 'system' | 'custom';
 } 

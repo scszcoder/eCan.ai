@@ -5,7 +5,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { logger } from '../../utils/logger';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '@/services/ipc/api';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -45,7 +45,7 @@ const Settings: React.FC = () => {
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await ipc_api.get_settings();
+      const response = await IPCAPI.getInstance().getSettings([]);
       if (response && response.success && response.data) {
         const settings = response.data;
         form.setFieldsValue({
@@ -54,9 +54,26 @@ const Settings: React.FC = () => {
           notifications: settings.notifications || localStorage.getItem('notifications') === 'true',
           autoUpdate: settings.autoUpdate || localStorage.getItem('autoUpdate') === 'true'
         });
+      } else {
+        // Handle case where response is not successful
+        logger.warn('Settings response was not successful:', response);
+        // Set default values from localStorage
+        form.setFieldsValue({
+          theme: localStorage.getItem('theme') || theme,
+          language: localStorage.getItem('language') || 'en-US',
+          notifications: localStorage.getItem('notifications') === 'true',
+          autoUpdate: localStorage.getItem('autoUpdate') === 'true'
+        });
       }
     } catch (error) {
-      logger.error('Failed to load settings:', error);
+      logger.error('Failed to load settings:', error instanceof Error ? error.message : 'Unknown error');
+      // Set default values from localStorage on error
+      form.setFieldsValue({
+        theme: localStorage.getItem('theme') || theme,
+        language: localStorage.getItem('language') || 'en-US',
+        notifications: localStorage.getItem('notifications') === 'true',
+        autoUpdate: localStorage.getItem('autoUpdate') === 'true'
+      });
       message.error(t('settings.loadError'));
     } finally {
       setLoading(false);
@@ -111,7 +128,7 @@ const Settings: React.FC = () => {
     try {
       setLoading(true);
       // 保存设置到后端
-      const response = await ipc_api.save_settings(values);
+      const response = await IPCAPI.getInstance().saveSettings(values);
 
       if (response && response.success) {
         // 更新本地设置

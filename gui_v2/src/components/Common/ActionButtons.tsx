@@ -1,37 +1,17 @@
 import React from 'react';
-import { Space, Button, Tooltip } from 'antd';
-import { 
-    PlusOutlined, 
-    EditOutlined, 
-    DeleteOutlined, 
+import { Button, Space, Tooltip, Dropdown, Menu } from 'antd';
+import {
+    PlusOutlined,
+    EditOutlined,
+    DeleteOutlined,
     ReloadOutlined,
     ExportOutlined,
     ImportOutlined,
-    SettingOutlined
+    SettingOutlined,
+    MoreOutlined
 } from '@ant-design/icons';
-import styled from '@emotion/styled';
-
-const ActionContainer = styled.div`
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-`;
-
-interface ActionButton {
-    key: string;
-    label: string;
-    icon: React.ReactNode;
-    type?: 'primary' | 'default' | 'dashed' | 'text' | 'link';
-    danger?: boolean;
-    disabled?: boolean;
-    onClick: () => void;
-}
 
 interface ActionButtonsProps {
-    leftButtons?: ActionButton[];
-    rightButtons?: ActionButton[];
-    showDefaultButtons?: boolean;
     onAdd?: () => void;
     onEdit?: () => void;
     onDelete?: () => void;
@@ -46,12 +26,13 @@ interface ActionButtonsProps {
     exportText?: string;
     importText?: string;
     settingsText?: string;
+    style?: React.CSSProperties;
+    buttonStyle?: React.CSSProperties;
+    iconStyle?: React.CSSProperties;
+    visibleButtons?: ('add' | 'edit' | 'delete' | 'refresh' | 'export' | 'import' | 'settings')[];
 }
 
 const ActionButtons: React.FC<ActionButtonsProps> = ({
-    leftButtons = [],
-    rightButtons = [],
-    showDefaultButtons = true,
     onAdd,
     onEdit,
     onDelete,
@@ -59,87 +40,116 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
     onExport,
     onImport,
     onSettings,
-    addText = 'Add',
-    editText = 'Edit',
-    deleteText = 'Delete',
-    refreshText = 'Refresh',
-    exportText = 'Export',
-    importText = 'Import',
-    settingsText = 'Settings',
+    addText,
+    editText,
+    deleteText,
+    refreshText,
+    exportText,
+    importText,
+    settingsText,
+    style,
+    buttonStyle,
+    iconStyle,
+    visibleButtons = ['add']
 }) => {
-    const defaultLeftButtons: ActionButton[] = showDefaultButtons ? [
+    const allButtons = [
         {
             key: 'add',
+            icon: <PlusOutlined style={iconStyle} />,
             label: addText,
-            icon: <PlusOutlined />,
-            type: 'primary',
-            onClick: onAdd || (() => {}),
+            onClick: onAdd,
+            tooltip: addText
         },
         {
             key: 'edit',
+            icon: <EditOutlined style={iconStyle} />,
             label: editText,
-            icon: <EditOutlined />,
-            onClick: onEdit || (() => {}),
+            onClick: onEdit,
+            tooltip: editText
         },
         {
             key: 'delete',
+            icon: <DeleteOutlined style={iconStyle} />,
             label: deleteText,
-            icon: <DeleteOutlined />,
-            danger: true,
-            onClick: onDelete || (() => {}),
+            onClick: onDelete,
+            tooltip: deleteText,
+            danger: true
         },
-    ] : [];
-
-    const defaultRightButtons: ActionButton[] = showDefaultButtons ? [
         {
             key: 'refresh',
+            icon: <ReloadOutlined style={iconStyle} />,
             label: refreshText,
-            icon: <ReloadOutlined />,
-            onClick: onRefresh || (() => {}),
+            onClick: onRefresh,
+            tooltip: refreshText
         },
         {
             key: 'export',
+            icon: <ExportOutlined style={iconStyle} />,
             label: exportText,
-            icon: <ExportOutlined />,
-            onClick: onExport || (() => {}),
+            onClick: onExport,
+            tooltip: exportText
         },
         {
             key: 'import',
+            icon: <ImportOutlined style={iconStyle} />,
             label: importText,
-            icon: <ImportOutlined />,
-            onClick: onImport || (() => {}),
+            onClick: onImport,
+            tooltip: importText
         },
         {
             key: 'settings',
+            icon: <SettingOutlined style={iconStyle} />,
             label: settingsText,
-            icon: <SettingOutlined />,
-            onClick: onSettings || (() => {}),
-        },
-    ] : [];
+            onClick: onSettings,
+            tooltip: settingsText
+        }
+    ];
 
-    const renderButton = (button: ActionButton) => (
-        <Tooltip key={button.key} title={button.label}>
-            <Button
-                type={button.type}
-                danger={button.danger}
-                icon={button.icon}
-                onClick={button.onClick}
-                disabled={button.disabled}
-            >
-                {button.label}
-            </Button>
-        </Tooltip>
+    const displayButtons = allButtons.filter(button => 
+        visibleButtons.includes(button.key as any) && button.label
+    );
+    
+    const menuButtons = allButtons.filter(button => 
+        !visibleButtons.includes(button.key as any) && button.label
+    );
+
+    const menu = (
+        <Menu items={menuButtons} />
     );
 
     return (
-        <ActionContainer>
-            <Space>
-                {[...defaultLeftButtons, ...leftButtons].map(renderButton)}
+        <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            ...style 
+        }}>
+            <Space size="small">
+                {displayButtons.map(button => (
+                    <Tooltip key={button.key} title={button.tooltip}>
+                        <Button
+                            type="text"
+                            icon={button.icon}
+                            onClick={button.onClick}
+                            danger={button.danger}
+                            style={buttonStyle}
+                        >
+                            {button.label}
+                        </Button>
+                    </Tooltip>
+                ))}
             </Space>
-            <Space>
-                {[...defaultRightButtons, ...rightButtons].map(renderButton)}
-            </Space>
-        </ActionContainer>
+            
+            {menuButtons.length > 0 && (
+                <Dropdown menu={{ items: menuButtons }} placement="bottomRight" trigger={['click']}>
+                    <Button
+                        type="text"
+                        icon={<MoreOutlined style={iconStyle} />}
+                        style={buttonStyle}
+                    />
+                </Dropdown>
+            )}
+        </div>
     );
 };
 

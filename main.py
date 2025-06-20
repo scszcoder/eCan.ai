@@ -4,12 +4,15 @@ print(TimeUtil.formatted_now_with_ms() + " app start...")
 import asyncio
 import sys
 import traceback
+import os
 
 import qasync
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon
 from setproctitle import setproctitle
 
 from config.app_settings import app_settings
+from config.app_info import app_info
 from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
 from gui.WebGUI import WebGUI
@@ -26,9 +29,24 @@ from tests.unittests import *
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
 def main():
+    # 创建应用程序实例
     app = QApplication.instance()
     if not app:  # If no instance, create a new QApplication
         app = QApplication(sys.argv)
+    
+    # 设置应用程序图标（在 QApplication 创建之后）
+    # 首先尝试从应用程序根目录加载图标
+    icon_path = os.path.join(app_info.app_home_path, "ECBot.ico")
+    if not os.path.exists(icon_path) and getattr(sys, 'frozen', False):
+        # 如果是生产环境且图标不在根目录，尝试从资源目录加载
+        icon_path = os.path.join(app_info.app_resources_path, "images", "ECBot.ico")
+    if os.path.exists(icon_path):
+        app_icon = QIcon(icon_path)
+        app.setWindowIcon(app_icon)
+        print(f"Successfully loaded application icon from: {icon_path}")
+    else:
+        print(f"Warning: Could not find application icon at: {icon_path}")
+        
     # app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)

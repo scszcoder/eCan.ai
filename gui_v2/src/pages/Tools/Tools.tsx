@@ -3,7 +3,7 @@ import { Layout, Typography, Card, Button } from 'antd';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
-import {ipc_api} from '../../services/ipc_api';
+import { IPCAPI } from '../../services/ipc/api';
 import {
     UserOutlined,
     ToolOutlined,
@@ -11,6 +11,7 @@ import {
     EditOutlined,
     ReloadOutlined
 } from '@ant-design/icons';
+import { APIResponse } from '@/services/ipc';
 
 const { Content } = Layout;
 const { Title } = Typography;
@@ -94,7 +95,7 @@ const Tools: React.FC = () => {
   const fetchTools = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await ipc_api.get_tools();
+      const response: APIResponse<Tool[]> = await IPCAPI.getInstance().getTools([]);
       if (response && response.success && response.data) {
         setTools(response.data);
       }

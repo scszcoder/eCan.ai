@@ -59,6 +59,8 @@ class WebEngineView(QWebEngineView):
         QWebEngineSettings.JavascriptCanAccessClipboard: True,  # 允许JS访问剪贴板
         QWebEngineSettings.AutoLoadImages: True,  # 自动加载图片
         QWebEngineSettings.JavascriptCanPaste: True,  # 允许JS粘贴
+        QWebEngineSettings.Accelerated2dCanvasEnabled: True,  # 启用2D Canvas硬件加速
+        QWebEngineSettings.WebGLEnabled: True,  # 启用WebGL
     }
     
     def __init__(self, parent: Optional[QMainWindow] = None):
