@@ -247,13 +247,31 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
         username = data['username']
 
         agents = py_login.main_win.agents
+        all_tasks = []
+        for agent in agents:
+            all_tasks.extend(agent.tasks)
 
+        skills = py_login.main_win.agent_skills
+        vehicles = py_login.main_win.vehicles
+        settings = py_login.main_win.settings
+        knowledges = py_login.main_win.knowledges
+        chats = py_login.main_win.chats
+        settings = {}
+        knowledges = {}
+        chats = {}
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"Get all successful for user: {username}")
         return json.dumps(create_success_response(request, {
             'token': token,
-            'agents': agents,
+            'agents': [agent.to_dict() for agent in agents],
+            'skills': [sk.to_dict() for sk in skills],
+            'tools': py_login.main_win.mcp_tools_schemas,
+            'tasks': [task.to_dict() for task in all_tasks],
+            'vehicles': [vehicle.genJson() for vehicle in vehicles],
+            'settings': settings,
+            'knowledges': knowledges,
+            'chats': chats,
             'message': 'Get all successful'
         }))
 
@@ -285,7 +303,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get agents: {error}")
             return json.dumps(create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -303,15 +321,15 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         return json.dumps(create_success_response(request, {
             'token': token,
             'agents': [agent.to_dict() for agent in agents],
-            'message': 'Login successful'
+            'message': 'get agents successful'
         }))
 
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get agents handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)} "
+            f"Error during get agents: {str(e)} "
         ))
 
 
@@ -346,16 +364,16 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_
         logger.info(f"get skills successful for user: {username}")
         return json.dumps(create_success_response(request, {
             'token': token,
-            'skills': [sk.toDict() for sk in skills],
-            'message': 'Login successful'
+            'skills': [sk.to_dict() for sk in skills],
+            'message': 'get skills successful'
         }))
 
     except Exception as e:
-        logger.error(f"Error in login handler: {e}")
+        logger.error(f"Error in get skills handler: {e}")
         return json.dumps(create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            f"Error during get skills: {str(e)}"
         ))
 
 
@@ -387,6 +405,9 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
             ))
 
         agents = py_login.main_win.agents
+        all_tasks = []
+        for agent in agents:
+            all_tasks.extend(agent.tasks)
         # 获取用户名和密码
         username = data['username']
 
@@ -396,7 +417,8 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         logger.info(f"Get tasks successful for user: {username}")
         return json.dumps(create_success_response(request, {
             'token': token,
-            'message': 'Login successful'
+            'tasks': [task.to_dict() for task in all_tasks],
+            'message': 'get tasks successful'
         }))
 
     except Exception as e:
@@ -444,6 +466,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
         logger.info(f"Get vehicles successful for user: {username}")
         return json.dumps(create_success_response(request, {
             'token': token,
+            'vehicles': [vehicle.genJson() for vehicle in py_login.main_win.vehicles],
             'message': 'Get vehicles successful'
         }))
 
@@ -810,7 +833,7 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]], py_login:A
     """
     try:
         logger.debug(f"Save all handler called with request: {request}, params: {params}")
-        print("save agents:", params)
+        print("save all:", params)
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
