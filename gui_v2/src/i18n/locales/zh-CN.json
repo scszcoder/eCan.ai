@@ -460,69 +460,13 @@
       "title": "任务",
       "details": "任务详情",
       "selectTask": "请选择一个任务查看详情",
+      "refresh": "刷新任务",
       "status": "状态",
-      "status.active": "活跃",
-      "status.updating": "更新中",
-      "status.error": "错误",
-      "version": "版本：{{version}}",
-      "lastUpdated": "最后更新",
-      "rating": "评分",
-      "description": "描述",
-      "features": "功能",
-      "storageUsage": "存储使用",
-      "userRating": "用户评分",
-      "update": "更新",
-      "settings": "设置",
-      "uninstall": "卸载",
-      "addTask": "添加任务",
-      "editTask": "编辑任务",
-      "deleteTask": "删除任务",
-      "refreshTasks": "刷新任务",
-      "exportTasks": "导出任务",
-      "importTasks": "导入任务",
-      "taskSettings": "任务设置",
-      "time": {
-        "daysAgo": "{{days}}天前",
-        "hoursAgo": "{{hours}}小时前",
-        "weeksAgo": "{{weeks}}周前",
-        "justNow": "刚刚"
-      },
-      "categories": {
-        "Productivity": "生产力",
-        "Analytics": "分析",
-        "System": "系统"
-      },
-      "tasks": {
-        "TaskManager": {
-          "name": "任务管理器",
-          "description": "一个强大的任务管理工具",
-          "features": {
-            "TaskCreation": "任务创建",
-            "ProgressTracking": "进度跟踪",
-            "TeamCollaboration": "团队协作",
-            "FileSharing": "文件共享"
-          }
-        },
-        "DataAnalyzer": {
-          "name": "数据分析器",
-          "description": "专业的数据分析工具",
-          "features": {
-            "DataImport": "数据导入",
-            "Visualization": "数据可视化",
-            "ReportGeneration": "报告生成",
-            "ExportOptions": "导出选项"
-          }
-        },
-        "SystemMonitor": {
-          "name": "系统监视器",
-          "description": "系统资源监控工具",
-          "features": {
-            "ResourceMonitoring": "资源监控",
-            "AlertSystem": "告警系统",
-            "PerformanceReports": "性能报告",
-            "LogAnalysis": "日志分析"
-          }
-        }
+      "trigger": "触发器: {{trigger}}",
+      "priority": "优先级: {{priority}}",
+      "states": {
+        "ready": "就绪",
+        "running": "运行中"
       }
     },
     "tools": {
@@ -589,8 +533,6 @@
       "setOffline": "设为离线",
       "maintenanceBay": "维护区",
       "chargingStation": "充电站",
-      "zoneA": "区域A",
-      "searchPlaceholder": "搜索车辆...",
       "selectVehicle": "选择一个车辆查看详情",
       "name": "名称",
       "justNow": "刚刚",
@@ -636,8 +578,6 @@
       "setOffline": "设为离线",
       "maintenanceBay": "维护区",
       "chargingStation": "充电站",
-      "zoneA": "区域A",
-      "searchPlaceholder": "搜索知识库...",
       "selectKnowledge": "选择一个知识查看详情",
       "name": "名称",
       "justNow": "刚刚",
