@@ -1,11 +1,8 @@
 import { logger } from '../../utils/logger';
 import { APIResponse } from '../ipc';
-import { get_ipc_api } from '../ipc_api';
-import { useSystemStore } from '../../stores/systemStore';
-import { useUserStore } from '@/stores/userStore';
-import { SystemDataHandler } from '../SystemDataHandler';
-import { useSettingsStore } from '../../stores/settingsStore';
-import { AppStoreHandler } from '../../stores/AppStoreHandler';
+import { get_ipc_api } from '../../services/ipc_api';
+import { useUserStore } from '../../stores/userStore';
+import { AppDataStoreHandler } from '../../stores/AppDataStoreHandler';
 
 // 页面刷新后的操作类型
 export type PageRefreshAction = () => void | Promise<void>;
@@ -93,11 +90,12 @@ export class PageRefreshManager {
 					
 					// 将API返回的数据保存到store中
 					if (systemData?.data) {
-                        logger.info('Get all system data successful');
-                        AppStoreHandler.updateStore(systemData.data as any);
-						logger.info('system data 数据已保存到store中');
+                        logger.info('PageRefreshManager: Get all system data successful');
+                        // 更新 store
+                        AppDataStoreHandler.updateStore(systemData.data as any);
+                        logger.info('PageRefreshManager: System data restored in store.');
 					} else {
-                        logger.error('Get all system data failed');
+                        logger.error('PageRefreshManager: Get all system data failed');
                     }
 				} else {
 					logger.error('获取登录信息失败');

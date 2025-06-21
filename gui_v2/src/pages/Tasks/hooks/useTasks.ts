@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useDetailView } from '@/hooks/useDetailView';
-import { useSystemStore } from '@/stores/systemStore';
+import { useAppDataStore } from '@/stores/appDataStore';
 import { Task } from '../types';
 import { tasksEventBus } from '../Tasks'; 
 
 export const useTasks = () => {
-  const storeTasks = useSystemStore((state) => state.tasks);
+  const storeTasks = useAppDataStore((state) => state.tasks);
 
   const {
     items: tasks,

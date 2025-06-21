@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, List, Tag, Space, Typography, Spin, Alert } from 'antd';
-import { useSystemStore } from '../stores/systemStore';
+import { useAppDataStore } from '../stores/appDataStore';
 
 const { Title, Text } = Typography;
 
@@ -14,7 +14,7 @@ const DataDisplay: React.FC = () => {
     settings, 
     isLoading, 
     error 
-  } = useSystemStore();
+  } = useAppDataStore();
 
   if (isLoading) {
     return (

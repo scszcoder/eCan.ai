@@ -4,7 +4,7 @@
  */
 import { IPCRequest } from './types';
 import { updateDashboard } from '../../pages/Dashboard/Dashboard';
-import { useSystemStore } from '../../stores/systemStore';
+import { useAppDataStore } from '../../stores/appDataStore';
 import { logger } from '../../utils/logger';
 
 // 处理器类型定义
@@ -87,19 +87,19 @@ export class IPCHandlers {
 
     async updateAgents(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_agents request:', request.params);
-        useSystemStore.getState().setAgents(request.params as any);
+        useAppDataStore.getState().setAgents(request.params as any);
         return { refreshed: true };
     }
 
     async updateSkills(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_skills request:', request.params);
-        useSystemStore.getState().setSkills(request.params as any);
+        useAppDataStore.getState().setSkills(request.params as any);
         return { refreshed: true };
     }
 
     async updateTasks(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_tasks request:', request.params);
-        useSystemStore.getState().setTasks(request.params as any);
+        useAppDataStore.getState().setTasks(request.params as any);
         return { refreshed: true };
     }
 
@@ -110,7 +110,7 @@ export class IPCHandlers {
 
     async updateKnowledges(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_knowledges request:', request.params);
-        useSystemStore.getState().setKnowledges(request.params as any);
+        useAppDataStore.getState().setKnowledges(request.params as any);
         return { refreshed: true };
     }
 

@@ -4,7 +4,7 @@ import { UserOutlined, RobotOutlined, TeamOutlined, MoreOutlined } from '@ant-de
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat, Message, Attachment } from '../types/chat';
-import { useSystemStore } from '../../../stores/systemStore';
+import { useAppDataStore } from '../../../stores/appDataStore';
 import MessageInput from './MessageInput';
 import MessageItem from './MessageItem';
 
@@ -86,7 +86,7 @@ interface ChatDetailProps {
 const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, onSend }) => {
     const { t } = useTranslation();
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const { chats } = useSystemStore();
+    const { chats } = useAppDataStore();
     
     // Ensure chats is always an array to prevent crashes
     const safeChats = Array.isArray(chats) ? chats : [];

@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
 import { useDetailView } from '@/hooks/useDetailView';
-import { useSystemStore } from '@/stores/systemStore';
+import { useAppDataStore } from '@/stores/appDataStore';
 import { Agent } from '../types';
 
 export const useAgents = () => {
-    const storeAgents = useSystemStore((state) => state.agents);
+    const storeAgents = useAppDataStore((state) => state.agents);
 
     const {
         items: agents,

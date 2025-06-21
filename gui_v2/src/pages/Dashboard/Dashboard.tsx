@@ -3,7 +3,7 @@ import { Card, Row, Col, Statistic, Typography, Space, Tag } from 'antd';
 import { CarOutlined, TeamOutlined, RobotOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { IPCAPI } from '@/services/ipc/api';
-import { useSystemStore } from '../../stores/systemStore';
+import { useAppDataStore } from '../../stores/appDataStore';
 
 const { Title, Text } = Typography;
 
@@ -50,7 +50,7 @@ const Dashboard: React.FC = () => {
         vehicles, 
         settings,
         isLoading 
-    } = useSystemStore();
+    } = useAppDataStore();
 
     // 监听数据更新
     useEffect(() => {

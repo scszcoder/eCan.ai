@@ -10,7 +10,8 @@ import { useUserStore } from '@/stores/userStore';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logo.png';
 import './Login.css';
-import { AppStoreHandler } from '@/stores/AppStoreHandler';
+import { useAppDataStore } from '@/stores/appDataStore';
+import { AppDataStoreHandler } from '@/stores/AppDataStoreHandler';
 
 const { Title, Text } = Typography;
 
@@ -113,7 +114,7 @@ const Login: React.FC = () => {
 			// 将API返回的数据保存到store中
 			if (systemData?.data) {
 				logger.info('Get all system data successful');
-				AppStoreHandler.updateStore(systemData.data);
+				AppDataStoreHandler.updateStore(systemData.data);
 				logger.info('system data 数据已保存到store中');
 			} else {
 				logger.error('Get all system data failed');

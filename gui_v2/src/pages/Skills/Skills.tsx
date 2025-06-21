@@ -4,7 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
-import { useSystemStore } from '../../stores/systemStore';
+import { useAppDataStore } from '../../stores/appDataStore';
 import { useUserStore } from '../../stores/userStore';
 import { IPCAPI } from '@/services/ipc/api';
 import { SkillsAPIResponseData } from './types';
@@ -14,11 +14,11 @@ import SkillDetails from './components/SkillDetails';
 const Skills: React.FC = () => {
     const { t } = useTranslation();
     
-    const skills = useSystemStore((state) => state.skills);
-    const isLoading = useSystemStore((state) => state.isLoading);
-    const setLoading = useSystemStore((state) => state.setLoading);
-    const setError = useSystemStore((state) => state.setError);
-    const setSkills = useSystemStore((state) => state.setSkills);
+    const skills = useAppDataStore((state) => state.skills);
+    const isLoading = useAppDataStore((state) => state.isLoading);
+    const setLoading = useAppDataStore((state) => state.setLoading);
+    const setError = useAppDataStore((state) => state.setError);
+    const setSkills = useAppDataStore((state) => state.setSkills);
     
     const username = useUserStore((state) => state.username);
 

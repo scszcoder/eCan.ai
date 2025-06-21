@@ -8,9 +8,9 @@ import { Tool } from '@/pages/Tools/types';
 import { Vehicle } from '@/pages/Vehicles/types';
 import { Settings } from '@/pages/Settings/types';
 import { Chat } from '@/pages/Chat/types/chat';
-import systemData from './app_data.json';
+import appData from './app_data.json';
 
-export interface SystemState {
+export interface AppData {
   agents: Agent[];
   tasks: Task[];
   knowledges: Knowledge[];
@@ -34,16 +34,16 @@ export interface SystemState {
   setChats: (chats: Chat[]) => void;
 }
 
-const useSystemStore = create<SystemState>()(
+const useAppDataStore = create<AppData>()(
   persist(
     (set, get) => ({
-      agents: systemData.agents as Agent[],
-      tasks: systemData.tasks as Task[],
-      knowledges: systemData.knowledges as Knowledge[],
-      skills: systemData.skills as any as Skill[],
-      tools: systemData.tools as any as Tool[],
-      vehicles: systemData.vehicles as any as Vehicle[],
-      settings: systemData.settings as any as Settings,
+      agents: appData.agents as Agent[],
+      tasks: appData.tasks as Task[],
+      knowledges: appData.knowledges as Knowledge[],
+      skills: appData.skills as any as Skill[],
+      tools: appData.tools as any as Tool[],
+      vehicles: appData.vehicles as any as Vehicle[],
+      settings: appData.settings as any as Settings,
       chats: [],
       isLoading: false,
       error: null,
@@ -66,4 +66,4 @@ const useSystemStore = create<SystemState>()(
   )
 );
 
-export { useSystemStore }; 
+export { useAppDataStore }; 
