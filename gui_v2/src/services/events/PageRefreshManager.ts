@@ -1,6 +1,8 @@
 import { logger } from '../../utils/logger';
 import { APIResponse } from '../ipc';
 import { get_ipc_api } from '../ipc_api';
+import { useSystemStore } from '../../stores/systemStore';
+import type { SystemData } from '../../types';
 
 // 页面刷新后的操作类型
 export type PageRefreshAction = () => void | Promise<void>;
@@ -79,14 +81,23 @@ export class PageRefreshManager {
                 const response: APIResponse<any> = await get_ipc_api().getLastLoginInfo();
 				if (response?.data?.last_login) {
 					const { username, password, machine_role } = response.data.last_login;
-					console.log('last_login', response.data.last_login);
-					const response2 = await get_ipc_api().getAll(username);
-			        logger.info('Get all successful', response2.data);
+					logger.info('last_login', response.data.last_login);
+					const systemData = await get_ipc_api().getAll(username);
+					
+					// 将API返回的数据保存到store中
+					if (systemData?.data) {
+                        logger.info('Get all system data successful');
+						const systemStore = useSystemStore.getState();
+						systemStore.setData(systemData.data as SystemData);
+						logger.info('system data 数据已保存到store中');
+					} else {
+                        logger.error('Get all system data failed');
+                    }
 				} else {
 					logger.error('获取登录信息失败');
 				}
                 
-                console.log('页面刷新后执行动作完成');
+                logger.info('页面刷新后执行动作完成');
             } catch (error) {
                 logger.error('获取登录信息失败:', error);
             }

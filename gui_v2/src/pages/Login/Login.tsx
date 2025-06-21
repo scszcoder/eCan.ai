@@ -10,6 +10,8 @@ import { useUserStore } from '../../stores/userStore';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logo.png';
 import './Login.css';
+import { useSystemStore } from '@/stores/systemStore';
+import { SystemData } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -107,8 +109,17 @@ const Login: React.FC = () => {
 			navigate('/dashboard');
             useUserStore.getState().setUsername(values.username);
 			await new Promise(resolve => setTimeout(resolve, 6000));
-			const response2 = await api.getAll(values.username);
-			logger.info('Get all successful', response2.data);
+			const systemData = await api.getAll(values.username);
+			
+			// 将API返回的数据保存到store中
+			if (systemData?.data) {
+				logger.info('Get all system data successful');
+				const systemStore = useSystemStore.getState();
+				systemStore.setData(systemData.data as SystemData);
+				logger.info('system data 数据已保存到store中');
+			} else {
+				logger.error('Get all system data failed');
+			}
 		} else {
 			logger.error('Login failed', response.error);
 			messageApi.error(response.error?.message || t('login.failed'));
