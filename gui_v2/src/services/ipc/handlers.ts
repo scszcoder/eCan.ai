@@ -3,7 +3,6 @@
  * 实现了与 Python 后端通信的请求处理器
  */
 import { IPCRequest } from './types';
-import { updateDashboard } from '../../pages/Dashboard/Dashboard';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { logger } from '../../utils/logger';
 
@@ -35,7 +34,6 @@ export class IPCHandlers {
         this.registerHandler('get_config', this.getConfig);
         this.registerHandler('set_config', this.setConfig);
         this.registerHandler('notify_event', this.notifyEvent);
-        this.registerHandler('refresh_dashboard', this.refreshDashboard);
         this.registerHandler('update_agents', this.updateAgents);
         this.registerHandler('update_skills', this.updateSkills);
         this.registerHandler('update_tasks', this.updateTasks);
@@ -73,16 +71,6 @@ export class IPCHandlers {
         const { event, data } = request.params as { event: string; data?: unknown };
         logger.info('Notify event received:', { event, data });
         return { event, processed: true };
-    }
-
-    async refreshDashboard(request: IPCRequest): Promise<unknown> {
-        try {
-            updateDashboard(request.params as any);
-            return { refreshed: true };
-        } catch (error) {
-            logger.error('Error in refresh_dashboard handler:', error);
-            throw error;
-        }
     }
 
     async updateAgents(request: IPCRequest): Promise<unknown> {

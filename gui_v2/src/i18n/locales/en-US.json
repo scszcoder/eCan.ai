@@ -446,7 +446,7 @@
     },
     "tools": {
       "title": "Tools",
-      "list": "Tools List",
+      "list": "Tool List",
       "addTool": "Add Tool",
       "editTool": "Edit Tool",
       "deleteTool": "Delete Tool",
@@ -459,69 +459,13 @@
       "title": "Tasks",
       "details": "Task Details",
       "selectTask": "Select a task to view details",
+      "refresh": "Refresh Tasks",
       "status": "Status",
-      "status.active": "Active",
-      "status.updating": "Updating",
-      "status.error": "Error",
-      "version": "Version: {{version}}",
-      "lastUpdated": "Last Updated",
-      "rating": "Rating",
-      "description": "Description",
-      "features": "Features",
-      "storageUsage": "Storage Usage",
-      "userRating": "User Rating",
-      "update": "Update",
-      "settings": "Settings",
-      "uninstall": "Uninstall",
-      "addTask": "Add Task",
-      "editTask": "Edit Task",
-      "deleteTask": "Delete Task",
-      "refreshTasks": "Refresh Tasks",
-      "exportTasks": "Export Tasks",
-      "importTasks": "Import Tasks",
-      "taskSettings": "Task Settings",
-      "time": {
-        "daysAgo": "{{days}} days ago",
-        "hoursAgo": "{{hours}} hours ago",
-        "weeksAgo": "{{weeks}} weeks ago",
-        "justNow": "Just now"
-      },
-      "categories": {
-        "Productivity": "Productivity",
-        "Analytics": "Analytics",
-        "System": "System"
-      },
-      "tasks": {
-        "TaskManager": {
-          "name": "Task Manager",
-          "description": "A powerful task management tool",
-          "features": {
-            "TaskCreation": "Task Creation",
-            "ProgressTracking": "Progress Tracking",
-            "TeamCollaboration": "Team Collaboration",
-            "FileSharing": "File Sharing"
-          }
-        },
-        "DataAnalyzer": {
-          "name": "Data Analyzer",
-          "description": "Professional data analysis tool",
-          "features": {
-            "DataImport": "Data Import",
-            "Visualization": "Data Visualization",
-            "ReportGeneration": "Report Generation",
-            "ExportOptions": "Export Options"
-          }
-        },
-        "SystemMonitor": {
-          "name": "System Monitor",
-          "description": "System resource monitoring tool",
-          "features": {
-            "ResourceMonitoring": "Resource Monitoring",
-            "AlertSystem": "Alert System",
-            "PerformanceReports": "Performance Reports",
-            "LogAnalysis": "Log Analysis"
-          }
-        }
+      "trigger": "Trigger: {{trigger}}",
+      "priority": "Priority: {{priority}}",
+      "states": {
+        "ready": "Ready",
+        "running": "Running"
       }
     },
     "skill_editor": {
