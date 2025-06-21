@@ -14,9 +14,14 @@ interface ChatState {
     sendMessage: (chatId: number, content: string, attachments: any[], options?: { ext?: any; replyTo?: number; atList?: string[] }) => Promise<void>;
     updateChatsGUI: (params: { chat: Omit<Chat, 'messages'> & { messages?: Message[] }, message: Message }) => void;
     initialize: () => void;
+    isMuted: boolean;
+    activeChatId: string | null;
+    setMessages: (chatId: string, messages: Message[]) => void;
+    addOrUpdateChat: (chat: Chat) => void;
+    setActiveChatId: (chatId: string | null) => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = create<ChatState>()((set, get) => ({
     chats: [],
     activeChatId: null,
 
@@ -121,8 +126,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
-    updateChatsGUI: ({ chat, message }) => {
+    updateChatsGUI: (params) => {
         const { chats } = get();
+        const { chat, message } = params;
         const chatIndex = chats.findIndex(c => c.id === chat.id);
     
         if (chatIndex !== -1) {
@@ -145,5 +151,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
         } else {
             set({ chats: [], activeChatId: null });
         }
-    }
+    },
+
+    isMuted: false,
+    activeChatId: null,
+    setMessages: (chatId, messages) => set((state) => ({
+        chats: state.chats.map(chat =>
+            chat.id === chatId ? { ...chat, messages: [...(chat.messages || []), ...messages] } : chat
+        )
+    })),
+    addOrUpdateChat: (chat) => set(state => {
+        const chatExists = state.chats.some(c => c.id === chat.id);
+        if (chatExists) {
+            return {
+                chats: state.chats.map(c => c.id === chat.id ? { ...c, ...chat, messages: [...c.messages, ...chat.messages] } : c)
+            };
+        }
+        return { chats: [...state.chats, chat] };
+    }),
+    setActiveChatId: (chatId) => set({ activeChatId: chatId }),
 })); 
