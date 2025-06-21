@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Spin, message, App } from 'antd';
@@ -26,33 +26,40 @@ const Agents: React.FC = () => {
     const setError = useAppDataStore((state) => state.setError);
     const username = useUserStore((state) => state.username);
 
-    const handleAddAgent = () => {
-        navigate('/agents/new');
-    };
-
-    const handleRefresh = async () => {
+    const fetchAgents = useCallback(async () => {
         if (!username) return;
-        
+
         setLoading(true);
         setError(null);
         try {
-            const response = await get_ipc_api().getAgents(username, []);
-            console.debug('[Agents] Fetched agents:', response.data);
+            const response = await get_ipc_api().getAgents<{ agents: Agent[] }>(username, []);
+            console.log('[Agents] Fetched agents:', response.data);
             if (response.success && response.data) {
-                console.log('response.data.agents', response.data.agents);
-                setAgents(response.data.agents as Agent[]);
-                messageApi.success(t('common.refreshSuccess'));
+                setAgents(response.data.agents);
+                // messageApi.success(t('common.success'));
             } else {
                 throw new Error(response.error?.message || 'Failed to fetch agents');
             }
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
             setError(errorMessage);
-            messageApi.error(`${t('common.refreshFailed')}: ${errorMessage}`);
+            messageApi.error(`${t('common.failed')}: ${errorMessage}`);
             logger.error('[Agents] Error fetching agents:', errorMessage);
         } finally {
             setLoading(false);
         }
+    }, [username, setLoading, setError, setAgents, messageApi, t]);
+
+    useEffect(() => {
+        fetchAgents();
+    }, [fetchAgents]);
+
+    const handleAddAgent = () => {
+        navigate('/agents/new');
+    };
+
+    const handleRefresh = async () => {
+        await fetchAgents();
     };
 
     return (

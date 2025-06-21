@@ -6,10 +6,10 @@ import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { useUserStore } from '../../stores/userStore';
-import { IPCAPI } from '@/services/ipc/api';
-import { SkillsAPIResponseData } from './types';
+import { Skill, SkillsAPIResponseData } from './types';
 import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
+import { get_ipc_api } from '@/services/ipc_api';
 
 const Skills: React.FC = () => {
     const { t } = useTranslation();
@@ -36,8 +36,9 @@ const Skills: React.FC = () => {
         try {
             setLoading(true);
             setError(null);
-            const response = await IPCAPI.getInstance().getSkills(username, []);
+            const response = await get_ipc_api().getSkills<{ skills: Skill[] }>(username, []);
             if (response && response.success && response.data) {
+                console.log('[Skills] Fetched skills:', response.data.skills);
                 const responseData = response.data as SkillsAPIResponseData;
                 if (responseData.skills && Array.isArray(responseData.skills)) {
                     setSkills(responseData.skills);
