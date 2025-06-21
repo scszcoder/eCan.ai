@@ -24,4 +24,6 @@ export interface Settings {
   ws_api_endpoint: string;
   schedule_engine: string;
   schedule_mode: string;
+  theme: 'light' | 'dark';
+  language: string;
 } 

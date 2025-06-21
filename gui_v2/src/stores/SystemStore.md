@@ -17,7 +17,7 @@
 - **Vehicle** (`src/types/vehicle.ts`): 车辆信息，包含IP、状态、功能等
 - **Settings** (`src/types/settings.ts`): 系统设置信息
 - **Knowledge** (`src/types/system.ts`): 知识库信息
-- **ChatSession** (`src/pages/Chat/types/chat.ts`): 聊天会话信息，包含消息、成员等
+- **Chat** (`src/pages/Chat/types/chat.ts`): 聊天会话信息，包含消息、成员等
 - **Message** (`src/pages/Chat/types/chat.ts`): 消息信息，包含内容、附件、状态等
 - **Attachment** (`src/pages/Chat/types/chat.ts`): 附件信息
 - **SystemData** (`src/types/system.ts`): 系统完整数据结构
@@ -36,7 +36,7 @@ import type { Agent, Skill, Tool, Task, Vehicle, Settings } from '../types';
 import type { SystemData } from '../types/system';
 
 // 导入Chat相关类型
-import type { ChatSession, Message, Attachment } from '../pages/Chat/types/chat';
+import type { Chat, Message, Attachment } from '../pages/Chat/types/chat';
 ```
 
 ## 使用方法
@@ -95,7 +95,7 @@ updateAgent('agent-id', {
 addSkill(newSkill);
 
 // 添加新聊天会话
-addChat(newChatSession);
+addChat(newChat);
 ```
 
 ### 3. 数据操作
@@ -122,7 +122,7 @@ removeAgent('agent-id');
 updateSkill('skill-id', { name: '新技能名称' });
 
 // 添加聊天会话
-addChat(newChatSession);
+addChat(newChat);
 
 // 更新聊天会话
 updateChat(chatId, { lastMessage: '新消息' });
@@ -184,7 +184,7 @@ const AgentList = () => {
 import React from 'react';
 import { List, Card, Badge, Avatar } from 'antd';
 import { useSystemStore } from '../stores/systemStore';
-import type { ChatSession } from '../pages/Chat/types/chat';
+import type { Chat } from '../pages/Chat/types/chat';
 
 const ChatList = () => {
   const { chats } = useSystemStore();
@@ -192,7 +192,7 @@ const ChatList = () => {
   return (
     <List
       dataSource={chats}
-      renderItem={(chat: ChatSession) => (
+      renderItem={(chat: Chat) => (
         <List.Item>
           <Card>
             <List.Item.Meta
@@ -252,13 +252,13 @@ const Statistics = () => {
 
 ```typescript
 import React from 'react';
-import type { Agent, Skill, Task, ChatSession } from '../types';
+import type { Agent, Skill, Task, Chat } from '../types';
 
 interface DataDisplayProps {
   agents: Agent[];
   skills: Skill[];
   tasks: Task[];
-  chats: ChatSession[];
+  chats: Chat[];
 }
 
 const DataDisplay: React.FC<DataDisplayProps> = ({ agents, skills, tasks, chats }) => {
@@ -288,7 +288,7 @@ interface SystemState {
   vehicles: Vehicle[];
   settings: Settings | null;
   knowledges: Knowledge;
-  chats: ChatSession[];
+  chats: Chat[];
   
   // 加载状态
   isLoading: boolean;
@@ -319,7 +319,7 @@ interface SystemState {
 3. **错误处理**: 注意检查 `isLoading` 和 `error` 状态
 4. **性能优化**: 大量数据时考虑使用虚拟滚动或分页
 5. **类型安全**: 使用 `import type` 导入类型，避免运行时导入
-6. **Chat类型**: 现在使用 `ChatSession` 类型，包含完整的聊天会话信息
+6. **Chat类型**: 现在使用 `Chat` 类型，包含完整的聊天会话信息
 
 ## 扩展功能
 

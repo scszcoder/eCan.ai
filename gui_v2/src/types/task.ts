@@ -1,6 +1,8 @@
 // 任务相关的类型定义
 export interface Task {
   id: string;
+  name: string;
+  status: string;
   sessionId: string;
   skill: string;
   metadata: {

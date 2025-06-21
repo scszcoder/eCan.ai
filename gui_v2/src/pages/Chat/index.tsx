@@ -31,8 +31,9 @@ const ChatPage: React.FC = () => {
         if (agentId) {
             const existingChat = chats.find(chat => chat.agentId === agentId);
             if (!existingChat) {
+                const newChatId = Date.now();
                 addChat({
-                    id: Date.now(),
+                    id: newChatId,
                     name: `Agent ${agentId}`,
                     type: 'bot',
                     status: 'online',
@@ -42,10 +43,14 @@ const ChatPage: React.FC = () => {
                     unreadCount: 0,
                     messages: []
                 });
+                setActiveChat(newChatId);
+            } else {
+                if (activeChatId !== existingChat.id) {
+                    setActiveChat(existingChat.id);
+                }
             }
-            setActiveChat(existingChat?.id || Date.now());
         }
-    }, [agentId, chats, addChat, setActiveChat, t]);
+    }, [agentId, chats, addChat, setActiveChat, t, activeChatId]);
 
     const handleFilterChange = (filters: Record<string, any>) => {
         // 处理过滤器变化
