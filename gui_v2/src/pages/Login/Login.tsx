@@ -109,12 +109,12 @@ const Login: React.FC = () => {
 			navigate('/dashboard');
             
 			await new Promise(resolve => setTimeout(resolve, 6000));
-			const systemData = await api.getAll(values.username);
+			const appData = await api.getAll(values.username);
 			
 			// 将API返回的数据保存到store中
-			if (systemData?.data) {
+			if (appData?.data) {
 				logger.info('Get all system data successful');
-				AppDataStoreHandler.updateStore(systemData.data);
+				AppDataStoreHandler.updateStore(appData.data);
 				logger.info('system data 数据已保存到store中');
 			} else {
 				logger.error('Get all system data failed');
