@@ -7,6 +7,7 @@ import { APIResponse, createIPCAPI } from '../../services/ipc';
 import { set_ipc_api, get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
 import { useUserStore } from '../../stores/userStore';
+import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logo.png';
 import './Login.css';
 
@@ -38,9 +39,6 @@ const Login: React.FC = () => {
 	useEffect(() => {
 		const initialize = async () => {
 			try {
-				// 初始化 IPC API
-				set_ipc_api(createIPCAPI());
-
 				// 加载登录信息
 				const api = get_ipc_api();
 				if (!api) return;
@@ -101,6 +99,10 @@ const Login: React.FC = () => {
 			localStorage.setItem('token', token);
 			localStorage.setItem('isAuthenticated', 'true');
 			localStorage.setItem('userRole', values.role);
+			
+			// 登录成功后启用页面刷新监听
+			pageRefreshManager.enable();
+			
 			messageApi.success(t('login.success'));
 			navigate('/dashboard');
             useUserStore.getState().setUsername(values.username);

@@ -13,6 +13,7 @@ if sys.platform == 'darwin':
     os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
 
 from config.app_settings import app_settings
+from config.app_info import app_info
 from utils.logger_helper import logger_helper
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
@@ -57,7 +58,7 @@ class WebGUI(QMainWindow):
         
         # 设置快捷键
         self._setup_shortcuts()
-        chat_db_path = os.path.join(app_settings.app_data_dir, "chats.db")
+        chat_db_path = os.path.join(app_info.appdata_path, "chats.db")
         self.chat_service = None
         
         # # 创建定时器 Demo 测试使用的
