@@ -11,7 +11,7 @@ import { Agent } from '../types';
 
 const { Text } = Typography;
 
-const AgentItem = styled.div<{ isActive: boolean }>`
+const AgentItem = styled.div<{ $isActive: boolean }>`
     position: relative;
     padding: 12px;
     border-bottom: 1px solid var(--border-color);
@@ -20,7 +20,7 @@ const AgentItem = styled.div<{ isActive: boolean }>`
     }
     cursor: pointer;
     transition: all 0.3s ease;
-    background-color: ${(props) => (props.isActive ? 'var(--bg-tertiary)' : 'var(--bg-secondary)')};
+    background-color: ${(props) => (props.$isActive ? 'var(--bg-tertiary)' : 'var(--bg-secondary)')};
     border-radius: 8px;
     margin: 4px 0;
     &:hover {
@@ -88,27 +88,29 @@ export const AgentList: React.FC<AgentListProps> = ({ agents = [], onSelectAgent
         <List
             dataSource={agents}
             renderItem={agent => (
-                <AgentItem 
-                    onClick={() => onSelectAgent(agent)}
-                    isActive={isSelected(agent)}
-                >
-                    <Button
-                        className="chat-button"
-                        type="text"
-                        icon={<MessageOutlined />}
-                        onClick={(e) => handleChatWithAgent(agent, e)}
-                        title={t('pages.agents.chatWithAgent', { name: agent.card.name })}
-                    />
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                        <Space>
-                            <Avatar icon={<UserOutlined />} />
-                            <Text strong>{agent.card.name}</Text>
+                <List.Item style={{ padding: 0, border: 'none' }}>
+                    <AgentItem 
+                        onClick={() => onSelectAgent(agent)}
+                        $isActive={isSelected(agent)}
+                    >
+                        <Button
+                            className="chat-button"
+                            type="text"
+                            icon={<MessageOutlined />}
+                            onClick={(e) => handleChatWithAgent(agent, e)}
+                            title={t('pages.agents.chatWithAgent', { name: agent.card.name })}
+                        />
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                            <Space align="center">
+                                <Avatar size="large" src={(agent.card as any).avatar} />
+                                <Text strong>{agent.card.name}</Text>
+                            </Space>
+                            <Space>
+                                <Tag color="blue">{agent.card.description}</Tag>
+                            </Space>
                         </Space>
-                        <Space>
-                            <Tag color="blue">{agent.card.description}</Tag>
-                        </Space>
-                    </Space>
-                </AgentItem>
+                    </AgentItem>
+                </List.Item>
             )}
         />
     );

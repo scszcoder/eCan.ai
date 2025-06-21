@@ -9,12 +9,12 @@ import ActionButtons from '../../../components/Common/ActionButtons';
 
 const { Text } = Typography;
 
-const ChatItem = styled.div<{ isActive: boolean }>`
+const ChatItem = styled.div<{ $isActive: boolean }>`
     padding: 12px;
     border-bottom: 1px solid var(--border-color);
     cursor: pointer;
     transition: all 0.3s ease;
-    background-color: ${props => props.isActive ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'};
+    background-color: ${props => props.$isActive ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'};
     border-radius: 8px;
     margin: 4px 0;
     min-height: 60px;
@@ -247,7 +247,7 @@ const ChatList: React.FC<ChatListProps> = ({
                     renderItem={chat => (
                         <ChatItem
                             key={chat.id}
-                            isActive={chat.id === activeChatId}
+                            $isActive={chat.id === activeChatId}
                             onClick={() => onChatSelect(chat.id)}
                         >
                             <div 

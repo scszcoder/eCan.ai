@@ -2,7 +2,6 @@ import { logger } from '../../utils/logger';
 import { APIResponse } from '../ipc';
 import { get_ipc_api } from '../ipc_api';
 import { useSystemStore } from '../../stores/systemStore';
-import type { SystemData } from '../../types';
 import { useUserStore } from '@/stores/userStore';
 
 // 页面刷新后的操作类型
@@ -93,8 +92,12 @@ export class PageRefreshManager {
 					if (systemData?.data) {
                         logger.info('Get all system data successful');
                         console.log('systemData', systemData.data);
-						const systemStore = useSystemStore.getState();
-						systemStore.setData(systemData.data as SystemData);
+						const { setAgents, setTasks } = useSystemStore.getState();
+                        const data = systemData.data as any;
+
+                        if (data.agents) setAgents(data.agents);
+                        if (data.tasks) setTasks(data.tasks);
+                        
 						logger.info('system data 数据已保存到store中');
 					} else {
                         logger.error('Get all system data failed');

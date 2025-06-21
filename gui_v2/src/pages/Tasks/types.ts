@@ -1,8 +1,14 @@
-// 任务相关的类型定义
+export interface Schedule {
+  repeat_type: string;
+  repeat_number: number;
+  repeat_unit: string;
+  start_date_time: string;
+  end_date_time: string;
+  time_out: number;
+}
+
 export interface Task {
   id: string;
-  name: string;
-  status: string;
   sessionId: string;
   skill: string;
   metadata: {
@@ -12,17 +18,11 @@ export interface Task {
   };
   state: {
     top: string;
+
   };
   resume_from: string;
   trigger: string;
-  schedule: {
-    repeat_type: string;
-    repeat_number: number;
-    repeat_unit: string;
-    start_date_time: string;
-    end_date_time: string;
-    time_out: number;
-  };
+  schedule: Schedule;
   checkpoint_nodes: any[];
   priority: string;
   last_run_datetime: string | null;
