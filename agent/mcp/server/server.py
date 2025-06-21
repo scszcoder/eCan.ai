@@ -57,6 +57,7 @@ def read_resource() -> dict:
 # ================= tools section ============================================
 @meca_mcp_server.list_tools()
 async def list_tools() -> list[types.Tool]:
+    print("listing tools requested.........")
     all_tools = get_tool_schemas()
     print(f"# of listed mcp tools:{len(all_tools)}, {all_tools[-1]}")
     return all_tools
@@ -1315,10 +1316,12 @@ def set_server_main_win(mw):
 
 
 async def handle_sse(scope, receive, send):
-    # print(">>> sse connected")
+    print(">>> sse connected")
     async with meca_sse.connect_sse(scope, receive, send) as streams:
+        print("handling meca_mcp_server.run", streams)
         await meca_mcp_server.run(streams[0], streams[1], meca_mcp_server.create_initialization_options())
 
 async def sse_handle_messages(scope, receive, send):
+    print(">>> sse handle messages connected")
     await meca_sse.handle_post_message(scope, receive, send)
 

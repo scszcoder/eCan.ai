@@ -104,9 +104,9 @@ const Login: React.FC = () => {
 			messageApi.success(t('login.success'));
 			navigate('/dashboard');
             useUserStore.getState().setUsername(values.username);
-			await new Promise(resolve => setTimeout(resolve, 6000));
-			const response2 = await api.getAll(values.username);
-			logger.info('Get all successful', response2.data);
+// 			await new Promise(resolve => setTimeout(resolve, 9000));
+// 			const response2 = await api.getAll(values.username);
+// 			logger.info('Get all successful', response2.data);
 		} else {
 			logger.error('Login failed', response.error);
 			messageApi.error(response.error?.message || t('login.failed'));

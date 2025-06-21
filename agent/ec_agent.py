@@ -70,7 +70,7 @@ from agent.run_utils import check_env_variables, time_execution_async, time_exec
 from agent.tasks import TaskRunner, ManagedTask
 from agent.human_chatter import *
 import threading
-
+import concurrent.futures
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -1577,25 +1577,33 @@ class EC_Agent(Generic[Context]):
 		self.running_tasks.append({'id': tid, 'thread': task_thread})
 		return task_thread
 
-	async def start(self):
+	# async def start(self):
+	def start(self):
 		# kick off a2a server:
 		self.start_a2a_server_in_thread(self.a2a_server)
 		print("A2A server started....")
 		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor
-		# for task in self.tasks:
-		# 	# new_thread = self.new_thread(task.id)
-		# 	if task.trigger == "schedule":
-		# 		await self.runner.launch_scheduled_run(task)
-		# 		# await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
-		# 	elif task.trigger == "message":
-		# 		await self.runner.launch_reacted_run(task)
-		# 		# await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
-		# 	elif task.trigger == "interaction":
-		# 		await self.runner.launch_interacted_run(task)
-		# 		# await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
-		# 	else:
-		# 		print("WARNING: UNRECOGNIZED task trigger type....")
+		self.running_tasks = self.mainwin.threadPoolExecutor
+		for task in self.tasks:
+			# new_thread = self.new_thread(task.id)
+			print(f"{self.card.name} Starting task {task.name} with trigger {task.trigger}")
+			if task.trigger == "schedule":
+				self.running_tasks.submit(self.runner.launch_scheduled_run,task)
+				# await self.runner.launch_scheduled_run(task)
+				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
+			elif task.trigger == "message":
+				self.running_tasks.submit(self.runner.launch_reacted_run,task)
+
+				# await self.runner.launch_reacted_run(task)
+				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
+			elif task.trigger == "interaction":
+				self.running_tasks.submit(self.runner.launch_interacted_run,task)
+
+				# await self.runner.launch_interacted_run(task)
+				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
+			else:
+				print("WARNING: UNRECOGNIZED task trigger type....")
 
 		# runnable = self.skill_set[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)

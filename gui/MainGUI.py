@@ -4,7 +4,7 @@ import json
 from common.models import VehicleModel
 from utils.server import HttpServer
 from utils.time_util import TimeUtil
-from gui.LocalServer import start_local_server_in_thread, create_mcp_client
+from gui.LocalServer import start_local_server_in_thread, create_mcp_client, create_sse_client
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -94,6 +94,7 @@ from agent.ec_skill import *
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
 from agent.ec_agents.build_agents import *
+import concurrent.futures
 
 
 
@@ -230,6 +231,7 @@ class MainWindow(QMainWindow):
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
         self.mainLoop = mainloop
+        self.threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
         self.tokens = inTokens
         self.machine_role = machine_role
         if "Platoon" in self.machine_role:
@@ -1029,13 +1031,13 @@ class MainWindow(QMainWindow):
             else:
                 self.peer_task = asyncio.create_task(self.wait_forever())
                 # self.peer_task = asyncio.create_task(self.monitorTroop(self.gui_net_msg_queue))
-            self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
+            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
             # self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self))
             self.showMsg("spawned wan chat task")
 
         if self.host_role == "Platoon":
             self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
-            self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
+            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
             # self.wan_sub_task = asyncio.create_task(self.wait_forever())
             # self.wan_msg_task = asyncio.create_task(self.wait_forever())
 
@@ -1099,16 +1101,43 @@ class MainWindow(QMainWindow):
         # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
 
+    async def initialize_mcp(self):
+        local_server_port = 4668
+        url = f"http://localhost:{local_server_port}/api/initialize"  # <-- you need to implement this
+        payload = {
+            "protocolVersion": "1.0",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "MyAgentClient",
+                "version": "1.0"
+            }
+        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload)
+            result = response.json()
+            print("Initialization successful:", result)
+            return result
+
 
     async def async_agents_init(self):
         print("initing agents async.....")
-        # self.mcp_client = await create_mcp_client()
-        # print("MCP client created....", len(self.mcp_client.get_tools()))
+        local_server_port = self.get_local_server_port()
+        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        print(f"local server ready.........{local_server_port}")
+        # result = await self.initialize_mcp()
+        # print("initialize_mcp.....result:", result)
+        self.mcp_client = await create_mcp_client()
+        print("MCP client created....")
+        # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
+
+        # print("MCP client tools listed....", tools)
         self.agent_skills = await build_agent_skills(self)
+        # tools = await mcp_load_tools()
         print("DONE build agent skills.....", len(self.agent_skills))
         build_agents(self)
         print("DONE build agents.....")
-        await self.launch_agents()
+        # await self.launch_agents()
+        self.launch_agents()
         print("DONE launch agents.....")
 
         self.top_gui.update_all(self)
@@ -1130,12 +1159,14 @@ class MainWindow(QMainWindow):
         raise RuntimeError(f"❌ Server did not start within {timeout} seconds")
 
 
-    async def launch_agents(self):
+    # async def launch_agents(self):
+    def launch_agents(self):
         print(f"launching agents:{len(self.agents)}")
         for agent in self.agents:
             if agent:
                 print("KICKING OFF AGENT.....")
-                await agent.start()
+                # await agent.start()
+                agent.start()
                 print("checking a2a server status....")
                 self.wait_for_server(agent)
                 print("AGENT STARTED.....")
@@ -1187,7 +1218,9 @@ class MainWindow(QMainWindow):
         else:
             self.rpa_task = asyncio.create_task(self.wait_forever())
 
-        all_tasks = [self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task]
+        # all_tasks = [self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task]
+        all_tasks = [self.peer_task, self.monitor_task, self.chat_task, self.rpa_task]
+
         # atasks = []
         # for ag in self.agents:
         #     for task in ag.tasks:
