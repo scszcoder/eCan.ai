@@ -574,7 +574,7 @@ def genWinChromeGSLabelBulkBuySkill(worksettings, stepN, theme):
     this_step, step_words = genStepCreateData("expr", "html_file", "NA", "sk_work_settings['log_path'] + hfname", this_step)
     psk_words = psk_words + step_words
 
-    # after scraping the etsy_orders data will be updated and ready to update to Etsy or any other ecommerce store.....
+    # after scraping the etsy_orders data will be updated and ready to update to Etsy or any other ecommerce stores.....
     this_step, step_words = genStepGSScrapeLabels("html_file", "pidx", "order_data", "nTCUpdated", "more_to_update", this_step)
     psk_words = psk_words + step_words
 

@@ -100,7 +100,7 @@ def genMacChromeAMZWalkSteps(worksettings, start_step, theme):
     this_step, step_words = genStepCheckCondition("scroll_resolution == 250", "", "", this_step)
     psk_words = psk_words + step_words
 
-    # get the location of text "Search" nearest to the specified of the screen and store it in variable "cal_marker".
+    # get the location of text "Search" nearest to the specified of the screen and stores it in variable "cal_marker".
     # loc, txt, screen, tovar, stepN
     this_step, step_words = genStepRecordTxtLineLocation("middle", "", "screen_info", "cal_marker", this_step)
     psk_words = psk_words + step_words

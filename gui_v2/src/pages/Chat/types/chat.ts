@@ -15,12 +15,14 @@ export interface ChatSession {
 
 export interface Message {
     id: number;
+    chatId: number;
     sessionId: number;
     content: string;
     attachments: Attachment[];
-    sender: string;
-    receiver: string;
-    type: 'text' | 'image' | 'file' | 'system';
+    sender_id: string;
+    sender_name: string;
+    recipient_id: string;
+    recipient_name: string;
     txTimestamp: string;
     rxTimestamp: string;
     readTimestamp: string;

@@ -49,7 +49,7 @@ class InMemoryCache:
 
         Args:
             key: The key for the data.
-            value: The data to store.
+            value: The data to stores.
             ttl: Time to live in seconds. If None, data will not expire.
         """
         with self._data_lock:

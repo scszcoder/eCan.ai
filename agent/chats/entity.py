@@ -23,6 +23,15 @@ class Entity(Base):
         return session.execute(stmt).scalar_one_or_none()
 
     @classmethod
+    def get_by_ids(cls, session: Session, entity_ids: List[int]) -> Optional['Entity']:
+        """Get entity by ID"""
+        if not session:
+            raise ValueError("Database session is required")
+        stmt = select(cls).where(cls.id.in_(entity_ids))
+        result = session.execute(stmt).scalars().all()
+        return result
+
+    @classmethod
     def get_all(cls, session: Session) -> List['Entity']:
         """Get all entities"""
         if not session:

@@ -271,6 +271,26 @@ class ChatService(metaclass=SingletonMeta):
                     return message.delete(session)
             return False
 
+    def delete_messages(self, message_ids: List[int]) -> bool:
+        """删除消息"""
+        with self._lock:
+            messages = Message.get_by_ids(self._get_session(), message_ids)
+            if messages:
+                with self.transaction() as session:
+                    for message in messages:
+                        message.delete(session)
+                    return True
+            return False
+
+    def delete_conversation(self, conversation_id: int) -> bool:
+        """删除消息"""
+        with self._lock:
+            conversation = Conversation.get_by_id(self._get_session(), conversation_id)
+            if conversation:
+                with self.transaction() as session:
+                    return conversation.delete(session)
+            return False
+
     # 附件相关操作
     def add_attachment(self, message_id: int, file_name: str, file_size: int,
                       mime_type: str, file_path: str) -> Attachment:
