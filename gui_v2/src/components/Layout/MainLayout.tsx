@@ -23,6 +23,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
+import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
@@ -53,8 +54,11 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }, [i18n]);
 
     const handleLogout = () => {
+        pageRefreshManager.disable();
+        
         localStorage.removeItem('isAuthenticated');
         localStorage.removeItem('userRole');
+        
         window.location.replace('/login');
     };
 
