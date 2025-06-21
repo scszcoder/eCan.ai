@@ -1,18 +1,18 @@
 import { create } from 'zustand';
-import { ChatSession, Message } from '../types/chat';
+import { Chat, Message } from '../types/chat';
 import { IPCAPI } from '@/services/ipc/api';
 import { demoChats, enableDemoData } from './demoData';
 
 interface ChatState {
-    chats: ChatSession[];
+    chats: Chat[];
     activeChatId: number | null;
-    addChat: (chat: ChatSession) => void;
-    updateChat: (chat: Partial<ChatSession> & { id: number }) => void;
+    addChat: (chat: Chat) => void;
+    updateChat: (chat: Partial<Chat> & { id: number }) => void;
     setActiveChat: (chatId: number) => void;
     addMessage: (chatId: number, message: Message) => void;
     updateMessageStatus: (messageId: number, status: Message['status']) => void;
     sendMessage: (chatId: number, content: string, attachments: any[], options?: { ext?: any; replyTo?: number; atList?: string[] }) => Promise<void>;
-    updateChatsGUI: (params: { chat: Omit<ChatSession, 'messages'> & { messages?: Message[] }, message: Message }) => void;
+    updateChatsGUI: (params: { chat: Omit<Chat, 'messages'> & { messages?: Message[] }, message: Message }) => void;
     initialize: () => void;
 }
 
@@ -21,14 +21,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     activeChatId: null,
 
     addChat: (chat) => set((state) => ({
-        chats: [chat, ...state.chats],
+        chats: [...state.chats, chat],
         activeChatId: state.activeChatId ?? chat.id
     })),
 
-    updateChat: (updates) => set((state) => ({
-        chats: state.chats.map(chat =>
-            chat.id === updates.id ? { ...chat, ...updates } : chat
-        )
+    updateChat: (chat) => set((state) => ({
+        chats: state.chats.map(c => c.id === chat.id ? { ...c, ...chat } : c)
     })),
 
     setActiveChat: (chatId) => set((state) => ({
@@ -124,26 +122,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     },
 
     updateChatsGUI: ({ chat, message }) => {
-        const state = useChatStore.getState();
-        const existingChat = state.chats.find(c => c.id === chat.id);
-
-        if (existingChat) {
-            state.updateChat({
-                ...existingChat,
-                lastMessage: message.content,
-                lastMessageTime: new Date().toISOString(),
-                unreadCount: state.activeChatId === chat.id ? 0 : (existingChat.unreadCount + 1),
-                messages: existingChat.messages
-            });
-            state.addMessage(chat.id, message);
+        const { chats } = get();
+        const chatIndex = chats.findIndex(c => c.id === chat.id);
+    
+        if (chatIndex !== -1) {
+            // 更新已有的chat
+            const newChats = [...chats];
+            const oldChat = newChats[chatIndex];
+            const newMessages = oldChat.messages ? [...oldChat.messages, message] : [message];
+            newChats[chatIndex] = { ...oldChat, ...chat, messages: newMessages };
+            set({ chats: newChats });
         } else {
-            state.addChat({
-                ...chat,
-                messages: [message],
-                lastMessage: message.content,
-                lastMessageTime: new Date().toISOString(),
-                unreadCount: 0
-            });
+            // 添加新的chat
+            const newChat = { ...chat, messages: [message] };
+            set({ chats: [...chats, newChat] });
         }
     },
 

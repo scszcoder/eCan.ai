@@ -1,4 +1,4 @@
-import { ChatSession } from '../types/chat';
+import { Chat } from '../types/chat';
 
 // 是否启用 demo 数据
 export const enableDemoData = true;
@@ -8,7 +8,7 @@ const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
 const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-export const demoChats: ChatSession[] = [
+export const demoChats: Chat[] = [
     {
         id: 1,
         name: 'John Doe',
@@ -20,12 +20,13 @@ export const demoChats: ChatSession[] = [
         messages: [
             {
                 id: 1,
-                sessionId: 1,
-                content: 'Hello! How can I help you today?',
+                chatId: 1,
+                content: '你好！有什么可以帮助你的吗？',
                 attachments: [],
-                sender: 'Support Bot',
-                receiver: 'John Doe',
-                type: 'text',
+                sender_id: '1',
+                sender_name: 'AI助手',
+                recipient_id: 'user',
+                recipient_name: '我',
                 txTimestamp: twoHoursAgo.toISOString(),
                 rxTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
                 readTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
@@ -35,12 +36,13 @@ export const demoChats: ChatSession[] = [
             },
             {
                 id: 2,
-                sessionId: 1,
-                content: 'I need help with scheduling a delivery.',
+                chatId: 1,
+                content: '我想了解一下最新的AI技术进展。',
                 attachments: [],
-                sender: 'You',
-                receiver: 'John Doe',
-                type: 'text',
+                sender_id: 'user',
+                sender_name: '我',
+                recipient_id: '1',
+                recipient_name: 'AI助手',
                 txTimestamp: new Date(twoHoursAgo.getTime() + 5 * 60000).toISOString(),
                 rxTimestamp: new Date(twoHoursAgo.getTime() + 6 * 60000).toISOString(),
                 readTimestamp: new Date(twoHoursAgo.getTime() + 6 * 60000).toISOString(),
@@ -50,12 +52,13 @@ export const demoChats: ChatSession[] = [
             },
             {
                 id: 3,
-                sessionId: 1,
+                chatId: 1,
                 content: 'Can you help me with the delivery schedule?',
                 attachments: [],
-                sender: 'John Doe',
-                receiver: 'You',
-                type: 'text',
+                sender_id: 'John Doe',
+                sender_name: 'John Doe',
+                recipient_id: 'You',
+                recipient_name: 'You',
                 txTimestamp: oneHourAgo.toISOString(),
                 rxTimestamp: new Date(oneHourAgo.getTime() + 60000).toISOString(),
                 readTimestamp: '',
@@ -76,12 +79,13 @@ export const demoChats: ChatSession[] = [
         messages: [
             {
                 id: 4,
-                sessionId: 2,
+                chatId: 2,
                 content: 'How can I assist you today?',
                 attachments: [],
-                sender: 'Support Bot',
-                receiver: 'You',
-                type: 'text',
+                sender_id: '2',
+                sender_name: 'Support Bot',
+                recipient_id: 'You',
+                recipient_name: 'You',
                 txTimestamp: twoHoursAgo.toISOString(),
                 rxTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
                 readTimestamp: new Date(twoHoursAgo.getTime() + 60000).toISOString(),
@@ -102,12 +106,13 @@ export const demoChats: ChatSession[] = [
         messages: [
             {
                 id: 5,
-                sessionId: 3,
+                chatId: 3,
                 content: 'Meeting at 2 PM',
                 attachments: [],
-                sender: 'Team Lead',
-                receiver: 'Team Alpha',
-                type: 'text',
+                sender_id: 'Team Lead',
+                sender_name: 'Team Lead',
+                recipient_id: 'Team Alpha',
+                recipient_name: 'Team Alpha',
                 txTimestamp: yesterday.toISOString(),
                 rxTimestamp: yesterday.toISOString(),
                 readTimestamp: '',

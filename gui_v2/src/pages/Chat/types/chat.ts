@@ -1,4 +1,4 @@
-export interface ChatSession {
+export interface Chat {
     id: number;
     name: string;
     avatar?: string;
@@ -16,7 +16,6 @@ export interface ChatSession {
 export interface Message {
     id: number;
     chatId: number;
-    sessionId: number;
     content: string;
     attachments: Attachment[];
     sender_id: string;
