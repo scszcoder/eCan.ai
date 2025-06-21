@@ -8,7 +8,7 @@ import { Tool } from '@/pages/Tools/types';
 import { Vehicle } from '@/pages/Vehicles/types';
 import { Settings } from '@/pages/Settings/types';
 import { Chat } from '@/pages/Chat/types/chat';
-import systemData from './system_data.json';
+import systemData from './app_data.json';
 
 export interface SystemState {
   agents: Agent[];
