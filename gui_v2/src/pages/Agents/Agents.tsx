@@ -39,6 +39,7 @@ const Agents: React.FC = () => {
             const response = await get_ipc_api().getAgents(username, []);
             console.debug('[Agents] Fetched agents:', response.data);
             if (response.success && response.data) {
+                console.log('response.data.agents', response.data.agents);
                 setAgents(response.data.agents as Agent[]);
                 messageApi.success(t('common.refreshSuccess'));
             } else {
