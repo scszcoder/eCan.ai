@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { APIResponse, createIPCAPI } from '../../services/ipc';
 import { set_ipc_api, get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
+import { useUserStore } from '../../stores/userStore';
 import logo from '../../assets/logo.png';
 import './Login.css';
 
@@ -17,6 +18,8 @@ interface LoginFormValues {
 	confirmPassword?: string;
 	role: string;
 }
+
+
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
@@ -100,7 +103,7 @@ const Login: React.FC = () => {
 			localStorage.setItem('userRole', values.role);
 			messageApi.success(t('login.success'));
 			navigate('/dashboard');
-
+            useUserStore.getState().setUsername(values.username);
 			await new Promise(resolve => setTimeout(resolve, 6000));
 			const response2 = await api.getAll(values.username);
 			logger.info('Get all successful', response2.data);

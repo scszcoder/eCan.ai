@@ -106,8 +106,8 @@ class ManagedTask(Task):
             "state": self.state,
             "resume_from": self.resume_from,
             "trigger": self.trigger,
-            "pause_event": self.pause_event,
-            "schedule": self.schedule,
+            # "pause_event": self.pause_event,
+            "schedule": self.schedule.model_dump(),
             "checkpoint_nodes": self.checkpoint_nodes,
             "priority": self.priority,
             "last_run_datetime": self.last_run_datetime,
@@ -128,97 +128,83 @@ class ManagedTask(Task):
 
     # from langgraph.types import Command
 
-    # async def astream_run(self, in_msg="", *, config=None, **kwargs):
-    #     """Run the task's skill with streaming support.
-    #
-    #     Args:
-    #         in_msg: Input message, state dict, or Command object
-    #         config: Configuration dictionary for the runnable
-    #         **kwargs: Additional arguments to pass to the runnable's astream method
-    #     """
-    #     # Create a queue to collect results
-    #     from langgraph.types import Command
-    #     result_queue = asyncio.Queue()
-    #
-    #     # Initialize config
-    #     config = config or {}
-    #
-    #     async def _generator():
-    #         nonlocal config, in_msg
-    #         try:
-    #             print("running skill:", self.skill.name, in_msg)
-    #             print("astream_run config:", config)
-    #
-    #             # Handle Command objects
-    #             if isinstance(in_msg, Command):
-    #                 if in_msg.resume:
-    #                     print("Resuming task with config:", config)
-    #                     # Ensure config has a thread_id for resuming
-    #                     if "configurable" not in config:
-    #                         config["configurable"] = {}
-    #                     if "thread_id" not in config["configurable"]:
-    #                         config["configurable"]["thread_id"] = str(uuid.uuid4())
-    #                     in_args = getattr(in_msg, "state", {})
-    #                 else:
-    #                     # Handle other command types if needed
-    #                     in_args = {}
-    #             else:
-    #                 # Normal execution
-    #                 if not in_msg:
-    #                     in_args = self.metadata.get("state", {})
-    #                 else:
-    #                     in_args = in_msg
-    #
-    #                 # Set up default config if not provided
-    #                 if not config:
-    #                     config = {
-    #                         "configurable": {
-    #                             "thread_id": str(uuid.uuid4())
-    #                         }
-    #                     }
-    #
-    #             print("in_args:", in_args)
-    #             print("final config:", config)
-    #
-    #             # Run the actual generator
-    #             async for step in self.skill.runnable.astream(in_args, config=config, **kwargs):
-    #                 print("Step output:", step)
-    #                 # Check if we should pause (for cancellation support)
-    #                 if self.pause_event.is_set():
-    #                     await self.pause_event.wait()
-    #
-    #                 # Update status
-    #                 self.status.message = Message(
-    #                     role="agent",
-    #                     parts=[TextPart(type="text", text=str(step))]
-    #                 )
-    #
-    #                 # Check for interrupt conditions
-    #                 if (isinstance(step, dict) and
-    #                         (step.get("require_user_input") or
-    #                          step.get("await_agent") or
-    #                          step.get("__interrupt__"))):
-    #                     self.status.state = TaskState.INPUT_REQUIRED
-    #                     print("input required...", step)
-    #                     await result_queue.put({
-    #                         "success": False,
-    #                         "step": step,
-    #                         "thread_id": config.get("configurable", {}).get("thread_id")
-    #                     })
-    #                     return
-    #
-    #                 yield step
-    #
-    #             print("task completed...")
-    #             self.status.state = TaskState.COMPLETED
-    #             await result_queue.put({"success": True})
-    #
-    #         except Exception as e:
-    #             ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
-    #             print(f"{ex_stat}")
-    #             await result_queue.put({"success": False, "error": ex_stat})
-    #         finally:
-    #             self.status.state = TaskState.CANCELED
+    def stream_run(self, in_msg="", *, config=None, **kwargs):
+        """Run the task's skill with streaming support.
+
+        Args:
+            in_msg: Input message or state for the skill
+            config: Configuration dictionary for the runnable
+            **kwargs: Additional arguments to pass to the runnable's astream method
+        """
+        if not in_msg:
+            in_args = self.metadata.get("state", {})
+        else:
+            in_args = in_msg
+
+        print("in_args:", in_args)
+
+        if config is None:
+            config = {
+                "configurable": {
+                    "thread_id": str(uuid.uuid4())
+                    # "thread_id": str(uuid.uuid4()),
+                    # "checkpoint_ns": "task_checkpoint",
+                    # "checkpoint_id": str(self.id)
+                }
+            }
+
+        agen = self.skill.runnable.astream(in_args, config=config, **kwargs)
+        try:
+            print("running skill:", self.skill.name, in_msg)
+            print("astream_run config:", config)
+
+            # Set up default config if not provided
+
+            # Handle Command objects
+            # if isinstance(in_args, Command):
+            #     if in_args == Command.:
+            #         # Handle reset command
+            #         config["configurable"]["thread_id"] = str(uuid.uuid4())
+            #         in_args = {}  # Reset input args
+            # Add other command handling as needed
+
+            # Pass through any additional kwargs to astream
+            step = {}
+
+            for step in agen:
+                print("Step output:", step)
+                # self.pause_event.wait()
+                self.status.message = Message(
+                    role="agent",
+                    parts=[TextPart(type="text", text=str(step))]
+                )
+                if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
+                    self.status.state = TaskState.INPUT_REQUIRED
+                    print("input required...", step)
+                    # yield {"success": False, "step": step}
+                    break
+
+            if self.status.state == TaskState.INPUT_REQUIRED:
+                success = False
+            else:
+                success = True
+                self.status.state = TaskState.COMPLETED
+                print("task completed...")
+
+            run_result = {"success": success, "step": step}
+            print("astream_run result:", run_result)
+            return run_result
+
+        except Exception as e:
+            ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+            return {"success": False, "Error": ex_stat}
+
+        finally:
+            # Cleanup code here
+            # self.runner = None
+            self.status.state = TaskState.CANCELED
+            # agen.aclose()
 
         # Rest of the function remains the same...
 

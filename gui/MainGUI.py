@@ -872,7 +872,7 @@ class MainWindow(QMainWindow):
         for v in self.vehicles:
             print("vname:", v.getName(), "status:", v.getStatus(), )
 
-        # get current wifi ssid and store it.
+        # get current wifi ssid and stores it.
         self.showMsg("Checking Wifi on OS platform: "+self.platform)
         wifi_info = None
         if self.platform == "win":
@@ -1064,35 +1064,53 @@ class MainWindow(QMainWindow):
 
         self.keyboard_task = asyncio.create_task(self.listen_for_hotkey())
 
+        self.llm = ChatOpenAI(model='gpt-4o')
+        self.agents = []
+        self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
+        self.mcp_client = None
+        print("Building agent skills.....")
+        asyncio.create_task(self.async_agents_init())
+
+
+        # asyncio.run_coroutine_threadsafe(self.async_agents_init(), loop)
+
         # await asyncio.gather(peer_task, monitor_task, chat_task, rpa_task_future)
         loop = asyncio.get_event_loop()
         # executor = ThreadPoolExecutor()
         # asyncio.run_coroutine_threadsafe(self.run_async_tasks(loop, executor), loop)
 
+
+
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
+
+        # new_loop = asyncio.new_event_loop()
+        # print("created a new loop")
+
+
 
         self.saveSettings()
         print("vehicles after init:", [v.getName() for v in self.vehicles])
 
         # finally setup agents, note: local servers needs to be setup and running
         # before this.
-        self.llm = ChatOpenAI(model='gpt-4o')
-        self.agents = []
-        self.mcp_tools_schemas =build_agent_mcp_tools_schemas()
-        print("Building agent skills.....")
+        # self.llm = ChatOpenAI(model='gpt-4o')
+        # self.agents = []
+        # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
+        # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
-        asyncio.run_coroutine_threadsafe(self.async_agents_init(), loop)
+
 
     async def async_agents_init(self):
-        self.mcp_client = await create_mcp_client()
-        print("MCP client created....", len(self.mcp_client.get_tools()))
-
+        print("initing agents async.....")
+        # self.mcp_client = await create_mcp_client()
+        # print("MCP client created....", len(self.mcp_client.get_tools()))
         self.agent_skills = await build_agent_skills(self)
         print("DONE build agent skills.....", len(self.agent_skills))
         build_agents(self)
         print("DONE build agents.....")
         await self.launch_agents()
         print("DONE launch agents.....")
+
         self.top_gui.update_all(self)
         # await self.test_a2a()
 
@@ -1169,8 +1187,23 @@ class MainWindow(QMainWindow):
         else:
             self.rpa_task = asyncio.create_task(self.wait_forever())
 
-        # await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task)
-        await asyncio.gather(self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task)
+        all_tasks = [self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task]
+        # atasks = []
+        # for ag in self.agents:
+        #     for task in ag.tasks:
+        #         if task.trigger == "schedule":
+        #             all_tasks.append(asyncio.create_task(ag.runner.launch_scheduled_run(task)))
+        #         # await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
+        #         elif task.trigger == "message":
+        #             all_tasks.append(asyncio.create_task(ag.runner.launch_reacted_run(task)))
+        #         # await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
+        #         elif task.trigger == "interaction":
+        #             all_tasks.append(asyncio.create_task(ag.runner.launch_interacted_run(task)))
+        #         # await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
+        #         else:
+        #             print("WARNING: UNRECOGNIZED task trigger type....")
+
+        await asyncio.gather(*all_tasks)
 
     # 1) gather all skills (cloud + local public)
     # 2) analyze dependence and update data structure
@@ -4725,7 +4758,7 @@ class MainWindow(QMainWindow):
                             "skills": new_mission.getSkills(),
                             "delDate": new_mission.getDelDate(),
                             "asin": new_mission.getASIN(),
-                            "store": new_mission.getStore(),
+                            "stores": new_mission.getStore(),
                             "follow_seller": new_mission.getFollowSeller(),
                             "brand": new_mission.getBrand(),
                             "image": new_mission.getImagePath(),
@@ -4795,7 +4828,7 @@ class MainWindow(QMainWindow):
                 "skills": amission.getSkills(),
                 "delDate": amission.getDelDate(),
                 "asin": amission.getASIN(),
-                "store": amission.getStore(),
+                "stores": amission.getStore(),
                 "follow_seller": amission.getFollowSeller(),
                 "brand": amission.getBrand(),
                 "image": amission.getImagePath(),
@@ -5752,7 +5785,7 @@ class MainWindow(QMainWindow):
                     'skills': amission["pubAttributes"]["skills"],
                     'delDate': amission["pubAttributes"]["del_date"],
                     'asin': amission["privateProfile"]["item_number"],
-                    'store': amission["privateProfile"]["seller"],
+                    'stores': amission["privateProfile"]["seller"],
                     'follow_seller': amission["privateProfile"]["follow_seller"],
                     'brand': amission["privateProfile"]["brand"],
                     'img': amission["privateProfile"]["imglink"],
@@ -6317,7 +6350,7 @@ class MainWindow(QMainWindow):
                                 pkString = "songc@yahoo.com"
                             else:
                                 pkString = mJson["email"]
-                            mJson["pseudoStore"] = self.generateShortHash(pkString+":"+mJson.get("store", "NoneStore"))
+                            mJson["pseudoStore"] = self.generateShortHash(pkString+":"+mJson.get("stores", "NoneStore"))
                             mJson["pseudoBrand"] = self.generateShortHash(pkString+":"+mJson.get("brand", "NoneBrand"))
                             mJson["pseudoASIN"] = self.generateShortHash(pkString+":"+mJson["asin"])
 
@@ -6433,7 +6466,7 @@ class MainWindow(QMainWindow):
 
             #each row of each xlsx file becomes a new mission
             for xlsx_file in xlsx_files:
-                # store, brand, execution time, quantity, asin, search term, title, page number, price, variation, product image, fb type, fb title, fb contents, notes
+                # stores, brand, execution time, quantity, asin, search term, title, page number, price, variation, product image, fb type, fb title, fb contents, notes
                 buy_mission_reqs = self.process_original_xlsx_file(xlsx_file)
 
                 for buy_req in buy_mission_reqs:
@@ -9931,7 +9964,7 @@ class MainWindow(QMainWindow):
     # assume one sheet only in the xlsx file. at this moment no support for multi-sheet.
     def convert_orders_xlsx_to_json(self, file_path):
         header_to_db_column = {
-            "store": "store",
+            "stores": "stores",
             "brand": "brand",
             "execution time": "execution_time",
             "quantity": "quantity",
@@ -10237,7 +10270,7 @@ class MainWindow(QMainWindow):
 
     # this function sends request to all on-line platoons and request they send back
     # all the latest finger print profiles of the troop members on that team.
-    # we will store them onto the local dir, if there is existing ones, compare the time stamp of incoming file and existing file,
+    # we will stores them onto the local dir, if there is existing ones, compare the time stamp of incoming file and existing file,
     # if the incoming file has a later time stamp, then overwrite the existing one.
     def syncFingerPrintRequest(self):
         try:

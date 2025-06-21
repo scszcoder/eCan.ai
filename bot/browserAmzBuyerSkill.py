@@ -2993,7 +2993,7 @@ def genAMZBrowserBrowseDetails(lvl, purchase, stepN, worksettings):
 
 
 
-        #if there is purchase action, save the page, scrape it and confirm the title, store, ASIN, price, feedbacks, rating.
+        #if there is purchase action, save the page, scrape it and confirm the title, stores, ASIN, price, feedbacks, rating.
         this_step, step_words = genStepCheckCondition("len("+purchase+") != 0", "", "", this_step)
         psk_words = psk_words + step_words
 

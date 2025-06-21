@@ -91,7 +91,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="screen_capture",
-        description="Do a screen shot, save to a png file and store into a cv2 image data structure",
+        description="Do a screen shot, save to a png file and stores into a cv2 image data structure",
         inputSchema={
             "type": "object",
             "required": ["file_name"],

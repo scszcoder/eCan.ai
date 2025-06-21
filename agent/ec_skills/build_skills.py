@@ -11,11 +11,11 @@ async def build_agent_skills(mainwin, skill_path=""):
     if not skill_path:
         print("build agent skills from code......")
         new_skill = await create_my_twin_chatter_skill(mainwin)
-        print("twin chatter skill:", len(new_skill.mcp_client.get_tools()))
+        # print("twin chatter skill:", len(new_skill.mcp_client.get_tools()))
         skills.append(new_skill)
 
         new_skill = await create_rpa_helper_skill(mainwin)
-        print("test skill mcp client:", len(new_skill.mcp_client.get_tools()))
+        # print("test skill mcp client:", len(new_skill.mcp_client.get_tools()))
         skills.append(new_skill)
         new_skill = await create_rpa_helper_chatter_skill(mainwin)
         skills.append(new_skill)

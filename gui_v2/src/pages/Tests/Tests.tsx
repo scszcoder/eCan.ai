@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Space, Select, Input, Button, Card, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { IPCAPI } from '@/services/ipc/api';
+import {get_ipc_api} from '../../services/ipc_api';
+import { useUserStore } from '../../stores/userStore';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -14,7 +15,7 @@ const Tests: React.FC = () => {
     const [testOutput, setTestOutput] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isTestRunning, setIsTestRunning] = useState<boolean>(false);
-
+    const username = useUserStore((state) => state.username);
 
     // Add default test at the top of the component
     const defaultTest = {
@@ -40,6 +41,24 @@ const Tests: React.FC = () => {
             )];
 
             setTests(allTests);
+        } catch (error) {
+            console.error('Error fetching tests:', error);
+            message.error(t('pages.tests.fetchError'));
+            // Still show default test even if fetch fails
+            if (tests.length === 0 || tests[0].value !== defaultTest.value) {
+                setTests([defaultTest]);
+            }
+        }
+    };
+
+    const getAllTest = async () => {
+        try {
+            console.log('current username is:', username);
+            const ipc_api = get_ipc_api();
+            const response = await ipc_api.getAll(username);
+            // Update testOutput with the response
+            setTestOutput(JSON.stringify(response, null, 2));
+
         } catch (error) {
             console.error('Error fetching tests:', error);
             message.error(t('pages.tests.fetchError'));
@@ -171,6 +190,22 @@ const Tests: React.FC = () => {
                         >
                             {t('pages.tests.stopTest')}
                         </Button>
+                    </Space>
+
+                    <Space style={{ marginBottom: '16px' }}>
+                        <Button
+                            type="default"
+                            onClick={getAllTest}
+                            disabled={!selectedTest || isTestRunning}
+                            style={{
+                                color: 'white',
+                                borderColor: 'white',
+                                background: 'transparent'
+                            }}
+                        >
+                            {t('pages.tests.getAllTest')}
+                        </Button>
+
                     </Space>
 
                     {/* Test Output */}

@@ -512,7 +512,7 @@ def processEtsyScrapeMsgThread(step, i, mission):
             # Find the message thread container
             message_thread_container = soup.find('div', class_='scrolling-message-list')
 
-            # Initialize list to store message data
+            # Initialize list to stores message data
             message_list = []
 
             # Iterate through each message container

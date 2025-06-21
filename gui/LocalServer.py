@@ -201,5 +201,6 @@ async def create_mcp_client():
             }
     )
     await mcp_client.__aenter__()
+    print("mcp client created................")
     return mcp_client
 

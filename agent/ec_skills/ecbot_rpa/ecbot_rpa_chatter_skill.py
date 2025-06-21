@@ -44,13 +44,15 @@ async def create_rpa_helper_chatter_skill(mainwin):
         helper_skill = EC_Skill(name="chatter for ecbot rpa helper",
                              description="human and agent chat for helping fix failures during ecbot RPA runs.")
 
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
-        all_tools = mcp_client.get_tools()
-        help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
-        helper_tools = [t for t in all_tools if t.name in help_tool_names]
-        print("helper # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
+        # all_tools = mcp_client.get_tools()
+        # help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
+        # helper_tools = [t for t in all_tools if t.name in help_tool_names]
+        # print("helper # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
+
+        helper_tools = []
         helper_agent = create_react_agent(llm, helper_tools)
         # Prompt Template
         prompt = ChatPromptTemplate.from_messages([
@@ -195,14 +197,14 @@ async def create_rpa_operator_chatter_skill(mainwin):
         operator_skill = EC_Skill(name="chatter for ecbot rpa operator run RPA",
                                 description="human and agent chat for RPA operator agent who drive a bunch of RPA bots to run their ecbot RPA works.")
 
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
 
-        all_tools = mcp_client.get_tools()
-        help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
-        helper_tools = [t for t in all_tools if t.name in help_tool_names]
-        print("operator # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
+        # all_tools = mcp_client.get_tools()
+        # help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
+        # helper_tools = [t for t in all_tools if t.name in help_tool_names]
+        # print("operator # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
 
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
@@ -292,7 +294,7 @@ async def create_rpa_supervisor_scheduling_chatter_skill(mainwin):
         supervisor_skill = EC_Skill(name="chatter for ecbot rpa supervisor task scheduling",
                                 description="human and agent chat for supervising ecbot RPA runs by the RPA operator agents.")
 
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
 
@@ -439,14 +441,14 @@ async def create_rpa_supervisor_chatter_skill(mainwin):
         supervisor_skill = EC_Skill(name="ecbot rpa supervisor serve requests",
                                 description="help fix failures during ecbot RPA runs.")
 
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
+        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
 
-        all_tools = mcp_client.get_tools()
-        help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
-        helper_tools = [t for t in all_tools if t.name in help_tool_names]
-        print("serve # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
+        # all_tools = mcp_client.get_tools()
+        # help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
+        # helper_tools = [t for t in all_tools if t.name in help_tool_names]
+        # print("serve # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
 
 
         # 3) ----- Build a graph with ONE node ---------------------------------------

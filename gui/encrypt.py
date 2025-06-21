@@ -85,5 +85,5 @@ def decrypt_message(encrypted_message, key):
 # decrypted_A = decrypt_message(C, key)
 # print(f"Decrypted message (A): {decrypted_A}")
 #
-# # To verify, you would typically store the salt alongside the encrypted message
+# # To verify, you would typically stores the salt alongside the encrypted message
 # print(f"Salt used for key derivation: {base64.urlsafe_b64encode(salt).decode('utf-8')}")

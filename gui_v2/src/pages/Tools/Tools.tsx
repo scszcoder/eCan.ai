@@ -12,6 +12,7 @@ import {
     ReloadOutlined
 } from '@ant-design/icons';
 import { APIResponse } from '@/services/ipc';
+import { useUserStore } from '../../stores/userStore';
 
 const { Content } = Layout;
 const { Title } = Typography;
@@ -92,10 +93,12 @@ const Tools: React.FC = () => {
   const [tools, setTools] = useState<Tool[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const username = useUserStore((state) => state.username);
+
   const fetchTools = useCallback(async () => {
     try {
       setLoading(true);
-      const response: APIResponse<Tool[]> = await IPCAPI.getInstance().getTools([]);
+      const response: APIResponse<Tool[]> = await IPCAPI.getInstance().getTools(username, []);
       if (response && response.success && response.data) {
         setTools(response.data);
       }

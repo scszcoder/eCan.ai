@@ -16,6 +16,8 @@ from config.app_settings import app_settings
 from utils.logger_helper import logger_helper
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
+import uuid
+from agent.chats.chat_service import ChatService
 
 class WebGUI(QMainWindow):
     def __init__(self, py_login: Login=None):
@@ -55,6 +57,8 @@ class WebGUI(QMainWindow):
         
         # 设置快捷键
         self._setup_shortcuts()
+        chat_db_path = os.path.join(app_settings.app_data_dir, "chats.db")
+        self.chat_service = None
         
         # # 创建定时器 Demo 测试使用的
         # self.dashboard_timer = QTimer(self)
@@ -66,6 +70,11 @@ class WebGUI(QMainWindow):
 
     def get_py_login(self):
         return self.py_login
+
+    def setup_chats(self):
+        chat_db_path = self.py_login.main_win.general_settings["chat_db_path"]
+        self.chat_service = ChatService(db_path=chat_db_path)
+
 
     def load_local_html(self):
         """加载本地 HTML 文件"""
@@ -168,12 +177,8 @@ class WebGUI(QMainWindow):
         """更新代理数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            agents = dataHolder.agents
+            dataJS = {"agents": [agent.to_dict() for agent in agents]}
 
             # 调用 refresh_dashboard API
             def handle_response(response):
@@ -182,7 +187,7 @@ class WebGUI(QMainWindow):
                 else:
                     logger_helper.error(f"Failed to update Agents data: {response.error}")
 
-            IPCAPI.get_instance().update_agents(data, handle_response)
+            IPCAPI.get_instance().update_agents(dataJS, handle_response)
 
         except Exception as e:
             logger_helper.error(f"Error updating agents data: {e}")
@@ -190,11 +195,175 @@ class WebGUI(QMainWindow):
     def get_ipc_api(self):
         return IPCAPI.get_instance()
 
-    def update_chats_data(self, dataHolder):
-        """更新聊天数据"""
+
+    def update_skills_data(self, dataHolder):
+        """更新技能数据"""
         try:
             # 生成随机数据
-            data = [
+            skills = dataHolder.agent_skills
+            dataJS = {'skills': [sk.to_dict() for sk in skills]}
+
+            # 调用 refresh_dashboard API
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"Skills data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update Skills data: {response.error}")
+
+            IPCAPI.get_instance().update_skills(dataJS, handle_response)
+
+        except Exception as e:
+            logger_helper.error(f"Error updating Skills data: {e}")
+
+    def update_tasks_data(self, dataHolder):
+        """更新技能数据"""
+        try:
+            # 生成随机数据
+            agents = dataHolder.agents
+            all_tasks = []
+            for agent in agents:
+                all_tasks.extend(agent.tasks)
+
+            dataJS = {'tasks': [task.to_dict() for task in all_tasks]}
+
+            # 调用 refresh_dashboard API
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"Tasks data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update Tasks data: {response.error}")
+
+            IPCAPI.get_instance().update_tasks(dataJS, handle_response)
+
+        except Exception as e:
+            logger_helper.error(f"Error updating Tasks data: {e}")
+
+
+    def update_tools_data(self, dataHolder):
+        """更新技能数据"""
+        try:
+            # 生成随机数据
+            dataJS = {'tools': [tool.model_dump() for tool in dataHolder.mcp_tools_schemas]}
+
+
+            # 调用 refresh_dashboard API
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"Tools data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update Tools data: {response.error}")
+
+            IPCAPI.get_instance().update_tools(dataJS, handle_response)
+
+        except Exception as e:
+            logger_helper.error(f"Error updating Tools data: {e}")
+
+
+    def update_knowledge_data(self, dataHolder):
+        """更新技能数据"""
+        try:
+            # 生成随机数据
+            knowledges = {}
+            dataJS = {"knowledges": knowledges}
+
+            # 调用 refresh_dashboard API
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"Knowledge data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update knowledge data: {response.error}")
+
+            IPCAPI.get_instance().update_knowledge(dataJS, handle_response)
+
+        except Exception as e:
+            logger_helper.error(f"Error updating knowledge data: {e}")
+
+
+    def update_settings_data(self, dataHolder):
+        """更新技能数据"""
+        try:
+            # 生成随机数据
+            dataJS = {"settings": dataHolder.generaal_settings}
+
+            # 调用 refresh_dashboard API
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"Settings data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update settings data: {response.error}")
+
+            IPCAPI.get_instance().update_settings(dataJS, handle_response)
+
+        except Exception as e:
+            logger_helper.error(f"Error updating settings data: {e}")
+
+
+
+    def update_vehicles_data(self, dataHolder):
+        """更新技能数据"""
+        try:
+            # 生成随机数据
+            dataJS = {"vehicles": [v.genJson() for v in dataHolder.vehicles]}
+
+            # 调用 refresh_dashboard API
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"Vehicles data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update vehicles data: {response.error}")
+
+            IPCAPI.get_instance().update_vehicles(dataJS, handle_response)
+
+        except Exception as e:
+            logger_helper.error(f"Error updating vehicles data: {e}")
+
+
+    def update_all(self, dataHolder):
+        try:
+            agents = dataHolder.agents
+            all_tasks = []
+            for agent in agents:
+                all_tasks.extend(agent.tasks)
+
+            skills = dataHolder.agent_skills
+            vehicles = dataHolder.vehicles
+            settings = dataHolder.general_settings
+            # knowledges = py_login.main_win.knowledges
+            # chats = py_login.main_win.chats
+            knowledges = {}
+            chats = {}
+            # 生成随机令牌
+            token = str(uuid.uuid4()).replace('-', '')
+            # logger.info(f"Get all successful for user: {username}")
+            dataJS = {
+                'token': token,
+                'agents': [agent.to_dict() for agent in agents],
+                'skills': [sk.to_dict() for sk in skills],
+                'tools': [tool.model_dump() for tool in dataHolder.mcp_tools_schemas],
+                'tasks': [task.to_dict() for task in all_tasks],
+                'vehicles': [vehicle.genJson() for vehicle in vehicles],
+                'settings': settings,
+                'knowledges': knowledges,
+                'chats': chats,
+                'message': 'Get all successful'
+            }
+            print('all dataJS:', dataJS)
+            def handle_response(response):
+                if response.success:
+                    logger_helper.info(f"all data updated successfully: {response.data}")
+                else:
+                    logger_helper.error(f"Failed to update all data: {response.error}")
+
+            IPCAPI.get_instance().update_all(dataJS, handle_response)
+
+        except Exception as e:
+            logger_helper.error(f"Error updating vehicles data: {e}")
+
+    def receive_new_chat_message(self, dataHolder):
+        """add new chat message to data structure and update DB and GUI"""
+        try:
+            # 生成随机数据
+            dataJS = [
                 {
                     'id': 1,
                     'session_id': 1,
@@ -216,164 +385,136 @@ class WebGUI(QMainWindow):
                     logger_helper.error(f"Failed to update Chats data: {response.error}")
 
             print("about to update GUI chats data....", data)
-            IPCAPI.get_instance().update_chats(data, handle_response)
+            IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
             logger_helper.error(f"Error updating Chats data: {e}")
 
 
-    def update_skills_data(self, dataHolder):
-        """更新技能数据"""
+    def send_new_chat_message(self, dataHolder):
+        """更新聊天数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            dataJS = [
+                {
+                    'id': 1,
+                    'session_id': 1,
+                    'sender': "12",
+                    'chat_id': 2,
+                    'is_group': False,
+                    'recipients': [],
+                    'content': dataHolder["message"],
+                    'attachments': [],
+                    'tx_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            ]
 
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Skills data updated successfully: {response.data}")
+                    logger_helper.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Skills data: {response.error}")
+                    logger_helper.error(f"Failed to update Chats data: {response.error}")
 
-            IPCAPI.get_instance().update_skills(data, handle_response)
+            print("about to update GUI chats data....", data)
+            IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Skills data: {e}")
+            logger_helper.error(f"Error updating Chats data: {e}")
 
-    def update_tasks_data(self, dataHolder):
-        """更新技能数据"""
+
+    def init_new_chat(self, chat):
+        """更新聊天数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            dataJS = self.chat_service.create_conversation(chat["name"], chat["is_group"], chat["description"])
 
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Tasks data updated successfully: {response.data}")
+                    logger_helper.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Tasks data: {response.error}")
+                    logger_helper.error(f"Failed to update Chats data: {response.error}")
 
-            IPCAPI.get_instance().update_tasks(data, handle_response)
+            print("about to update GUI chats data....", dataJS)
+            IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Tasks data: {e}")
+            logger_helper.error(f"Error updating Chats data: {e}")
 
-
-    def update_tools_data(self, dataHolder):
-        """更新技能数据"""
+    def delete_chats(self, chat_ids):
+        """更新聊天数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            dataJS = self.chat_service.delete_conversations(chat_ids)
 
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Tools data updated successfully: {response.data}")
+                    logger_helper.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Tools data: {response.error}")
+                    logger_helper.error(f"Failed to update Chats data: {response.error}")
 
-            IPCAPI.get_instance().update_tools(data, handle_response)
+            print("about to update GUI chats data....", dataJS)
+            IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Tools data: {e}")
+            logger_helper.error(f"Error updating Chats data: {e}")
 
-
-    def update_knowledge_data(self, dataHolder):
-        """更新技能数据"""
+    def hide_chats(self, chat_ids):
+        """更新聊天数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            dataJS = self.chat_service.hide_conversations(chat_ids)
 
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Knowledge data updated successfully: {response.data}")
+                    logger_helper.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update knowledge data: {response.error}")
+                    logger_helper.error(f"Failed to update Chats data: {response.error}")
 
-            IPCAPI.get_instance().update_knowledge(data, handle_response)
+            print("about to update GUI chats data....", data)
+            IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating knowledge data: {e}")
+            logger_helper.error(f"Error updating Chats data: {e}")
 
 
-    def update_settings_data(self, dataHolder):
-        """更新技能数据"""
+    def delete_chat_messages(self, msg_ids):
+        """更新聊天数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            dataJS = self.chat_service.delete_messages(msg_ids)
 
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Settings data updated successfully: {response.data}")
+                    logger_helper.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update settings data: {response.error}")
+                    logger_helper.error(f"Failed to update Chats data: {response.error}")
 
-            IPCAPI.get_instance().update_settings(data, handle_response)
+            print("about to update GUI chats data....", data)
+            IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating settings data: {e}")
+            logger_helper.error(f"Error updating Chats data: {e}")
 
-
-
-    def update_vehicles_data(self, dataHolder):
-        """更新技能数据"""
+    def delete_all_chat_messages(self, chat_id):
+        """更新聊天数据"""
         try:
             # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
+            dataJS = self.chat_service.delete_conversation(chat_id)
 
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Vehicles data updated successfully: {response.data}")
+                    logger_helper.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update vehicles data: {response.error}")
+                    logger_helper.error(f"Failed to update Chats data: {response.error}")
 
-            IPCAPI.get_instance().update_vehicles(data, handle_response)
+            print("about to update GUI chats data....", dataJS)
+            IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating vehicles data: {e}")
-
-
-    def update_all(self, dataHolder):
-        # self.update_dashboard_data()
-        # self.update_agents_data(dataHolder)
-        self.update_chats_data(dataHolder)
-        # self.update_skills_data(dataHolder)
-        # self.update_tasks_data(dataHolder)
-        # self.update_tools_data(dataHolder)
-        # self.update_knowledge_data(dataHolder)
-        # self.update_vehicles_data(dataHolder)
-        # self.update_settings_data(dataHolder)
-        print("all top web gui updated.....")
+            logger_helper.error(f"Error updating Chats data: {e}")

@@ -19,6 +19,7 @@ import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
 import { useNavigate } from 'react-router-dom';
+import { useUserStore } from '../../stores/userStore';
 import { APIResponse, IPCAPI } from '@/services/ipc/api';
 
 const { Text, Title } = Typography;
@@ -129,6 +130,8 @@ const Agents: React.FC = () => {
         updateItem,
         updateItems,
     } = useDetailView<Agent>(initialAgents);
+
+    const username = useUserStore((state) => state.username);
 
     const translateAgent = (agent: Agent): Agent => {
         if (agent.name.includes('协调员') || agent.name.includes('分析师') || agent.name.includes('专员')) {
@@ -352,7 +355,7 @@ const Agents: React.FC = () => {
     // Function to handle refresh button click
     const handleRefresh = useCallback(async () => {
         try {
-            const response: APIResponse<Agent[]> = await IPCAPI.getInstance().getAgents([]);
+            const response: APIResponse<Agent[]> = await IPCAPI.getInstance().getAgents(username, []);
             console.log('Agents refreshed:', response);
             if (response && response.success && response.data) {
                 updateItems(response.data);

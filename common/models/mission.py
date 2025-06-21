@@ -81,7 +81,7 @@ class MissionModel(Base):
             "skills": self.skills,
             "delDate": self.delDate,
             "asin": self.asin,
-            "store": self.store,
+            "stores": self.store,
             "brand": self.brand,
             "img": self.img,
             "title": self.title,

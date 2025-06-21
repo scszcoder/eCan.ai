@@ -274,6 +274,20 @@ class IPCAPI:
         """
         self._send_request('update_vehicles', data=vehicles, callback=callback)
 
+    def update_all(
+            self,
+            all: Any,
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        设置配置
+
+        Args:
+            chats: Chat值
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        self._send_request('update_all', data=all, callback=callback)
+
 
 
 # 使用示例

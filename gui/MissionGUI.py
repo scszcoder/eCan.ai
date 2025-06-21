@@ -370,7 +370,7 @@ class MissionNewWin(QMainWindow):
         self.pseudo_store_label = QLabel(QApplication.translate("QLabel", "Pseudo Store:"), alignment=Qt.AlignLeft)
         self.pseudo_store_edit = QLineEdit()
         self.pseudo_store_edit.setPlaceholderText(
-            QApplication.translate("QLineEdit", "Example: Jacks Shop, must be differrent from the actual store name."))
+            QApplication.translate("QLineEdit", "Example: Jacks Shop, must be differrent from the actual stores name."))
 
         self.pseudo_brand_label = QLabel(QApplication.translate("QLabel", "Pseudo Brand:"), alignment=Qt.AlignLeft)
         self.pseudo_brand_edit = QLineEdit()

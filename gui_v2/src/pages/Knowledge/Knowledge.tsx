@@ -24,6 +24,7 @@ import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
 import { IPCAPI } from '@/services/ipc/api';
 import type { DetailItem } from '../../components/Common/DetailCard';
+import { useUserStore } from '../../stores/userStore';
 
 const { Text, Title } = Typography;
 
@@ -88,6 +89,7 @@ const Knowledge: React.FC = () => {
     const { t } = useTranslation();
     const [loading, setLoading] = useState(false);
     const [filters, setFilters] = useState<Record<string, any>>({});
+    const username = useUserStore((state) => state.username);
 
     const {
         selectedItem: selectedKnowledge,
@@ -103,7 +105,7 @@ const Knowledge: React.FC = () => {
             setLoading(true);
             // 从 localStorage 或其他地方获取当前用户名
             const username = localStorage.getItem('username') || '';
-            const response = await IPCAPI.getInstance().getAll<KnowledgePoint[]>(username);
+            const response = await IPCAPI.getInstance().getKnowledges(username, []);
             if (response && response.success && response.data) {
                 setKnowledges(response.data);
             }
