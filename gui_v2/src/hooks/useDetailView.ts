@@ -1,64 +1,30 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
 interface DetailViewState<T> {
     selectedItem: T | null;
-    items: T[];
 }
 
-export function useDetailView<T>(initialItems: T[]) {
-    const [state, setState] = useState<DetailViewState<T>>({
-        selectedItem: null,
-        items: initialItems,
-    });
+export function useDetailView<T>(
+    getKey: (item: T) => string | number = (item: any) => item.id
+) {
+    const [selectedItem, setSelectedItem] = useState<T | null>(null);
 
-    const selectItem = (item: T) => {
-        setState(prev => ({
-            ...prev,
-            selectedItem: item,
-        }));
-    };
+    const selectItem = useCallback((item: T) => {
+        setSelectedItem(item);
+    }, []);
 
-    const updateItems = (items: T[]) => {
-        setState(prev => ({
-            ...prev,
-            items: Array.isArray(items) ? items : [],
-        }));
-    };
+    const unselectItem = useCallback(() => {
+        setSelectedItem(null);
+    }, []);
 
-    const addItem = (item: T) => {
-        setState(prev => ({
-            ...prev,
-            items: [...prev.items, item],
-        }));
-    };
-
-    const removeItem = (id: number) => {
-        setState(prev => ({
-            ...prev,
-            items: prev.items.filter((item: any) => item.id !== id),
-            selectedItem: prev.selectedItem && (prev.selectedItem as any).id === id ? null : prev.selectedItem,
-        }));
-    };
-
-    const updateItem = (id: number, updatedItem: Partial<T>) => {
-        setState(prev => ({
-            ...prev,
-            items: prev.items.map((item: any) => 
-                item.id === id ? { ...item, ...updatedItem } : item
-            ),
-            selectedItem: prev.selectedItem && (prev.selectedItem as any).id === id 
-                ? { ...prev.selectedItem, ...updatedItem }
-                : prev.selectedItem,
-        }));
-    };
+    const isSelected = useCallback((item: T) => {
+        return selectedItem ? getKey(selectedItem) === getKey(item) : false;
+    }, [selectedItem, getKey]);
 
     return {
-        selectedItem: state.selectedItem,
-        items: state.items,
+        selectedItem,
         selectItem,
-        updateItems,
-        addItem,
-        removeItem,
-        updateItem,
+        unselectItem,
+        isSelected,
     };
 } 

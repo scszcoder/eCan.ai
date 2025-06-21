@@ -15,7 +15,7 @@ export interface SystemData {
   tasks: Task[];
   vehicles: Vehicle[];
   settings: Settings;
-  knowledges: Knowledge;
+  knowledges: Knowledge[];
   chats: Chat[];
   message: string;
 }

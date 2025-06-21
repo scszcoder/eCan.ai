@@ -92,6 +92,7 @@ export class PageRefreshManager {
 					// 将API返回的数据保存到store中
 					if (systemData?.data) {
                         logger.info('Get all system data successful');
+                        console.log('systemData', systemData.data);
 						const systemStore = useSystemStore.getState();
 						systemStore.setData(systemData.data as SystemData);
 						logger.info('system data 数据已保存到store中');
