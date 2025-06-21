@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import DetailLayout from '../../components/Layout/DetailLayout';
-import { useSystemStore } from '../../stores/systemStore';
+import { useAppDataStore } from '../../stores/appDataStore';
 import ChatList from './components/ChatList';
 import ChatDetail from './components/ChatDetail';
 import { useUserStore } from '../../stores/userStore';
@@ -22,7 +22,7 @@ const ChatPage: React.FC = () => {
         setChats,
         setLoading,
         setError,
-    } = useSystemStore();
+    } = useAppDataStore();
 
     // 初始化聊天
     useEffect(() => {

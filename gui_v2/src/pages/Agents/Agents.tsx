@@ -7,7 +7,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import { useAgents } from './hooks/useAgents';
 import { AgentList } from './components/AgentList';
 import { AgentDetail } from './components/AgentDetail';
-import { useSystemStore } from '../../stores/systemStore';
+import { useAppDataStore } from '../../stores/appDataStore';
 import { useUserStore } from '../../stores/userStore';
 import { Agent } from './types';
 import { logger } from '@/utils/logger';
@@ -19,11 +19,11 @@ const Agents: React.FC = () => {
     const { message: messageApi } = App.useApp();
     const { selectedAgent, selectItem, isSelected } = useAgents();
     
-    const agents = useSystemStore((state) => state.agents);
-    const isLoading = useSystemStore((state) => state.isLoading);
-    const setLoading = useSystemStore((state) => state.setLoading);
-    const setAgents = useSystemStore((state) => state.setAgents);
-    const setError = useSystemStore((state) => state.setError);
+    const agents = useAppDataStore((state) => state.agents);
+    const isLoading = useAppDataStore((state) => state.isLoading);
+    const setLoading = useAppDataStore((state) => state.setLoading);
+    const setAgents = useAppDataStore((state) => state.setAgents);
+    const setError = useAppDataStore((state) => state.setError);
     const username = useUserStore((state) => state.username);
 
     const handleAddAgent = () => {
