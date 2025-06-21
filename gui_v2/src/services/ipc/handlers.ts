@@ -5,13 +5,9 @@
 import { IPCRequest, IPCResponse } from './types';
 import { updateDashboard } from '../../pages/Dashboard/Dashboard';
 import { updateSkillsGUI } from '../../pages/Skills/Skills';
-import { updateSkillEditorGUI } from '../../pages/SkillEditor/SkillEditor';
 import { updateTasksGUI } from '../../pages/Tasks/Tasks';
-import { updateSchedule } from '../../pages/Schedule/Schedule';
-import { updateAgentsGUI } from '../../pages/Agents/Agents';
-import { updateToolsGUI } from '../../pages/Tools/Tools';
-import { updateVehiclesGUI } from '../../pages/Vehicles/Vehicles';
-import { updateKnowledgeGUI } from '../../pages/Knowledge/Knowledge';
+import { updateAgentsGUI } from '../../pages/Agents/types';
+import { updateKnowledgeGUI } from '../../pages/Knowledge/types';
 import { updateSettingsGUI } from '../../pages/Settings/Settings';
 import { logger } from '../../utils/logger';
 import { useChatStore } from '../../pages/Chat/hooks/useChatStore';
@@ -50,11 +46,9 @@ export class IPCHandlers {
         this.registerHandler('update_agents', this.updateAgents);
         this.registerHandler('update_skills', this.updateSkills);
         this.registerHandler('update_tasks', this.updateTasks);
-        this.registerHandler('update_knowledge', this.updateKnowledge);
+        this.registerHandler('update_knowledge', this.updateKnowledges);
         this.registerHandler('update_settings', this.updateSettings);
         this.registerHandler('update_chats', this.updateChats);
-        this.registerHandler('update_tools', this.updateTools);
-        this.registerHandler('update_vehicles', this.updateVehicles);
     }
 
     private registerHandler(method: string, handler: Handler): void {
@@ -125,16 +119,16 @@ export class IPCHandlers {
             const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
             const updatedAgents = params as { [K in typeof requiredFields[number]]: number };
             for (const field of requiredFields) {
-                if (typeof stats[field] !== 'number') {
+                if (typeof updatedAgents[field] !== 'number') {
                     throw new Error(`Invalid field type: ${field} must be a number`);
                 }
             }
 
-            // 更新仪表盘数据
+            // 更新代理数据
             updateAgentsGUI(updatedAgents);
             return { refreshed: true };
         } catch (error) {
-            logger.error('Error in refresh_dashboard handler:', error);
+            logger.error('Error in update_agents handler:', error);
             throw error;
         }
     }
@@ -225,20 +219,30 @@ export class IPCHandlers {
                 throw new Error('Invalid parameters');
             }
 
-            // 验证参数
-            const requiredFields = ['overview', 'statistics', 'recentActivities', 'quickActions'] as const;
-            const stats = params as { [K in typeof requiredFields[number]]: number };
-            for (const field of requiredFields) {
-                if (typeof stats[field] !== 'number') {
-                    throw new Error(`Invalid field type: ${field} must be a number`);
+            // 验证参数 - 期望接收知识库数据数组
+            if (!Array.isArray(params)) {
+                throw new Error('Invalid parameters: expected Knowledge[] array');
+            }
+
+            // 验证每个知识库项目的结构
+            for (const knowledge of params) {
+                if (typeof knowledge !== 'object' || !knowledge) {
+                    throw new Error('Invalid knowledge item: must be an object');
+                }
+                
+                const requiredFields = ['id', 'name', 'type', 'status', 'battery', 'location', 'lastMaintenance', 'totalDistance'];
+                for (const field of requiredFields) {
+                    if (!(field in knowledge)) {
+                        throw new Error(`Invalid knowledge item: missing required field '${field}'`);
+                    }
                 }
             }
 
-            // 更新仪表盘数据
-            updateKnowledgeGUI(stats);
+            // 更新知识库数据
+            updateKnowledgeGUI(params);
             return { refreshed: true };
         } catch (error) {
-            logger.error('Error in refresh_dashboard handler:', error);
+            logger.error('Error in update_knowledge handler:', error);
             throw error;
         }
     }

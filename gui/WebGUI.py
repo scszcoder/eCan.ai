@@ -319,46 +319,46 @@ class WebGUI(QMainWindow):
             logger_helper.error(f"Error updating vehicles data: {e}")
 
 
-    def update_all(self, dataHolder):
-        try:
-            agents = dataHolder.agents
-            all_tasks = []
-            for agent in agents:
-                all_tasks.extend(agent.tasks)
+    # def update_all(self, dataHolder):
+    #     try:
+    #         agents = dataHolder.agents
+    #         all_tasks = []
+    #         for agent in agents:
+    #             all_tasks.extend(agent.tasks)
 
-            skills = dataHolder.agent_skills
-            vehicles = dataHolder.vehicles
-            settings = dataHolder.general_settings
-            # knowledges = py_login.main_win.knowledges
-            # chats = py_login.main_win.chats
-            knowledges = {}
-            chats = {}
-            # 生成随机令牌
-            token = str(uuid.uuid4()).replace('-', '')
-            # logger.info(f"Get all successful for user: {username}")
-            dataJS = {
-                'token': token,
-                'agents': [agent.to_dict() for agent in agents],
-                'skills': [sk.to_dict() for sk in skills],
-                'tools': [tool.model_dump() for tool in dataHolder.mcp_tools_schemas],
-                'tasks': [task.to_dict() for task in all_tasks],
-                'vehicles': [vehicle.genJson() for vehicle in vehicles],
-                'settings': settings,
-                'knowledges': knowledges,
-                'chats': chats,
-                'message': 'Get all successful'
-            }
-            print('all dataJS:', dataJS)
-            def handle_response(response):
-                if response.success:
-                    logger_helper.info(f"all data updated successfully: {response.data}")
-                else:
-                    logger_helper.error(f"Failed to update all data: {response.error}")
+    #         skills = dataHolder.agent_skills
+    #         vehicles = dataHolder.vehicles
+    #         settings = dataHolder.general_settings
+    #         # knowledges = py_login.main_win.knowledges
+    #         # chats = py_login.main_win.chats
+    #         knowledges = {}
+    #         chats = {}
+    #         # 生成随机令牌
+    #         token = str(uuid.uuid4()).replace('-', '')
+    #         # logger.info(f"Get all successful for user: {username}")
+    #         dataJS = {
+    #             'token': token,
+    #             'agents': [agent.to_dict() for agent in agents],
+    #             'skills': [sk.to_dict() for sk in skills],
+    #             'tools': [tool.model_dump() for tool in dataHolder.mcp_tools_schemas],
+    #             'tasks': [task.to_dict() for task in all_tasks],
+    #             'vehicles': [vehicle.genJson() for vehicle in vehicles],
+    #             'settings': settings,
+    #             'knowledges': knowledges,
+    #             'chats': chats,
+    #             'message': 'Get all successful'
+    #         }
+    #         print('all dataJS:', dataJS)
+    #         def handle_response(response):
+    #             if response.success:
+    #                 logger_helper.info(f"all data updated successfully: {response.data}")
+    #             else:
+    #                 logger_helper.error(f"Failed to update all data: {response.error}")
 
-            IPCAPI.get_instance().update_all(dataJS, handle_response)
+    #         IPCAPI.get_instance().update_all(dataJS, handle_response)
 
-        except Exception as e:
-            logger_helper.error(f"Error updating vehicles data: {e}")
+    #     except Exception as e:
+    #         logger_helper.error(f"Error updating vehicles data: {e}")
 
     def receive_new_chat_message(self, dataHolder):
         """add new chat message to data structure and update DB and GUI"""

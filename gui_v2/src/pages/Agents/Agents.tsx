@@ -21,6 +21,7 @@ import ActionButtons from '../../components/Common/ActionButtons';
 import { useNavigate } from 'react-router-dom';
 import { useUserStore } from '../../stores/userStore';
 import { APIResponse, IPCAPI } from '@/services/ipc/api';
+import { Agent, agentsEventBus } from './types';
 
 const { Text, Title } = Typography;
 
@@ -66,37 +67,6 @@ const AgentItem = styled.div`
         }
     }
 `;
-
-interface Agent {
-    id: number;
-    name: string;
-    role: string;
-    status: 'active' | 'busy' | 'offline';
-    skills: string[];
-    tasksCompleted: number;
-    efficiency: number;
-    lastActive: string;
-    avatar?: string;
-    currentTask?: string;
-}
-
-// 创建事件总线
-const agentsEventBus = {
-    listeners: new Set<(data: Agent[]) => void>(),
-    subscribe(listener: (data: Agent[]) => void) {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-    },
-    emit(data: Agent[]) {
-        this.listeners.forEach(listener => listener(data));
-    }
-};
-
-// 导出更新数据的函数
-export const updateAgentsGUI = (data: Agent[]) => {
-    agentsEventBus.emit(data);
-};
-
 
 const getStatusColor = (status: Agent['status']): string => {
     switch (status) {

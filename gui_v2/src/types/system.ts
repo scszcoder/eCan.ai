@@ -1,11 +1,6 @@
-// 通用类型定义
-export interface Knowledge {
-  [key: string]: any;
-}
-
-export interface Chat {
-  [key: string]: any;
-}
+import type { Agent, Skill, Tool, Task, Vehicle, Settings } from './index';
+import type { ChatSession } from '../pages/Chat/types/chat';
+import { Knowledge } from '@/pages/Knowledge/types';
 
 // 系统完整数据结构
 export interface SystemData {
@@ -16,15 +11,7 @@ export interface SystemData {
   tasks: Task[];
   vehicles: Vehicle[];
   settings: Settings;
-  knowledges: Knowledge;
-  chats: Chat;
+  knowledges: Knowledge[];
+  chats: ChatSession[];
   message: string;
-}
-
-// 从其他文件导入类型
-import { Agent } from './agent';
-import { Skill } from './skill';
-import { Tool } from './tool';
-import { Task } from './task';
-import { Vehicle } from './vehicle';
-import { Settings } from './settings'; 
+} 

@@ -17,7 +17,9 @@
 - **Vehicle** (`src/types/vehicle.ts`): 车辆信息，包含IP、状态、功能等
 - **Settings** (`src/types/settings.ts`): 系统设置信息
 - **Knowledge** (`src/types/system.ts`): 知识库信息
-- **Chat** (`src/types/system.ts`): 聊天记录信息
+- **ChatSession** (`src/pages/Chat/types/chat.ts`): 聊天会话信息，包含消息、成员等
+- **Message** (`src/pages/Chat/types/chat.ts`): 消息信息，包含内容、附件、状态等
+- **Attachment** (`src/pages/Chat/types/chat.ts`): 附件信息
 - **SystemData** (`src/types/system.ts`): 系统完整数据结构
 
 ### 类型导入
@@ -32,6 +34,9 @@ import type { Agent, Skill, Tool, Task, Vehicle, Settings } from '../types';
 
 // 导入系统数据类型
 import type { SystemData } from '../types/system';
+
+// 导入Chat相关类型
+import type { ChatSession, Message, Attachment } from '../pages/Chat/types/chat';
 ```
 
 ## 使用方法
@@ -49,6 +54,7 @@ const MyComponent = () => {
     tasks, 
     vehicles, 
     settings,
+    chats,
     isLoading,
     error 
   } = useSystemStore();
@@ -65,6 +71,7 @@ const MyComponent = () => {
     <div>
       <h2>代理数量: {agents.length}</h2>
       <h2>技能数量: {skills.length}</h2>
+      <h2>聊天会话数量: {chats.length}</h2>
       {/* 其他内容 */}
     </div>
   );
@@ -74,7 +81,7 @@ const MyComponent = () => {
 ### 2. 更新数据
 
 ```typescript
-const { setData, updateAgent, addSkill } = useSystemStore();
+const { setData, updateAgent, addSkill, addChat } = useSystemStore();
 
 // 设置完整数据
 setData(systemData);
@@ -86,6 +93,9 @@ updateAgent('agent-id', {
 
 // 添加新技能
 addSkill(newSkill);
+
+// 添加新聊天会话
+addChat(newChatSession);
 ```
 
 ### 3. 数据操作
@@ -95,6 +105,9 @@ const {
   addAgent, 
   removeAgent, 
   updateSkill, 
+  addChat,
+  updateChat,
+  removeChat,
   setLoading,
   setError 
 } = useSystemStore();
@@ -107,6 +120,15 @@ removeAgent('agent-id');
 
 // 更新技能
 updateSkill('skill-id', { name: '新技能名称' });
+
+// 添加聊天会话
+addChat(newChatSession);
+
+// 更新聊天会话
+updateChat(chatId, { lastMessage: '新消息' });
+
+// 删除聊天会话
+removeChat(chatId);
 
 // 设置加载状态
 setLoading(true);
@@ -156,7 +178,42 @@ const AgentList = () => {
 };
 ```
 
-### 示例2: 显示统计数据
+### 示例2: 显示聊天会话列表
+
+```typescript
+import React from 'react';
+import { List, Card, Badge, Avatar } from 'antd';
+import { useSystemStore } from '../stores/systemStore';
+import type { ChatSession } from '../pages/Chat/types/chat';
+
+const ChatList = () => {
+  const { chats } = useSystemStore();
+
+  return (
+    <List
+      dataSource={chats}
+      renderItem={(chat: ChatSession) => (
+        <List.Item>
+          <Card>
+            <List.Item.Meta
+              avatar={
+                <Badge count={chat.unreadCount}>
+                  <Avatar>{chat.name[0]}</Avatar>
+                </Badge>
+              }
+              title={chat.name}
+              description={chat.lastMessage}
+            />
+            <div>{chat.lastMessageTime}</div>
+          </Card>
+        </List.Item>
+      )}
+    />
+  );
+};
+```
+
+### 示例3: 显示统计数据
 
 ```typescript
 import React from 'react';
@@ -164,7 +221,7 @@ import { Statistic, Row, Col } from 'antd';
 import { useSystemStore } from '../stores/systemStore';
 
 const Statistics = () => {
-  const { agents, skills, tools, tasks, vehicles } = useSystemStore();
+  const { agents, skills, tools, tasks, vehicles, chats } = useSystemStore();
 
   return (
     <Row gutter={16}>
@@ -183,29 +240,34 @@ const Statistics = () => {
       <Col span={4}>
         <Statistic title="车辆" value={vehicles.length} />
       </Col>
+      <Col span={4}>
+        <Statistic title="聊天会话" value={chats.length} />
+      </Col>
     </Row>
   );
 };
 ```
 
-### 示例3: 使用类型安全的组件
+### 示例4: 使用类型安全的组件
 
 ```typescript
 import React from 'react';
-import type { Agent, Skill, Task } from '../types';
+import type { Agent, Skill, Task, ChatSession } from '../types';
 
 interface DataDisplayProps {
   agents: Agent[];
   skills: Skill[];
   tasks: Task[];
+  chats: ChatSession[];
 }
 
-const DataDisplay: React.FC<DataDisplayProps> = ({ agents, skills, tasks }) => {
+const DataDisplay: React.FC<DataDisplayProps> = ({ agents, skills, tasks, chats }) => {
   return (
     <div>
       <h2>代理数量: {agents.length}</h2>
       <h2>技能数量: {skills.length}</h2>
       <h2>任务数量: {tasks.length}</h2>
+      <h2>聊天会话数量: {chats.length}</h2>
     </div>
   );
 };
@@ -226,7 +288,7 @@ interface SystemState {
   vehicles: Vehicle[];
   settings: Settings | null;
   knowledges: Knowledge;
-  chats: Chat;
+  chats: ChatSession[];
   
   // 加载状态
   isLoading: boolean;
@@ -243,6 +305,13 @@ interface SystemState {
 - `setError()`: 设置错误信息
 - `clearData()`: 清空所有数据
 
+### Chat相关操作
+
+- `setChats()`: 设置聊天会话列表
+- `addChat()`: 添加新聊天会话
+- `updateChat()`: 更新聊天会话
+- `removeChat()`: 删除聊天会话
+
 ## 注意事项
 
 1. **数据加载**: 数据会在页面刷新后自动加载，无需手动调用
@@ -250,6 +319,7 @@ interface SystemState {
 3. **错误处理**: 注意检查 `isLoading` 和 `error` 状态
 4. **性能优化**: 大量数据时考虑使用虚拟滚动或分页
 5. **类型安全**: 使用 `import type` 导入类型，避免运行时导入
+6. **Chat类型**: 现在使用 `ChatSession` 类型，包含完整的聊天会话信息
 
 ## 扩展功能
 
@@ -278,6 +348,7 @@ newMethod: (param) => set((state) => ({
 - `index.ts`: store统一导出
 - `../types/`: 所有类型定义文件
 - `../types/index.ts`: 类型统一导出
+- `../pages/Chat/types/chat.ts`: Chat相关类型定义
 - `../services/events/PageRefreshManager.ts`: 自动数据加载
 - `../components/DataDisplay.tsx`: 数据展示组件示例
 - `../pages/Dashboard/Dashboard.tsx`: 使用示例
