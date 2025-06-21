@@ -119,7 +119,7 @@ const Dashboard: React.FC = () => {
                                 <Card size="small">
                                     <Statistic
                                         title="代理数量"
-                                        value={agents.length}
+                                        value={(agents || []).length}
                                         prefix={<RobotOutlined />}
                                         valueStyle={{ color: '#3f8600' }}
                                     />
@@ -129,7 +129,7 @@ const Dashboard: React.FC = () => {
                                 <Card size="small">
                                     <Statistic
                                         title="技能数量"
-                                        value={skills.length}
+                                        value={(skills || []).length}
                                         prefix={<ToolOutlined />}
                                         valueStyle={{ color: '#1890ff' }}
                                     />
@@ -139,7 +139,7 @@ const Dashboard: React.FC = () => {
                                 <Card size="small">
                                     <Statistic
                                         title="工具数量"
-                                        value={tools.length}
+                                        value={(tools || []).length}
                                         prefix={<SettingOutlined />}
                                         valueStyle={{ color: '#722ed1' }}
                                     />
@@ -149,7 +149,7 @@ const Dashboard: React.FC = () => {
                                 <Card size="small">
                                     <Statistic
                                         title="任务数量"
-                                        value={tasks.length}
+                                        value={(tasks || []).length}
                                         prefix={<ScheduleOutlined />}
                                         valueStyle={{ color: '#fa8c16' }}
                                     />
@@ -159,7 +159,7 @@ const Dashboard: React.FC = () => {
                                 <Card size="small">
                                     <Statistic
                                         title="车辆数量"
-                                        value={vehicles.length}
+                                        value={(vehicles || []).length}
                                         prefix={<CarOutlined />}
                                         valueStyle={{ color: '#eb2f96' }}
                                     />
@@ -177,16 +177,16 @@ const Dashboard: React.FC = () => {
                         </Row>
 
                         {/* 活跃代理列表 */}
-                        {agents.length > 0 && (
+                        {(agents || []).length > 0 && (
                             <div style={{ marginTop: '16px' }}>
                                 <Text strong>活跃代理:</Text>
                                 <Space wrap style={{ marginTop: '8px' }}>
-                                    {agents.slice(0, 5).map((agent) => (
+                                    {(agents || []).slice(0, 5).map((agent) => (
                                         <Tag key={agent.card.id} color="blue">
                                             {agent.card.name}
                                         </Tag>
                                     ))}
-                                    {agents.length > 5 && (
+                                    {(agents || []).length > 5 && (
                                         <Tag color="default">+{agents.length - 5} 更多</Tag>
                                     )}
                                 </Space>
@@ -194,11 +194,11 @@ const Dashboard: React.FC = () => {
                         )}
 
                         {/* 最近任务 */}
-                        {tasks.length > 0 && (
+                        {(tasks || []).length > 0 && (
                             <div style={{ marginTop: '16px' }}>
                                 <Text strong>最近任务:</Text>
                                 <Space wrap style={{ marginTop: '8px' }}>
-                                    {tasks.slice(0, 3).map((task) => (
+                                    {(tasks || []).slice(0, 3).map((task) => (
                                         <Tag 
                                             key={task.id} 
                                             color={task.state.top === 'ready' ? 'green' : 'orange'}
@@ -206,7 +206,7 @@ const Dashboard: React.FC = () => {
                                             {task.skill}
                                         </Tag>
                                     ))}
-                                    {tasks.length > 3 && (
+                                    {(tasks || []).length > 3 && (
                                         <Tag color="default">+{tasks.length - 3} 更多</Tag>
                                     )}
                                 </Space>

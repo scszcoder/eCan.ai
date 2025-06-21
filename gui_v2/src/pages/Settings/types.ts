@@ -1,4 +1,3 @@
-// 系统设置相关的类型定义
 export interface Settings {
   api_api_port: string;
   debug_mode: boolean;
@@ -26,4 +25,5 @@ export interface Settings {
   schedule_mode: string;
   theme: 'light' | 'dark';
   language: string;
+  // 更多属性...
 } 
