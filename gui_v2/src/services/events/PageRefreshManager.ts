@@ -3,6 +3,7 @@ import { APIResponse } from '../ipc';
 import { get_ipc_api } from '../ipc_api';
 import { useSystemStore } from '../../stores/systemStore';
 import type { SystemData } from '../../types';
+import { useUserStore } from '@/stores/userStore';
 
 // 页面刷新后的操作类型
 export type PageRefreshAction = () => void | Promise<void>;
@@ -82,6 +83,10 @@ export class PageRefreshManager {
 				if (response?.data?.last_login) {
 					const { username, password, machine_role } = response.data.last_login;
 					logger.info('last_login', response.data.last_login);
+                    localStorage.setItem('username', username);
+			
+                    useUserStore.getState().setUsername(username);
+                    // 获取系统数据
 					const systemData = await get_ipc_api().getAll(username);
 					
 					// 将API返回的数据保存到store中

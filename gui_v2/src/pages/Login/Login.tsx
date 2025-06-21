@@ -101,13 +101,15 @@ const Login: React.FC = () => {
 			localStorage.setItem('token', token);
 			localStorage.setItem('isAuthenticated', 'true');
 			localStorage.setItem('userRole', values.role);
+			localStorage.setItem('username', values.username);
 			
+			useUserStore.getState().setUsername(values.username);
 			// 登录成功后启用页面刷新监听
 			pageRefreshManager.enable();
 			
 			messageApi.success(t('login.success'));
 			navigate('/dashboard');
-            useUserStore.getState().setUsername(values.username);
+            
 			await new Promise(resolve => setTimeout(resolve, 6000));
 			const systemData = await api.getAll(values.username);
 			
