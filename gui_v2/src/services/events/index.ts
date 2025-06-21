@@ -1,16 +1,3 @@
-// 导出页面刷新服务
-export { 
-    pageRefreshService, 
-    PageRefreshService
-} from './PageRefreshService';
-
-// 导出类型
-export type { 
-    PageRefreshEvent,
-    PageRefreshEventType,
-    PageRefreshEventHandler 
-} from './PageRefreshService';
-
 // 导出页面刷新管理器
 export { 
     pageRefreshManager, 

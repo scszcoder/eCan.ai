@@ -19,4 +19,7 @@ export type { Vehicle } from './vehicle';
 export type { Settings } from './settings';
 
 // 系统数据类型和通用类型
-export type { SystemData, Knowledge, Chat } from './system'; 
+export type { SystemData } from './system';
+
+// Chat模块类型
+export type { ChatSession, Message, Attachment } from '../pages/Chat/types/chat'; 

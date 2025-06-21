@@ -6,10 +6,10 @@ import type {
   Task, 
   Vehicle, 
   Settings, 
-  Knowledge, 
-  Chat, 
   SystemData 
 } from '../types';
+import type { ChatSession } from '../pages/Chat/types/chat';
+import { Knowledge } from '@/pages/Knowledge/types';
 
 interface SystemState {
   // 数据状态
@@ -20,8 +20,8 @@ interface SystemState {
   tasks: Task[];
   vehicles: Vehicle[];
   settings: Settings | null;
-  knowledges: Knowledge;
-  chats: Chat;
+  knowledges: Knowledge[];
+  chats: ChatSession[];
   
   // 加载状态
   isLoading: boolean;
@@ -36,8 +36,8 @@ interface SystemState {
   setTasks: (tasks: Task[]) => void;
   setVehicles: (vehicles: Vehicle[]) => void;
   setSettings: (settings: Settings) => void;
-  setKnowledges: (knowledges: Knowledge) => void;
-  setChats: (chats: Chat) => void;
+  setKnowledges: (knowledges: Knowledge[]) => void;
+  setChats: (chats: ChatSession[]) => void;
   
   // 更新单个项目
   updateAgent: (id: string, updates: Partial<Agent>) => void;
@@ -45,6 +45,7 @@ interface SystemState {
   updateTool: (name: string, updates: Partial<Tool>) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
   updateVehicle: (vid: number, updates: Partial<Vehicle>) => void;
+  updateChat: (id: number, updates: Partial<ChatSession>) => void;
   
   // 添加项目
   addAgent: (agent: Agent) => void;
@@ -52,6 +53,7 @@ interface SystemState {
   addTool: (tool: Tool) => void;
   addTask: (task: Task) => void;
   addVehicle: (vehicle: Vehicle) => void;
+  addChat: (chat: ChatSession) => void;
   
   // 删除项目
   removeAgent: (id: string) => void;
@@ -59,6 +61,7 @@ interface SystemState {
   removeTool: (name: string) => void;
   removeTask: (id: string) => void;
   removeVehicle: (vid: number) => void;
+  removeChat: (id: number) => void;
   
   // 加载状态管理
   setLoading: (loading: boolean) => void;
@@ -76,8 +79,8 @@ const initialState = {
   tasks: [],
   vehicles: [],
   settings: null,
-  knowledges: {},
-  chats: {},
+  knowledges: [],
+  chats: [],
   isLoading: false,
   error: null,
 };
@@ -93,8 +96,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     tasks: data.tasks || [],
     vehicles: data.vehicles || [],
     settings: data.settings || null,
-    knowledges: data.knowledges || {},
-    chats: data.chats || {},
+    knowledges: data.knowledges || [],
+    chats: data.chats || [],
     error: null,
   }),
 
@@ -106,8 +109,8 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   setTasks: (tasks: Task[]) => set({ tasks }),
   setVehicles: (vehicles: Vehicle[]) => set({ vehicles }),
   setSettings: (settings: Settings) => set({ settings }),
-  setKnowledges: (knowledges: Knowledge) => set({ knowledges }),
-  setChats: (chats: Chat) => set({ chats }),
+  setKnowledges: (knowledges: Knowledge[]) => set({ knowledges }),
+  setChats: (chats: ChatSession[]) => set({ chats }),
 
   updateAgent: (id: string, updates: Partial<Agent>) => set((state) => ({
     agents: state.agents.map(agent => 
@@ -139,6 +142,12 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     ),
   })),
 
+  updateChat: (id: number, updates: Partial<ChatSession>) => set((state) => ({
+    chats: state.chats.map(chat => 
+      chat.id === id ? { ...chat, ...updates } : chat
+    ),
+  })),
+
   addAgent: (agent: Agent) => set((state) => ({
     agents: [...state.agents, agent],
   })),
@@ -159,6 +168,10 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     vehicles: [...state.vehicles, vehicle],
   })),
 
+  addChat: (chat: ChatSession) => set((state) => ({
+    chats: [...state.chats, chat],
+  })),
+
   removeAgent: (id: string) => set((state) => ({
     agents: state.agents.filter(agent => agent.card.id !== id),
   })),
@@ -177,6 +190,10 @@ export const useSystemStore = create<SystemState>((set, get) => ({
 
   removeVehicle: (vid: number) => set((state) => ({
     vehicles: state.vehicles.filter(vehicle => vehicle.vid !== vid),
+  })),
+
+  removeChat: (id: number) => set((state) => ({
+    chats: state.chats.filter(chat => chat.id !== id),
   })),
 
   setLoading: (loading: boolean) => set({ isLoading: loading }),

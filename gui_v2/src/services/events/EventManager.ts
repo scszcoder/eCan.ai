@@ -1,5 +1,4 @@
 import { logger } from '../../utils/logger';
-import { pageRefreshService, PageRefreshService } from './PageRefreshService';
 
 // 事件服务接口
 interface EventService {
@@ -106,9 +105,6 @@ export class EventManager {
 
     // 注册默认服务
     private registerDefaultServices(): void {
-        // 注册页面刷新服务
-        this.registerService('pageRefresh', pageRefreshService);
-        
         // 这里可以注册其他事件服务
         // this.registerService('otherEvent', otherEventService);
     }
