@@ -10,8 +10,7 @@ import type {
 } from '../types';
 import type { Chat } from '../pages/Chat/types/chat';
 import { Knowledge } from '@/pages/Knowledge/types';
-import { devtools } from 'zustand/middleware';
-import { persist } from 'zustand/middleware';
+import { devtools, persist } from 'zustand/middleware';
 
 interface SystemState {
   // 数据状态

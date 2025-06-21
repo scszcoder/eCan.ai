@@ -1,0 +1,2025 @@
+{
+    "token": "c5a5030221d64ec9b4c40dc6aa7be01e",
+    "agents": [
+        {
+            "card": {
+                "name": "My Twin Agent",
+                "id": "0cf00767a36c4cad9218d99a91c5c2e0",
+                "description": "Human Representative",
+                "url": "http://192.168.1.19:3600",
+                "provider": null,
+                "version": "1.0.0",
+                "documentationUrl": null,
+                "capabilities": {
+                    "streaming": true,
+                    "pushNotifications": true,
+                    "stateTransitionHistory": false
+                },
+                "authentication": null,
+                "defaultInputModes": [
+                    "text",
+                    "text/plain",
+                    "json",
+                    "file"
+                ],
+                "defaultOutputModes": [
+                    "text",
+                    "text/plain",
+                    "json",
+                    "file"
+                ]
+            },
+            "supervisors": [],
+            "subordinates": [],
+            "peers": [],
+            "rank": "",
+            "organizations": [],
+            "job_description": "",
+            "personalities": []
+        },
+        {
+            "card": {
+                "name": "ECBot Helper Agent",
+                "id": "4a00292b65ac4616980f9233fee9da31",
+                "description": "Helps with ECBot RPA works",
+                "url": "http://192.168.1.19:3601",
+                "provider": null,
+                "version": "1.0.0",
+                "documentationUrl": null,
+                "capabilities": {
+                    "streaming": true,
+                    "pushNotifications": true,
+                    "stateTransitionHistory": false
+                },
+                "authentication": null,
+                "defaultInputModes": [
+                    "text",
+                    "text/plain",
+                    "json",
+                    "file"
+                ],
+                "defaultOutputModes": [
+                    "text",
+                    "text/plain",
+                    "json",
+                    "file"
+                ]
+            },
+            "supervisors": [],
+            "subordinates": [],
+            "peers": [],
+            "rank": "",
+            "organizations": [],
+            "job_description": "",
+            "personalities": []
+        },
+        {
+            "card": {
+                "name": "Engineering Procurement Agent",
+                "id": "1bd38ba114d84b8ba8a2569cdc2f2019",
+                "description": "Procure parts for product development",
+                "url": "http://192.168.1.19:3602",
+                "provider": null,
+                "version": "1.0.0",
+                "documentationUrl": null,
+                "capabilities": {
+                    "streaming": true,
+                    "pushNotifications": true,
+                    "stateTransitionHistory": false
+                },
+                "authentication": null,
+                "defaultInputModes": [
+                    "text",
+                    "text/plain",
+                    "json",
+                    "file"
+                ],
+                "defaultOutputModes": [
+                    "text",
+                    "text/plain",
+                    "json",
+                    "file"
+                ]
+            },
+            "supervisors": [],
+            "subordinates": [],
+            "peers": [],
+            "rank": "",
+            "organizations": [],
+            "job_description": "",
+            "personalities": []
+        }
+    ],
+    "skills": [
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "chatter for my digital twin",
+            "description": "chat on behalf of human.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "ecbot rpa helper",
+            "description": "help fix failures during ecbot RPA runs.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "chatter for ecbot rpa helper",
+            "description": "human and agent chat for helping fix failures during ecbot RPA runs.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "ecbot rpa operator run RPA",
+            "description": "drive a bunch of bots to run their ecbot RPA works.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "chatter for ecbot rpa operator run RPA",
+            "description": "human and agent chat for RPA operator agent who drive a bunch of RPA bots to run their ecbot RPA works.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "ecbot rpa supervisor task scheduling",
+            "description": "help fix failures during ecbot RPA runs.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "chatter for ecbot rpa supervisor task scheduling",
+            "description": "human and agent chat for supervising ecbot RPA runs by the RPA operator agents.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "ecbot rpa supervisor serve requests",
+            "description": "help fix failures during ecbot RPA runs.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "ecbot rpa supervisor serve requests",
+            "description": "help fix failures during ecbot RPA runs.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "meca search 1688 web site",
+            "description": "help search a part/component or a product on 1688 website.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        },
+        {
+            "id": "87c8ae9f-c617-4d80-86d6-192dd14f4809",
+            "work_flow": {},
+            "owner": "",
+            "name": "chatter for meca search 1688 web site",
+            "description": "chat with human or other agents to help search a part/component or a product on 1688 website.",
+            "config": {},
+            "ui_info": {
+                "text": "skill",
+                "icon": ""
+            },
+            "objectives": [],
+            "need_inputs": [],
+            "version": "0.0.0",
+            "level": "entry"
+        }
+    ],
+    "tools": [
+        {
+            "name": "rpa_supervisor_scheduling_work",
+            "description": "As a RPA supervisor, fetches daily work schedule and run team prep and get ready to dispatch the work to the operator agents on the remote hosts to work on.",
+            "inputSchema": {
+                "type": "object",
+                "required": [],
+                "properties": {}
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_operator_dispatch_works",
+            "description": "As a RPA operator, it dispatches the RPA works to be performed by a platoon of bots on this host computer.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "works"
+                ],
+                "properties": {
+                    "works": {
+                        "type": "dict",
+                        "description": "work to be dones"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_supervisor_process_work_results",
+            "description": "As an RPA supervisor, update overall result with received operator work report.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_supervisor_run_daily_housekeeping",
+            "description": "As an RPA supervisor, after all work reports collected, do necessary housekeeping work such as accounting, book keeping etc.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_operator_report_work_results",
+            "description": "As an RPA operator, report work results to supervisor",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "screen_capture",
+            "description": "Do a screen shot, save to a png file and stores into a cv2 image data structure",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "file_name"
+                ],
+                "properties": {
+                    "file_name": {
+                        "type": "string",
+                        "description": "screen shot file name"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "screen_analyze",
+            "description": "do OCR and icon match on an image and result in structured text in the image",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "image",
+                    "icons",
+                    "options",
+                    "end_point"
+                ],
+                "properties": {
+                    "image": {
+                        "type": "string",
+                        "description": "image file name."
+                    },
+                    "icons": {
+                        "type": "[string]",
+                        "description": "a list of icon file names"
+                    },
+                    "options": {
+                        "type": "dict",
+                        "description": "various run options"
+                    },
+                    "end_point": {
+                        "type": "string",
+                        "description": "a choice of local/lan/wan"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_click",
+            "description": "a mouse click function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "location",
+                    "button",
+                    "type",
+                    "speed",
+                    "post_move",
+                    "post_wait"
+                ],
+                "properties": {
+                    "location": {
+                        "type": "[int]",
+                        "description": "coordinates of [x, y]"
+                    },
+                    "button": {
+                        "type": "string",
+                        "description": "could be left, right, or wheel"
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "either single or double"
+                    },
+                    "speed": {
+                        "type": "float",
+                        "description": "time delay interval in seconds (could be fractional) between the two clicks"
+                    },
+                    "post_move": {
+                        "type": "[int]",
+                        "description": "mouse move after click action [delta_x, delta_y]"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post click movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_move",
+            "description": "a mouse move/hover function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "location",
+                    "post_wait"
+                ],
+                "properties": {
+                    "location": {
+                        "type": "[int]",
+                        "description": "coordinates of [x, y]"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_drag_drop",
+            "description": "a mouse drag and drop function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "drop_location",
+                    "duration",
+                    "post_wait"
+                ],
+                "properties": {
+                    "location": {
+                        "type": "[int]",
+                        "description": "coordinates of [x, y]"
+                    },
+                    "duration": {
+                        "type": "float",
+                        "description": "time interval in seconds (could be fractional) between pick up and drop off"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_scroll",
+            "description": "a mouse drag and drop function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "direction",
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "description": "either up or down"
+                    },
+                    "duration": {
+                        "type": "int",
+                        "description": "amount of mouse wheel scroll units"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "text_input",
+            "description": "keyboard type in text string.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "speed",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "text string to be typed in"
+                    },
+                    "speed": {
+                        "type": "float",
+                        "description": "amount of time interval in seconds(can be fractional number) between key strokes"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "keys_input",
+            "description": "keyboard type combo hot keys.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "keys",
+                    "post_wait"
+                ],
+                "properties": {
+                    "keys": {
+                        "type": "[string]",
+                        "description": "list of keys to be keyed in, for example ['ctrl', 'x']"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "wait",
+            "description": "wait a few seconds.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "time"
+                ],
+                "properties": {
+                    "time": {
+                        "type": "int",
+                        "description": "number of seconds to wait"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "say_hello",
+            "description": "just a test.",
+            "inputSchema": {
+                "type": "object",
+                "required": [],
+                "properties": {}
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_wait_for_element",
+            "description": "use python web tool to wait for web elements.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "locator",
+                    "text",
+                    "timeout"
+                ],
+                "properties": {
+                    "locator": {
+                        "type": "string",
+                        "description": "type of the web element, could be ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, and XPath"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "name of the web element"
+                    },
+                    "timeout": {
+                        "type": "int",
+                        "description": "number of seconds to wait before timeout"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_index",
+            "description": "use selenium to click on a web element based on index in the selector map.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "index",
+                    "map"
+                ],
+                "properties": {
+                    "locator": {
+                        "type": "string",
+                        "description": "type of the web element, could be ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, and XPath"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_selector",
+            "description": "use selenium to click on an web element based on selector.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "selector",
+                    "map"
+                ],
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "css selector name associated with the target web element"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_xpath",
+            "description": "use selenium to click on an web element based on xpath.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "xpath",
+                    "map"
+                ],
+                "properties": {
+                    "xpath": {
+                        "type": "string",
+                        "description": "xpath associated with the target web element"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_text",
+            "description": "use selenium to click on an web element based on text",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "map"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "text associated with the target web element"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_input_text",
+            "description": "key in text on a web page's input field.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "text to be keyed in"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_scroll_down",
+            "description": "use browser driver like selenium or playwright to scroll down within the browser.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "amount": {
+                        "type": "int",
+                        "description": "amount to scroll down on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_scroll_up",
+            "description": "use browser driver like selenium or playwright to scroll up within the browser.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "amount": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_send_keys",
+            "description": "use browser driver like selenium or playwright to send hot keys to the web page.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "amount": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_scroll_to_text",
+            "description": "use browser driver like selenium or playwright to scroll to the specified text location.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_get_dropdown_options",
+            "description": "use browser driver like selenium or playwright to obtains the list of selection options on the drop down list.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_select_dropdown_option",
+            "description": "use browser driver like selenium or playwright to select an item on the drop down selection list.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_drag_drop",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_extract_content",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_switch_tab",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "tab_title",
+                    "post_wait"
+                ],
+                "properties": {
+                    "tab_title": {
+                        "type": "string",
+                        "description": "title text of the tab to switch to."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_open_tab",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url",
+                    "post_wait"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "the url of the new tab page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_close_tab",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "tab_title",
+                    "post_wait"
+                ],
+                "properties": {
+                    "tab_title": {
+                        "type": "string",
+                        "description": "title text of the tab to close."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_download_file",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "link",
+                    "post_wait"
+                ],
+                "properties": {
+                    "link": {
+                        "type": "string",
+                        "description": "url to be downloaded."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_go_to_url",
+            "description": "use browser driver like selenium or playwright to open a new url site.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url",
+                    "post_wait"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "url of the web site."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after attempting to open the url site"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_run_js",
+            "description": "use browser driver like selenium or playwright to inject js script into the page.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "file",
+                    "post_wait"
+                ],
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "description": "path of the file that contains the js code."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after attempting to open the url site"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "reconnect_wifi",
+            "description": "use shell command to reconnect wifi (assume wifi access point porfiles exist).",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "wifi_name",
+                    "post_wait"
+                ],
+                "properties": {
+                    "wifi_name": {
+                        "type": "string",
+                        "description": "name of the wifi access point."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after attempting to open the url site"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_supervisor_scheduling_work",
+            "description": "As a RPA supervisor, fetches daily work schedule and run team prep and get ready to dispatch the work to the operator agents on the remote hosts to work on.",
+            "inputSchema": {
+                "type": "object",
+                "required": [],
+                "properties": {}
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_operator_dispatch_works",
+            "description": "As a RPA operator, it dispatches the RPA works to be performed by a platoon of bots on this host computer.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "works"
+                ],
+                "properties": {
+                    "works": {
+                        "type": "dict",
+                        "description": "work to be dones"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_supervisor_process_work_results",
+            "description": "As an RPA supervisor, update overall result with received operator work report.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_supervisor_run_daily_housekeeping",
+            "description": "As an RPA supervisor, after all work reports collected, do necessary housekeeping work such as accounting, book keeping etc.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "rpa_operator_report_work_results",
+            "description": "As an RPA operator, report work results to supervisor",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "screen_capture",
+            "description": "Do a screen shot, save to a png file and stores into a cv2 image data structure",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "file_name"
+                ],
+                "properties": {
+                    "file_name": {
+                        "type": "string",
+                        "description": "screen shot file name"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "screen_analyze",
+            "description": "do OCR and icon match on an image and result in structured text in the image",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "image",
+                    "icons",
+                    "options",
+                    "end_point"
+                ],
+                "properties": {
+                    "image": {
+                        "type": "string",
+                        "description": "image file name."
+                    },
+                    "icons": {
+                        "type": "[string]",
+                        "description": "a list of icon file names"
+                    },
+                    "options": {
+                        "type": "dict",
+                        "description": "various run options"
+                    },
+                    "end_point": {
+                        "type": "string",
+                        "description": "a choice of local/lan/wan"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_click",
+            "description": "a mouse click function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "location",
+                    "button",
+                    "type",
+                    "speed",
+                    "post_move",
+                    "post_wait"
+                ],
+                "properties": {
+                    "location": {
+                        "type": "[int]",
+                        "description": "coordinates of [x, y]"
+                    },
+                    "button": {
+                        "type": "string",
+                        "description": "could be left, right, or wheel"
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": "either single or double"
+                    },
+                    "speed": {
+                        "type": "float",
+                        "description": "time delay interval in seconds (could be fractional) between the two clicks"
+                    },
+                    "post_move": {
+                        "type": "[int]",
+                        "description": "mouse move after click action [delta_x, delta_y]"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post click movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_move",
+            "description": "a mouse move/hover function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "location",
+                    "post_wait"
+                ],
+                "properties": {
+                    "location": {
+                        "type": "[int]",
+                        "description": "coordinates of [x, y]"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_drag_drop",
+            "description": "a mouse drag and drop function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "drop_location",
+                    "duration",
+                    "post_wait"
+                ],
+                "properties": {
+                    "location": {
+                        "type": "[int]",
+                        "description": "coordinates of [x, y]"
+                    },
+                    "duration": {
+                        "type": "float",
+                        "description": "time interval in seconds (could be fractional) between pick up and drop off"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "mouse_scroll",
+            "description": "a mouse drag and drop function using pyautogui.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "direction",
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "description": "either up or down"
+                    },
+                    "duration": {
+                        "type": "int",
+                        "description": "amount of mouse wheel scroll units"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "text_input",
+            "description": "keyboard type in text string.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "speed",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "text string to be typed in"
+                    },
+                    "speed": {
+                        "type": "float",
+                        "description": "amount of time interval in seconds(can be fractional number) between key strokes"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "keys_input",
+            "description": "keyboard type combo hot keys.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "keys",
+                    "post_wait"
+                ],
+                "properties": {
+                    "keys": {
+                        "type": "[string]",
+                        "description": "list of keys to be keyed in, for example ['ctrl', 'x']"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "wait",
+            "description": "wait a few seconds.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "time"
+                ],
+                "properties": {
+                    "time": {
+                        "type": "int",
+                        "description": "number of seconds to wait"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "say_hello",
+            "description": "just a test.",
+            "inputSchema": {
+                "type": "object",
+                "required": [],
+                "properties": {}
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_wait_for_element",
+            "description": "use python web tool to wait for web elements.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "locator",
+                    "text",
+                    "timeout"
+                ],
+                "properties": {
+                    "locator": {
+                        "type": "string",
+                        "description": "type of the web element, could be ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, and XPath"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "name of the web element"
+                    },
+                    "timeout": {
+                        "type": "int",
+                        "description": "number of seconds to wait before timeout"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_index",
+            "description": "use selenium to click on a web element based on index in the selector map.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "index",
+                    "map"
+                ],
+                "properties": {
+                    "locator": {
+                        "type": "string",
+                        "description": "type of the web element, could be ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, and XPath"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_selector",
+            "description": "use selenium to click on an web element based on selector.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "selector",
+                    "map"
+                ],
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "css selector name associated with the target web element"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_xpath",
+            "description": "use selenium to click on an web element based on xpath.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "xpath",
+                    "map"
+                ],
+                "properties": {
+                    "xpath": {
+                        "type": "string",
+                        "description": "xpath associated with the target web element"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_click_element_by_text",
+            "description": "use selenium to click on an web element based on text",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "map"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "text associated with the target web element"
+                    },
+                    "map": {
+                        "type": "dict",
+                        "description": "selector map from web page extraction."
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_input_text",
+            "description": "key in text on a web page's input field.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "text to be keyed in"
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post movement"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_scroll_down",
+            "description": "use browser driver like selenium or playwright to scroll down within the browser.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "amount": {
+                        "type": "int",
+                        "description": "amount to scroll down on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_scroll_up",
+            "description": "use browser driver like selenium or playwright to scroll up within the browser.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "amount": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_send_keys",
+            "description": "use browser driver like selenium or playwright to send hot keys to the web page.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "amount",
+                    "post_wait"
+                ],
+                "properties": {
+                    "amount": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_scroll_to_text",
+            "description": "use browser driver like selenium or playwright to scroll to the specified text location.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_get_dropdown_options",
+            "description": "use browser driver like selenium or playwright to obtains the list of selection options on the drop down list.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_select_dropdown_option",
+            "description": "use browser driver like selenium or playwright to select an item on the drop down selection list.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_drag_drop",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_extract_content",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "text",
+                    "post_wait"
+                ],
+                "properties": {
+                    "text": {
+                        "type": "int",
+                        "description": "amount to scroll up on the web page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_switch_tab",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "tab_title",
+                    "post_wait"
+                ],
+                "properties": {
+                    "tab_title": {
+                        "type": "string",
+                        "description": "title text of the tab to switch to."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_open_tab",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url",
+                    "post_wait"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "the url of the new tab page."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_close_tab",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "tab_title",
+                    "post_wait"
+                ],
+                "properties": {
+                    "tab_title": {
+                        "type": "string",
+                        "description": "title text of the tab to close."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_download_file",
+            "description": "use browser driver like selenium or playwright to drag and drop an item.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "link",
+                    "post_wait"
+                ],
+                "properties": {
+                    "link": {
+                        "type": "string",
+                        "description": "url to be downloaded."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after post scroll"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_go_to_url",
+            "description": "use browser driver like selenium or playwright to open a new url site.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "url",
+                    "post_wait"
+                ],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "url of the web site."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after attempting to open the url site"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "in_browser_run_js",
+            "description": "use browser driver like selenium or playwright to inject js script into the page.",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "file",
+                    "post_wait"
+                ],
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "description": "path of the file that contains the js code."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after attempting to open the url site"
+                    }
+                }
+            },
+            "annotations": null
+        },
+        {
+            "name": "reconnect_wifi",
+            "description": "use shell command to reconnect wifi (assume wifi access point porfiles exist).",
+            "inputSchema": {
+                "type": "object",
+                "required": [
+                    "wifi_name",
+                    "post_wait"
+                ],
+                "properties": {
+                    "wifi_name": {
+                        "type": "string",
+                        "description": "name of the wifi access point."
+                    },
+                    "post_wait": {
+                        "type": "int",
+                        "description": "wait number of seconds after attempting to open the url site"
+                    }
+                }
+            },
+            "annotations": null
+        }
+    ],
+    "tasks": [
+        {
+            "id": "14b39d25-c433-47de-81ae-1a3b27c87000",
+            "sessionId": "",
+            "skill": "chatter for my digital twin",
+            "metadata": {
+                "state": {
+                    "top": "ready"
+                }
+            },
+            "state": {
+                "top": "ready"
+            },
+            "resume_from": "",
+            "trigger": "interaction",
+            "schedule": {
+                "repeat_type": "none",
+                "repeat_number": 1,
+                "repeat_unit": "day",
+                "start_date_time": "2025-03-31 23:59:59:000",
+                "end_date_time": "2035-12-31 23:59:59:000",
+                "time_out": 120
+            },
+            "checkpoint_nodes": [],
+            "priority": "low",
+            "last_run_datetime": null,
+            "already_run_flag": false
+        },
+        {
+            "id": "018a3946-ecdd-4965-9e5a-4ceaa21ac370",
+            "sessionId": "",
+            "skill": "ecbot rpa helper",
+            "metadata": {
+                "state": {
+                    "top": "ready"
+                }
+            },
+            "state": {
+                "top": "ready"
+            },
+            "resume_from": "",
+            "trigger": "schedule",
+            "schedule": {
+                "repeat_type": "none",
+                "repeat_number": 1,
+                "repeat_unit": "day",
+                "start_date_time": "2025-03-31 23:59:59:000",
+                "end_date_time": "2035-12-31 23:59:59:000",
+                "time_out": 120
+            },
+            "checkpoint_nodes": [],
+            "priority": "low",
+            "last_run_datetime": null,
+            "already_run_flag": false
+        },
+        {
+            "id": "03e8d467-4764-448f-aa68-052a39213d76",
+            "sessionId": "",
+            "skill": "chatter for ecbot rpa helper",
+            "metadata": {
+                "state": {
+                    "top": "ready"
+                }
+            },
+            "state": {
+                "top": "ready"
+            },
+            "resume_from": "",
+            "trigger": "message",
+            "schedule": {
+                "repeat_type": "none",
+                "repeat_number": 1,
+                "repeat_unit": "day",
+                "start_date_time": "2025-03-31 23:59:59:000",
+                "end_date_time": "2035-12-31 23:59:59:000",
+                "time_out": 120
+            },
+            "checkpoint_nodes": [],
+            "priority": "low",
+            "last_run_datetime": null,
+            "already_run_flag": false
+        },
+        {
+            "id": "aefbd245-dbf2-466f-b62e-814c01b86878",
+            "sessionId": "",
+            "skill": "chatter for meca search 1688 web site",
+            "metadata": {
+                "state": {
+                    "top": "ready"
+                }
+            },
+            "state": {
+                "top": "ready"
+            },
+            "resume_from": "",
+            "trigger": "interaction",
+            "schedule": {
+                "repeat_type": "by days",
+                "repeat_number": 1,
+                "repeat_unit": "day",
+                "start_date_time": "2025-03-31 01:00:00:000",
+                "end_date_time": "2035-12-31 01:30:00:000",
+                "time_out": 1800
+            },
+            "checkpoint_nodes": [],
+            "priority": "low",
+            "last_run_datetime": null,
+            "already_run_flag": false
+        }
+    ],
+    "vehicles": [
+        {
+            "vid": 1,
+            "ip": "127.0.0.1",
+            "name": "LiudeMacBook-Pro16.local:mac",
+            "os": "mac",
+            "arch": "",
+            "bot_ids": [],
+            "status": "running_idle",
+            "functions": "",
+            "test_disabled": false,
+            "last_update_time": "2025-06-21 14:30:38.526"
+        }
+    ],
+    "settings": {
+        "api_api_port": "",
+        "debug_mode": true,
+        "default_wifi": "OrbiSongChenHome",
+        "default_printer": "EPSON481B68 (ET-3750 Series)",
+        "display_resolution": "",
+        "default_webdriver": "",
+        "img_engine": "lan",
+        "localUserDB_host": "127.0.0.1",
+        "localUserDB_port": "5080",
+        "localAgentDB_host": "192.168.0.4",
+        "localAgentDB_port": "4668",
+        "localAgent_ports": [
+            3600,
+            3800
+        ],
+        "local_server_port": "4668",
+        "lan_api_endpoint": "",
+        "lan_api_host": "",
+        "last_bots_file": "",
+        "last_bots_file_time": "",
+        "mids_forced_to_run": [],
+        "new_orders_dir": "c:/ding_dan/",
+        "new_bots_file_path": "c:/ding_dan/",
+        "wan_api_endpoint": "",
+        "ws_api_endpoint": "",
+        "schedule_engine": "wan",
+        "schedule_mode": "test"
+    },
+    "knowledges": {},
+    "chats": {},
+    "message": "Get all successful"
+}

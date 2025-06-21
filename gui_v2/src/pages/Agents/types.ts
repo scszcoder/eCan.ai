@@ -1,14 +1,39 @@
-export interface Agent {
-    id: number;
+export interface AgentCard {
     name: string;
-    role: string;
-    status: 'active' | 'busy' | 'offline';
-    skills: string[];
-    tasksCompleted: number;
-    efficiency: number;
-    lastActive: string;
-    avatar?: string;
-    currentTask?: string;
+    id: string;
+    description: string;
+    url: string;
+    provider: string | null;
+    version: string;
+    documentationUrl: string | null;
+    capabilities: {
+        streaming: boolean;
+        pushNotifications: boolean;
+        stateTransitionHistory: boolean;
+    };
+    authentication: any | null;
+    defaultInputModes: string[];
+    defaultOutputModes: string[];
+}
+
+export interface Agent {
+    card: AgentCard;
+    supervisors: string[];
+    subordinates: string[];
+    peers: string[];
+    rank: string;
+    organizations: string[];
+    job_description: string;
+    personalities: string[];
+    // The following fields from the old structure are deprecated
+    // and will be removed from the UI.
+    // status?: 'active' | 'busy' | 'offline';
+    // skills?: string[];
+    // tasksCompleted?: number;
+    // efficiency?: number;
+    // lastActive?: string;
+    // avatar?: string;
+    // currentTask?: string;
 }
 
 // 创建事件总线

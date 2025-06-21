@@ -150,7 +150,7 @@ const Apps: React.FC = () => {
         };
     };
 
-    const translatedApps = apps.map(translateApp);
+    const translatedApps = (apps || []).map(translateApp);
 
     const handleUpdate = (id: number) => {
         updateItem(id, { status: 'updating' });
