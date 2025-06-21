@@ -1,30 +1,62 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import DetailLayout from '../../components/Layout/DetailLayout';
-import { useChatStore } from './hooks/useChatStore';
+import { useSystemStore } from '../../stores/systemStore';
 import ChatList from './components/ChatList';
 import ChatDetail from './components/ChatDetail';
 import { useUserStore } from '../../stores/userStore';
+import { Chat, Message } from './types/chat';
+import { logger } from '@/utils/logger';
+import { get_ipc_api } from '@/services/ipc_api';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
     const [searchParams] = useSearchParams();
     const agentId = searchParams.get('agentId');
-    
+    const [activeChatId, setActiveChatId] = useState<number | null>(null);
+    const username = useUserStore((state) => state.username)
+
     const {
         chats,
-        activeChatId,
-        setActiveChat,
-        addChat,
-        sendMessage,
-        initialize
-    } = useChatStore();
+        setChats,
+        setLoading,
+        setError,
+    } = useSystemStore();
 
     // 初始化聊天
     useEffect(() => {
-        initialize();
-    }, [initialize]);
+        const fetchChats = async () => {
+            if (!username) {
+                logger.warn('[ChatPage] Username not found, skipping fetchChats.');
+                return;
+            }
+            
+            logger.info(`[ChatPage] Username exists, fetching chats for "${username}".`);
+            setLoading(true);
+            try {
+                const response = await get_ipc_api().getChats<Chat[]>(username, []);
+                if (response.success && response.data) {
+                    console.log('[ChatPage] Fetched chats:', response.data);
+                    const chatsData = response.data.chats as Chat[];
+                    setChats(chatsData);
+                    if (chatsData.length > 0 && !activeChatId) {
+                        setActiveChatId(chatsData[0].id);
+                    }
+                } else {
+                    setError(response.error?.message || 'Failed to fetch chats');
+                    logger.error('[ChatPage] Error fetching chats:', response.error);
+                }
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                setError(errorMessage);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchChats();
+    }, [username, setChats, setLoading, setError, activeChatId]);
 
     // 处理 agentId 参数
     useEffect(() => {
@@ -32,7 +64,7 @@ const ChatPage: React.FC = () => {
             const existingChat = chats.find(chat => chat.agentId === agentId);
             if (!existingChat) {
                 const newChatId = Date.now();
-                addChat({
+                const newChat: Chat = {
                     id: newChatId,
                     name: `Agent ${agentId}`,
                     type: 'bot',
@@ -42,43 +74,111 @@ const ChatPage: React.FC = () => {
                     lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     unreadCount: 0,
                     messages: []
-                });
-                setActiveChat(newChatId);
+                };
+                setChats([...chats, newChat]);
+                setActiveChatId(newChatId);
             } else {
                 if (activeChatId !== existingChat.id) {
-                    setActiveChat(existingChat.id);
+                    setActiveChatId(existingChat.id);
                 }
             }
         }
-    }, [agentId, chats, addChat, setActiveChat, t, activeChatId]);
+    }, [agentId, chats, setChats, t, activeChatId]);
 
     const handleFilterChange = (filters: Record<string, any>) => {
         // 处理过滤器变化
-        console.log('Filter changed:', filters);
+        logger.debug('Filter changed:', filters);
     };
 
     const handleChatSelect = (chatId: number) => {
-        setActiveChat(chatId);
+        const newChats = chats.map(chat =>
+            chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
+        );
+        setChats(newChats);
+        setActiveChatId(chatId);
     };
 
     const handleChatDelete = (chatId: number) => {
         // 处理聊天删除
-        console.log('Delete chat:', chatId);
+        logger.debug('Delete chat:', chatId);
     };
 
     const handleChatPin = (chatId: number) => {
         // 处理聊天置顶
-        console.log('Pin chat:', chatId);
+        logger.debug('Pin chat:', chatId);
     };
 
     const handleChatMute = (chatId: number) => {
         // 处理聊天静音
-        console.log('Mute chat:', chatId);
+        logger.debug('Mute chat:', chatId);
     };
 
-    const handleMessageSend = (content: string, attachments: any[]) => {
+    const handleMessageSend = async (content: string, attachments: any[]) => {
         if (!activeChatId) return;
-        sendMessage(activeChatId, content, attachments);
+
+        const chat = chats.find(c => c.id === activeChatId);
+        if (!chat) return;
+        
+        const tempId = Date.now();
+        let receiver = '';
+        if (chat.type === 'user') {
+            receiver = chat.name;
+        } else if (chat.type === 'bot') {
+            receiver = chat.agentId || '';
+        }
+
+        const newMessage: Message = {
+            id: tempId,
+            chatId: activeChatId,
+            content,
+            attachments,
+            sender_id: 'user', // This should be the current user's ID
+            sender_name: 'You', // This should be the current user's name
+            recipient_id: receiver,
+            recipient_name: chat.name,
+            txTimestamp: new Date().toISOString(),
+            status: 'sending',
+            rxTimestamp: '',
+            readTimestamp: '',
+        };
+
+        const updatedChats = chats.map(c => {
+            if (c.id !== activeChatId) return c;
+            return {
+                ...c,
+                messages: [...(c.messages || []), newMessage],
+                lastMessage: content,
+                lastMessageTime: new Date().toISOString(),
+            };
+        });
+        setChats(updatedChats);
+
+        try {
+            const response = await get_ipc_api().sendChat(newMessage);
+            const finalStatus: Message['status'] = response?.success ? 'sent' : 'failed';
+            
+            // We need to get the latest chats state, because another message could have arrived.
+            // However, for this simple case, we'll base the update on `updatedChats`.
+            const finalChats = updatedChats.map((c: Chat) => {
+                if (c.id !== activeChatId) return c;
+                return {
+                    ...c,
+                    messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: finalStatus } : m) as Message[],
+                };
+            });
+            setChats(finalChats);
+
+        } catch (error) {
+            logger.error('Failed to send message:', error);
+            const finalChats = updatedChats.map((c: Chat) => {
+                if (c.id !== activeChatId) return c;
+                return {
+                    ...c,
+                    messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: 'failed' } : m) as Message[],
+                };
+            });
+            setChats(finalChats);
+        }
     };
 
     const renderListContent = () => (
@@ -94,7 +194,7 @@ const ChatPage: React.FC = () => {
     );
 
     const renderDetailsContent = () => (
-        <ChatDetail chatId={activeChatId} />
+        <ChatDetail chatId={activeChatId} onSend={handleMessageSend} />
     );
 
     return (

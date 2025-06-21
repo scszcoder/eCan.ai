@@ -1,4 +1,3 @@
-// 工具相关的类型定义
 export interface Tool {
   name: string;
   description: string;
@@ -8,4 +7,5 @@ export interface Tool {
     properties: Record<string, any>;
   };
   annotations: any;
+  // 更多属性...
 } 

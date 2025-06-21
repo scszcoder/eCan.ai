@@ -3,6 +3,9 @@ import { APIResponse } from '../ipc';
 import { get_ipc_api } from '../ipc_api';
 import { useSystemStore } from '../../stores/systemStore';
 import { useUserStore } from '@/stores/userStore';
+import { SystemDataHandler } from '../SystemDataHandler';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { AppStoreHandler } from '../../stores/AppStoreHandler';
 
 // 页面刷新后的操作类型
 export type PageRefreshAction = () => void | Promise<void>;
@@ -91,13 +94,7 @@ export class PageRefreshManager {
 					// 将API返回的数据保存到store中
 					if (systemData?.data) {
                         logger.info('Get all system data successful');
-                        console.log('systemData', systemData.data);
-						const { setAgents, setTasks } = useSystemStore.getState();
-                        const data = systemData.data as any;
-
-                        if (data.agents) setAgents(data.agents);
-                        if (data.tasks) setTasks(data.tasks);
-                        
+                        AppStoreHandler.updateStore(systemData.data as any);
 						logger.info('system data 数据已保存到store中');
 					} else {
                         logger.error('Get all system data failed');

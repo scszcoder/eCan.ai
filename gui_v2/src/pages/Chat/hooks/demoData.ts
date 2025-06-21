@@ -1,7 +1,7 @@
 import { Chat } from '../types/chat';
 
 // 是否启用 demo 数据
-export const enableDemoData = true;
+export const enableDemoData = false;
 
 const now = new Date();
 const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);

@@ -9,8 +9,9 @@ import { AgentList } from './components/AgentList';
 import { AgentDetail } from './components/AgentDetail';
 import { useSystemStore } from '../../stores/systemStore';
 import { useUserStore } from '../../stores/userStore';
-import { IPCAPI } from '../../services/ipc/api';
 import { Agent } from './types';
+import { logger } from '@/utils/logger';
+import { get_ipc_api } from '@/services/ipc_api';
 
 const Agents: React.FC = () => {
     const { t } = useTranslation();
@@ -35,7 +36,8 @@ const Agents: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await IPCAPI.getInstance().getAgents(username, []);
+            const response = await get_ipc_api().getAgents(username, []);
+            console.debug('[Agents] Fetched agents:', response.data);
             if (response.success && response.data) {
                 setAgents(response.data.agents as Agent[]);
                 messageApi.success(t('common.refreshSuccess'));
@@ -46,6 +48,7 @@ const Agents: React.FC = () => {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
             setError(errorMessage);
             messageApi.error(`${t('common.refreshFailed')}: ${errorMessage}`);
+            logger.error('[Agents] Error fetching agents:', errorMessage);
         } finally {
             setLoading(false);
         }

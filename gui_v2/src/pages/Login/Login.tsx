@@ -6,12 +6,13 @@ import { useTranslation } from 'react-i18next';
 import { APIResponse, createIPCAPI } from '../../services/ipc';
 import { set_ipc_api, get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
-import { useUserStore } from '../../stores/userStore';
+import { useUserStore } from '@/stores/userStore';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logo.png';
 import './Login.css';
 import { useSystemStore } from '@/stores/systemStore';
 import { SystemData } from '@/types';
+import { AppStoreHandler } from '@/stores/AppStoreHandler';
 
 const { Title, Text } = Typography;
 
@@ -21,8 +22,6 @@ interface LoginFormValues {
 	confirmPassword?: string;
 	role: string;
 }
-
-
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
@@ -116,8 +115,7 @@ const Login: React.FC = () => {
 			// 将API返回的数据保存到store中
 			if (systemData?.data) {
 				logger.info('Get all system data successful');
-				const systemStore = useSystemStore.getState();
-				systemStore.setData(systemData.data as SystemData);
+				AppStoreHandler.updateStore(systemData.data as SystemData);
 				logger.info('system data 数据已保存到store中');
 			} else {
 				logger.error('Get all system data failed');
