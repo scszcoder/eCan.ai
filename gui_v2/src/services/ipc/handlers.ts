@@ -55,6 +55,7 @@ export class IPCHandlers {
         this.registerHandler('update_chats', this.updateChats);
         this.registerHandler('update_tools', this.updateTools);
         this.registerHandler('update_vehicles', this.updateVehicles);
+        this.registerHandler('update_all', this.updateAll);
     }
 
     private registerHandler(method: string, handler: Handler): void {
