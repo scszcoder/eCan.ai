@@ -552,7 +552,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        params: 请求参数，必须包含 'username' 和 'chat_ids' 字段
 
     Returns:
         str: JSON 格式的响应消息
@@ -561,7 +561,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         logger.debug(f"get chats handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username'])
+        is_valid, data, error = validate_params(params, ['username', 'chat_ids'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get chats: {error}")
             return json.dumps(create_error_response(
@@ -572,6 +572,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
         # 获取用户名和密码
         username = data['username']
+        chat_ids = data['chat_ids']
 
         # 简单的密码验证
         # 生成随机令牌
@@ -582,8 +583,23 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         json_path = os.path.join(script_dir, 'chats_demo.json')
 
         with open(json_path, 'r', encoding='utf-8') as f:
-            chats = json.load(f)
-        
+            all_chats = json.load(f)
+
+        if not chat_ids:
+            chats = all_chats
+        else:
+            # chat_ids from frontend might be integer, but in json they are integers.
+            # So convert them to int for comparison.
+            chat_ids_int = [int(cid) for cid in chat_ids]
+            
+            chats = [chat for chat in all_chats if chat['id'] in chat_ids_int]
+            
+            found_ids = [chat['id'] for chat in chats]
+            not_found_ids = [cid for cid in chat_ids_int if cid not in found_ids]
+
+            if not_found_ids:
+                logger.warning(f"Could not find chats with the following IDs: {not_found_ids}")
+
         resultJS = {
             'token': token,
             'chats': chats,

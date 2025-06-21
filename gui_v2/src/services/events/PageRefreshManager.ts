@@ -86,13 +86,13 @@ export class PageRefreshManager {
 			
                     useUserStore.getState().setUsername(username);
                     // 获取系统数据
-					const systemData = await get_ipc_api().getAll(username);
+					const appData = await get_ipc_api().getAll(username);
 					
 					// 将API返回的数据保存到store中
-					if (systemData?.data) {
+					if (appData?.data) {
                         logger.info('PageRefreshManager: Get all system data successful');
                         // 更新 store
-                        AppDataStoreHandler.updateStore(systemData.data as any);
+                        AppDataStoreHandler.updateStore(appData.data as any);
                         logger.info('PageRefreshManager: System data restored in store.');
 					} else {
                         logger.error('PageRefreshManager: Get all system data failed');

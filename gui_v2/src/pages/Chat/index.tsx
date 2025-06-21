@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import DetailLayout from '../../components/Layout/DetailLayout';
@@ -24,39 +24,50 @@ const ChatPage: React.FC = () => {
         setError,
     } = useAppDataStore();
 
+    const fetchChats = useCallback(async (chat_ids: number[] = []) => {
+        if (!username) {
+            logger.warn('[ChatPage] Username not found, skipping fetchChats.');
+            return;
+        }
+        
+        logger.info(`[ChatPage] Username exists, fetching chats for "${username}" with chat_ids:`, chat_ids);
+        setLoading(true);
+        try {
+            const response = await get_ipc_api().getChats<{chats: Chat[]}>(username, chat_ids.map(String));
+            if (response.success && response.data) {
+                console.log('[ChatPage] Fetched chats:', response.data.chats);
+                const fetchedChats = response.data.chats as Chat[];
+                if (chat_ids.length > 0) {
+                    // Merge new chat data with existing chats
+                    const updatedChats = chats.map(chat => {
+                        const newChat = fetchedChats.find(c => c.id === chat.id);
+                        return newChat ? { ...chat, ...newChat } : chat;
+                    });
+                    setChats(updatedChats);
+                } else {
+                    // Initial fetch, replace all chats
+                    setChats(fetchedChats);
+                    if (fetchedChats.length > 0 && !activeChatId) {
+                        setActiveChatId(fetchedChats[0].id);
+                    }
+                }
+            } else {
+                setError(response.error?.message || 'Failed to fetch chats');
+                logger.error('[ChatPage] Error fetching chats:', response.error);
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            setError(errorMessage);
+        } finally {
+            setLoading(false);
+        }
+    }, [username, setLoading, setError, chats, activeChatId, setChats]);
+
     // 初始化聊天
     useEffect(() => {
-        const fetchChats = async () => {
-            if (!username) {
-                logger.warn('[ChatPage] Username not found, skipping fetchChats.');
-                return;
-            }
-            
-            logger.info(`[ChatPage] Username exists, fetching chats for "${username}".`);
-            setLoading(true);
-            try {
-                const response = await get_ipc_api().getChats<Chat[]>(username, []);
-                if (response.success && response.data) {
-                    console.log('[ChatPage] Fetched chats:', response.data);
-                    const chatsData = response.data.chats as Chat[];
-                    setChats(chatsData);
-                    if (chatsData.length > 0 && !activeChatId) {
-                        setActiveChatId(chatsData[0].id);
-                    }
-                } else {
-                    setError(response.error?.message || 'Failed to fetch chats');
-                    logger.error('[ChatPage] Error fetching chats:', response.error);
-                }
-            } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                setError(errorMessage);
-            } finally {
-                setLoading(false);
-            }
-        };
-
+        console.log('[ChatPage] username:', username);
         fetchChats();
-    }, [username, setChats, setLoading, setError, activeChatId]);
+    }, [username]);
 
     // 处理 agentId 参数
     useEffect(() => {
@@ -96,6 +107,7 @@ const ChatPage: React.FC = () => {
         );
         setChats(newChats);
         setActiveChatId(chatId);
+        fetchChats([chatId]);
     };
 
     const handleChatDelete = (chatId: number) => {
