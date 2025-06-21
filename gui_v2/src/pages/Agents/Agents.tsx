@@ -16,9 +16,13 @@ const Agents: React.FC = () => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const { message: messageApi } = App.useApp();
-    const { selectedAgent, selectAgent, isSelected } = useAgents();
+    const { selectedAgent, selectItem, isSelected } = useAgents();
     
-    const { agents, isLoading, setLoading, setAgents, setError } = useSystemStore();
+    const agents = useSystemStore((state) => state.agents);
+    const isLoading = useSystemStore((state) => state.isLoading);
+    const setLoading = useSystemStore((state) => state.setLoading);
+    const setAgents = useSystemStore((state) => state.setAgents);
+    const setError = useSystemStore((state) => state.setError);
     const username = useUserStore((state) => state.username);
 
     const handleAddAgent = () => {
@@ -63,7 +67,7 @@ const Agents: React.FC = () => {
                     <Spin spinning={isLoading}>
                         <AgentList
                             agents={Array.isArray(agents) ? agents : []}
-                            onSelectAgent={selectAgent}
+                            onSelectAgent={selectItem}
                             isSelected={isSelected}
                         />
                     </Spin>
