@@ -119,7 +119,7 @@ class EC_Agent(Generic[Context]):
 		peers: Optional[List[str]] = None,
 		rank: Optional[str] = None,
 		organizations: Optional[List[str]] = None,
-		job_description: Optional[List[str]] = None,
+		title: Optional[str] = None,
 		personalities: Optional[List[str]] = None,
 		# runner: Runner[Context] = Runner(),
 		# Initial agent run parameters
@@ -194,7 +194,7 @@ class EC_Agent(Generic[Context]):
 		self.peers = peers if peers is not None else []
 		self.rank = rank if rank is not None else ""
 		self.organizations = organizations if organizations is not None else []
-		self.job_description = job_description if job_description is not None else ""
+		self.title = title if title is not None else ""
 		self.personalities = personalities if personalities is not None else []
 		self.embeddings = init_embeddings("openai:text-embedding-3-small")
 		self.store = InMemoryStore(
@@ -371,7 +371,7 @@ class EC_Agent(Generic[Context]):
 			"peers": self.peers,
 			"rank": self.rank,
 			"organizations": self.organizations,
-			"job_description": self.job_description,
+			"title": self.title,
 			"personalities": self.personalities
 		}
 		return agentJS
