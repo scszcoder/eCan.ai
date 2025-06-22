@@ -149,25 +149,6 @@ export class IPCAPI {
         return this.executeRequest<T>('stop_tests', { test_ids });
     }
 
-    /**
-     * 获取配置
-     * @param key - 配置键名
-     * @returns Promise 对象，解析为配置值
-     */
-    public async getConfig<T>(key: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_config', { key });
-    }
-
-    /**
-     * 设置配置
-     * @param key - 配置键名
-     * @param value - 配置值
-     * @returns Promise 对象，解析为操作结果
-     */
-    public async setConfig<T>(key: string, value: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('set_config', { key, value });
-    }
-
     public async saveAgents<T>(username: string, agents: T[]): Promise<APIResponse<void>> {
         return this.executeRequest<void>('save_agents', {username, agents});
     }

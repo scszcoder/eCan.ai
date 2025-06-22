@@ -1,9 +1,7 @@
 from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QMessageBox)
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
-from PySide6.QtCore import QTimer
 import sys
 import os
-import random
 from datetime import datetime
 from gui.LoginoutGUI import Login
 from gui.ipc.api import IPCAPI
@@ -13,11 +11,9 @@ if sys.platform == 'darwin':
     os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
 
 from config.app_settings import app_settings
-from config.app_info import app_info
 from utils.logger_helper import logger_helper
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
-import uuid
 from agent.chats.chat_service import ChatService
 
 class WebGUI(QMainWindow):
@@ -60,11 +56,6 @@ class WebGUI(QMainWindow):
         self._setup_shortcuts()
 
         self.chat_service = None
-        
-        # # 创建定时器 Demo 测试使用的
-        # self.dashboard_timer = QTimer(self)
-        # self.dashboard_timer.timeout.connect(self.update_dashboard_data)
-        # self.dashboard_timer.start(5000)  # 每5秒触发一次
 
     def set_py_login(self, login):
         self.py_login = login
@@ -130,29 +121,6 @@ class WebGUI(QMainWindow):
             self.web_engine_view.reload_page()
         else:
             self.load_local_html()
-    
-    def update_dashboard_data(self):
-        """更新仪表盘数据"""
-        try:
-            # 生成随机数据
-            data = {
-                'overview': random.randint(10, 100),
-                'statistics': random.randint(5, 50),
-                'recentActivities': random.randint(20, 200),
-                'quickActions': random.randint(1, 30)
-            }
-            
-            # 调用 refresh_dashboard API
-            def handle_response(response):
-                if response.success:
-                    logger_helper.info(f"Dashboard data updated successfully: {response.data}")
-                else:
-                    logger_helper.error(f"Failed to update dashboard data: {response.error}")
-            
-            IPCAPI.get_instance().refresh_dashboard(data, handle_response)
-            
-        except Exception as e:
-            logger_helper.error(f"Error updating dashboard data: {e}")
     
     def closeEvent(self, event):
         """窗口关闭事件"""
