@@ -62,7 +62,8 @@ export class IPCAPI {
         try {
             logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
             const response = await this.client.sendRequest(method, params) as IPCResponse;
-            if (response.status === 'ok') {
+
+            if (response.status === 'success') {
                 return {
                     success: true,
                     data: response.result as T

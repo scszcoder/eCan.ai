@@ -9,6 +9,7 @@ import { useUserStore } from '../../stores/userStore';
 import { Chat, Message } from './types/chat';
 import { logger } from '@/utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
+import { APIResponse } from '@/services/ipc';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -58,6 +59,7 @@ const ChatPage: React.FC = () => {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             setError(errorMessage);
+            console.error('[ChatPage] fetchChats error stack:', error instanceof Error ? error.stack : 'No stack trace available');
         } finally {
             setLoading(false);
         }
@@ -141,7 +143,7 @@ const ChatPage: React.FC = () => {
 
         const newMessage: Message = {
             id: tempId,
-            chatId: activeChatId,
+            chat_id: activeChatId,
             content,
             attachments,
             sender_id: 'user', // This should be the current user's ID
@@ -166,27 +168,43 @@ const ChatPage: React.FC = () => {
         setChats(updatedChats);
 
         try {
-            const response = await get_ipc_api().sendChat(newMessage);
-            const finalStatus: Message['status'] = response?.success ? 'sent' : 'failed';
+            const response: APIResponse<void> = await get_ipc_api().sendChat(newMessage);
+            if (response.success && response.data) {
+                console.log('[ChatPage] Message sent successfully', response.data);
+                const finalStatus: Message['status'] = 'sent';
+                // We need to get the latest chats state, because another message could have arrived.
+                // However, for this simple case, we'll base the update on `updatedChats`.
+                const finalChats = updatedChats.map((c: Chat) => {
+                    if (c.id !== activeChatId) return c;
+                    return {
+                        ...c,
+                        messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: finalStatus } : m) as Message[],
+                    };
+                });
+                setChats(finalChats);
+            } else {
+                console.error('[ChatPage] Failed to send message:', response.error);
+                const finalStatus: Message['status'] = 'failed';
+                const finalChats = updatedChats.map((c: Chat) => {
+                    if (c.id !== activeChatId) return c;
+                    return {
+                        ...c,
+                        messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: finalStatus } : m) as Message[],
+                    };
+                });
+                setChats(finalChats);
+            }
             
-            // We need to get the latest chats state, because another message could have arrived.
-            // However, for this simple case, we'll base the update on `updatedChats`.
+
+        } catch (error) {
+            logger.error('Failed to send message:', error);
+            console.error('[ChatPage] Error stack:', error instanceof Error ? error.stack : 'No stack trace available');
+            const finalStatus: Message['status'] = 'failed';
             const finalChats = updatedChats.map((c: Chat) => {
                 if (c.id !== activeChatId) return c;
                 return {
                     ...c,
                     messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: finalStatus } : m) as Message[],
-                };
-            });
-            setChats(finalChats);
-
-        } catch (error) {
-            logger.error('Failed to send message:', error);
-            const finalChats = updatedChats.map((c: Chat) => {
-                if (c.id !== activeChatId) return c;
-                return {
-                    ...c,
-                    messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: 'failed' } : m) as Message[],
                 };
             });
             setChats(finalChats);
