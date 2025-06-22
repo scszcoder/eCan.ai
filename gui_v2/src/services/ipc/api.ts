@@ -62,7 +62,8 @@ export class IPCAPI {
         try {
             logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
             const response = await this.client.sendRequest(method, params) as IPCResponse;
-            if (response.status === 'ok') {
+
+            if (response.status === 'success') {
                 return {
                     success: true,
                     data: response.result as T
@@ -146,25 +147,6 @@ export class IPCAPI {
 
     public async stopTest<T>(test_ids: string[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('stop_tests', { test_ids });
-    }
-
-    /**
-     * 获取配置
-     * @param key - 配置键名
-     * @returns Promise 对象，解析为配置值
-     */
-    public async getConfig<T>(key: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_config', { key });
-    }
-
-    /**
-     * 设置配置
-     * @param key - 配置键名
-     * @param value - 配置值
-     * @returns Promise 对象，解析为操作结果
-     */
-    public async setConfig<T>(key: string, value: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('set_config', { key, value });
     }
 
     public async saveAgents<T>(username: string, agents: T[]): Promise<APIResponse<void>> {

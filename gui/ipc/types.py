@@ -25,8 +25,8 @@ class IPCRequest(TypedDict):
 class IPCResponse(TypedDict):
     id: str              # 与请求相同的 ID
     method: Optional[str]  # 回显请求的 method
-    status: Literal['ok', 'error']  # 调用结果状态
-    result: Optional[Any]  # 正常返回的数据（status=ok 时必填）
+    status: Literal['success', 'pending', 'error']  # 调用结果状态
+    result: Optional[Any]  # 正常返回的数据（status=success 时必填）
     error: Optional[IPCError]  # 错误信息（status=error 时必填）
     meta: Optional[Dict[str, Any]]  # 扩展元信息
     timestamp: Optional[int]  # 发送时间戳 ms
@@ -64,8 +64,9 @@ def create_success_response(request: IPCRequest, result: Any, meta: Optional[Dic
     """
     return {
         'id': request['id'],
+        'type': 'response',
         'method': request['method'],
-        'status': 'ok',
+        'status': 'success',
         'result': result,
         'meta': meta,
         'timestamp': int(datetime.now().timestamp() * 1000)
@@ -86,10 +87,35 @@ def create_error_response(request: IPCRequest, code: Union[int, str], message: s
     """
     return {
         'id': request['id'],
+        'type': 'response',
         'method': request['method'],
         'status': 'error',
         'error': {
             'code': code,
+            'message': message,
+            'details': details
+        },
+        'meta': meta,
+        'timestamp': int(datetime.now().timestamp() * 1000)
+    }
+
+def create_pending_response(request: IPCRequest, message: str, details: Any = None, meta: Optional[Dict[str, Any]] = None) -> IPCResponse:
+    """创建 pending 响应
+    
+    Args:
+        request: 原始请求
+        message: 描述信息
+        details: 额外信息
+        meta: 扩展元信息
+    Returns:
+        IPCResponse: 响应对象
+    """
+    return {
+        'id': request['id'],
+        'type': 'response',
+        'method': request['method'],
+        'status': 'pending',
+        'result': {
             'message': message,
             'details': details
         },

@@ -3,14 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Row, Col, Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { APIResponse, createIPCAPI } from '../../services/ipc';
-import { set_ipc_api, get_ipc_api } from '../../services/ipc_api';
+import { APIResponse, IPCAPI } from '../../services/ipc';
+import { get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
 import { useUserStore } from '@/stores/userStore';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logo.png';
 import './Login.css';
-import { useAppDataStore } from '@/stores/appDataStore';
 import { AppDataStoreHandler } from '@/stores/AppDataStoreHandler';
 
 const { Title, Text } = Typography;
@@ -44,6 +43,7 @@ const Login: React.FC = () => {
 				if (!api) return;
 
 				const response: APIResponse<any> = await api.getLastLoginInfo();
+				console.log('[Login] Last login info', response.data);
 				if (response?.data?.last_login) {
 					const { username, password, machine_role } = response.data.last_login;
 					console.log('last_login', response.data.last_login);
@@ -92,29 +92,31 @@ const Login: React.FC = () => {
 		form.resetFields();
 	}, [form]);
 
-	const handleLogin = async (values: LoginFormValues, api: any) => {
-		const response = await api.login(values.username, values.password, values.role);
+	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
+		const response: APIResponse<any> = await api.login(values.username, values.password, values.role);
 		if (response.success && response.data) {
+			console.log('[Login] Login successful', response.data);
 			const { token, message: successMessage } = response.data;
 			localStorage.setItem('token', token);
 			localStorage.setItem('isAuthenticated', 'true');
 			localStorage.setItem('userRole', values.role);
 			localStorage.setItem('username', values.username);
-
+			
 			useUserStore.getState().setUsername(values.username);
 			// 登录成功后启用页面刷新监听
 			pageRefreshManager.enable();
-
+			
 			messageApi.success(t('login.success'));
 			navigate('/dashboard');
-
+            
 			await new Promise(resolve => setTimeout(resolve, 6000));
 			const appData = await api.getAll(values.username);
-
+			
 			// 将API返回的数据保存到store中
+			console.log('appData', appData);
 			if (appData?.data) {
 				logger.info('Get all system data successful');
-				AppDataStoreHandler.updateStore(appData.data);
+				AppDataStoreHandler.updateStore(appData.data as any);
 				logger.info('system data 数据已保存到store中');
 			} else {
 				logger.error('Get all system data failed');
