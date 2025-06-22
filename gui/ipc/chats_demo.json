@@ -1,0 +1,115 @@
+[
+    {
+        "id": 1,
+        "name": "John Doe",
+        "type": "user",
+        "status": "online",
+        "lastMessage": "Can you help me with the delivery schedule?",
+        "lastMessageTime": "2024-07-30T09:00:00Z",
+        "unreadCount": 2,
+        "messages": [
+            {
+                "id": 1,
+                "chatId": 1,
+                "content": "你好！有什么可以帮助你的吗？",
+                "attachments": [],
+                "sender_id": "1",
+                "sender_name": "AI助手",
+                "recipient_id": "user",
+                "recipient_name": "我",
+                "txTimestamp": "2024-07-30T08:00:00Z",
+                "rxTimestamp": "2024-07-30T08:01:00Z",
+                "readTimestamp": "2024-07-30T08:01:00Z",
+                "status": "read",
+                "ext": {},
+                "atList": []
+            },
+            {
+                "id": 2,
+                "chatId": 1,
+                "content": "我想了解一下最新的AI技术进展。",
+                "attachments": [],
+                "sender_id": "user",
+                "sender_name": "我",
+                "recipient_id": "1",
+                "recipient_name": "AI助手",
+                "txTimestamp": "2024-07-30T08:05:00Z",
+                "rxTimestamp": "2024-07-30T08:06:00Z",
+                "readTimestamp": "2024-07-30T08:06:00Z",
+                "status": "read",
+                "ext": {},
+                "atList": []
+            },
+            {
+                "id": 3,
+                "chatId": 1,
+                "content": "Can you help me with the delivery schedule?",
+                "attachments": [],
+                "sender_id": "John Doe",
+                "sender_name": "John Doe",
+                "recipient_id": "You",
+                "recipient_name": "You",
+                "txTimestamp": "2024-07-30T09:00:00Z",
+                "rxTimestamp": "2024-07-30T09:01:00Z",
+                "readTimestamp": "",
+                "status": "delivered",
+                "ext": {},
+                "atList": []
+            }
+        ]
+    },
+    {
+        "id": 2,
+        "name": "Support Bot",
+        "type": "bot",
+        "status": "online",
+        "lastMessage": "How can I assist you today?",
+        "lastMessageTime": "2024-07-30T08:00:00Z",
+        "unreadCount": 0,
+        "messages": [
+            {
+                "id": 4,
+                "chatId": 2,
+                "content": "How can I assist you today?",
+                "attachments": [],
+                "sender_id": "2",
+                "sender_name": "Support Bot",
+                "recipient_id": "You",
+                "recipient_name": "You",
+                "txTimestamp": "2024-07-30T08:00:00Z",
+                "rxTimestamp": "2024-07-30T08:01:00Z",
+                "readTimestamp": "2024-07-30T08:01:00Z",
+                "status": "read",
+                "ext": {},
+                "atList": []
+            }
+        ]
+    },
+    {
+        "id": 3,
+        "name": "Team Alpha",
+        "type": "group",
+        "status": "busy",
+        "lastMessage": "Meeting at 2 PM",
+        "lastMessageTime": "2024-07-29T10:00:00Z",
+        "unreadCount": 5,
+        "messages": [
+            {
+                "id": 5,
+                "chatId": 3,
+                "content": "Meeting at 2 PM",
+                "attachments": [],
+                "sender_id": "Team Lead",
+                "sender_name": "Team Lead",
+                "recipient_id": "Team Alpha",
+                "recipient_name": "Team Alpha",
+                "txTimestamp": "2024-07-29T10:00:00Z",
+                "rxTimestamp": "2024-07-29T10:00:00Z",
+                "readTimestamp": "",
+                "status": "delivered",
+                "ext": {},
+                "atList": []
+            }
+        ]
+    }
+] 

@@ -4,9 +4,9 @@ import { UserOutlined, RobotOutlined, TeamOutlined, MoreOutlined } from '@ant-de
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat, Message, Attachment } from '../types/chat';
-import { useChatStore } from '../hooks/useChatStore';
-import MessageItem from './MessageItem';
+import { useAppDataStore } from '../../../stores/appDataStore';
 import MessageInput from './MessageInput';
+import MessageItem from './MessageItem';
 
 const { Text, Title } = Typography;
 
@@ -80,14 +80,17 @@ const EmptyState = styled.div`
 
 interface ChatDetailProps {
     chatId: number | null;
+    onSend: (content: string, attachments: Attachment[]) => void;
 }
 
-const ChatDetail: React.FC<ChatDetailProps> = ({ chatId }) => {
+const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, onSend }) => {
     const { t } = useTranslation();
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const { chats, sendMessage } = useChatStore();
+    const { chats } = useAppDataStore();
     
-    const chat = chats.find(c => c.id === chatId);
+    // Ensure chats is always an array to prevent crashes
+    const safeChats = Array.isArray(chats) ? chats : [];
+    const chat = safeChats.find((c: Chat) => c.id === chatId);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -103,7 +106,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId }) => {
 
     const handleSendMessage = (content: string, attachments: Attachment[]) => {
         if (!chatId) return;
-        sendMessage(chatId, content, attachments);
+        onSend(content, attachments);
     };
 
     return (
@@ -136,7 +139,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId }) => {
                 />
             </ChatHeader>
             <MessageList>
-                {chat.messages?.map(message => (
+                {chat.messages?.map((message: Message) => (
                     <MessageItem key={message.id} message={message} />
                 ))}
                 <div ref={messagesEndRef} />

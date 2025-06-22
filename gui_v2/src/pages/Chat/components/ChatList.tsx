@@ -9,12 +9,12 @@ import ActionButtons from '../../../components/Common/ActionButtons';
 
 const { Text } = Typography;
 
-const ChatItem = styled.div<{ isActive: boolean }>`
+const ChatItem = styled.div<{ $isActive: boolean }>`
     padding: 12px;
     border-bottom: 1px solid var(--border-color);
     cursor: pointer;
     transition: all 0.3s ease;
-    background-color: ${props => props.isActive ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'};
+    background-color: ${props => props.$isActive ? 'var(--bg-tertiary)' : 'var(--bg-secondary)'};
     border-radius: 8px;
     margin: 4px 0;
     min-height: 60px;
@@ -181,6 +181,9 @@ const ChatList: React.FC<ChatListProps> = ({
     const [selectedChatId, setSelectedChatId] = useState<number | null>(null);
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<number | null>(null);
 
+    // Ensure chats is always an array to prevent crashes
+    const safeChats = Array.isArray(chats) ? chats : [];
+
     const handleDeleteConfirm = (chatId: number) => {
         setSelectedChatId(chatId);
         setIsDeleteConfirmOpen(true);
@@ -243,11 +246,11 @@ const ChatList: React.FC<ChatListProps> = ({
             />
             <ChatListArea>
                 <List
-                    dataSource={chats}
+                    dataSource={safeChats}
                     renderItem={chat => (
                         <ChatItem
                             key={chat.id}
-                            isActive={chat.id === activeChatId}
+                            $isActive={chat.id === activeChatId}
                             onClick={() => onChatSelect(chat.id)}
                         >
                             <div 
@@ -328,7 +331,7 @@ const ChatList: React.FC<ChatListProps> = ({
                         marginTop: '8px'
                     }}>
                         <strong style={{ color: 'var(--text-primary)' }}>
-                            {chats.find(chat => chat.id === selectedChatId)?.name}
+                            {safeChats.find(chat => chat.id === selectedChatId)?.name}
                         </strong>
                     </div>
                 </div>

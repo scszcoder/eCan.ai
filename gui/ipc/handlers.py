@@ -15,6 +15,8 @@ import asyncio
 from gui.ipc.tests import *
 import traceback
 from .callable.manager import callable_manager
+from datetime import datetime, timedelta, timezone
+import os
 
 logger = logger_helper.logger
 
@@ -275,7 +277,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
             'chats': chats,
             'message': 'Get all successful'
         }
-        print('resultJS:', resultJS)
+        logger.debug('get all resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -326,7 +328,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
             'agents': [agent.to_dict() for agent in agents],
             'message': 'Get all successful'
         }
-        print('get agents resultJS:', resultJS)
+        logger.debug('get agents resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -372,7 +374,7 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_
             'skills': [sk.to_dict() for sk in skills],
             'message': 'Get all successful'
         }
-        print('get skills resultJS:', resultJS)
+        logger.debug('get skills resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -427,7 +429,7 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
             'tasks': [task.to_dict() for task in all_tasks],
             'message': 'Get all successful'
         }
-        print('get tasks resultJS:', resultJS)
+        logger.debug('get tasks resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -480,7 +482,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
             'vehicles': [vehicle.genJson() for vehicle in vehicles],
             'message': 'Get all successful'
         }
-        print('resultJS:', resultJS)
+        logger.debug('get vehicles resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -530,7 +532,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
             'tools': [tool.model_dump() for tool in py_login.main_win.mcp_tools_schemas],
             'message': 'Get all successful'
         }
-        print('resultJS:', resultJS)
+        logger.debug('get tools resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -543,14 +545,14 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
 
 
 @IPCHandlerRegistry.handler('get_chats')
-async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
+def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> str:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        params: 请求参数，必须包含 'username' 和 'chat_ids' 字段
 
     Returns:
         str: JSON 格式的响应消息
@@ -559,7 +561,7 @@ async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]
         logger.debug(f"get chats handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username'])
+        is_valid, data, error = validate_params(params, ['username', 'chat_ids'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get chats: {error}")
             return json.dumps(create_error_response(
@@ -570,18 +572,40 @@ async def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]
 
         # 获取用户名和密码
         username = data['username']
+        chat_ids = data['chat_ids']
 
         # 简单的密码验证
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get chats successful for user: {username}")
-        chats = {}
+        
+        script_dir = os.path.dirname(__file__)
+        json_path = os.path.join(script_dir, 'chats_demo.json')
+
+        with open(json_path, 'r', encoding='utf-8') as f:
+            all_chats = json.load(f)
+
+        if not chat_ids:
+            chats = all_chats
+        else:
+            # chat_ids from frontend might be integer, but in json they are integers.
+            # So convert them to int for comparison.
+            chat_ids_int = [int(cid) for cid in chat_ids]
+            
+            chats = [chat for chat in all_chats if chat['id'] in chat_ids_int]
+            
+            found_ids = [chat['id'] for chat in chats]
+            not_found_ids = [cid for cid in chat_ids_int if cid not in found_ids]
+
+            if not_found_ids:
+                logger.warning(f"Could not find chats with the following IDs: {not_found_ids}")
+
         resultJS = {
             'token': token,
             'chats': chats,
             'message': 'Get all successful'
         }
-        print('resultJS:', resultJS)
+        logger.debug('get chats resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -632,7 +656,7 @@ async def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, An
             'settings': settings,
             'message': 'Get settings successful'
         }
-        print('resultJS:', resultJS)
+        logger.debug('get settings resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -684,7 +708,7 @@ async def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, 
             'knowledges': knowledges,
             'message': 'Get settings successful'
         }
-        print('resultJS:', resultJS)
+        logger.debug('get knowledges resultJS:' + str(resultJS))
         return json.dumps(create_success_response(request, resultJS))
 
     except Exception as e:
@@ -764,7 +788,7 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_logi
     """
     try:
         logger.debug(f"Save agents handler called with request: {request}, params: {params}")
-        print("save agents:", params)
+        logger.debug("save agents:" + str(params))
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
@@ -812,7 +836,7 @@ def handle_save_skills(request: IPCRequest, params: Optional[list[Any]], py_logi
     """
     try:
         logger.debug(f"Save skills handler called with request: {request}, params: {params}")
-        print("save skills:", params)
+        logger.debug("save skills:" + str(params))
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
@@ -959,7 +983,7 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]], py_lo
     """
     try:
         logger.debug(f"Save settings handler called with request: {request}, params: {params}")
-        print("save settings:", params)
+        logger.debug("save settings:" + str(params))
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
@@ -1007,7 +1031,7 @@ def handle_save_tasks(request: IPCRequest, params: Optional[list[Any]], py_login
     """
     try:
         logger.debug(f"Save tasks handler called with request: {request}, params: {params}")
-        print("save agents:", params)
+        logger.debug("save tasks:" + str(params))
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
@@ -1055,7 +1079,7 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]], py_login:A
     """
     try:
         logger.debug(f"Save all handler called with request: {request}, params: {params}")
-        print("save all:", params)
+        logger.debug("save all:" + str(params))
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
@@ -1099,8 +1123,6 @@ def handle_get_available_tests(request: IPCRequest, params: Optional[Any], py_lo
     """
     try:
         logger.debug(f"Get available tests handler called with request: {request}, params: {params}")
-        print("get available tests:", params)
-
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
@@ -1132,8 +1154,6 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any], py_login: Any) 
     """
     try:
         logger.debug(f"Run tests handler called with request: {request}, params: {params}")
-        print("run tests:", params)
-
         tests = params.get('tests', [])
 
         results = []
@@ -1181,7 +1201,6 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any], py_login: Any)
     """
     try:
         logger.debug(f"Stop tests handler called with request: {request}, params: {params}")
-        print("stop tests:", params)
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')

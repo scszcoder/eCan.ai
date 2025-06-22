@@ -77,10 +77,10 @@ interface MessageItemProps {
 
 const MessageItem: React.FC<MessageItemProps> = ({ message }) => {
     const { t } = useTranslation();
-    const isUser = message.sender === 'You';
+    const isUser = message.sender_id === 'You';
 
     const getAvatarIcon = () => {
-        switch (message.sender) {
+        switch (message.sender_id) {
             case 'You':
                 return <UserOutlined />;
             case 'Support Bot':

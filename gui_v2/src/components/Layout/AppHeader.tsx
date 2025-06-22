@@ -4,6 +4,7 @@ import { Button, Badge, Dropdown, Space, Avatar } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
+import { useUserStore } from '../../stores/userStore';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
@@ -29,6 +30,8 @@ interface AppHeaderProps {
 
 const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuItems, onLogout }) => {
     const { t } = useTranslation();
+    const username = useUserStore((state) => state.username);
+    
     return (
         <StyledHeader>
             <Button
@@ -50,7 +53,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                 >
                     <Space style={{ cursor: 'pointer' }}>
                         <Avatar icon={<UserOutlined />} />
-                        <span>{t('common.username')}</span>
+                        <span>{username || t('common.username')}</span>
                     </Space>
                 </Dropdown>
             </HeaderRight>

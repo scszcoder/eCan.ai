@@ -236,18 +236,22 @@ export class IPCAPI {
      * @param keys - 要获取的设置键名数组，如果为空则获取所有设置
      * @returns Promise 对象，解析为设置值
      */
+    /*
     public async getSettings<T>(keys: string[] = []): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_settings', { keys });
     }
+    */
 
     /**
      * 保存设置
      * @param settings - 要保存的设置对象
      * @returns Promise 对象，解析为操作结果
      */
+    /*
     public async saveSettings<T>(settings: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('save_settings', settings);
     }
+    */
 }
 
 /**

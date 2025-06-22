@@ -23,6 +23,8 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
+import { pageRefreshManager } from '../../services/events/PageRefreshManager';
+import { useUserStore } from '../../stores/userStore';
 import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
@@ -53,8 +55,17 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     }, [i18n]);
 
     const handleLogout = () => {
+        pageRefreshManager.disable();
+        
+        // 清理localStorage
         localStorage.removeItem('isAuthenticated');
         localStorage.removeItem('userRole');
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        
+        // 清理userStore
+        useUserStore.getState().setUsername(null);
+        
         window.location.replace('/login');
     };
 

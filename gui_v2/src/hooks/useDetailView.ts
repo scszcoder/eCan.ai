@@ -1,62 +1,54 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
-interface DetailViewState<T> {
-    selectedItem: T | null;
-    items: T[];
-}
+export function useDetailView<T>(
+    initialItems: T[],
+    getKey: (item: T) => string | number = (item: any) => item.id
+) {
+    const [items, setItems] = useState<T[]>(initialItems);
+    const [selectedItem, setSelectedItem] = useState<T | null>(null);
 
-export function useDetailView<T>(initialItems: T[]) {
-    const [state, setState] = useState<DetailViewState<T>>({
-        selectedItem: null,
-        items: initialItems,
-    });
+    const selectItem = useCallback((item: T) => {
+        setSelectedItem(item);
+    }, []);
 
-    const selectItem = (item: T) => {
-        setState(prev => ({
-            ...prev,
-            selectedItem: item,
-        }));
-    };
+    const unselectItem = useCallback(() => {
+        setSelectedItem(null);
+    }, []);
 
-    const updateItems = (items: T[]) => {
-        setState(prev => ({
-            ...prev,
-            items: Array.isArray(items) ? items : [],
-        }));
-    };
+    const isSelected = useCallback((item: T) => {
+        return selectedItem ? getKey(selectedItem) === getKey(item) : false;
+    }, [selectedItem, getKey]);
 
-    const addItem = (item: T) => {
-        setState(prev => ({
-            ...prev,
-            items: [...prev.items, item],
-        }));
-    };
+    const addItem = useCallback(
+        (item: T) => {
+            setItems((prevItems) => [...prevItems, item]);
+        },
+        [setItems],
+    );
 
-    const removeItem = (id: number) => {
-        setState(prev => ({
-            ...prev,
-            items: prev.items.filter((item: any) => item.id !== id),
-            selectedItem: prev.selectedItem && (prev.selectedItem as any).id === id ? null : prev.selectedItem,
-        }));
-    };
+    const removeItem = useCallback(
+        (key: string | number) => {
+            setItems((prevItems) => prevItems.filter((item) => getKey(item) !== key));
+        },
+        [getKey, setItems],
+    );
 
-    const updateItem = (id: number, updatedItem: Partial<T>) => {
-        setState(prev => ({
-            ...prev,
-            items: prev.items.map((item: any) => 
-                item.id === id ? { ...item, ...updatedItem } : item
-            ),
-            selectedItem: prev.selectedItem && (prev.selectedItem as any).id === id 
-                ? { ...prev.selectedItem, ...updatedItem }
-                : prev.selectedItem,
-        }));
-    };
+    const updateItem = useCallback(
+        (key: string | number, updates: Partial<T>) => {
+            setItems((prevItems) =>
+                prevItems.map((item) => (getKey(item) === key ? { ...item, ...updates } : item)),
+            );
+        },
+        [getKey, setItems],
+    );
 
     return {
-        selectedItem: state.selectedItem,
-        items: state.items,
+        items,
+        setItems,
+        selectedItem,
         selectItem,
-        updateItems,
+        unselectItem,
+        isSelected,
         addItem,
         removeItem,
         updateItem,

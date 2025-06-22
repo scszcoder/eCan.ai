@@ -1142,7 +1142,7 @@ class MainWindow(QMainWindow):
         self.launch_agents()
         print("DONE launch agents.....")
 
-        self.top_gui.update_all(self)
+        # self.top_gui.update_all(self)
         # await self.test_a2a()
 
     def wait_for_server(self, agent, timeout: float = 10.0):
