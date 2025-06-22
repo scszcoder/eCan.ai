@@ -687,7 +687,8 @@ class TaskRunner(Generic[Context]):
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
 
-    async def launch_scheduled_run(self, task=None):
+    # async def launch_scheduled_run(self, task=None):
+    def launch_scheduled_run(self, task=None):
         while not self._stop_event.is_set():
             try:
                 print("checking scheduled task....", self.agent.card.name)
@@ -701,7 +702,8 @@ class TaskRunner(Generic[Context]):
                     task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
 
                     print("scheduled task2run init state", task2run.metadata["state"])
-                    response = await task2run.astream_run()
+                    # response = await task2run.astream_run()
+                    response = task2run.stream_run()
                     if response:
                         self.agent.a2a_server.task_manager.set_result(task2run.id, response)
                     else:
@@ -713,10 +715,12 @@ class TaskRunner(Generic[Context]):
                 ex_stat = "ErrorLaunchScheduledRun:" + traceback.format_exc() + " " + str(e)
                 print(f"{ex_stat}")
 
-            await asyncio.sleep(1)  # the loop goes on.....
+            # await asyncio.sleep(1)  # the loop goes on.....
+            time.sleep(1)
 
 
-    async def launch_reacted_run(self, task=None):
+    # async def launch_reacted_run(self, task=None):
+    def launch_reacted_run(self, task=None):
         while not self._stop_event.is_set():
             try:
                 print("checking a2a queue....", self.agent.card.name)
@@ -737,7 +741,9 @@ class TaskRunner(Generic[Context]):
 
                             print("task2run init state", task2run.metadata["state"])
                             print("ready to run the right task", task2run.name, msg)
-                            response = await task2run.astream_run()
+                            # response = await task2run.astream_run()
+                            response = task2run.stream_run()
+
                             print("task run response:", response)
                             if not response.get("success") and 'step' in response:
                                 print("sending interrupt prompt1")
@@ -764,11 +770,13 @@ class TaskRunner(Generic[Context]):
                 ex_stat = "ErrorLaunchReactedRun:" + traceback.format_exc() + " " + str(e)
                 print(f"{ex_stat}")
 
-            await asyncio.sleep(1)  # the loop goes on.....
+            # await asyncio.sleep(1)  # the loop goes on.....
+            time.sleep(1)
 
 
     # this is for chat task
-    async def launch_interacted_run(self, task=None):
+    # async def launch_interacted_run(self, task=None):
+    def launch_interacted_run(self, task=None):
         cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
         cached_response_index = 0
         config = {"configurable": {"thread_id": str(uuid.uuid4())}}
@@ -795,7 +803,8 @@ class TaskRunner(Generic[Context]):
 
                                 print("task2run init state", task2run.metadata["state"])
                                 print("ready to run the right task", task2run.name, type(msg), msg)
-                                response = await task2run.astream_run()
+                                # response = await task2run.astream_run()
+                                response = task2run.stream_run()
                                 print("task run response:", response)
 
                                 print("msg is now becoming:", type(msg), msg)
@@ -826,8 +835,8 @@ class TaskRunner(Generic[Context]):
                                 # print("task2run init state", task2run.metadata["state"])
                                 # print("ready to run the right task", task2run.name, msg)
 
-                                response = await task2run.astream_run(Command(resume=True), stream_mode="updates",)
-
+                                # response = await task2run.astream_run(Command(resume=True), stream_mode="updates",)
+                                response = task2run.stream_run(Command(resume=True), stream_mode="updates",)
 
                                 print("task resume response:", response)
                                 task_id = msg.params.id
@@ -850,7 +859,8 @@ class TaskRunner(Generic[Context]):
                 ex_stat = "ErrorLaunchInteractedRun:" + traceback.format_exc() + " " + str(e)
                 print(f"{ex_stat}")
 
-            await asyncio.sleep(1)  # the loop goes on.....
+            # await asyncio.sleep(1)  # the loop goes on.....
+            time.sleep(1)
 
 # Remaining application code continues here...
 # (not repeating routing/app setup for brevity)
