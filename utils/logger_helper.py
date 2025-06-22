@@ -1,13 +1,24 @@
 import logging
 import colorlog
 from logging.handlers import RotatingFileHandler
+import os
+from config.constants import APP_NAME
+from config.app_info import app_info
 
 login = None
 top_web_gui = None
 class LoggerHelper:
     def __init__(self):
         print("init logger helper object")
-        pass
+        appdata_path = app_info.appdata_path
+        runlogs_dir = appdata_path + "/runlogs"
+        if not os.path.isdir(runlogs_dir):
+            os.mkdir(runlogs_dir)
+            print("create runlogs directory ", runlogs_dir)
+        else:
+            print(f"runlogs {runlogs_dir} directory is existed")
+
+        self.setup(APP_NAME, appdata_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
 
     def setup(self, log_name, log_file, level):
         self.logger = logging.getLogger(log_name)
@@ -36,20 +47,25 @@ class LoggerHelper:
         file_handler.setFormatter(file_formatter)
         self.logger.addHandler(file_handler)
 
-    def debug(self, message):
-        self.logger.debug(message)
+    def debug(self, message, *args, **kwargs):
+        if hasattr(self, 'logger'):
+            self.logger.debug(message, *args, **kwargs)
 
-    def info(self, message):
-        self.logger.info(message)
+    def info(self, message, *args, **kwargs):
+        if hasattr(self, 'logger'):
+            self.logger.info(message, *args, **kwargs)
 
-    def warning(self, message):
-        self.logger.warning(message)
+    def warning(self, message, *args, **kwargs):
+        if hasattr(self, 'logger'):
+            self.logger.warning(message, *args, **kwargs)
 
-    def error(self, message):
-        self.logger.error(message)
+    def error(self, message, *args, **kwargs):
+        if hasattr(self, 'logger'):
+            self.logger.error(message, *args, **kwargs)
 
-    def critical(self, message):
-        self.logger.critical(message)
+    def critical(self, message, *args, **kwargs):
+        if hasattr(self, 'logger'):
+            self.logger.critical(message, *args, **kwargs)
 
 
 logger_helper = LoggerHelper()

@@ -11,15 +11,15 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 from setproctitle import setproctitle
 
-from config.app_settings import app_settings
 from config.app_info import app_info
+from config.app_settings import app_settings
+from utils.logger_helper import set_top_web_gui, logger_helper as logger
+
 from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
 from gui.WebGUI import WebGUI
 from bot.network import runCommanderLAN, runPlatoonLAN
-# from utils.logger_helper import logger_helper, login
-import utils.logger_helper
-from utils.logger_helper import set_top_web_gui
+
 
 # from tests.unittests import *
 from tests.unittests import *
@@ -43,9 +43,9 @@ def main():
     if os.path.exists(icon_path):
         app_icon = QIcon(icon_path)
         app.setWindowIcon(app_icon)
-        print(f"Successfully loaded application icon from: {icon_path}")
+        logger.info(f"Successfully loaded application icon from: {icon_path}")
     else:
-        print(f"Warning: Could not find application icon at: {icon_path}")
+        logger.error(f"Warning: Could not find application icon at: {icon_path}")
         
     # app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)
@@ -74,9 +74,9 @@ def main():
     
     # 打印当前运行模式
     if app_settings.is_dev_mode:
-        print("Running in development mode (Vite dev server)")
+        logger.info("Running in development mode (Vite dev server)")
     else:
-        print("Running in production mode (built files)")
+        logger.info("Running in production mode (built files)")
 
     # 创建并显示 Web GUI
     web_gui = WebGUI(utils.logger_helper.login)
@@ -125,6 +125,6 @@ if __name__ == '__main__':
         main()
     except Exception as e:
         error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
-        utils.logger_helper.error(error_info)
+        logger.error(error_info)
 
     # qasync.run(main())
