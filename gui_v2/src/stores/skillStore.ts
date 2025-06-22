@@ -1,4 +1,4 @@
-// stores/userStore.ts
+// stores/skillStore.ts
 import { create } from 'zustand';
 
 interface SkillState {
