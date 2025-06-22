@@ -16,8 +16,13 @@ from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
 from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
+from mcp.client.sse import sse_client
+from mcp.client.session import ClientSession
+
 import sys
 import traceback
+import httpx
 response_dict = {}
 
 # mecaLocalServer = Flask(__name__, static_folder='dist')  # Serve Vue static files
@@ -103,6 +108,17 @@ async def health_check(request):
     print("health_check status returned................")
     return JSONResponse({"status": "ok"})
 
+
+
+async def initialize(request):
+    # Perform whatever server-side initialization you want
+    print("initialize() called")
+    response = {
+        "protocolVersion": "1.0",
+        "serverCapabilities": {}
+    }
+    return JSONResponse(response, status_code=200)
+
 async def get_skill_graph(skg_file):
     skill_graph = None
     if os.path.exists(skg_file):
@@ -129,19 +145,21 @@ async def save_skill_graph(skill_graph, skg_file):
     return saved
 
 # Wrap the raw ASGI handler for POST
-messages_router = Router([
-    Route("/", endpoint=sse_handle_messages, methods=["POST"])
-])
-
-sse_router = Router([
-    Route("/", endpoint=handle_sse, methods=["GET"])
-])
+# messages_router = Router([
+#     Route("/", endpoint=sse_handle_messages, methods=["POST"])
+# ])
+#
+# sse_router = Router([
+#     Route("/", endpoint=handle_sse, methods=["GET"])
+# ])
 
 routes = [
-    Route("/healthz", health_check),
     Mount("/sse", app=handle_sse),
     Mount("/messages/", app=meca_sse.handle_post_message),
+    Route("/healthz", health_check),
+
     # Route("/sse", endpoint=handle_sse),
+    Route('/api/initialize', initialize, methods=['POST']),
     Route('/api/gen_feedbacks', gen_feedbacks, methods=['GET']),
     Route('/api/get_mission_reports', get_mission_reports, methods=['GET']),
     Route('/api/load_graph', get_skill_graph, methods=['GET']),
@@ -200,7 +218,54 @@ async def create_mcp_client():
                 }
             }
     )
-    await mcp_client.__aenter__()
-    print("mcp client created................")
-    return mcp_client
 
+    try:
+        # NotImplementedError: As of langchain - mcp - adapters0.1.0, MultiServerMCPClient
+        # cannot be used as a context manager(e.g., async with MultiServerMCPClient(...)).
+        # Instead, you can do one of the following:
+        # 1.
+        # client = MultiServerMCPClient(...)
+        # tools = await client.get_tools()
+        # 2.
+        # client = MultiServerMCPClient(...)
+        # async with client.session(server_name) as session:
+        # tools = await load_mcp_tools(session)
+
+        # CORRECTED LINE: Pass server_name as a keyword argument
+        # tools = await mcp_client.get_tools(server_name="E-Commerce Agents Service")
+        # print("MCP client created and tools loaded successfully for E-Commerce Agents Service.")
+        #
+        # # You might want to store the loaded tools on the client object if they're needed later
+        # mcp_client._loaded_tools = tools
+        # tools = await mcp_client.get_tools()
+        # print("MCP client created and tools loaded successfully.", tools)
+
+        async with mcp_client.session("E-Commerce Agents Service") as session:
+            print("MCP client session initing................")
+            await session.initialize()
+            # tools = await load_mcp_tools(session)
+            print("MCP client created................")
+            tools = await mcp_client.get_tools()
+            print("MCP client created and tools loaded successfully.", tools)
+            # return mcp_client
+
+        return mcp_client
+
+    except Exception as e:
+        print(f"Error creating MCP client or loading tools: {e}")
+        # Depending on your needs, you might re-raise the exception or return None
+        raise
+    # await mcp_client.__aenter__()
+    # await mcp_client.connect_to_server_via_sse("http://localhost:4668/sse/")
+    # async with mcp_client.session("E-Commerce Agents Service") as session:
+    #     tools = await load_mcp_tools(session)
+    #     print("mcp client created................")
+    # return mcp_client
+
+async def create_sse_client():
+    async with sse_client("http://localhost:4668/sse/") as streams:
+        async with ClientSession(streams[0], streams[1]) as session:
+            print("SSE client session initing................")
+            await session.initialize()
+            print("SSE client created................")
+            return sse_client

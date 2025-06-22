@@ -58,7 +58,7 @@ class WebGUI(QMainWindow):
         
         # 设置快捷键
         self._setup_shortcuts()
-        chat_db_path = os.path.join(app_info.appdata_path, "chats.db")
+
         self.chat_service = None
         
         # # 创建定时器 Demo 测试使用的
