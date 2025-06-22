@@ -40,8 +40,8 @@ export class IPCHandlers {
         this.registerHandler('update_knowledge', this.updateKnowledges);
         this.registerHandler('update_settings', this.updateSettings);
         this.registerHandler('update_chats', this.updateChats);
-        this.registerHandler('update_tools', this.updateTools);
-        this.registerHandler('update_vehicles', this.updateVehicles);
+        // this.registerHandler('update_tools', this.updateTools);
+        // this.registerHandler('update_vehicles', this.updateVehicles);
         this.registerHandler('update_all', this.updateAll);
     }
 
