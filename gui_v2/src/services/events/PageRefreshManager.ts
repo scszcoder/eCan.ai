@@ -87,7 +87,8 @@ export class PageRefreshManager {
                     useUserStore.getState().setUsername(username);
                     // 获取系统数据
 					const appData = await get_ipc_api().getAll(username);
-					
+					console.log('appData', appData);
+                    
 					// 将API返回的数据保存到store中
 					if (appData?.data) {
                         logger.info('PageRefreshManager: Get all system data successful');

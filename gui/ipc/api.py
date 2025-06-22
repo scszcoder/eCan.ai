@@ -2,11 +2,12 @@
 IPC API 管理模块
 提供统一的 Python 到 Web 的调用接口
 """
-from typing import Optional, Dict, Any, Callable, TypeVar, Generic, Union, List
+from typing import Optional, Dict, Any, Callable, TypeVar, Generic, List
 from dataclasses import dataclass
-from .types import IPCRequest, IPCResponse, create_request, create_error_response
+from .types import IPCResponse
 from .service import IPCService
 from utils.logger_helper import logger_helper
+import gui.ipc.w2p_handlers
 
 logger = logger_helper.logger
 
@@ -76,7 +77,7 @@ class IPCAPI:
             return
             
         try:
-            if response['status'] == 'ok':
+            if response['status'] == 'success':
                 callback(APIResponse(success=True, data=response['result']))
             else:
                 error_msg = response['error']['message'] if response['error'] else 'Unknown error'

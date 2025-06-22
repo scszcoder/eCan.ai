@@ -15,7 +15,7 @@ export interface Chat {
 
 export interface Message {
     id: number;
-    chatId: number;
+    chat_id: number;
     content: string;
     attachments: Attachment[];
     sender_id: string;
