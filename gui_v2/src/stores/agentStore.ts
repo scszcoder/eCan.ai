@@ -1,4 +1,4 @@
-// stores/userStore.ts
+// stores/agentStore.ts
 import { create } from 'zustand';
 
 interface AgentState {
