@@ -10,7 +10,7 @@
         "messages": [
             {
                 "id": 1,
-                "chatId": 1,
+                "chat_id": 1,
                 "content": "你好！有什么可以帮助你的吗？",
                 "attachments": [],
                 "sender_id": "1",
@@ -26,7 +26,7 @@
             },
             {
                 "id": 2,
-                "chatId": 1,
+                "chat_id": 1,
                 "content": "我想了解一下最新的AI技术进展。",
                 "attachments": [],
                 "sender_id": "user",
@@ -42,7 +42,7 @@
             },
             {
                 "id": 3,
-                "chatId": 1,
+                "chat_id": 1,
                 "content": "Can you help me with the delivery schedule?",
                 "attachments": [],
                 "sender_id": "John Doe",
@@ -69,7 +69,7 @@
         "messages": [
             {
                 "id": 4,
-                "chatId": 2,
+                "chat_id": 2,
                 "content": "How can I assist you today?",
                 "attachments": [],
                 "sender_id": "2",
@@ -96,7 +96,7 @@
         "messages": [
             {
                 "id": 5,
-                "chatId": 3,
+                "chat_id": 3,
                 "content": "Meeting at 2 PM",
                 "attachments": [],
                 "sender_id": "Team Lead",

@@ -57,7 +57,7 @@ export interface IPCResponse extends IPCBaseMessage {
     /** 回显请求的方法名 */
     method?: string;
     /** 响应状态 */
-    status: 'ok' | 'error';
+    status: 'success' | 'error' | 'pending';
     /** 响应结果（成功时） */
     result?: unknown;
     /** 错误信息（失败时） */
@@ -138,7 +138,7 @@ export function createSuccessResponse(
     return {
         id,
         type: 'response',
-        status: 'ok',
+        status: 'success',
         result,
         timestamp: Date.now()
     };
@@ -164,6 +164,30 @@ export function createErrorResponse(
         status: 'error',
         error: {
             code,
+            message,
+            details
+        },
+        timestamp: Date.now()
+    };
+}
+
+/**
+ * 创建 pending 响应
+ * @param id - 请求 ID
+ * @param message - 描述信息
+ * @param details - 额外信息
+ * @returns IPC 响应对象
+ */
+export function createPendingResponse(
+    id: string,
+    message: string,
+    details?: unknown
+): IPCResponse {
+    return {
+        id,
+        type: 'response',
+        status: 'pending',
+        result: {
             message,
             details
         },
@@ -208,4 +232,10 @@ declare global {
         /** IPC 对象 */
         ipc: IPC;
     }
+}
+
+// 添加 isIPCResponse 类型守卫
+export function isIPCResponse(obj: any): obj is IPCResponse {
+    return obj && typeof obj.id === 'string' && obj.type === 'response' &&
+           (obj.status === 'success' || obj.status === 'error' || obj.status === 'pending');
 } 
