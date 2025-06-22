@@ -89,7 +89,9 @@ from config.constants import API_DEV_MODE
 from langchain_openai import ChatOpenAI
 from agent.ec_agent import EC_Agent
 from agent.runner.service import Runner
-from agent.ec_skills.build_skills import build_agent_skills
+from agent.ec_skills.build_agent_skills import build_agent_skills
+from agent.ec_skills.save_agent_skills import save_agent_skills
+
 from agent.ec_skill import *
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
@@ -1193,6 +1195,9 @@ class MainWindow(QMainWindow):
 
         print("free ports", free_ports)
         return free_ports[:n]
+
+    def save_agent_skill(self, skill):
+        return save_agent_skills(self, [skill])
 
     def get_local_server_port(self):
         return self.general_settings["local_server_port"]
