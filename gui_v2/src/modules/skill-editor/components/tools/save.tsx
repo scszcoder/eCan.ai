@@ -3,7 +3,8 @@ import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
 import { IconSave } from '@douyinfe/semi-icons';
-
+import { useUserStore } from '../../../../stores/userStore';
+import { APIResponse, IPCAPI } from '@/services/ipc/api';
 // 添加 File System Access API 的类型定义
 declare global {
   interface Window {
@@ -32,12 +33,16 @@ interface SaveProps {
 
 export const Save = ({ disabled }: SaveProps) => {
   const { document: workflowDocument } = useClientContext();
+  const username = useUserStore((state) => state.username);
 
   const handleSave = useCallback(async () => {
     try {
       const data = workflowDocument.toJSON();
       const jsonString = JSON.stringify(data, null, 2);
       const blob = new Blob([jsonString], { type: 'application/json' });
+      const current_skill = {
+          'diagram': blob
+      };
 
       // 使用 showSaveFilePicker 打开系统保存对话框
       const handle = await window.showSaveFilePicker({
@@ -52,6 +57,9 @@ export const Save = ({ disabled }: SaveProps) => {
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
+
+      // now pass diagram to backend.
+      await IPCAPI.getInstance().saveSkill(username, current_skill);
 
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {

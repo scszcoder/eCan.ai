@@ -54,6 +54,7 @@ class EC_Skill(AgentSkill):
 
     id: str = str(uuid.uuid4())
     work_flow: StateGraph = StateGraph(State)        # {"app_name": "app_context", ....} "ecbot" being the internal rpa runs.
+    diagram: dict = {}
     runnable: CompiledGraph = None
     mcp_client: MultiServerMCPClient = None
     owner: str = ""
@@ -65,6 +66,7 @@ class EC_Skill(AgentSkill):
     need_inputs: [dict] = []
     version: str = "0.0.0"
     level: str = "entry"
+    path: str = ""
 
     tags: List[str] | None = None
     examples: List[str] | None = None

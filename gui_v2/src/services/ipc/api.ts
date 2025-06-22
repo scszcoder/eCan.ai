@@ -167,24 +167,24 @@ export class IPCAPI {
         return this.executeRequest<void>('set_config', { key, value });
     }
 
-    public async saveAgents<T>(values: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_agents', values);
+    public async saveAgents<T>(username: string, agents: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_agents', {username, agents});
     }
 
-    public async saveTools<T>(values: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_tools', values);
+    public async saveTools<T>(username: string, tools: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_tools', {username, tools});
     }
 
-    public async saveTasks<T>(values: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_tasks', values);
+    public async saveTasks<T>(username: string, tasks: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_tasks', {username, tasks});
     }
 
-    public async saveSkills<T>(values: T[]): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_skills', values);
+    public async saveSkills<T>(username: string, skills: T[]): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_skills', {username, skills});
     }
 
-    public async saveSkill<T>(value: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_skill', value);
+    public async saveSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_skill', {username, skill});
     }
 
     public async saveSettings<T>(value: T): Promise<APIResponse<void>> {
