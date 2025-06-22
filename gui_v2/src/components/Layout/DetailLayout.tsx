@@ -51,7 +51,7 @@ const DetailsCard = styled(Card)`
 `;
 
 interface DetailLayoutProps {
-    listTitle: string;
+    listTitle: React.ReactNode;
     detailsTitle: string;
     listContent: React.ReactNode;
     detailsContent: React.ReactNode;

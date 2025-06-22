@@ -16,10 +16,9 @@ export interface Chat {
 export interface Message {
     id: number;
     chatId: number;
-    sessionId: number;
     content: string;
     attachments: Attachment[];
-    sender_id: string;sender_id: string;
+    sender_id: string;
     sender_name: string;
     recipient_id: string;
     recipient_name: string;
@@ -29,6 +28,9 @@ export interface Message {
     status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
     isEdited?: boolean;
     isRetracted?: boolean;
+    ext?: Record<string, any>;
+    replyTo?: number;
+    atList?: string[];
 }
 
 export interface Attachment {

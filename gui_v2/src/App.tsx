@@ -4,11 +4,13 @@ import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { getAntdLocale } from './i18n';
-import { IPCClient } from './services/ipc/client';
+import { pageRefreshManager } from './services/events/PageRefreshManager';
 import { logger, LogLevel } from './utils/logger';
 import './styles/global.css';
 import 'antd/dist/reset.css';
 import './index.css';
+import { set_ipc_api } from './services/ipc_api';
+import { createIPCAPI } from './services/ipc';
 
 // 初始化应用
 const initializeApp = () => {
@@ -30,7 +32,10 @@ const initializeApp = () => {
   }
 
   // 初始化 IPC 服务
-  IPCClient.getInstance();
+  set_ipc_api(createIPCAPI());
+
+  // 初始化页面刷新管理器
+  pageRefreshManager.initialize();
 };
 
 // 配置 React Router future flags
@@ -104,7 +109,7 @@ const AppContent = () => {
             theme={getThemeConfig(isDark)}
         >
             <AntdApp>
-                <HashRouter future={router.future}>
+                <HashRouter>
                     <Routes>
                         {renderRoutes(routes)}
                     </Routes>

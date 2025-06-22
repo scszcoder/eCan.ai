@@ -6,9 +6,12 @@ import { useTranslation } from 'react-i18next';
 import { APIResponse, createIPCAPI } from '../../services/ipc';
 import { set_ipc_api, get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
-import { useUserStore } from '../../stores/userStore';
+import { useUserStore } from '@/stores/userStore';
+import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logo.png';
 import './Login.css';
+import { useAppDataStore } from '@/stores/appDataStore';
+import { AppDataStoreHandler } from '@/stores/AppDataStoreHandler';
 
 const { Title, Text } = Typography;
 
@@ -18,8 +21,6 @@ interface LoginFormValues {
 	confirmPassword?: string;
 	role: string;
 }
-
-
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
@@ -38,9 +39,6 @@ const Login: React.FC = () => {
 	useEffect(() => {
 		const initialize = async () => {
 			try {
-				// 初始化 IPC API
-				set_ipc_api(createIPCAPI());
-
 				// 加载登录信息
 				const api = get_ipc_api();
 				if (!api) return;
@@ -101,12 +99,26 @@ const Login: React.FC = () => {
 			localStorage.setItem('token', token);
 			localStorage.setItem('isAuthenticated', 'true');
 			localStorage.setItem('userRole', values.role);
+			localStorage.setItem('username', values.username);
+
+			useUserStore.getState().setUsername(values.username);
+			// 登录成功后启用页面刷新监听
+			pageRefreshManager.enable();
+
 			messageApi.success(t('login.success'));
 			navigate('/dashboard');
-            useUserStore.getState().setUsername(values.username);
-// 			await new Promise(resolve => setTimeout(resolve, 9000));
-// 			const response2 = await api.getAll(values.username);
-// 			logger.info('Get all successful', response2.data);
+
+			await new Promise(resolve => setTimeout(resolve, 6000));
+			const appData = await api.getAll(values.username);
+
+			// 将API返回的数据保存到store中
+			if (appData?.data) {
+				logger.info('Get all system data successful');
+				AppDataStoreHandler.updateStore(appData.data);
+				logger.info('system data 数据已保存到store中');
+			} else {
+				logger.error('Get all system data failed');
+			}
 		} else {
 			logger.error('Login failed', response.error);
 			messageApi.error(response.error?.message || t('login.failed'));

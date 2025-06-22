@@ -27,7 +27,7 @@ const Tests: React.FC = () => {
     // Fetch available tests
     const fetchTests = async () => {
         try {
-            const response = await IPCAPI.getInstance().getAvailableTests();
+            const response = await get_ipc_api().getAvailableTests();
             const backendTests = response && response.success && Array.isArray(response.data)
             ? response.data.map(test => ({
                 label: test.name || test,
@@ -54,8 +54,7 @@ const Tests: React.FC = () => {
     const getAllTest = async () => {
         try {
             console.log('current username is:', username);
-            const ipc_api = get_ipc_api();
-            const response = await ipc_api.getAll(username);
+            const response = await get_ipc_api().getAll(username || '');
             // Update testOutput with the response
             setTestOutput(JSON.stringify(response, null, 2));
 
@@ -93,14 +92,14 @@ const Tests: React.FC = () => {
                     test_id: 'default_test',
                     args: testArgument ? JSON.parse(testArgument) : {}
                 };
-                response = await IPCAPI.getInstance().runTest([testConfig]);
+                response = await get_ipc_api().runTest([testConfig]);
             } else {
                 // For other tests, use the appropriate method
                 const testConfig = {
                     test_id: selectedTest,
                     args: testArgument ? JSON.parse(testArgument) : {}
                 };
-                response = await ipc_api.runTest([testConfig]);
+                response = await get_ipc_api().runTest([testConfig]);
             }
             
             setTestOutput(JSON.stringify(response || 'No response data', null, 2));
@@ -118,7 +117,7 @@ const Tests: React.FC = () => {
     // Handle test stop
     const handleStopTest = async () => {
         try {
-            await IPCAPI.getInstance().stopTest([selectedTest]);
+            await get_ipc_api().stopTest([selectedTest]);
             setTestOutput(prev => prev + '\n' + t('pages.tests.testStopped'));
         } catch (error) {
             console.error('Error stopping test:', error);
