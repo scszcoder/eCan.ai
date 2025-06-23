@@ -3,20 +3,23 @@ import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Modal, Input, Button, Typography } from '@douyinfe/semi-ui';
 import { IconInfoCircle, IconCodeStroked } from '@douyinfe/semi-icons';
 import { useCodeEditor } from '../code-editor';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
 
 const { Text } = Typography;
 
 export const Info = () => {
   const { document: workflowDocument } = useClientContext();
-  // skillId/skillName/version/lastModified 挂载在 meta 字段
-  const meta = (workflowDocument as any).meta || {};
+  const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const [visible, setVisible] = useState(false);
   const [editCodeVisible, setEditCodeVisible] = useState(false);
-  const [skillName, setSkillName] = useState<string>(() => meta.skillName || '');
-  const skillId = meta.skillId || '';
-  const version = meta.version || '';
-  const lastModified = meta.lastModified || '';
-  const [jsonPreview, setJsonPreview] = useState<string>(() => JSON.stringify(workflowDocument.toJSON(), null, 2));
+  const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+
+  // 直接用 skill-info-store 里的数据
+  const skillId = skillInfo?.skillId || '';
+  const skillName = skillInfo?.skillName || '';
+  const version = skillInfo?.version || '';
+  const lastModified = skillInfo?.lastModified || '';
+  const jsonPreview = skillInfo ? JSON.stringify(skillInfo.workFlow, null, 2) : '';
 
   // 代码编辑器逻辑
   const handleCodeSave = useCallback((content: string) => {
@@ -24,13 +27,13 @@ export const Info = () => {
       const data = JSON.parse(content);
       workflowDocument.clear();
       workflowDocument.fromJSON(data);
-      setJsonPreview(JSON.stringify(data, null, 2));
+      setSkillInfo({ ...(skillInfo as any), workFlow: data, lastModified: new Date().toISOString() });
       setEditCodeVisible(false);
       return true;
     } catch (e) {
       return false;
     }
-  }, [workflowDocument]);
+  }, [workflowDocument, setSkillInfo, skillInfo]);
 
   const { openEditor, editor } = useCodeEditor({
     initialContent: jsonPreview,
@@ -38,11 +41,11 @@ export const Info = () => {
     onSave: handleCodeSave,
   });
 
-  // skillName 编辑保存
+  // skillName 编辑保存（只更新 skill-info-store）
   const handleSkillNameChange = (v: string) => {
-    setSkillName(v);
-    if (!(workflowDocument as any).meta) (workflowDocument as any).meta = {};
-    (workflowDocument as any).meta.skillName = v;
+    if (skillInfo) {
+      setSkillInfo({ ...skillInfo, skillName: v, lastModified: new Date().toISOString() });
+    }
   };
 
   // 打开代码编辑器
@@ -76,7 +79,7 @@ export const Info = () => {
           <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>Skill Name:</Text>
           <Input
             value={skillName}
-            onChange={handleSkillNameChange}
+            onChange={e => handleSkillNameChange(e)}
             style={{ width: 300, marginLeft: 16 }}
             placeholder="Enter skill name"
           />

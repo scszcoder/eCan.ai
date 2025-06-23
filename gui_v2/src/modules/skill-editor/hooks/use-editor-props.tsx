@@ -20,6 +20,7 @@ import { defaultFormMeta } from '../nodes/default-form-meta';
 import { WorkflowNodeType } from '../nodes';
 import { SelectorBoxPopover } from '../components/selector-box-popover';
 import { BaseNode, CommentRender, GroupNodeRender, LineAddButton, NodePanel } from '../components';
+import { useSkillInfoStore } from '../stores/skill-info-store';
 
 export function useEditorProps(
   initialData: FlowDocumentJSON,
@@ -158,6 +159,12 @@ export function useEditorProps(
        */
       onContentChange: debounce((ctx, event) => {
         console.log('Auto Save: ', event, ctx.document.toJSON());
+        // 自动同步 skillInfo 的 workFlow 字段
+        const setSkillInfo = useSkillInfoStore.getState().setSkillInfo;
+        const skillInfo = useSkillInfoStore.getState().skillInfo;
+        if (skillInfo) {
+          setSkillInfo({ ...skillInfo, workFlow: ctx.document.toJSON(), lastModified: new Date().toISOString() });
+        }
       }, 1000),
       /**
        * Running line

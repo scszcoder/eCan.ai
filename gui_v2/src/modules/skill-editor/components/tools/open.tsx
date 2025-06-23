@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
 import { IconFolderOpen } from '@douyinfe/semi-icons';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
 
 interface OpenProps {
   disabled?: boolean;
@@ -9,6 +10,7 @@ interface OpenProps {
 
 export const Open = ({ disabled }: OpenProps) => {
   const { document: workflowDocument } = useClientContext();
+  const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
 
   const handleOpen = useCallback(() => {
     const input = document.createElement('input');
@@ -21,7 +23,16 @@ export const Open = ({ disabled }: OpenProps) => {
         reader.onload = (event) => {
           try {
             const data = JSON.parse(event.target?.result as string);
-            workflowDocument.fromJSON(data);
+            if (data && data.workFlow) {
+              setSkillInfo(data);
+              workflowDocument.clear();
+              workflowDocument.fromJSON(data.workFlow);
+              workflowDocument.fitView && workflowDocument.fitView();
+            } else {
+              workflowDocument.clear();
+              workflowDocument.fromJSON(data);
+              workflowDocument.fitView && workflowDocument.fitView();
+            }
           } catch (error) {
             console.error('Failed to load file:', error);
           }
@@ -30,7 +41,7 @@ export const Open = ({ disabled }: OpenProps) => {
       }
     };
     input.click();
-  }, [workflowDocument]);
+  }, [workflowDocument, setSkillInfo]);
 
   return (
     <Tooltip content="Open">
