@@ -135,11 +135,24 @@
   "pages": {
     "dashboard": {
       "title": "Dashboard",
-      "welcome": "Welcome to ECBOT",
+      "welcome": "Welcome to the Dashboard",
       "overview": "System Overview",
       "statistics": "Statistics",
       "recentActivities": "Recent Activities",
-      "quickActions": "Quick Actions"
+      "quickActions": "Quick Actions",
+      "overviewTitle": "System Data Overview",
+      "agentsCount": "Agents",
+      "skillsCount": "Skills",
+      "toolsCount": "Tools",
+      "tasksCount": "Tasks",
+      "vehiclesCount": "Vehicles",
+      "systemStatus": "System Status",
+      "statusOnline": "Online",
+      "statusOffline": "Offline",
+      "activeAgents": "Active Agents:",
+      "more": "more",
+      "recentTasks": "Recent Tasks:",
+      "errorTitle": "Error"
     },
     "vehicles": {
       "title": "Vehicles",
@@ -529,7 +542,7 @@
       "twoWeeksFromNow": "2 weeks from now"
     },
     "knowledge": {
-      "title": "Knowledge Base",
+      "title": "Knowledge Base Management",
       "details": "Knowledge Base Details",
       "status": "Status",
       "status.active": "Active",
