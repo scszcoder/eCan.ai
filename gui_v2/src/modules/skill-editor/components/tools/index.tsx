@@ -19,7 +19,7 @@ import { FitView } from './fit-view';
 import { Comment } from './comment';
 import { AutoLayout } from './auto-layout';
 import { Open } from './open';
-import { Console } from './console';
+import { Info } from './info';
 import { NewPage } from './new-page';
 
 export const Tools = () => {
@@ -77,7 +77,7 @@ export const Tools = () => {
         <Open disabled={playground.config.readonly} />
         <NewPage disabled={playground.config.readonly} />
         <Save disabled={playground.config.readonly} />
-        <Console/>
+        <Info />
         <Run />
       </ToolSection>
     </ToolContainer>

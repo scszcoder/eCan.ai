@@ -230,9 +230,6 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
               padding: '2px',
               color: 'var(--semi-color-text-2)'
             }}
-            hoverStyle={{
-              color: 'var(--semi-color-danger)'
-            }}
           />
         )}
       </div>

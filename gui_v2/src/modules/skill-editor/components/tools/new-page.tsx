@@ -28,7 +28,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   }, [workflowDocument, username, tools]);
 
   return (
-    <Tooltip content="新建工作流页面">
+    <Tooltip content="New Page">
       <IconButton
         type="tertiary"
         theme="borderless"
