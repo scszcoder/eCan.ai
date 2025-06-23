@@ -17,7 +17,7 @@ import websockets
 import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
-from bot.Cloud import *
+from bot.Cloud import appsync_http_request, appsync_http_request8
 
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
@@ -93,37 +93,47 @@ def gen_query_report_run_ext_agent_skill_status_string(query):
 
 
 
-def gen_add_agents_string(bots):
+def gen_add_agents_string(agents):
     query_string = "mutation MyMutation { addAgents(input: ["
     rec_string = ""
-    for i in range(len(bots)):
-        if isinstance(bots[i], dict):
-            rec_string = rec_string + "{ bid: \"" + str(bots[i]["pubProfile"]["bid"]) + "\", "
-            rec_string = rec_string + "owner: \"" + str(bots[i]["pubProfile"]["owner"]) + "\", "
-            rec_string = rec_string + "roles: \"" + bots[i]["pubProfile"]["roles"] + "\", "
-            rec_string = rec_string + "org: \"" + bots[i]["pubProfile"]["org"] + "\", "
-            rec_string = rec_string + "birthday: \"" + bots[i]["pubProfile"]["pubbirthday"] + "\", "
-            rec_string = rec_string + "gender: \"" + bots[i]["pubProfile"]["gender"] + "\", "
-            rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
-            rec_string = rec_string + "status: \"" + bots[i]["pubProfile"]["status"] + "\", "
-            rec_string = rec_string + "levels: \"" + bots[i]["pubProfile"]["levels"] + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i]["pubProfile"]["vehicle"] + "\", "
-            rec_string = rec_string + "location: \"" + bots[i]["pubProfile"]["location"] + "\"} "
+    for i in range(len(agents)):
+        if isinstance(agents[i], dict):
+            rec_string = rec_string + "{ agid: \"" + str(agents[i]["agid"]) + "\", "
+            rec_string = rec_string + "owner: \"" + str(agents[i]["owner"]) + "\", "
+            rec_string = rec_string + "gender: \"" + agents[i]["gender"] + "\", "
+            rec_string = rec_string + "organizations: \"" + agents[i]["organizations"] + "\", "
+            rec_string = rec_string + "rank: \"" + agents[i]["rank"] + "\", "
+            rec_string = rec_string + "supervisors: \"" + agents[i]["supervisors"] + "\", "
+            rec_string = rec_string + "subordinates: \"" + agents[i]["subordinates"] + "\", "
+            rec_string = rec_string + "title: \"" + agents[i]["title"] + "\", "
+            rec_string = rec_string + "personalities: \"" + agents[i]["personalities"] + "\", "
+            rec_string = rec_string + "birthday: \"" + agents[i]["birthday"] + "\", "
+            rec_string = rec_string + "name: \"" + agents[i]["name"] + "\", "
+            rec_string = rec_string + "status: \"" + agents[i]["status"] + "\", "
+            rec_string = rec_string + "metadata: \"" + agents[i]["metadata"] + "\", "
+            rec_string = rec_string + "vehicle: \"" + agents[i]["vehicle"] + "\", "
+            rec_string = rec_string + "skills: \"" + agents[i]["skills"] + "\", "
+            rec_string = rec_string + "knowledges: \"" + agents[i]["knowledges"] + "\"} "
         else:
-            rec_string = rec_string + "{ bid: \"" + str(bots[i].getBid()) + "\", "
-            rec_string = rec_string + "owner: \"" + str(bots[i].getOwner()) + "\", "
-            rec_string = rec_string + "roles: \"" + bots[i].getRoles() + "\", "
-            rec_string = rec_string + "org: \"" + bots[i].getOrg() + "\", "
-            rec_string = rec_string + "birthday: \"" + bots[i].getPubBirthday() + "\", "
-            rec_string = rec_string + "gender: \"" + bots[i].getGender() + "\", "
-            rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
-            rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
-            rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getVehicle() + "\", "
-            rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
+            rec_string = rec_string + "{ agid: \"" + str(agents[i].getAgid()) + "\", "
+            rec_string = rec_string + "owner: \"" + str(agents[i].getOwner()) + "\", "
+            rec_string = rec_string + "gender: \"" + agents[i].getGender() + "\", "
+            rec_string = rec_string + "organizations: \"" + agents[i].getOrganizations() + "\", "
+            rec_string = rec_string + "rank: \"" + agents[i].getRank() + "\", "
+            rec_string = rec_string + "supervisors: \"" + agents[i].getSupervisors() + "\", "
+            rec_string = rec_string + "subordinates: \"" + agents[i].getSubordinates() + "\", "
+            rec_string = rec_string + "title: \"" + agents[i].getTitle() + "\", "
+            rec_string = rec_string + "personalities: \"" + agents[i].getPersonalities() + "\", "
+            rec_string = rec_string + "birthday: \"" + agents[i].getBirthday() + "\", "
+            rec_string = rec_string + "name: \"" + agents[i].getName() + "\", "
+            rec_string = rec_string + "status: \"" + agents[i].getStatus() + "\", "
+            rec_string = rec_string + "metadata: \"" + agents[i].getMetadata() + "\", "
+            rec_string = rec_string + "vehicle: \"" + agents[i].getVehicle() + "\", "
+            rec_string = rec_string + "skills: \"" + agents[i].getSkills() + "\", "
+            rec_string = rec_string + "knowledges: \"" + agents[i].getKnowledges() + "\"} "
 
 
-        if i != len(bots) - 1:
+        if i != len(agents) - 1:
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
@@ -134,43 +144,53 @@ def gen_add_agents_string(bots):
     return query_string
 
 
-def gen_update_agents_string(bots):
+def gen_update_agents_string(agents):
     query_string = """
         mutation MyUBMutation {
       updateAgents (input:[
     """
     rec_string = ""
-    for i in range(len(bots)):
-        if isinstance(bots[i], dict):
-            rec_string = rec_string + "{ bid: \"" + str(bots[i]["pubProfile"]["bid"]) + "\", "
-            rec_string = rec_string + "owner: \"" + str(bots[i]["pubProfile"]["owner"]) + "\", "
-            rec_string = rec_string + "roles: \"" + bots[i]["pubProfile"]["roles"] + "\", "
-            rec_string = rec_string + "org: \"" + bots[i]["pubProfile"]["org"] + "\", "
-            rec_string = rec_string + "birthday: " + bots[i]["pubProfile"]["pubbirthday"] + ", "
-            rec_string = rec_string + "gender: \"" + bots[i]["pubProfile"]["gender"] + "\", "
-            rec_string = rec_string + "interests: \"" + bots[i]["pubProfile"]["interests"] + "\", "
-            rec_string = rec_string + "status: \"" + bots[i]["pubProfile"]["status"] + "\", "
-            rec_string = rec_string + "levels: \"" + bots[i]["pubProfile"]["levels"] + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i]["pubProfile"]["vehicle"] + "\", "
-            rec_string = rec_string + "location: \"" + bots[i]["pubProfile"]["location"] + "\"} "
+    for i in range(len(agents)):
+        if isinstance(agents[i], dict):
+            rec_string = rec_string + "{ agid: \"" + str(agents[i]["agid"]) + "\", "
+            rec_string = rec_string + "owner: \"" + str(agents[i]["owner"]) + "\", "
+            rec_string = rec_string + "gender: \"" + agents[i]["gender"] + "\", "
+            rec_string = rec_string + "organizations: \"" + agents[i]["organizations"] + "\", "
+            rec_string = rec_string + "rank: \"" + agents[i]["rank"] + "\", "
+            rec_string = rec_string + "supervisors: \"" + agents[i]["supervisors"] + "\", "
+            rec_string = rec_string + "subordinates: \"" + agents[i]["subordinates"] + "\", "
+            rec_string = rec_string + "title: \"" + agents[i]["title"] + "\", "
+            rec_string = rec_string + "personalities: \"" + agents[i]["personalities"] + "\", "
+            rec_string = rec_string + "birthday: \"" + agents[i]["birthday"] + "\", "
+            rec_string = rec_string + "name: \"" + agents[i]["name"] + "\", "
+            rec_string = rec_string + "status: \"" + agents[i]["status"] + "\", "
+            rec_string = rec_string + "metadata: \"" + agents[i]["metadata"] + "\", "
+            rec_string = rec_string + "vehicle: \"" + agents[i]["vehicle"] + "\", "
+            rec_string = rec_string + "skills: \"" + agents[i]["skills"] + "\", "
+            rec_string = rec_string + "knowledges: \"" + agents[i]["knowledges"] + "\"} "
         else:
-            if bots[i].getOrg():
-                org = bots[i].getOrg()
+            if agents[i].getOrg():
+                org = agents[i].getOrg()
             else:
                 org = ""
-            rec_string = rec_string + "{ bid: " + str(bots[i].getBid()) + ", "
-            rec_string = rec_string + "owner: \"" + bots[i].getOwner() + "\", "
-            rec_string = rec_string + "roles: \"" + bots[i].getRoles() + "\", "
-            rec_string = rec_string + "org: \"" + org + "\", "
-            rec_string = rec_string + "birthday: \"" + bots[i].getPubBirthday() + "\", "
-            rec_string = rec_string + "gender: \"" + bots[i].getGender() + "\", "
-            rec_string = rec_string + "interests: \"" + bots[i].getInterests() + "\", "
-            rec_string = rec_string + "status: \"" + bots[i].getStatus() + "\", "
-            rec_string = rec_string + "levels: \"" + bots[i].getLevels() + "\", "
-            rec_string = rec_string + "vehicle: \"" + bots[i].getVehicle() + "\", "
-            rec_string = rec_string + "location: \"" + bots[i].getLocation() + "\"} "
+            rec_string = rec_string + "{ agid: \"" + str(agents[i].getAgid()) + "\", "
+            rec_string = rec_string + "owner: \"" + str(agents[i].getOwner()) + "\", "
+            rec_string = rec_string + "gender: \"" + agents[i].getGender() + "\", "
+            rec_string = rec_string + "organizations: \"" + agents[i].getOrganizations() + "\", "
+            rec_string = rec_string + "rank: \"" + agents[i].getRank() + "\", "
+            rec_string = rec_string + "supervisors: \"" + agents[i].getSupervisors() + "\", "
+            rec_string = rec_string + "subordinates: \"" + agents[i].getSubordinates() + "\", "
+            rec_string = rec_string + "title: \"" + agents[i].getTitle() + "\", "
+            rec_string = rec_string + "personalities: \"" + agents[i].getPersonalities() + "\", "
+            rec_string = rec_string + "birthday: \"" + agents[i].getBirthday() + "\", "
+            rec_string = rec_string + "name: \"" + agents[i].getName() + "\", "
+            rec_string = rec_string + "status: \"" + agents[i].getStatus() + "\", "
+            rec_string = rec_string + "metadata: \"" + agents[i].getMetadata() + "\", "
+            rec_string = rec_string + "vehicle: \"" + agents[i].getVehicle() + "\", "
+            rec_string = rec_string + "skills: \"" + agents[i].getSkills() + "\", "
+            rec_string = rec_string + "knowledges: \"" + agents[i].getKnowledges() + "\"} "
 
-        if i != len(bots) - 1:
+        if i != len(agents) - 1:
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
@@ -187,7 +207,7 @@ def gen_update_agents_string(bots):
 
 def gen_remove_agents_string(removeOrders):
     query_string = """
-        mutation MyRBMutation {
+        mutation MyRAMutation {
       removeAgents (input:[
     """
     rec_string = ""
@@ -222,7 +242,7 @@ def gen_query_agents_string(q_setting):
     return query_string
 
 def gen_get_agents_string():
-    query_string = "query MyGetBotQuery { getAgents (ids:'"
+    query_string = "query MyGetAgentQuery { getAgents (ids:'"
     rec_string = "0"
 
     tail_string = "') }"
@@ -239,37 +259,25 @@ def gen_add_agent_skills_string(skills):
         if isinstance(skills[i], dict):
             rec_string = rec_string + "{ askid: " + str(skills[i]["askid"]) + ", "
             rec_string = rec_string + "owner: \"" + str(skills[i]["owner"]) + "\", "
-            rec_string = rec_string + "createdOn: \"" + str(skills[i]["createdOn"]) + "\", "
-            rec_string = rec_string + "platform: \"" + skills[i]["platform"] + "\", "
-            rec_string = rec_string + "app: \"" + skills[i]["app"] + "\", "
-            rec_string = rec_string + "site_name: \"" + skills[i]["site_name"] + "\", "
-            rec_string = rec_string + "site: \"" + skills[i]["site"] + "\", "
-            rec_string = rec_string + "page: \"" + skills[i]["page"] + "\", "
             rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
-            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
-            rec_string = rec_string + "main: \"" + skills[i]["main"] + "\", "
             rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
-            rec_string = rec_string + "runtime: " + str(skills[i]["runtime"]) + ", "
-            rec_string = rec_string + "price_model: \"" + skills[i]["price_model"] + "\", "
-            rec_string = rec_string + "price: " + str(skills[i]["price"]) + ", "
-            rec_string = rec_string + "privacy: \"" + skills[i]["privacy"] + "\"} "
+            rec_string = rec_string + "status: \"" + skills[i]["status"] + "\", "
+            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
+            rec_string = rec_string + "flowgram: \"" + skills[i]["flowgram"] + "\", "
+            rec_string = rec_string + "langgraph: \"" + skills[i]["langgraph"] + "\", "
+            rec_string = rec_string + "config: " + str(skills[i]["config"]) + ", "
+            rec_string = rec_string + "price: " + str(skills[i]["price"]) + "\"} "
         else:
-            rec_string = rec_string + "{ skid: " + str(skills[i].getSkid()) + ", "
+            rec_string = rec_string + "{ askid: " + str(skills[i].getSkid()) + ", "
             rec_string = rec_string + "owner: \"" + str(skills[i].getOwner()) + "\", "
-            rec_string = rec_string + "createdOn: \"" + str(skills[i].getCreatedOn()) + "\", "
-            rec_string = rec_string + "platform: \"" + skills[i].getPlatform() + "\", "
-            rec_string = rec_string + "app: \"" + skills[i].getApp() + "\", "
-            rec_string = rec_string + "site_name: \"" + skills[i].getSiteName() + "\", "
-            rec_string = rec_string + "site: \"" + skills[i].getSite() + "\", "
-            rec_string = rec_string + "page: \"" + skills[i].getPage() + "\", "
             rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
-            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
-            rec_string = rec_string + "main: \"" + skills[i].getMain() + "\", "
             rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
-            rec_string = rec_string + "runtime: " + str(skills[i].getRunTime()) + ", "
-            rec_string = rec_string + "price_model: \"" + skills[i].getPriceModel() + "\", "
-            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + ", "
-            rec_string = rec_string + "privacy: \"" + skills[i].getPrivacy() + "\"} "
+            rec_string = rec_string + "status: \"" + skills[i].getStatus() + "\", "
+            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
+            rec_string = rec_string + "flowgram: \"" + skills[i].getFlowgram() + "\", "
+            rec_string = rec_string + "langgraph: \"" + skills[i].getLanggraph() + "\", "
+            rec_string = rec_string + "config: " + str(skills[i].getConfig()) + ", "
+            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + "\"} "
 
         if i != len(skills) - 1:
             rec_string = rec_string + ', '
@@ -287,43 +295,33 @@ def gen_add_agent_skills_string(skills):
 
 def gen_update_agent_skills_string(skills):
     query_string = """
-        mutation MyUBMutation {
+        mutation MyUASMutation {
       updateAgentSkills (input:[
     """
     rec_string = ""
     for i in range(len(skills)):
         if isinstance(skills[i], dict):
-            rec_string = rec_string + "{ skid: " + str(skills[i]["skid"]) + ", "
+            rec_string = rec_string + "{ askid: " + str(skills[i]["askid"]) + ", "
             rec_string = rec_string + "owner: \"" + str(skills[i]["owner"]) + "\", "
-            rec_string = rec_string + "createdOn: \"" + str(skills[i]["createdOn"]) + "\", "
-            rec_string = rec_string + "platform: \"" + skills[i]["platform"] + "\", "
-            rec_string = rec_string + "app: \"" + skills[i]["app"] + "\", "
-            rec_string = rec_string + "site: \"" + skills[i]["site"] + "\", "
-            rec_string = rec_string + "page: \"" + skills[i]["page"] + "\", "
             rec_string = rec_string + "name: \"" + skills[i]["name"] + "\", "
-            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
-            rec_string = rec_string + "main: \"" + skills[i]["main"] + "\", "
             rec_string = rec_string + "description: \"" + skills[i]["description"] + "\", "
-            rec_string = rec_string + "runtime: " + str(skills[i]["runtime"]) + ", "
-            rec_string = rec_string + "price_model: \"" + skills[i]["price_model"] + "\", "
-            rec_string = rec_string + "price: " + str(skills[i]["price"]) + ", "
-            rec_string = rec_string + "privacy: \"" + skills[i]["privacy"] + "\"} "
+            rec_string = rec_string + "status: \"" + skills[i]["status"] + "\", "
+            rec_string = rec_string + "path: \"" + skills[i]["path"] + "\", "
+            rec_string = rec_string + "flowgram: \"" + skills[i]["flowgram"] + "\", "
+            rec_string = rec_string + "langgraph: \"" + skills[i]["langgraph"] + "\", "
+            rec_string = rec_string + "config: " + str(skills[i]["config"]) + ", "
+            rec_string = rec_string + "price: " + str(skills[i]["price"]) + "\"} "
         else:
-            rec_string = rec_string + "{ skid: " + str(skills[i].getSkid()) + ", "
+            rec_string = rec_string + "{ askid: " + str(skills[i].getSkid()) + ", "
             rec_string = rec_string + "owner: \"" + str(skills[i].getOwner()) + "\", "
-            rec_string = rec_string + "createdOn: \"" + str(skills[i].getCreatedOn()) + "\", "
-            rec_string = rec_string + "platform: \"" + skills[i].getPlatform() + "\", "
-            rec_string = rec_string + "app: \"" + skills[i].getApp() + "\", "
-            rec_string = rec_string + "site: \"" + skills[i].getSite() + "\", "
-            rec_string = rec_string + "page: \"" + skills[i].getPage() + "\", "
             rec_string = rec_string + "name: \"" + skills[i].getName() + "\", "
-            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
-            rec_string = rec_string + "main: \"" + skills[i].getMain() + "\", "
             rec_string = rec_string + "description: \"" + skills[i].getDescription() + "\", "
-            rec_string = rec_string + "runtime: " + str(skills[i].getRunTime()) + ", "
-            rec_string = rec_string + "price_model: \"" + skills[i].getPriceModel() + "\", "
-            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + ", "
-            rec_string = rec_string + "privacy: \"" + skills[i].getPrivacy() + "\"} "
+            rec_string = rec_string + "status: \"" + skills[i].getStatus() + "\", "
+            rec_string = rec_string + "path: \"" + skills[i].getPath() + "\", "
+            rec_string = rec_string + "flowgram: \"" + skills[i].getFlowgram() + "\", "
+            rec_string = rec_string + "langgraph: \"" + skills[i].getLanggraph() + "\", "
+            rec_string = rec_string + "config: " + str(skills[i].getConfig()) + ", "
+            rec_string = rec_string + "price: " + str(skills[i].getPrice()) + "\"} "
 
         if i != len(skills) - 1:
             rec_string = rec_string + ', '
@@ -342,7 +340,7 @@ def gen_update_agent_skills_string(skills):
 
 def gen_remove_agent_skills_string(removeOrders):
     query_string = """
-        mutation MyRBMutation {
+        mutation MyRASMutation {
       removeAgentSkills (input:[
     """
     rec_string = ""
@@ -377,55 +375,49 @@ def gen_query_agent_skills_string(q_setting):
     logger_helper.debug(query_string)
     return query_string
 
+def gen_get_agent_skills_string():
+    query_string = "query MyGetAgentSkillsQuery { getAgentSkills (ids:'"
+    rec_string = "0"
+
+    tail_string = "') }"
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
 
 
 
 
-def gen_add_agent_tasks_string(missions, test_settings={}):
+def gen_add_agent_tasks_string(tasks, test_settings={}):
     query_string = """
         mutation MyAMMutation {
       addAgentTasks (input:[
     """
     rec_string = ""
-    for i in range(len(missions)):
-        if isinstance(missions[i], dict):
-            rec_string = rec_string + "{ mid:" + str(missions[i]["pubAttributes"]["missionId"]) + ", "
-            rec_string = rec_string + "ticket:" + str(missions[i]["pubAttributes"]["ticket"]) + ", "
-            rec_string = rec_string + "owner:\"" + missions[i]["pubAttributes"]["owner"] + "\", "
-            rec_string = rec_string + "botid:" + str(missions[i]["pubAttributes"]["bot_id"]) + ", "
-            rec_string = rec_string + "cuspas:\"" + missions[i]["pubAttributes"]["cuspas"] + "\", "
-            rec_string = rec_string + "search_kw:\"" + missions[i]["pubAttributes"]["search_kw"] + "\", "
-            rec_string = rec_string + "search_cat:\"" + missions[i]["pubAttributes"]["search_cat"] + "\", "
-            rec_string = rec_string + "status:\"" + missions[i]["pubAttributes"]["status"] + "\", "
-            rec_string = rec_string + "trepeat:" + str(missions[i]["pubAttributes"]["repeat"]) + ", "
-            rec_string = rec_string + "stores:\"" + missions[i]["pubAttributes"]["pseudo_store"] + "\", "
-            rec_string = rec_string + "asin:\"" + missions[i]["pubAttributes"]["pseudo_asin"] + "\", "
-            rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
-            rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["ms_type"] + "\", "
-            rec_string = rec_string + "esd:\"" + missions[i]["pubAttributes"]["esd"] + "\", "
-            rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
-            rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
+    for i in range(len(tasks)):
+        if isinstance(tasks[i], dict):
+            rec_string = rec_string + "{ ataskid:" + str(tasks[i]["ataskid"]) + ", "
+            rec_string = rec_string + "owner:\"" + tasks[i]["owner"] + "\", "
+            rec_string = rec_string + "name:" + str(tasks[i]["name"]) + ", "
+            rec_string = rec_string + "description:\"" + tasks[i]["description"] + "\", "
+            rec_string = rec_string + "objectives:\"" + tasks[i]["objectives"].replace('"', '\\"') + "\", "
+            rec_string = rec_string + "status:\"" + tasks[i]["status"] + "\", "
+            rec_string = rec_string + "schedule:" + tasks[i]["schedule"].replace('"', '\\"') + ", "
+            rec_string = rec_string + "metadata:\"" + tasks[i]["metadata"].replace('"', '\\"') + "\", "
+            rec_string = rec_string + "start:\"" + tasks[i]["start"] + "\", "
+            rec_string = rec_string + "priority:\"" + tasks[i]["priority"] + "\"} "
         else:
-            rec_string = rec_string + "{ mid:" + str(missions[i].getMid()) + ", "
-            rec_string = rec_string + "ticket:" + str(missions[i].getTicket()) + ", "
-            rec_string = rec_string + "owner:\"" + missions[i].getOwner() + "\", "
-            rec_string = rec_string + "botid:" + str(missions[i].getBid()) + ", "
-            rec_string = rec_string + "cuspas:\"" + str(missions[i].getCusPAS()) + "\", "
-            rec_string = rec_string + "search_kw:\"" + missions[i].getSearchKW() + "\", "
-            rec_string = rec_string + "search_cat:\"" + missions[i].getSearchCat() + "\", "
-            rec_string = rec_string + "status:\"" + missions[i].getStatus() + "\", "
-            rec_string = rec_string + "trepeat:" + str(missions[i].getRetry()) + ", "
-            rec_string = rec_string + "stores:\"" + missions[i].getPseudoStore() + "\", "
-            rec_string = rec_string + "asin:\"" + missions[i].getPseudoASIN() + "\", "
-            rec_string = rec_string + "brand:\"" + missions[i].getPseudoBrand() + "\", "
-            rec_string = rec_string + "mtype:\"" + missions[i].getMtype() + "\", "
-            rec_string = rec_string + "esd:\"" + missions[i].getEsd() + "\", "
-            rec_string = rec_string + "as_server:" + str(int(missions[i].getAsServer())) + ", "
-            rec_string = rec_string + "skills:\"" + missions[i].getSkills() + "\", "
-            rec_string = rec_string + "config:\"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ ataskid:" + str(tasks[i].getTaskId()) + ", "
+            rec_string = rec_string + "owner:" + str(tasks[i].getOwner()) + ", "
+            rec_string = rec_string + "name:\"" + tasks[i].getName() + "\", "
+            rec_string = rec_string + "description:" + str(tasks[i].getDescription()) + ", "
+            rec_string = rec_string + "objectives:\"" + tasks[i].getObjectives().replace('"', '\\"') + "\", "
+            rec_string = rec_string + "status:\"" + tasks[i].getStatus() + "\", "
+            rec_string = rec_string + "schedule:\"" + tasks[i].getSchedule().replace('"', '\\"') + "\", "
+            rec_string = rec_string + "metadata:\"" + tasks[i].getMetadata().replace('"', '\\"') + "\", "
+            rec_string = rec_string + "start:\"" + tasks[i].getStart() + "\", "
+            rec_string = rec_string + "priority:\"" + tasks[i].getPriority() + "\"} "
 
-        if i != len(missions) - 1:
+        if i != len(tasks) - 1:
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
@@ -469,51 +461,37 @@ def gen_remove_agent_tasks_string(removeOrders):
 
 
 
-def gen_update_agent_tasks_string(missions):
+def gen_update_agent_tasks_string(tasks):
     query_string = """
         mutation MyUMMutation {
       updateAgentTasks (input:[
     """
     rec_string = ""
-    for i in range(len(missions)):
-        if isinstance(missions[i], dict):
-            rec_string = rec_string + "{ mid:\"" + str(missions[i]["pubAttributes"]["missionId"]) + "\", "
-            rec_string = rec_string + "ticket:\"" + str(missions[i]["pubAttributes"]["ticket"]) + "\", "
-            rec_string = rec_string + "owner:\"" + missions[i]["pubAttributes"]["owner"] + "\", "
-            rec_string = rec_string + "botid:\"" + str(missions[i]["pubAttributes"]["botid"]) + "\", "
-            rec_string = rec_string + "cuspas:\"" + str(missions[i]["pubAttributes"]["cuspas"]) + "\", "
-            rec_string = rec_string + "search_kw:\"" + missions[i]["pubAttributes"]["search_kw"] + "\", "
-            rec_string = rec_string + "search_cat:\"" + missions[i]["pubAttributes"]["search_cat"] + "\", "
-            rec_string = rec_string + "status:\"" + missions[i]["pubAttributes"]["status"] + "\", "
-            rec_string = rec_string + "trepeat:" + str(missions[i]["pubAttributes"]["repeat"]) + ", "
-            rec_string = rec_string + "stores:\"" + str(missions[i]["pubAttributes"]["pseudo_store"]) + "\", "
-            rec_string = rec_string + "asin:" + str(missions[i]["pubAttributes"]["pseudo_asin"]) + ", "
-            rec_string = rec_string + "brand:\"" + missions[i]["pubAttributes"]["pseudo_brand"] + "\", "
-            rec_string = rec_string + "mtype:\"" + missions[i]["pubAttributes"]["mtype"] + "\", "
-            rec_string = rec_string + "esd:\"" + missions[i]["pubAttributes"]["esd"] + "\", "
-            rec_string = rec_string + "as_server:" + str(int(missions[i]["pubAttributes"]["as_server"])) + ", "
-            rec_string = rec_string + "skills:\"" + missions[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + missions[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
+    for i in range(len(tasks)):
+        if isinstance(tasks[i], dict):
+            rec_string = rec_string + "{ ataskid:" + str(tasks[i]["ataskid"]) + ", "
+            rec_string = rec_string + "owner:\"" + tasks[i]["owner"] + "\", "
+            rec_string = rec_string + "name:" + str(tasks[i]["name"]) + ", "
+            rec_string = rec_string + "description:\"" + tasks[i]["description"] + "\", "
+            rec_string = rec_string + "objectives:\"" + tasks[i]["objectives"].replace('"', '\\"') + "\", "
+            rec_string = rec_string + "status:\"" + tasks[i]["status"] + "\", "
+            rec_string = rec_string + "schedule:" + tasks[i]["schedule"].replace('"', '\\"') + ", "
+            rec_string = rec_string + "metadata:\"" + tasks[i]["metadata"].replace('"', '\\"') + "\", "
+            rec_string = rec_string + "start:\"" + tasks[i]["start"] + "\", "
+            rec_string = rec_string + "priority:\"" + tasks[i]["priority"] + "\"} "
         else:
-            rec_string = rec_string + "{ mid: " + str(missions[i].getMid()) + ", "
-            rec_string = rec_string + "ticket: " + str(missions[i].getTicket()) + ", "
-            rec_string = rec_string + "owner: \"" + missions[i].getOwner() + "\", "
-            rec_string = rec_string + "botid:" + str(missions[i].getBid()) + ", "
-            rec_string = rec_string + "cuspas: \"" + missions[i].getCusPAS() + "\", "
-            rec_string = rec_string + "search_kw: \"" + missions[i].getSearchKW() + "\", "
-            rec_string = rec_string + "search_cat: \"" + missions[i].getSearchCat() + "\", "
-            rec_string = rec_string + "status: \"" + missions[i].getStatus() + "\", "
-            rec_string = rec_string + "trepeat: " + str(missions[i].getRetry()) + ", "
-            rec_string = rec_string + "stores: \"" + missions[i].getPseudoStore() + "\", "
-            rec_string = rec_string + "asin: \"" + missions[i].getPseudoASIN() + "\", "
-            rec_string = rec_string + "brand: \"" + missions[i].getPseudoBrand() + "\", "
-            rec_string = rec_string + "mtype: \"" + missions[i].getMtype() + "\", "
-            rec_string = rec_string + "esd: \"" + missions[i].getEsd() + "\", "
-            rec_string = rec_string + "as_server: " + str(int(missions[i].getAsServer())) + ", "
-            rec_string = rec_string + "skills: \"" + missions[i].getSkills() + "\", "
-            rec_string = rec_string + "config: \"" + missions[i].getConfig().replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ ataskid:" + str(tasks[i].getTaskId()) + ", "
+            rec_string = rec_string + "owner:" + str(tasks[i].getOwner()) + ", "
+            rec_string = rec_string + "name:\"" + tasks[i].getName() + "\", "
+            rec_string = rec_string + "description:" + str(tasks[i].getDescription()) + ", "
+            rec_string = rec_string + "objectives:\"" + tasks[i].getObjectives().replace('"', '\\"') + "\", "
+            rec_string = rec_string + "status:\"" + tasks[i].getStatus() + "\", "
+            rec_string = rec_string + "schedule:\"" + tasks[i].getSchedule().replace('"', '\\"') + "\", "
+            rec_string = rec_string + "metadata:\"" + tasks[i].getMetadata().replace('"', '\\"') + "\", "
+            rec_string = rec_string + "start:\"" + tasks[i].getStart() + "\", "
+            rec_string = rec_string + "priority:\"" + tasks[i].getPriority() + "\"} "
 
-        if i != len(missions) - 1:
+        if i != len(tasks) - 1:
             rec_string = rec_string + ', '
         else:
             rec_string = rec_string + ']'
@@ -581,6 +559,15 @@ def gen_query_agent_tasks_string(query):
     return query_string
 
 
+def gen_get_agent_tasks_string():
+    query_string = "query MyGetAgentTasksQuery { getAgentTasks (ids:'"
+    rec_string = "0"
+
+    tail_string = "') }"
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
 
 def gen_add_agent_tools_string(tools, test_settings={}):
     query_string = """
@@ -590,41 +577,25 @@ def gen_add_agent_tools_string(tools, test_settings={}):
     rec_string = ""
     for i in range(len(tools)):
         if isinstance(tools[i], dict):
-            rec_string = rec_string + "{ mid:" + str(tools[i]["pubAttributes"]["missionId"]) + ", "
-            rec_string = rec_string + "ticket:" + str(tools[i]["pubAttributes"]["ticket"]) + ", "
-            rec_string = rec_string + "owner:\"" + tools[i]["pubAttributes"]["owner"] + "\", "
-            rec_string = rec_string + "botid:" + str(tools[i]["pubAttributes"]["bot_id"]) + ", "
-            rec_string = rec_string + "cuspas:\"" + tools[i]["pubAttributes"]["cuspas"] + "\", "
-            rec_string = rec_string + "search_kw:\"" + tools[i]["pubAttributes"]["search_kw"] + "\", "
-            rec_string = rec_string + "search_cat:\"" + tools[i]["pubAttributes"]["search_cat"] + "\", "
-            rec_string = rec_string + "status:\"" + tools[i]["pubAttributes"]["status"] + "\", "
-            rec_string = rec_string + "trepeat:" + str(tools[i]["pubAttributes"]["repeat"]) + ", "
-            rec_string = rec_string + "stores:\"" + tools[i]["pubAttributes"]["pseudo_store"] + "\", "
-            rec_string = rec_string + "asin:\"" + tools[i]["pubAttributes"]["pseudo_asin"] + "\", "
-            rec_string = rec_string + "brand:\"" + tools[i]["pubAttributes"]["pseudo_brand"] + "\", "
-            rec_string = rec_string + "mtype:\"" + tools[i]["pubAttributes"]["ms_type"] + "\", "
-            rec_string = rec_string + "esd:\"" + tools[i]["pubAttributes"]["esd"] + "\", "
-            rec_string = rec_string + "as_server:" + str(int(tools[i]["pubAttributes"]["as_server"])) + ", "
-            rec_string = rec_string + "skills:\"" + tools[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + tools[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ toolid:" + str(tools[i]["toolId"]) + ", "
+            rec_string = rec_string + "owner:\"" + tools[i]["owner"] + "\", "
+            rec_string = rec_string + "name:" + tools[i]["name"] + ", "
+            rec_string = rec_string + "description:\"" + tools[i]["description"] + "\", "
+            rec_string = rec_string + "link:\"" + tools[i]["link"] + "\", "
+            rec_string = rec_string + "protocol:\"" + tools[i]["protocol"] + "\", "
+            rec_string = rec_string + "status:\"" + tools[i]["status"] + "\", "
+            rec_string = rec_string + "metadata:\"" + tools[i]["metadata"].replace('"', '\\"') + "\", "
+            rec_string = rec_string + "price:\"" + str(tools[i]["price"]) + "\"} "
         else:
-            rec_string = rec_string + "{ mid:" + str(tools[i].getMid()) + ", "
-            rec_string = rec_string + "ticket:" + str(tools[i].getTicket()) + ", "
-            rec_string = rec_string + "owner:\"" + tools[i].getOwner() + "\", "
-            rec_string = rec_string + "botid:" + str(tools[i].getBid()) + ", "
-            rec_string = rec_string + "cuspas:\"" + str(tools[i].getCusPAS()) + "\", "
-            rec_string = rec_string + "search_kw:\"" + tools[i].getSearchKW() + "\", "
-            rec_string = rec_string + "search_cat:\"" + tools[i].getSearchCat() + "\", "
+            rec_string = rec_string + "{ toolid:" + str(tools[i].getToolId()) + ", "
+            rec_string = rec_string + "owner:" + tools[i].getOwner() + ", "
+            rec_string = rec_string + "name:\"" + tools[i].getName() + "\", "
+            rec_string = rec_string + "description:" + tools[i].getDescription() + ", "
+            rec_string = rec_string + "link:\"" + tools[i].getLink() + "\", "
+            rec_string = rec_string + "protocol:\"" + tools[i].getProtocol() + "\", "
             rec_string = rec_string + "status:\"" + tools[i].getStatus() + "\", "
-            rec_string = rec_string + "trepeat:" + str(tools[i].getRetry()) + ", "
-            rec_string = rec_string + "stores:\"" + tools[i].getPseudoStore() + "\", "
-            rec_string = rec_string + "asin:\"" + tools[i].getPseudoASIN() + "\", "
-            rec_string = rec_string + "brand:\"" + tools[i].getPseudoBrand() + "\", "
-            rec_string = rec_string + "mtype:\"" + tools[i].getMtype() + "\", "
-            rec_string = rec_string + "esd:\"" + tools[i].getEsd() + "\", "
-            rec_string = rec_string + "as_server:" + str(int(tools[i].getAsServer())) + ", "
-            rec_string = rec_string + "skills:\"" + tools[i].getSkills() + "\", "
-            rec_string = rec_string + "config:\"" + tools[i].getConfig().replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "metadata:" + tools[i].getMetadata().replace('"', '\\"') + ", "
+            rec_string = rec_string + "price:\"" + str(tools[i].getConfig()) + "\"} "
 
         if i != len(tools) - 1:
             rec_string = rec_string + ', '
@@ -678,41 +649,25 @@ def gen_update_agent_tools_string(tools):
     rec_string = ""
     for i in range(len(tools)):
         if isinstance(tools[i], dict):
-            rec_string = rec_string + "{ mid:\"" + str(tools[i]["pubAttributes"]["missionId"]) + "\", "
-            rec_string = rec_string + "ticket:\"" + str(tools[i]["pubAttributes"]["ticket"]) + "\", "
-            rec_string = rec_string + "owner:\"" + tools[i]["pubAttributes"]["owner"] + "\", "
-            rec_string = rec_string + "botid:\"" + str(tools[i]["pubAttributes"]["botid"]) + "\", "
-            rec_string = rec_string + "cuspas:\"" + str(tools[i]["pubAttributes"]["cuspas"]) + "\", "
-            rec_string = rec_string + "search_kw:\"" + tools[i]["pubAttributes"]["search_kw"] + "\", "
-            rec_string = rec_string + "search_cat:\"" + tools[i]["pubAttributes"]["search_cat"] + "\", "
-            rec_string = rec_string + "status:\"" + tools[i]["pubAttributes"]["status"] + "\", "
-            rec_string = rec_string + "trepeat:" + str(tools[i]["pubAttributes"]["repeat"]) + ", "
-            rec_string = rec_string + "stores:\"" + str(tools[i]["pubAttributes"]["pseudo_store"]) + "\", "
-            rec_string = rec_string + "asin:" + str(tools[i]["pubAttributes"]["pseudo_asin"]) + ", "
-            rec_string = rec_string + "brand:\"" + tools[i]["pubAttributes"]["pseudo_brand"] + "\", "
-            rec_string = rec_string + "mtype:\"" + tools[i]["pubAttributes"]["mtype"] + "\", "
-            rec_string = rec_string + "esd:\"" + tools[i]["pubAttributes"]["esd"] + "\", "
-            rec_string = rec_string + "as_server:" + str(int(tools[i]["pubAttributes"]["as_server"])) + ", "
-            rec_string = rec_string + "skills:\"" + tools[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + tools[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ toolid:" + str(tools[i]["toolId"]) + ", "
+            rec_string = rec_string + "owner:\"" + tools[i]["owner"] + "\", "
+            rec_string = rec_string + "name:" + tools[i]["name"] + ", "
+            rec_string = rec_string + "description:\"" + tools[i]["description"] + "\", "
+            rec_string = rec_string + "link:\"" + tools[i]["link"] + "\", "
+            rec_string = rec_string + "protocol:\"" + tools[i]["protocol"] + "\", "
+            rec_string = rec_string + "status:\"" + tools[i]["status"] + "\", "
+            rec_string = rec_string + "metadata:\"" + tools[i]["metadata"].replace('"', '\\"') + "\", "
+            rec_string = rec_string + "price:\"" + str(tools[i]["price"]) + "\"} "
         else:
-            rec_string = rec_string + "{ mid: " + str(tools[i].getMid()) + ", "
-            rec_string = rec_string + "ticket: " + str(tools[i].getTicket()) + ", "
-            rec_string = rec_string + "owner: \"" + tools[i].getOwner() + "\", "
-            rec_string = rec_string + "botid:" + str(tools[i].getBid()) + ", "
-            rec_string = rec_string + "cuspas: \"" + tools[i].getCusPAS() + "\", "
-            rec_string = rec_string + "search_kw: \"" + tools[i].getSearchKW() + "\", "
-            rec_string = rec_string + "search_cat: \"" + tools[i].getSearchCat() + "\", "
-            rec_string = rec_string + "status: \"" + tools[i].getStatus() + "\", "
-            rec_string = rec_string + "trepeat: " + str(tools[i].getRetry()) + ", "
-            rec_string = rec_string + "stores: \"" + tools[i].getPseudoStore() + "\", "
-            rec_string = rec_string + "asin: \"" + tools[i].getPseudoASIN() + "\", "
-            rec_string = rec_string + "brand: \"" + tools[i].getPseudoBrand() + "\", "
-            rec_string = rec_string + "mtype: \"" + tools[i].getMtype() + "\", "
-            rec_string = rec_string + "esd: \"" + tools[i].getEsd() + "\", "
-            rec_string = rec_string + "as_server: " + str(int(tools[i].getAsServer())) + ", "
-            rec_string = rec_string + "skills: \"" + tools[i].getSkills() + "\", "
-            rec_string = rec_string + "config: \"" + tools[i].getConfig().replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ toolid:" + str(tools[i].getToolId()) + ", "
+            rec_string = rec_string + "owner:" + tools[i].getOwner() + ", "
+            rec_string = rec_string + "name:\"" + tools[i].getName() + "\", "
+            rec_string = rec_string + "description:" + tools[i].getDescription() + ", "
+            rec_string = rec_string + "link:\"" + tools[i].getLink() + "\", "
+            rec_string = rec_string + "protocol:\"" + tools[i].getProtocol() + "\", "
+            rec_string = rec_string + "status:\"" + tools[i].getStatus() + "\", "
+            rec_string = rec_string + "metadata:" + tools[i].getMetadata().replace('"', '\\"') + ", "
+            rec_string = rec_string + "price:\"" + str(tools[i].getConfig()) + "\"} "
 
         if i != len(tools) - 1:
             rec_string = rec_string + ', '
@@ -762,21 +717,30 @@ def gen_query_agent_tools_by_time_string(query):
 def gen_query_agent_tools_string(query):
     query_string = """
         query MyQuery {
-      queryAgentTools (qm:[
+      queryAgentTools (qt:[
     """
     rec_string = ""
     for i in range(len(query)):
-        rec_string = rec_string + "{ mid: " + str(int(query[i]['mid'])) + ", "
-        rec_string = rec_string + "ticket: " + str(int(query[i]['ticket'])) + ", "
-        rec_string = rec_string + "botid: " + str(int(query[i]['botid'])) + ", "
+        rec_string = rec_string + "{ toolid: " + str(int(query[i]['toolid'])) + ", "
         rec_string = rec_string + "owner: \"" + query[i]['owner'] + "\", "
-        rec_string = rec_string + "skills: \"" + query[i]['skills'] + "\" }"
+        rec_string = rec_string + "name: \"" + query[i]['name'] + "\" }"
         if i != len(query) - 1:
             rec_string = rec_string + ', '
 
     tail_string = """
         ])
         }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
+
+def gen_get_agent_tools_string():
+    query_string = "query MyGetAgentToolsQuery { getAgentTools (ids:'"
+    rec_string = "0"
+
+    tail_string = "') }"
     query_string = query_string + rec_string + tail_string
     logger_helper.debug(query_string)
     return query_string
@@ -792,41 +756,23 @@ def gen_add_knowledges_string(knowledges, test_settings={}):
     rec_string = ""
     for i in range(len(knowledges)):
         if isinstance(knowledges[i], dict):
-            rec_string = rec_string + "{ mid:" + str(knowledges[i]["pubAttributes"]["missionId"]) + ", "
-            rec_string = rec_string + "ticket:" + str(knowledges[i]["pubAttributes"]["ticket"]) + ", "
-            rec_string = rec_string + "owner:\"" + knowledges[i]["pubAttributes"]["owner"] + "\", "
-            rec_string = rec_string + "botid:" + str(knowledges[i]["pubAttributes"]["bot_id"]) + ", "
-            rec_string = rec_string + "cuspas:\"" + knowledges[i]["pubAttributes"]["cuspas"] + "\", "
-            rec_string = rec_string + "search_kw:\"" + knowledges[i]["pubAttributes"]["search_kw"] + "\", "
-            rec_string = rec_string + "search_cat:\"" + knowledges[i]["pubAttributes"]["search_cat"] + "\", "
-            rec_string = rec_string + "status:\"" + knowledges[i]["pubAttributes"]["status"] + "\", "
-            rec_string = rec_string + "trepeat:" + str(knowledges[i]["pubAttributes"]["repeat"]) + ", "
-            rec_string = rec_string + "stores:\"" + knowledges[i]["pubAttributes"]["pseudo_store"] + "\", "
-            rec_string = rec_string + "asin:\"" + knowledges[i]["pubAttributes"]["pseudo_asin"] + "\", "
-            rec_string = rec_string + "brand:\"" + knowledges[i]["pubAttributes"]["pseudo_brand"] + "\", "
-            rec_string = rec_string + "mtype:\"" + knowledges[i]["pubAttributes"]["ms_type"] + "\", "
-            rec_string = rec_string + "esd:\"" + knowledges[i]["pubAttributes"]["esd"] + "\", "
-            rec_string = rec_string + "as_server:" + str(int(knowledges[i]["pubAttributes"]["as_server"])) + ", "
-            rec_string = rec_string + "skills:\"" + knowledges[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + knowledges[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ knid:" + str(knowledges[i]["knId"]) + ", "
+            rec_string = rec_string + "owner:\"" + knowledges[i]["owner"] + "\", "
+            rec_string = rec_string + "name:" + knowledges[i]["name"] + ", "
+            rec_string = rec_string + "description:\"" + knowledges[i]["description"] + "\", "
+            rec_string = rec_string + "path:\"" + knowledges[i]["path"] + "\", "
+            rec_string = rec_string + "status:\"" + knowledges[i]["status"] + "\", "
+            rec_string = rec_string + "metadata:" + knowledges[i]["metadata"].replace('"', '\\"') + ", "
+            rec_string = rec_string + "rag:\"" + knowledges[i]["rag"] + "\"} "
         else:
-            rec_string = rec_string + "{ mid:" + str(knowledges[i].getMid()) + ", "
-            rec_string = rec_string + "ticket:" + str(knowledges[i].getTicket()) + ", "
+            rec_string = rec_string + "{ knid:" + str(knowledges[i].getKnid()) + ", "
             rec_string = rec_string + "owner:\"" + knowledges[i].getOwner() + "\", "
-            rec_string = rec_string + "botid:" + str(knowledges[i].getBid()) + ", "
-            rec_string = rec_string + "cuspas:\"" + str(knowledges[i].getCusPAS()) + "\", "
-            rec_string = rec_string + "search_kw:\"" + knowledges[i].getSearchKW() + "\", "
-            rec_string = rec_string + "search_cat:\"" + knowledges[i].getSearchCat() + "\", "
+            rec_string = rec_string + "name:" + knowledges[i].getName() + ", "
+            rec_string = rec_string + "description:\"" + knowledges[i].getDescription() + "\", "
+            rec_string = rec_string + "path:\"" + knowledges[i].getPath() + "\", "
             rec_string = rec_string + "status:\"" + knowledges[i].getStatus() + "\", "
-            rec_string = rec_string + "trepeat:" + str(knowledges[i].getRetry()) + ", "
-            rec_string = rec_string + "stores:\"" + knowledges[i].getPseudoStore() + "\", "
-            rec_string = rec_string + "asin:\"" + knowledges[i].getPseudoASIN() + "\", "
-            rec_string = rec_string + "brand:\"" + knowledges[i].getPseudoBrand() + "\", "
-            rec_string = rec_string + "mtype:\"" + knowledges[i].getMtype() + "\", "
-            rec_string = rec_string + "esd:\"" + knowledges[i].getEsd() + "\", "
-            rec_string = rec_string + "as_server:" + str(int(knowledges[i].getAsServer())) + ", "
-            rec_string = rec_string + "skills:\"" + knowledges[i].getSkills() + "\", "
-            rec_string = rec_string + "config:\"" + knowledges[i].getConfig().replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "metadata:" + knowledges[i].getMetadata().replace('"', '\\"') + ", "
+            rec_string = rec_string + "rag:\"" + knowledges[i].getRag() + "\"} "
 
         if i != len(knowledges) - 1:
             rec_string = rec_string + ', '
@@ -880,41 +826,23 @@ def gen_update_knowledges_string(knowledges):
     rec_string = ""
     for i in range(len(knowledges)):
         if isinstance(knowledges[i], dict):
-            rec_string = rec_string + "{ mid:\"" + str(knowledges[i]["pubAttributes"]["missionId"]) + "\", "
-            rec_string = rec_string + "ticket:\"" + str(knowledges[i]["pubAttributes"]["ticket"]) + "\", "
-            rec_string = rec_string + "owner:\"" + knowledges[i]["pubAttributes"]["owner"] + "\", "
-            rec_string = rec_string + "botid:\"" + str(knowledges[i]["pubAttributes"]["botid"]) + "\", "
-            rec_string = rec_string + "cuspas:\"" + str(knowledges[i]["pubAttributes"]["cuspas"]) + "\", "
-            rec_string = rec_string + "search_kw:\"" + knowledges[i]["pubAttributes"]["search_kw"] + "\", "
-            rec_string = rec_string + "search_cat:\"" + knowledges[i]["pubAttributes"]["search_cat"] + "\", "
-            rec_string = rec_string + "status:\"" + knowledges[i]["pubAttributes"]["status"] + "\", "
-            rec_string = rec_string + "trepeat:" + str(knowledges[i]["pubAttributes"]["repeat"]) + ", "
-            rec_string = rec_string + "stores:\"" + str(knowledges[i]["pubAttributes"]["pseudo_store"]) + "\", "
-            rec_string = rec_string + "asin:" + str(knowledges[i]["pubAttributes"]["pseudo_asin"]) + ", "
-            rec_string = rec_string + "brand:\"" + knowledges[i]["pubAttributes"]["pseudo_brand"] + "\", "
-            rec_string = rec_string + "mtype:\"" + knowledges[i]["pubAttributes"]["mtype"] + "\", "
-            rec_string = rec_string + "esd:\"" + knowledges[i]["pubAttributes"]["esd"] + "\", "
-            rec_string = rec_string + "as_server:" + str(int(knowledges[i]["pubAttributes"]["as_server"])) + ", "
-            rec_string = rec_string + "skills:\"" + knowledges[i]["pubAttributes"]["skills"] + "\", "
-            rec_string = rec_string + "config:\"" + knowledges[i]["pubAttributes"]["config"].replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ knid:" + str(knowledges[i]["knId"]) + ", "
+            rec_string = rec_string + "owner:\"" + knowledges[i]["owner"] + "\", "
+            rec_string = rec_string + "name:" + knowledges[i]["name"] + ", "
+            rec_string = rec_string + "description:\"" + knowledges[i]["description"] + "\", "
+            rec_string = rec_string + "path:\"" + knowledges[i]["path"] + "\", "
+            rec_string = rec_string + "status:\"" + knowledges[i]["status"] + "\", "
+            rec_string = rec_string + "metadata:" + knowledges[i]["metadata"].replace('"', '\\"') + ", "
+            rec_string = rec_string + "rag:\"" + knowledges[i]["rag"] + "\"} "
         else:
-            rec_string = rec_string + "{ mid: " + str(knowledges[i].getMid()) + ", "
-            rec_string = rec_string + "ticket: " + str(knowledges[i].getTicket()) + ", "
-            rec_string = rec_string + "owner: \"" + knowledges[i].getOwner() + "\", "
-            rec_string = rec_string + "botid:" + str(knowledges[i].getBid()) + ", "
-            rec_string = rec_string + "cuspas: \"" + knowledges[i].getCusPAS() + "\", "
-            rec_string = rec_string + "search_kw: \"" + knowledges[i].getSearchKW() + "\", "
-            rec_string = rec_string + "search_cat: \"" + knowledges[i].getSearchCat() + "\", "
-            rec_string = rec_string + "status: \"" + knowledges[i].getStatus() + "\", "
-            rec_string = rec_string + "trepeat: " + str(knowledges[i].getRetry()) + ", "
-            rec_string = rec_string + "stores: \"" + knowledges[i].getPseudoStore() + "\", "
-            rec_string = rec_string + "asin: \"" + knowledges[i].getPseudoASIN() + "\", "
-            rec_string = rec_string + "brand: \"" + knowledges[i].getPseudoBrand() + "\", "
-            rec_string = rec_string + "mtype: \"" + knowledges[i].getMtype() + "\", "
-            rec_string = rec_string + "esd: \"" + knowledges[i].getEsd() + "\", "
-            rec_string = rec_string + "as_server: " + str(int(knowledges[i].getAsServer())) + ", "
-            rec_string = rec_string + "skills: \"" + knowledges[i].getSkills() + "\", "
-            rec_string = rec_string + "config: \"" + knowledges[i].getConfig().replace('"', '\\"') + "\"} "
+            rec_string = rec_string + "{ knid:" + str(knowledges[i].getKnid()) + ", "
+            rec_string = rec_string + "owner:\"" + knowledges[i].getOwner() + "\", "
+            rec_string = rec_string + "name:" + knowledges[i].getName() + ", "
+            rec_string = rec_string + "description:\"" + knowledges[i].getDescription() + "\", "
+            rec_string = rec_string + "path:\"" + knowledges[i].getPath() + "\", "
+            rec_string = rec_string + "status:\"" + knowledges[i].getStatus() + "\", "
+            rec_string = rec_string + "metadata:" + knowledges[i].getMetadata().replace('"', '\\"') + ", "
+            rec_string = rec_string + "rag:\"" + knowledges[i].getRag() + "\"} "
 
         if i != len(knowledges) - 1:
             rec_string = rec_string + ', '
@@ -934,7 +862,7 @@ def gen_query_knowledges_by_time_string(query):
 
     query_string = """
         query MyQuery {
-      queryKnowledges (qm:[
+      queryKnowledges (qk:[
     """
     rec_string = ""
     for i in range(len(query)):
@@ -964,21 +892,31 @@ def gen_query_knowledges_by_time_string(query):
 def gen_query_knowledges_string(query):
     query_string = """
         query MyQuery {
-      queryKnowledges (qm:[
+      queryKnowledges (qk:[
     """
     rec_string = ""
     for i in range(len(query)):
-        rec_string = rec_string + "{ mid: " + str(int(query[i]['mid'])) + ", "
-        rec_string = rec_string + "ticket: " + str(int(query[i]['ticket'])) + ", "
-        rec_string = rec_string + "botid: " + str(int(query[i]['botid'])) + ", "
+        rec_string = rec_string + "{ knid: " + str(int(query[i]['knid'])) + ", "
         rec_string = rec_string + "owner: \"" + query[i]['owner'] + "\", "
-        rec_string = rec_string + "skills: \"" + query[i]['skills'] + "\" }"
+        rec_string = rec_string + "name: \"" + query[i]['name'] + "\" }"
         if i != len(query) - 1:
             rec_string = rec_string + ', '
 
     tail_string = """
         ])
         }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+
+
+
+def gen_get_knowledges_string():
+    query_string = "query MyGetKnowledgesQuery { getKnowledges (ids:'"
+    rec_string = "0"
+
+    tail_string = "') }"
     query_string = query_string + rec_string + tail_string
     logger_helper.debug(query_string)
     return query_string
@@ -995,7 +933,7 @@ def gen_update_agent_tasks_ex_status_string(tasksStats):
     rec_string = ""
     for i in range(len(tasksStats)):
         if isinstance(tasksStats[i], dict):
-            rec_string = rec_string + "{ mid:" + str(tasksStats[i]["mid"]) + ", "
+            rec_string = rec_string + "{ ataskid:" + str(tasksStats[i]["ataskid"]) + ", "
             rec_string = rec_string + "status:\"" + tasksStats[i]["status"] + "\"}"
         else:
             rec_string = rec_string + "{ mid:" + str(tasksStats[i].getMid()) + ", "
@@ -1017,9 +955,9 @@ def gen_update_agent_tasks_ex_status_string(tasksStats):
 
 
 
-def send_update_agent_tasks_ex_status_to_cloud(session, missionStats, token, endpoint):
-    if len(missionStats) > 0:
-        query = gen_update_agent_tasks_ex_status_string(missionStats)
+def send_update_agent_tasks_ex_status_to_cloud(session, tasksStats, token, endpoint):
+    if len(tasksStats) > 0:
+        query = gen_update_agent_tasks_ex_status_string(tasksStats)
 
         jresp = appsync_http_request(query, session, token, endpoint)
 
@@ -1056,63 +994,12 @@ def send_completion_status_to_cloud(session, taskStats, token, endpoint, full=Tr
     return jresponse
 
 
-async def send_run_ext_skill_request_to_cloud8(session, reqs, token, endpoint):
-
-    mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
-
-    jresp = await appsync_http_request8(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["requestRunExtSkill"])
-
-    return jresponse
-
-def send_run_ext_skill_request_to_cloud(session, reqs, token, endpoint):
-
-    mutationInfo = gen_query_reqest_run_ext_skill_string(reqs)
-
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        print("JRESP::", jresp)
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["requestRunExtSkill"])
-
-    return jresponse
-
-
-def send_report_run_ext_skill_status_request_to_cloud(session, reps, token, endpoint):
-
-    mutationInfo = gen_query_report_run_ext_skill_status_string(reps)
-    print("report status mutation:", mutationInfo)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-
-    if "errors" in jresp:
-        screen_error = True
-        print("JRESP:", jresp)
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-
-        jresponse = jresp["errors"][0]
-    else:
-        jresponse = json.loads(jresp["data"]["reportRunExtSkillStatus"])
-
-    return jresponse
-
 # =================================================================================================
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_add_agents_request_to_cloud(session, bots, token, endpoint):
 
-    mutationInfo = gen_add_bots_string(bots)
+    mutationInfo = gen_add_agents_string(bots)
 
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
@@ -1131,7 +1018,7 @@ def send_add_agents_request_to_cloud(session, bots, token, endpoint):
 # Use AWS4Auth to sign a requests session
 def send_update_agents_request_to_cloud(session, bots, token, endpoint):
 
-    mutationInfo = gen_update_bots_string(bots)
+    mutationInfo = gen_update_agents_string(bots)
 
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
@@ -1150,7 +1037,7 @@ def send_update_agents_request_to_cloud(session, bots, token, endpoint):
 # Use AWS4Auth to sign a requests session
 def send_remove_agents_request_to_cloud(session, removes, token, endpoint):
 
-    mutationInfo = gen_remove_bots_string(removes)
+    mutationInfo = gen_remove_agents_string(removes)
 
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
@@ -1271,11 +1158,30 @@ def send_query_agent_skills_request_to_cloud(session, token, q_settings, endpoin
     return jresponse
 
 
+
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_get_agent_skills_request_to_cloud(session, token, endpoint):
+
+    queryInfo = gen_get_agent_skills_string()
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getAgentSkills"])
+
+    return jresponse
+
+
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_add_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
 
-    mutationInfo = gen_add_missions_string(tasks)
+    mutationInfo = gen_add_agent_tasks_string(tasks)
 
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
@@ -1284,8 +1190,7 @@ def send_add_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
         logger_helper.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["addMissions"])
-    print("send_add_missions_request_to_cloud response:", send_add_missions_request_to_cloud)
+        jresponse = json.loads(jresp["data"]["addAgentTasks"])
     return jresponse
 
 
@@ -1293,7 +1198,7 @@ def send_add_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
 # Use AWS4Auth to sign a requests session
 def send_update_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
 
-    mutationInfo = gen_update_missions_string(tasks)
+    mutationInfo = gen_update_agent_tasks_string(tasks)
 
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
@@ -1302,7 +1207,7 @@ def send_update_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["updateMissions"])
+        jresponse = json.loads(jresp["data"]["updateAgentTasks"])
     return jresponse
 
 
@@ -1370,32 +1275,41 @@ def send_query_agent_tasks_by_time_request_to_cloud(session, token, q_settings, 
     return jresponse
 
 
-def send_query_manager_agent_tasks_request_to_cloud(session, token, q_settings, endpoint):
-    try:
-        queryInfo = gen_query_manager_agent_tasks_string(q_settings)
 
-        jresp = appsync_http_request(queryInfo, session, token, endpoint)
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
 
-        if "errors" in jresp:
-            screen_error = True
-            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-            jresponse = jresp["errors"][0]
-        else:
-            jresponse = json.loads(jresp["data"]["getManagerAgentTasks"])
+    queryInfo = gen_get_agent_tasks_string()
 
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorQueryManagerAgentTasks:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorQueryManagerAgentTasks traceback information not available:" + str(e)
-        print(ex_stat)
-        jresponse = {}
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getAgentTasks"])
 
     return jresponse
 
+
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_add_knowledges_request_to_cloud(session, tasks, token, endpoint):
+
+    mutationInfo = gen_add_knowledges_string(tasks)
+
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["addKnowledges"])
+
+    return jresponse
 
 
 def send_update_knowledges_request_to_cloud(session, vehicles, token, endpoint):
@@ -1415,8 +1329,58 @@ def send_update_knowledges_request_to_cloud(session, vehicles, token, endpoint):
 
 
 
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_remove_knowledges_request_to_cloud(session, removes, token, endpoint):
+
+    mutationInfo = gen_remove_knowledges_string(removes)
+
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["removeKnowledges"])
+
+    return jresponse
 
 
+def send_query_knowledges_request_to_cloud(session, token, q_settings, endpoint):
+
+    queryInfo = gen_query_knowledges_string(q_settings)
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryKnowledges"])
+
+
+    return jresponse
+
+
+
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_get_knowledges_request_to_cloud(session, token, endpoint):
+
+    queryInfo = gen_get_knowledges_string()
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getKnowledges"])
+
+    return jresponse
 
 
 
