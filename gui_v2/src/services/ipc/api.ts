@@ -165,8 +165,8 @@ export class IPCAPI {
         return this.executeRequest<void>('save_skills', {username, skills});
     }
 
-    public async saveSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_skill', {username, skill});
+    public async saveSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('save_skill', {username, skill_info});
     }
 
 

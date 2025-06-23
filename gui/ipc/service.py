@@ -3,7 +3,7 @@ IPC 服务模块，处理与前端的数据交互
 """
 
 from PySide6.QtCore import QObject, Slot, Signal, QRunnable, QThreadPool
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 import json
 from typing import Optional, Dict, Any, Callable
 from .types import (
@@ -12,7 +12,6 @@ from .types import (
 from .registry import IPCHandlerRegistry
 import traceback
 
-logger = logger_helper
 
 # 1. 为工作线程创建一个信号通信器
 class WorkerSignals(QObject):

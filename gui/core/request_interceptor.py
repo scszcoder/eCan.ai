@@ -4,7 +4,7 @@
 
 from PySide6.QtWebEngineCore import QWebEngineUrlRequestInterceptor
 from PySide6.QtCore import QUrl
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from typing import Optional, Dict, Any
 
 class RequestInterceptor(QWebEngineUrlRequestInterceptor):
@@ -36,7 +36,7 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
             # 检查是否需要拦截
             if self._should_intercept(url, resource_type):
                 self._blocked_count += 1
-                logger_helper.info(f"Blocked request: {url}")
+                logger.info(f"Blocked request: {url}")
                 info.block(True)
                 return
             
@@ -44,7 +44,7 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
             self._add_custom_headers(info)
             
         except Exception as e:
-            logger_helper.error(f"Error in request interceptor: {str(e)}")
+            logger.error(f"Error in request interceptor: {str(e)}")
     
     def _should_intercept(self, url: str, resource_type: str) -> bool:
         """检查是否需要拦截请求"""
@@ -80,22 +80,22 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
     def add_allowed_domain(self, domain: str):
         """添加允许的域名"""
         self._allowed_domains.add(domain)
-        logger_helper.info(f"Added allowed domain: {domain}")
+        logger.info(f"Added allowed domain: {domain}")
     
     def add_blocked_domain(self, domain: str):
         """添加阻止的域名"""
         self._blocked_domains.add(domain)
-        logger_helper.info(f"Added blocked domain: {domain}")
+        logger.info(f"Added blocked domain: {domain}")
     
     def set_custom_header(self, key: str, value: str):
         """设置自定义请求头"""
         self._custom_headers[key] = value
-        logger_helper.info(f"Set custom header: {key}: {value}")
+        logger.info(f"Set custom header: {key}: {value}")
     
     def clear_custom_headers(self):
         """清除所有自定义请求头"""
         self._custom_headers.clear()
-        logger_helper.info("Cleared all custom headers")
+        logger.info("Cleared all custom headers")
     
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
@@ -111,4 +111,4 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
         """重置统计信息"""
         self._request_count = 0
         self._blocked_count = 0
-        logger_helper.info("Reset request statistics") 
+        logger.info("Reset request statistics") 

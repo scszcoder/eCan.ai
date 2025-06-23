@@ -7,7 +7,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEnginePage, QWebEngineScript
 from PySide6.QtCore import QUrl, Qt, Slot, Signal, QObject
 from PySide6.QtWebChannel import QWebChannel
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from gui.core.request_interceptor import RequestInterceptor
 from gui.ipc.service import IPCService
 from gui.ipc.api import IPCAPI
@@ -29,7 +29,6 @@ class CustomWebEnginePage(QWebEnginePage):
             url, feature, QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
         )
 
-logger = logger_helper.logger
 
 class WebEngineView(QWebEngineView):
     """WebEngineView 类，封装了 Web 视图的核心功能"""

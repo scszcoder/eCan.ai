@@ -7,9 +7,7 @@ import json
 import os
 from typing import Dict, List, Optional, Any
 from .types import CallableFunction, CallableFilter
-from utils.logger_helper import logger_helper
-
-logger = logger_helper.logger
+from utils.logger_helper import logger_helper as logger
 
 class CallableStorage:
     """Callable function storage class"""

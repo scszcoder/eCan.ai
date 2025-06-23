@@ -8,11 +8,10 @@ from typing import Any, Dict, Optional
 import uuid
 from gui.ipc.handlers import validate_params
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from gui.ipc.registry import IPCHandlerRegistry
 import asyncio # 假设 runner.chat_wait_in_line 是异步的
 
-logger = logger_helper.logger
 
 # def find_sender(py_login, chat):
 #     sender = next((ag for ag in py_login.main_win.agents if "My Twin Agent" == ag.card.name), None)

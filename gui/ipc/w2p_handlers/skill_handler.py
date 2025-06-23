@@ -6,8 +6,7 @@ from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 
-from utils.logger_helper import logger_helper
-logger = logger_helper.logger
+from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('get_skills')
 def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> IPCResponse:
@@ -108,18 +107,17 @@ def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'skill' 字段 skill就是json数据，其中diagram为其流程图的json表达
+        params: 请求参数，必须包含 'username' 和 'skill_info' 字段 skill_info就是json数据，其中diagram为其流程图的json表达
 
     Returns:
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save skills handler called with request: {request}, params: {params}")
-        print("save skills:", params)
+        logger.debug(f"Save skill handler called with request: {request}, params: {params}")
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'skill'])
+        is_valid, data, error = validate_params(params, ['username', 'skill_info'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for save skills: {error}")
+            logger.warning(f"Invalid parameters for save skill: {error}")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -128,17 +126,11 @@ def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_
 
         # 获取用户名和密码
         username = data['username']
-
-
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"save skills successful for user: {username}")
-
-
+        logger.info(f"save skill successful for user: {username}")
+        logger.info(f"skill_info: {data['skill_info']}")
 
         return create_success_response(request, {
-            'token': token,
-            'message': 'Save skills successful'
+            'message': 'Save skill successful'
         })
 
     except Exception as e:
@@ -148,11 +140,10 @@ def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_
             'LOGIN_ERROR',
             f"Error during save skills: {str(e)}"
         )
-
-
+    
 
 @IPCHandlerRegistry.handler('run_skill')
-def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
+def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
     """处理保存skill流程图
 
     验证用户凭据并返回访问令牌。
@@ -166,7 +157,6 @@ def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_
     """
     try:
         logger.debug(f"Run skill handler called with request: {request}, params: {params}")
-        print("run skill:", params)
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'skill'])
         if not is_valid:

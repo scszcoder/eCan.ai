@@ -8,12 +8,10 @@ from typing import Any, Optional, Dict
 from gui.LoginoutGUI import Login
 from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 import uuid
 import traceback
 
-
-logger = logger_helper.logger
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """验证请求参数

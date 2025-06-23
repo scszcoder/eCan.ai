@@ -6,8 +6,7 @@ from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 
-from utils.logger_helper import logger_helper
-logger = logger_helper.logger
+from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('get_agents')
 def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login: Login) -> IPCResponse:
