@@ -4,6 +4,7 @@ import Editor, { OnChange, loader } from '@monaco-editor/react';
 import { CodeEditorComponentProps } from './types';
 import { editorStyles } from './styles';
 import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
+import ReactDOM from 'react-dom';
 
 // 配置Monaco Editor使用本地路径
 loader.config({
@@ -221,8 +222,8 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
     return null;
   }
 
-  // Render modal
-  return (
+  // Render modal with portal
+  return ReactDOM.createPortal(
     <div className="custom-editor-container" style={editorStyles.container}>
       <div className="custom-editor-content" style={editorStyles.content}>
         <div className="custom-editor-header" style={editorStyles.header}>
@@ -255,6 +256,7 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }; 
