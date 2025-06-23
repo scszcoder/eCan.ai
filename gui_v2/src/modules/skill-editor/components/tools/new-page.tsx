@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
-import { IconFlowChartStroked } from '@douyinfe/semi-icons';
+import { IconFile } from '@douyinfe/semi-icons';
 import emptyFlow from '../../data/empty-flow.json';
 import { saveFile } from './save';
 import { useUserStore } from '../../../../stores/userStore';
@@ -40,7 +40,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
       <IconButton
         type="tertiary"
         theme="borderless"
-        icon={<IconFlowChartStroked />}
+        icon={<IconFile />}
         disabled={disabled}
         onClick={handleNewPage}
       />
