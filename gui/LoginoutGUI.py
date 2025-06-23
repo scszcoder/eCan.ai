@@ -558,9 +558,13 @@ class Login(QDialog):
             #                       client_id=CLIENT_ID, client_secret=CLIENT_SECRET, client=self.aws_client)
             if not uname:
                 uname = self.textName.text()
-
+            else:
+                self.textName.setText(uname)
             if not pw:
                 pw = self.textPass.text()
+            else:
+                self.textPass.setText(pw)
+                
             self.aws_srp = AWSSRP(username=uname, password=pw, pool_id=USER_POOL_ID,
                                   client_id=CLIENT_ID, client=self.aws_client)
 
