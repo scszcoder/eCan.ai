@@ -20,6 +20,7 @@ import { Comment } from './comment';
 import { AutoLayout } from './auto-layout';
 import { Open } from './open';
 import { Console } from './console';
+import { NewPage } from './new-page';
 
 export const Tools = () => {
   const { history, playground } = useClientContext();
@@ -74,6 +75,7 @@ export const Tools = () => {
         <AddNode disabled={playground.config.readonly} />
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
         <Open disabled={playground.config.readonly} />
+        <NewPage disabled={playground.config.readonly} />
         <Save disabled={playground.config.readonly} />
         <Console/>
         <Run />
