@@ -21,6 +21,7 @@ import { AutoLayout } from './auto-layout';
 import { Open } from './open';
 import { Info } from './info';
 import { NewPage } from './new-page';
+import { useInfoStore } from '../../stores/info-store';
 
 export const Tools = () => {
   const { history, playground } = useClientContext();
