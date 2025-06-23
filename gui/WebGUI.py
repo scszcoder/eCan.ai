@@ -136,8 +136,8 @@ class WebGUI(QMainWindow):
         if reply == QMessageBox.Yes:
             # 接受关闭事件
             event.accept()
-            # 结束整个应用程序
-            sys.exit(0)
+            from PySide6.QtWidgets import QApplication
+            QApplication.quit()
         else:
             # 忽略关闭事件
             event.ignore()

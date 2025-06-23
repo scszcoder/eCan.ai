@@ -281,7 +281,7 @@ pytesseract==0.3.13
 langchain-openai==0.3.17
 jwcrypto==1.5.6
 langgraph==0.4.5
-langchain_mcp_adapters==0.1.7
+langchain_mcp_adapters==0.1.2
 lzstring==1.0.4
 mem0ai==0.1.109
 pytest>=7.4.0

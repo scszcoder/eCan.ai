@@ -107,20 +107,9 @@ const Login: React.FC = () => {
 			pageRefreshManager.enable();
 			
 			messageApi.success(t('login.success'));
-			navigate('/dashboard');
-            
-			await new Promise(resolve => setTimeout(resolve, 6000));
-			const appData = await api.getAll(values.username);
-			
-			// 将API返回的数据保存到store中
-			console.log('appData', appData);
-			if (appData?.data) {
-				logger.info('Get all system data successful');
-				AppDataStoreHandler.updateStore(appData.data as any);
-				logger.info('system data 数据已保存到store中');
-			} else {
-				logger.error('Get all system data failed');
-			}
+			setTimeout(() => {
+				navigate('/dashboard');
+			}, 3000)
 		} else {
 			logger.error('Login failed', response.error);
 			messageApi.error(response.error?.message || t('login.failed'));

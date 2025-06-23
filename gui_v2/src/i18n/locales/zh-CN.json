@@ -102,7 +102,7 @@
     "staff_office": "参谋部"
   },
   "settings": {
-    "title": "设置",
+    "title": "系统设置",
     "general": "常规",
     "language": "语言",
     "theme": "主题",
@@ -135,11 +135,24 @@
   "pages": {
     "dashboard": {
       "title": "仪表盘",
-      "welcome": "欢迎使用 ECBOT",
+      "welcome": "欢迎来到仪表盘",
       "overview": "系统概览",
       "statistics": "统计信息",
       "recentActivities": "最近活动",
-      "quickActions": "快捷操作"
+      "quickActions": "快捷操作",
+      "overviewTitle": "系统数据概览",
+      "agentsCount": "代理数量",
+      "skillsCount": "技能数量",
+      "toolsCount": "工具数量",
+      "tasksCount": "任务数量",
+      "vehiclesCount": "车辆数量",
+      "systemStatus": "系统状态",
+      "statusOnline": "在线",
+      "statusOffline": "离线",
+      "activeAgents": "活跃代理:",
+      "more": "更多",
+      "recentTasks": "最近任务:",
+      "errorTitle": "错误"
     },
     "vehicles": {
       "title": "车辆管理",
@@ -539,7 +552,7 @@
       "twoWeeksFromNow": "两周后"
     },
     "knowledge": {
-      "title": "知识库",
+      "title": "知识库管理",
       "details": "知识库详情",
       "status": "状态",
       "status.active": "活跃",
@@ -645,6 +658,10 @@
     "ariaSearch": "搜索",
     "ariaHistory": "查看搜索历史",
     "ariaFilter": "打开筛选选项",
-    "colon": "："
+    "colon": ":"
+  },
+  "components": {
+    "confirm": "确认",
+    "notification": "通知"
   }
 } 
