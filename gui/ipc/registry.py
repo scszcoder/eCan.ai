@@ -6,9 +6,7 @@ IPC 处理器注册器模块
 from typing import Any, Dict, Optional, Callable, TypeVar, ClassVar, Tuple, Literal
 from functools import wraps
 from .types import IPCRequest, IPCResponse, create_error_response
-from utils.logger_helper import logger_helper
-
-logger = logger_helper
+from utils.logger_helper import logger_helper as logger
 
 # 定义处理器函数类型
 SyncHandlerFunc = Callable[[IPCRequest, Optional[Any], Optional[Any]], IPCResponse]

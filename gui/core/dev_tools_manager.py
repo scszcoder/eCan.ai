@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, Signal, QSize
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtGui import QAction, QKeySequence
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -64,7 +64,7 @@ class DevToolsManager(QWidget):
             }
         """)
         
-        logger_helper.info("DevTools initialized")
+        logger.info("DevTools initialized")
     
     def _setup_shortcuts(self):
         """设置快捷键"""
@@ -82,7 +82,7 @@ class DevToolsManager(QWidget):
     
     def toggle(self):
         """切换开发者工具显示状态"""
-        logger_helper.info("Toggling developer tools...")
+        logger.info("Toggling developer tools...")
         if self.dev_tools_dock.isVisible():
             self.hide()
         else:

@@ -6,10 +6,9 @@ from typing import Optional, Dict, Any, Callable, TypeVar, Generic, List
 from dataclasses import dataclass
 from .types import IPCResponse
 from .service import IPCService
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 import gui.ipc.w2p_handlers
 
-logger = logger_helper.logger
 
 # 定义泛型类型
 T = TypeVar('T')

@@ -4,13 +4,11 @@ Manage callable functions and their operations
 """
 
 from typing import List, Optional, Dict, Any, Tuple
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from .types import CallableFunction, CallableFilter
 from .storage import CallableStorage
 import uuid
-import logging
 
-logger = logging.getLogger(__name__)
 
 class CallableManager:
     """Callable function management class"""

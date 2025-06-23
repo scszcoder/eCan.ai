@@ -3,8 +3,9 @@ import { useCallback } from 'react';
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
 import { IconSave } from '@douyinfe/semi-icons';
 import { useUserStore } from '../../../../stores/userStore';
-import { APIResponse, IPCAPI } from '@/services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { get_ipc_api } from '@/services/ipc_api';
+import { SkillInfo } from '../../typings/skill-info';
 // 添加 File System Access API 的类型定义
 declare global {
   interface Window {
@@ -34,7 +35,7 @@ interface SaveProps {
 // 是否启用本地下载 SkillInfo 文件
 const ENABLE_LOCAL_DOWNLOAD = true;
 
-export async function saveFile(skillInfo: any, username?: string) {
+export async function saveFile(skillInfo: SkillInfo, username?: string) {
   try {
     const jsonString = JSON.stringify(skillInfo, null, 2);
     if (ENABLE_LOCAL_DOWNLOAD) {
@@ -67,7 +68,7 @@ export async function saveFile(skillInfo: any, username?: string) {
       }
     }
     if (username) {
-      await IPCAPI.getInstance().saveSkill(username, jsonString);
+      await get_ipc_api().saveSkill(username, skillInfo);
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {

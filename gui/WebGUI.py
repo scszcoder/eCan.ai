@@ -11,7 +11,7 @@ if sys.platform == 'darwin':
     os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
 
 from config.app_settings import app_settings
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
 from agent.chats.chat_service import ChatService
@@ -36,18 +36,18 @@ class WebGUI(QMainWindow):
         
         # 获取 Web URL
         web_url = app_settings.get_web_url()
-        logger_helper.info(f"Web URL from settings: {web_url}")
+        logger.info(f"Web URL from settings: {web_url}")
         
         if web_url:
             if app_settings.is_dev_mode:
                 # 开发模式：使用 Vite 开发服务器
                 self.web_engine_view.load_url(web_url)
-                logger_helper.info(f"Development mode: Loading from {web_url}")
+                logger.info(f"Development mode: Loading from {web_url}")
             else:
                 # 生产模式：加载本地文件
                 self.load_local_html()
         else:
-            logger_helper.error("Failed to get web URL")
+            logger.error("Failed to get web URL")
         
         # 添加 Web 引擎到布局
         layout.addWidget(self.web_engine_view)
@@ -71,27 +71,27 @@ class WebGUI(QMainWindow):
     def load_local_html(self):
         """加载本地 HTML 文件"""
         index_path = app_settings.dist_dir / "index.html"
-        logger_helper.info(f"Looking for index.html at: {index_path}")
+        logger.info(f"Looking for index.html at: {index_path}")
         
         if index_path.exists():
             try:
                 # 直接加载本地文件
                 self.web_engine_view.load_local_file(index_path)
-                logger_helper.info(f"Production mode: Loading from {index_path}")
+                logger.info(f"Production mode: Loading from {index_path}")
                 
             except Exception as e:
-                logger_helper.error(f"Error loading HTML file: {str(e)}")
+                logger.error(f"Error loading HTML file: {str(e)}")
                 import traceback
-                logger_helper.error(traceback.format_exc())
+                logger.error(traceback.format_exc())
         else:
-            logger_helper.error(f"index.html not found in {app_settings.dist_dir}")
+            logger.error(f"index.html not found in {app_settings.dist_dir}")
             # 列出目录内容以便调试
             if app_settings.dist_dir.exists():
-                logger_helper.info(f"Contents of {app_settings.dist_dir}:")
+                logger.info(f"Contents of {app_settings.dist_dir}:")
                 for item in app_settings.dist_dir.iterdir():
-                    logger_helper.info(f"  - {item.name}")
+                    logger.info(f"  - {item.name}")
             else:
-                logger_helper.error(f"Directory {app_settings.dist_dir} does not exist")
+                logger.error(f"Directory {app_settings.dist_dir} does not exist")
     
     def _setup_shortcuts(self):
         """设置快捷键"""
@@ -116,7 +116,7 @@ class WebGUI(QMainWindow):
 
     def reload(self):
         """重新加载页面"""
-        logger_helper.info("Reloading page...")
+        logger.info("Reloading page...")
         if app_settings.is_dev_mode:
             self.web_engine_view.reload_page()
         else:
@@ -152,14 +152,14 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Agents data updated successfully: {response.data}")
+                    logger.info(f"Agents data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Agents data: {response.error}")
+                    logger.error(f"Failed to update Agents data: {response.error}")
 
             IPCAPI.get_instance().update_agents(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating agents data: {e}")
+            logger.error(f"Error updating agents data: {e}")
 
     def get_ipc_api(self):
         return IPCAPI.get_instance()
@@ -175,14 +175,14 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Skills data updated successfully: {response.data}")
+                    logger.info(f"Skills data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Skills data: {response.error}")
+                    logger.error(f"Failed to update Skills data: {response.error}")
 
             IPCAPI.get_instance().update_skills(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Skills data: {e}")
+            logger.error(f"Error updating Skills data: {e}")
 
     def update_tasks_data(self, dataHolder):
         """更新技能数据"""
@@ -198,14 +198,14 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Tasks data updated successfully: {response.data}")
+                    logger.info(f"Tasks data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Tasks data: {response.error}")
+                    logger.error(f"Failed to update Tasks data: {response.error}")
 
             IPCAPI.get_instance().update_tasks(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Tasks data: {e}")
+            logger.error(f"Error updating Tasks data: {e}")
 
 
     def update_tools_data(self, dataHolder):
@@ -218,14 +218,14 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Tools data updated successfully: {response.data}")
+                    logger.info(f"Tools data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Tools data: {response.error}")
+                    logger.error(f"Failed to update Tools data: {response.error}")
 
             IPCAPI.get_instance().update_tools(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Tools data: {e}")
+            logger.error(f"Error updating Tools data: {e}")
 
 
     def update_knowledge_data(self, dataHolder):
@@ -238,14 +238,14 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Knowledge data updated successfully: {response.data}")
+                    logger.info(f"Knowledge data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update knowledge data: {response.error}")
+                    logger.error(f"Failed to update knowledge data: {response.error}")
 
             IPCAPI.get_instance().update_knowledge(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating knowledge data: {e}")
+            logger.error(f"Error updating knowledge data: {e}")
 
 
     def update_settings_data(self, dataHolder):
@@ -257,14 +257,14 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Settings data updated successfully: {response.data}")
+                    logger.info(f"Settings data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update settings data: {response.error}")
+                    logger.error(f"Failed to update settings data: {response.error}")
 
             IPCAPI.get_instance().update_settings(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating settings data: {e}")
+            logger.error(f"Error updating settings data: {e}")
 
 
 
@@ -277,14 +277,14 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Vehicles data updated successfully: {response.data}")
+                    logger.info(f"Vehicles data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update vehicles data: {response.error}")
+                    logger.error(f"Failed to update vehicles data: {response.error}")
 
             IPCAPI.get_instance().update_vehicles(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating vehicles data: {e}")
+            logger.error(f"Error updating vehicles data: {e}")
 
 
     # def update_all(self, dataHolder):
@@ -349,15 +349,15 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Chats data updated successfully: {response.data}")
+                    logger.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Chats data: {response.error}")
+                    logger.error(f"Failed to update Chats data: {response.error}")
 
-            print("about to update GUI chats data....", data)
+            logger.info("about to update GUI chats data...." + str(dataHolder))
             IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Chats data: {e}")
+            logger.error(f"Error updating Chats data: {e}")
 
 
     def send_new_chat_message(self, dataHolder):
@@ -381,15 +381,15 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Chats data updated successfully: {response.data}")
+                    logger.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Chats data: {response.error}")
+                    logger.error(f"Failed to update Chats data: {response.error}")
 
-            print("about to update GUI chats data....", data)
+            logger.info("about to update GUI chats data...." + str(dataHolder))
             IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Chats data: {e}")
+            logger.error(f"Error updating Chats data: {e}")
 
 
     def init_new_chat(self, chat):
@@ -401,15 +401,15 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Chats data updated successfully: {response.data}")
+                    logger.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Chats data: {response.error}")
+                    logger.error(f"Failed to update Chats data: {response.error}")
 
-            print("about to update GUI chats data....", dataJS)
+            logger.info("about to update GUI chats data...." + str(dataJS))
             IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Chats data: {e}")
+            logger.error(f"Error updating Chats data: {e}")
 
     def delete_chats(self, chat_ids):
         """更新聊天数据"""
@@ -420,15 +420,15 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Chats data updated successfully: {response.data}")
+                    logger.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Chats data: {response.error}")
+                    logger.error(f"Failed to update Chats data: {response.error}")
 
-            print("about to update GUI chats data....", dataJS)
+            logger.info("about to update GUI chats data...." + str(dataJS))
             IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Chats data: {e}")
+            logger.error(f"Error updating Chats data: {e}")
 
     def hide_chats(self, chat_ids):
         """更新聊天数据"""
@@ -439,15 +439,15 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Chats data updated successfully: {response.data}")
+                    logger.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Chats data: {response.error}")
+                    logger.error(f"Failed to update Chats data: {response.error}")
 
-            print("about to update GUI chats data....", data)
+            logger.info("about to update GUI chats data...." + str(dataJS))
             IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Chats data: {e}")
+            logger.error(f"Error updating Chats data: {e}")
 
 
     def delete_chat_messages(self, msg_ids):
@@ -459,15 +459,15 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Chats data updated successfully: {response.data}")
+                    logger.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Chats data: {response.error}")
+                    logger.error(f"Failed to update Chats data: {response.error}")
 
-            print("about to update GUI chats data....", data)
+            logger.info("about to update GUI chats data...." + str(dataJS))
             IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Chats data: {e}")
+            logger.error(f"Error updating Chats data: {e}")
 
     def delete_all_chat_messages(self, chat_id):
         """更新聊天数据"""
@@ -478,12 +478,12 @@ class WebGUI(QMainWindow):
             # 调用 refresh_dashboard API
             def handle_response(response):
                 if response.success:
-                    logger_helper.info(f"Chats data updated successfully: {response.data}")
+                    logger.info(f"Chats data updated successfully: {response.data}")
                 else:
-                    logger_helper.error(f"Failed to update Chats data: {response.error}")
+                    logger.error(f"Failed to update Chats data: {response.error}")
 
-            print("about to update GUI chats data....", dataJS)
+            logger.info("about to update GUI chats data...." + str(dataJS))
             IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
-            logger_helper.error(f"Error updating Chats data: {e}")
+            logger.error(f"Error updating Chats data: {e}")
