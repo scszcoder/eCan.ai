@@ -389,23 +389,16 @@ def prep_agent_skills_data_for_cloud(mainwin, agent_skills):
         askjs = []
         for ask in agent_skills:
             askj = {
-                "agid": ask.card.id,
+                "askid": ask.id,
                 "owner": mainwin.user,
-                "gender": ask.gender,
-                "organizations": ask.organizations,
-                "rank": ask.rank,
-                "supervisors": ask.supervisors,
-                "subordinates": ask.subordinates,
-                "title": ask.title,
-                "personalities": ask.personalities,
-                "birthday": ask.birthday,
-                "name": ask.card.name,
+                "name": ask.name,
+                "description": ask.description,
                 "status": ask.status,
-                "metadata": json.dumps({"description": ask.card.description}),
-                "vehicle": ask.vehicle,
-                "skills": json.dumps([sk.id for sk in ask.skill_set]),
-                "tasks": json.dumps([task.id for task in ask.tasks]),
-                "knowledges": ""
+                "path": ask.path,
+                "flowgram": json.dumps(ask.diagram),
+                "langgraph": json.dumps(ask.work_flow),
+                "config": json.dumps(ask.config),
+                "price": str(ask.price)
             }
             askjs.append(askj)
 
@@ -797,23 +790,15 @@ def prep_agent_tasks_data_for_cloud(mainwin, agent_tasks):
         taskjs = []
         for task in agent_tasks:
             taskj = {
-                "agid": task.card.id,
+                "toolid": task.id,
                 "owner": mainwin.user,
-                "gender": task.gender,
-                "organizations": task.organizations,
-                "rank": task.rank,
-                "supervisors": task.supervisors,
-                "subordinates": task.subordinates,
-                "title": task.title,
-                "personalities": task.personalities,
-                "birthday": task.birthday,
-                "name": task.card.name,
+                "name": task.name,
+                "description": task.description,
+                "link": task.link,
+                "protocol": json.dumps(task.protocol),
                 "status": task.status,
-                "metadata": json.dumps({"description": task.card.description}),
-                "vehicle": task.vehicle,
-                "skills": json.dumps([sk.id for sk in task.skill_set]),
-                "tasks": json.dumps([task.id for task in task.tasks]),
-                "knowledges": ""
+                "metadata": json.dumps(task.work_flow),
+                "price": json.dumps(task.config)
             }
             taskjs.append(taskj)
 
@@ -848,26 +833,26 @@ def remove_agent_tasks_from_cloud(mainwin, agent_tasks):
 # agent knowledge related
 # ###########################################################################################
 
-def add_new_agents_to_cloud(mainwin, agents):
+def add_new_knowledges_to_cloud(mainwin, knowledges):
     try:
-        cloud_agents = prep_agent_data_for_cloud(mainwin, agents)
-        jresp = send_add_agents_request_to_cloud(mainwin.session, cloud_agents, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        cloud_knowledges = prep_agent_data_for_cloud(mainwin, knowledges)
+        jresp = send_add_knowledges_request_to_cloud(mainwin.session, cloud_knowledges, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorAddNewAgentsToCloud:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorAddNewKnowledgesToCloud:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorAddNewAgentsToCloud: traceback information not available:" + str(e)
+            ex_stat = "ErrorAddNewKnowledgesToCloud: traceback information not available:" + str(e)
         log3(ex_stat)
 
 
-def save_agents_to_cloud(mainwin, agents):
+def save_knowledges_to_cloud(mainwin, knowledges):
     try:
-        cloud_agents = prep_agent_data_for_cloud(mainwin, agents)
-        jresp = send_update_agents_request_to_cloud(mainwin.session, cloud_agents,
+        cloud_knowledges = prep_knowledges_data_for_cloud(mainwin, knowledges)
+        jresp = send_update_knowledges_request_to_cloud(mainwin.session, cloud_knowledges,
                                                  mainwin.tokens['AuthenticationResult']['IdToken'],
                                                  mainwin.getWanApiEndpoint())
         return jresp
@@ -876,49 +861,49 @@ def save_agents_to_cloud(mainwin, agents):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorAddNewAgentsToCloud:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorAddNewKnowledgesToCloud:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorAddNewAgentsToCloud: traceback information not available:" + str(e)
+            ex_stat = "ErrorAddNewKnowledgesToCloud: traceback information not available:" + str(e)
         log3(ex_stat)
 
 
 
-def load_agents_from_cloud(mainwin):
+def load_knowledges_from_cloud(mainwin):
     try:
-        cloud_agents = []
-        jresp = send_get_agents_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_agents = jresp['body']
-        for ajs in all_agents:
-            new_agent = gen_new_agent(mainwin, ajs)
-            if new_agent:
-                cloud_agents.append(new_agent)
+        cloud_knowledges = []
+        jresp = send_get_knowledges_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        all_knowledges = jresp['body']
+        for kjs in all_knowledges:
+            new_knowledge = gen_new_knowledge(mainwin, kjs)
+            if new_knowledge:
+                cloud_knowledges.append(new_knowledge)
 
-        mainwin.agents = cloud_agents
+        mainwin.knowledges = cloud_knowledges
 
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorLoadAgentsFromCloud:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorLoadKnowledgesFromCloud:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorLoadAgentsFromCloud: traceback information not available:" + str(e)
+            ex_stat = "ErrorLoadKnowledgesFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
 
 
-def gen_agent_from_cloud_data(mainwin, ajs):
+def gen_knowledge_from_cloud_data(mainwin, kjs):
     try:
         llm = mainwin.llm
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
-        if ajs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in ajs['skills'].split(",")]
+        if kjs['skills'].strip():
+            skids = [int(sskid.strip()) for sskid in kjs['skills'].split(",")]
         else:
             skids = []
         agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
 
-        if ajs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in ajs['tasks'].split(",")]
+        if kjs['tasks'].strip():
+            taskids = [int(staskid.strip()) for staskid in kjs['tasks'].split(",")]
         else:
             taskids = []
         agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
@@ -927,9 +912,9 @@ def gen_agent_from_cloud_data(mainwin, ajs):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
         agent_card = AgentCard(
-            id = ajs['id'],
-            name=ajs['name'],
-            description=ajs['description'],
+            id = kjs['id'],
+            name=kjs['name'],
+            description=kjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
@@ -945,26 +930,26 @@ def gen_agent_from_cloud_data(mainwin, ajs):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorNewAgent:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
+            ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
         log3(ex_stat)
         return None
 
 
-def gen_new_agent(mainwin, ajs):
+def gen_new_knowledge(mainwin, kjs):
     try:
         llm = mainwin.llm
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
-        if ajs['skills'].strip():
-            skids = [int(sskid.strip()) for sskid in ajs['skills'].split(",")]
+        if kjs['skills'].strip():
+            skids = [int(sskid.strip()) for sskid in kjs['skills'].split(",")]
         else:
             skids = []
         agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
 
-        if ajs['tasks'].strip():
-            taskids = [int(staskid.strip()) for staskid in ajs['tasks'].split(",")]
+        if kjs['tasks'].strip():
+            taskids = [int(staskid.strip()) for staskid in kjs['tasks'].split(",")]
         else:
             taskids = []
         agent_tasks = [sk for sk in all_tasks if sk.getSkid() in taskids]
@@ -973,9 +958,9 @@ def gen_new_agent(mainwin, ajs):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 
         agent_card = AgentCard(
-            id = ajs['id'],
-            name=ajs['name'],
-            description=ajs['description'],
+            id = kjs['id'],
+            name=kjs['name'],
+            description=kjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
@@ -983,69 +968,60 @@ def gen_new_agent(mainwin, ajs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        print("knowledge created:", agent_card.name, agent_card.url)
 
-        new_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
-        return new_agent
+        new_knowledge = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        return new_knowledge
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorNewAgent:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
+            ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
         log3(ex_stat)
         return None
 
 
-def prep_agent_data_for_cloud(mainwin, agents):
+def prep_knowledges_data_for_cloud(mainwin, knowledges):
     try:
-        ajs = []
-        for agent in agents:
-            aj = {
-                "agid": agent.card.id,
+        knjs = []
+        for knowledge in knowledges:
+            knj = {
+                "knid": knowledge.card.id,
                 "owner": mainwin.user,
-                "gender": agent.gender,
-                "organizations": agent.organizations,
-                "rank": agent.rank,
-                "supervisors": agent.supervisors,
-                "subordinates": agent.subordinates,
-                "title": agent.title,
-                "personalities": agent.personalities,
-                "birthday": agent.birthday,
-                "name": agent.card.name,
-                "status": agent.status,
-                "metadata": json.dumps({"description": agent.card.description}),
-                "vehicle": agent.vehicle,
-                "skills": json.dumps([sk.id for sk in agent.skill_set]),
-                "tasks": json.dumps([task.id for task in agent.tasks]),
-                "knowledges": ""
+                "name": knowledge.name,
+                "description": knowledge.description,
+                "path": knowledge.path,
+                "status": knowledge.status,
+                "metadata": json.dumps(knowledge.metadata),
+                "rag": knowledge.rag
             }
-            ajs.append(aj)
+            knjs.append(knj)
 
-        return ajs
+        return knjs
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorNewAgent:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
+            ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
         log3(ex_stat)
         return None
 
 
-def remove_agents_from_cloud(mainwin, agents):
+def remove_knowledges_from_cloud(mainwin, knowledges):
     try:
-        api_removes=[{"id": item.card.id, "owner": "", "reason": ""} for item in agents]
-        jresp = send_remove_agents_request_to_cloud(mainwin.session, api_removes, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        api_removes=[{"id": item.id, "owner": "", "reason": ""} for item in knowledges]
+        jresp = send_remove_knowledges_request_to_cloud(mainwin.session, api_removes, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
 
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorRemoveAgent:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorRemoveKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorRemoveAgent: traceback information not available:" + str(e)
+            ex_stat = "ErrorRemoveKnowledges: traceback information not available:" + str(e)
         log3(ex_stat)
         return None
