@@ -33,7 +33,7 @@ export function FormInputs() {
                     hasError={Object.keys(fieldState?.errors || {}).length > 0}
                     schema={property}
                   />
-                  <Feedback errors={fieldState?.errors} />
+                  <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
                 </FormItem>
               )}
             </Field>
