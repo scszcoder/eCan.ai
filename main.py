@@ -15,6 +15,7 @@ from setproctitle import setproctitle
 from config.app_info import app_info
 from config.app_settings import app_settings
 from utils.logger_helper import set_top_web_gui, logger_helper as logger
+from utils.hot_reload import start_watching
 
 from gui.LoginoutGUI import Login
 from gui.WaitGui import WaitWindow
@@ -30,6 +31,13 @@ from tests.unittests import *
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
 def main():
+    # 启动热更新监控
+    if app_settings.is_dev_mode:
+        watch_paths = ['agent', 'bot', 'config', 'common', 'dom', 'gui', 'skills', 'utils']
+        # 在 GUI 应用中，事件循环由 Qt/qasync 管理，所以这里 loop 参数暂时不直接使用，
+        # 但保留以备将来与 asyncio 事件循环更紧密的集成。
+        start_watching(watch_paths, None)
+
     # 创建应用程序实例
     app = QApplication.instance()
     if not app:  # If no instance, create a new QApplication

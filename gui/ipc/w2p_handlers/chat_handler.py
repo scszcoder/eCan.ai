@@ -6,6 +6,7 @@ import os
 import traceback
 from typing import Any, Dict, Optional
 import uuid
+from agent.ec_agent import EC_Agent
 from app_context import AppContext
 from gui.LoginoutGUI import Login
 from gui.ipc.handlers import validate_params
@@ -27,7 +28,7 @@ import asyncio # 假设 runner.chat_wait_in_line 是异步的
 #     logger.debug("recipient found:" + recipient.card.name)
 #     return recipient
 
-def _find_agent_by_name(login: Login, name: str) -> Optional[Any]:
+def _find_agent_by_name(login: Login, name: str) -> Optional[EC_Agent]:
     """通过名称查找代理"""
     return next((agent for agent in login.main_win.agents if agent.card.name == name), None)
 
@@ -59,10 +60,10 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         if asyncio.iscoroutinefunction(runner_method):
             logger.debug("Runner method is a coroutine, running with asyncio.run()")
             # 在独立的后台线程中，可以安全使用 asyncio.run()
-            result = asyncio.run(runner_method(params))
+            result = asyncio.run(runner_method(request))
         else:
             logger.debug("Runner method is synchronous, calling directly.")
-            result = runner_method(params)
+            result = runner_method(request)
             
         logger.info(f"Background task 'send_chat' completed with result: {result}")
         return create_success_response(request, {
