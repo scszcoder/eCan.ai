@@ -113,6 +113,7 @@ def gen_add_agents_string(agents):
             rec_string = rec_string + "metadata: \"" + agents[i]["metadata"] + "\", "
             rec_string = rec_string + "vehicle: \"" + agents[i]["vehicle"] + "\", "
             rec_string = rec_string + "skills: \"" + agents[i]["skills"] + "\", "
+            rec_string = rec_string + "tasks: \"" + agents[i]["tasks"] + "\", "
             rec_string = rec_string + "knowledges: \"" + agents[i]["knowledges"] + "\"} "
         else:
             rec_string = rec_string + "{ agid: \"" + str(agents[i].getAgid()) + "\", "
@@ -130,6 +131,7 @@ def gen_add_agents_string(agents):
             rec_string = rec_string + "metadata: \"" + agents[i].getMetadata() + "\", "
             rec_string = rec_string + "vehicle: \"" + agents[i].getVehicle() + "\", "
             rec_string = rec_string + "skills: \"" + agents[i].getSkills() + "\", "
+            rec_string = rec_string + "tasks: \"" + agents[i].getTasks() + "\", "
             rec_string = rec_string + "knowledges: \"" + agents[i].getKnowledges() + "\"} "
 
 
@@ -167,6 +169,7 @@ def gen_update_agents_string(agents):
             rec_string = rec_string + "metadata: \"" + agents[i]["metadata"] + "\", "
             rec_string = rec_string + "vehicle: \"" + agents[i]["vehicle"] + "\", "
             rec_string = rec_string + "skills: \"" + agents[i]["skills"] + "\", "
+            rec_string = rec_string + "tasks: \"" + agents[i]["tasks"] + "\", "
             rec_string = rec_string + "knowledges: \"" + agents[i]["knowledges"] + "\"} "
         else:
             if agents[i].getOrg():
@@ -188,6 +191,7 @@ def gen_update_agents_string(agents):
             rec_string = rec_string + "metadata: \"" + agents[i].getMetadata() + "\", "
             rec_string = rec_string + "vehicle: \"" + agents[i].getVehicle() + "\", "
             rec_string = rec_string + "skills: \"" + agents[i].getSkills() + "\", "
+            rec_string = rec_string + "tasks: \"" + agents[i].getTasks() + "\", "
             rec_string = rec_string + "knowledges: \"" + agents[i].getKnowledges() + "\"} "
 
         if i != len(agents) - 1:
@@ -997,9 +1001,9 @@ def send_completion_status_to_cloud(session, taskStats, token, endpoint, full=Tr
 # =================================================================================================
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
-def send_add_agents_request_to_cloud(session, bots, token, endpoint):
+def send_add_agents_request_to_cloud(session, agents, token, endpoint):
 
-    mutationInfo = gen_add_agents_string(bots)
+    mutationInfo = gen_add_agents_string(agents)
 
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
 
@@ -1009,7 +1013,7 @@ def send_add_agents_request_to_cloud(session, bots, token, endpoint):
 
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["addBots"])
+        jresponse = json.loads(jresp["data"]["addAgents"])
 
     return jresponse
 
@@ -1027,7 +1031,7 @@ def send_update_agents_request_to_cloud(session, bots, token, endpoint):
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["updateBots"])
+        jresponse = json.loads(jresp["data"]["updateAgents"])
 
     return jresponse
 
@@ -1046,7 +1050,7 @@ def send_remove_agents_request_to_cloud(session, removes, token, endpoint):
         logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["removeBots"])
+        jresponse = json.loads(jresp["data"]["removeAgents"])
     return jresponse
 
 
@@ -1292,6 +1296,123 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
         jresponse = json.loads(jresp["data"]["getAgentTasks"])
 
     return jresponse
+
+
+
+def send_add_agent_tools_request_to_cloud(session, tools, token, endpoint):
+
+    mutationInfo = gen_add_agent_tools_string(tools)
+
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["addAgentTools"])
+    return jresponse
+
+
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_update_agent_tools_request_to_cloud(session, tools, token, endpoint):
+
+    mutationInfo = gen_update_agent_tools_string(tools)
+
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["updateAgentTools"])
+    return jresponse
+
+
+
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_remove_agent_tools_request_to_cloud(session, removes, token, endpoint):
+
+    mutationInfo = gen_remove_agent_tools_string(removes)
+
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["removeAgentTools"])
+
+    return jresponse
+
+
+
+def send_query_agent_tools_request_to_cloud(session, token, q_settings, endpoint):
+
+    queryInfo = gen_query_agent_tools_string(q_settings)
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryAgentTools"])
+
+
+    return jresponse
+
+
+def send_query_agent_tools_by_time_request_to_cloud(session, token, q_settings, endpoint):
+    try:
+        queryInfo = gen_query_agent_tools_by_time_string(q_settings)
+
+        jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+        if "errors" in jresp:
+            screen_error = True
+            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+            jresponse = jresp["errors"][0]
+        else:
+            jresponse = json.loads(jresp["data"]["queryAgentTools"])
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorQueryAgentToolsByTime:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorQueryAgentToolsByTime traceback information not available:" + str(e)
+        print(ex_stat)
+        jresponse = {}
+
+    return jresponse
+
+
+
+# interface appsync, directly use HTTP request.
+# Use AWS4Auth to sign a requests session
+def send_get_agent_tools_request_to_cloud(session, token, endpoint):
+
+    queryInfo = gen_get_agent_tools_string()
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getAgentTools"])
+
+    return jresponse
+
 
 
 # interface appsync, directly use HTTP request.
