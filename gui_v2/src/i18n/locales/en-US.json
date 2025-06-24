@@ -254,7 +254,13 @@
       "collapseLeft": "Collapse left panel",
       "expandLeft": "Expand left panel",
       "collapseRight": "Collapse right panel",
-      "expandRight": "Expand right panel"
+      "expandRight": "Expand right panel",
+      "addChat": "Add Chat",
+      "deleteChat": "Delete Chat",
+      "chatSettings": "Chat Settings",
+      "deleteConfirmTitle": "Confirm Delete",
+      "deleteConfirmDescription": "Are you sure you want to delete this chat? This action cannot be undone.",
+      "noMessages": "No messages yet"
     },
     "skills": {
       "title": "Skills",

@@ -290,7 +290,7 @@ const ChatList: React.FC<ChatListProps> = ({
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <Text type="secondary" className="chat-message">
-                                        {chat.lastMessage || 'No messages yet'}
+                                        {chat.lastMessage || t('pages.chat.noMessages')}
                                     </Text>
                                     <Text type="secondary" className="chat-time">
                                         {(() => {
@@ -311,7 +311,7 @@ const ChatList: React.FC<ChatListProps> = ({
                 />
             </ChatListArea>
             <Modal
-                title={t('common.confirm')}
+                title={t('pages.chat.deleteConfirmTitle')}
                 open={isDeleteConfirmOpen}
                 onOk={handleConfirmDelete}
                 onCancel={handleCancelDelete}

@@ -254,7 +254,13 @@
       "collapseLeft": "收起左侧面板",
       "expandLeft": "展开左侧面板",
       "collapseRight": "收起右侧面板",
-      "expandRight": "展开右侧面板"
+      "expandRight": "展开右侧面板",
+      "addChat": "添加聊天",
+      "deleteChat": "删除聊天",
+      "chatSettings": "聊天设置",
+      "deleteConfirmTitle": "确认删除",
+      "deleteConfirmDescription": "确定要删除这个聊天吗？此操作无法撤销。",
+      "noMessages": "暂无消息"
     },
     "skills": {
       "title": "技能",
