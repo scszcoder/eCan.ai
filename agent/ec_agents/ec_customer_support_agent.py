@@ -9,6 +9,7 @@ from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.runner.service import Runner
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
+from agent.ec_agents.create_agent_tasks import create_ec_customer_support_chat_task, create_ec_customer_support_work_task
 
 from agent.tasks import Repeat_Types
 import traceback
@@ -36,52 +37,9 @@ def set_up_ec_customer_support_agent(mainwin):
         )
         print("agent card created:", agent_card.name, agent_card.url)
 
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
+        chatter_task = create_ec_customer_support_chat_task(mainwin)
+        worker_task = create_ec_customer_support_work_task(mainwin)
 
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA After Sales Support Work like shipping prep, customer Q&A, handle return, refund, resend, etc.",
-            description="Help fix errors/failures during e-commerce RPA run",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA Customer Support Internal Chatter Task",
-            description="chat with human user about anything related to customer support work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
         customer_support = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:

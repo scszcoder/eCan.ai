@@ -8,6 +8,7 @@ from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
+from agent.ec_agents.create_agent_tasks import create_ec_rpa_supervisor_chat_task, create_ec_rpa_supervisor_daily_task, create_ec_rpa_supervisor_on_request_task
 
 from agent.runner.service import Runner
 from agent.tasks import Repeat_Types
@@ -37,74 +38,10 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         )
         print("agent card created:", agent_card.name, agent_card.url)
 
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 03:00:00:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120                # seconds.
-        )
+        chatter_task = create_ec_rpa_supervisor_chat_task(mainwin)
+        daily_task = create_ec_rpa_supervisor_daily_task(mainwin)
+        on_request_task = create_ec_rpa_supervisor_on_request_task(mainwin)
 
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        daily_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA Supervise Daily Routine Task",
-            description="Do any routine like fetch todays work schedule, prepare operators team and dispatch work to the operators to do.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=schedule_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-
-        non_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-        on_request_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA Supervisor Service Task",
-            description="Serve RPA operators in case they request human in loop or work reports",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=serve_request_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=non_schedule
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA Supervisor Chatter Task",
-            description="chat with human user about anything related to ECBot RPA supervising work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
         supervisor = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[schedule_skill, serve_request_skill, chatter_skill], tasks=[daily_task, on_request_task, chatter_task])
 
     except Exception as e:
@@ -112,9 +49,9 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorSetUpECBOTSupervisorAgent:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorSetUpECRPASupervisorAgent:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorSetUpECBOTSupervisorAgent: traceback information not available:" + str(e)
+            ex_stat = "ErrorSetUpECRPASupervisorAgent: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
         return None
     return supervisor

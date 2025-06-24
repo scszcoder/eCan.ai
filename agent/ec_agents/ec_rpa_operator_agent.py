@@ -8,6 +8,8 @@ from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
+from agent.ec_agents.create_agent_tasks import create_ec_rpa_operator_chat_task, create_ec_rpa_operator_work_task
+
 
 from agent.runner.service import Runner
 from agent.tasks import Repeat_Types
@@ -37,52 +39,8 @@ def set_up_ec_rpa_operator_agent(mainwin):
         )
         print("agent card created:", agent_card.name, agent_card.url)
 
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120                # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA operates daily routine task",
-            description="Help fix errors/failures during e-commerce RPA run",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA Operator Chatter Task",
-            description="chat with human user about anything related to ECBOT RPA work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
+        chatter_task = create_ec_rpa_operator_chat_task(mainwin)
+        worker_task = create_ec_rpa_operator_work_task(mainwin)
 
         operator = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
@@ -91,9 +49,9 @@ def set_up_ec_rpa_operator_agent(mainwin):
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorSetUpECBOTOperatorAgent:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorSetUpECRPAOperatorAgent:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorSetUpECBOTOperatorAgent: traceback information not available:" + str(e)
+            ex_stat = "ErrorSetUpECRPAOperatorAgent: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
         return None
     return operator

@@ -91,7 +91,9 @@ from agent.ec_agent import EC_Agent
 from agent.runner.service import Runner
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
-
+from agent.ec_agents.create_agent_tasks import create_agent_tasks
+from agent.ec_agents.build_agent_knowledges import build_agent_knowledges
+from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
 from agent.ec_skill import *
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
@@ -1134,6 +1136,9 @@ class MainWindow(QMainWindow):
 
         # print("MCP client tools listed....", tools)
         self.agent_skills = await build_agent_skills(self)
+        self.agent_tasks = create_agent_tasks(self)
+        self.agent_tools = obtain_agent_tools(self)
+        self.agent_knowledges = build_agent_knowledges(self)
         # tools = await mcp_load_tools()
         print("DONE build agent skills.....", len(self.agent_skills))
         build_agents(self)
