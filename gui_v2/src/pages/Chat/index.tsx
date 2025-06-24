@@ -10,6 +10,8 @@ import { Chat, Message } from './types/chat';
 import { logger } from '@/utils/logger';
 import { get_ipc_api } from '@/services/ipc_api';
 import { APIResponse } from '@/services/ipc';
+import ChatLayout from './components/ChatLayout';
+import AgentNotify from './components/AgentNotify';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -227,12 +229,22 @@ const ChatPage: React.FC = () => {
         <ChatDetail chatId={activeChatId} onSend={handleMessageSend} />
     );
 
+    // agent notify 示例数据
+    const [agentNotifications] = useState([
+        // { id: '1', title: 'Agent 执行成功', content: '任务已完成', time: '2024-06-24 19:00' },
+    ]);
+
+    // 获取当前聊天对象
+    const currentChat = chats.find((c) => c.id === activeChatId);
+
     return (
-        <DetailLayout
+        <ChatLayout
             listTitle={t('pages.chat.title')}
-            detailsTitle={t('pages.chat.chatDetails')}
+            detailsTitle={currentChat ? currentChat.name : t('pages.chat.chatDetails')}
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
+            agentNotifyTitle={t('pages.chat.agentNotify')}
+            agentNotifyContent={<AgentNotify notifications={agentNotifications} />}
         />
     );
 };

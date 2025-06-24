@@ -1,6 +1,4 @@
 import React, { useMemo } from 'react';
-import { Button } from 'antd';
-import { UserOutlined, RobotOutlined, TeamOutlined, MoreOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat as LocalChat, Message as LocalMessage, Attachment } from '../types/chat';
@@ -12,6 +10,7 @@ const ChatDetailWrapper = styled.div`
     flex-direction: column;
     height: 100%;
     min-height: 0;
+    overflow: hidden;
     /* 保证撑满父容器 */
 
     /* Semi UI 深色主题变量覆盖 */
@@ -33,34 +32,9 @@ const ChatDetailWrapper = styled.div`
         max-width: 100% !important;
         width: 100% !important;
         min-width: 0 !important;
+        height: 100% !important;
+        min-height: 0 !important;
     }
-`;
-
-const ChatHeader = styled.div`
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border-color);
-    background: var(--bg-secondary);
-    box-shadow: var(--shadow-sm);
-`;
-
-const ChatInfo = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 12px;
-`;
-
-const ChatName = styled.span`
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-`;
-
-const StyledAvatar = styled.div`
-    box-shadow: var(--shadow-sm);
 `;
 
 const EmptyState = styled.div`
@@ -77,6 +51,9 @@ const commonOuterStyle = {
     borderRadius: '16px',
     height: '100%',
     width: '100%',
+    display: 'flex',
+    flexDirection: 'column' as 'column',
+    overflow: 'hidden'
 }
 
 interface ChatDetailProps {
@@ -144,31 +121,16 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, onSend }) => {
 
     return (
         <ChatDetailWrapper>
-            <ChatHeader>
-                <ChatInfo>
-                    <StyledAvatar>
-                        {chat.type === 'user' ? <UserOutlined /> : chat.type === 'bot' ? <RobotOutlined /> : <TeamOutlined />}
-                    </StyledAvatar>
-                    <ChatName>{chat.name}</ChatName>
-                </ChatInfo>
-                <Button 
-                    icon={<MoreOutlined />} 
-                    type="text"
-                    style={{ color: 'var(--text-secondary)' }}
-                />
-            </ChatHeader>
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                <SemiChat
-                    chats={semiMessages}
-                    roleConfig={roleConfig}
-                    onMessageSend={handleMessageSend}
-                    style={commonOuterStyle}
-                    align="leftRight"
-                    mode="userBubble"
-                    placeholder={t('pages.chat.typeMessage')}
-                    uploadProps={uploadProps}
-                />
-            </div>
+            <SemiChat
+                chats={semiMessages}
+                roleConfig={roleConfig}
+                onMessageSend={handleMessageSend}
+                style={{ ...commonOuterStyle }}
+                align="leftRight"
+                mode="userBubble"
+                placeholder={t('pages.chat.typeMessage')}
+                uploadProps={uploadProps}
+            />
         </ChatDetailWrapper>
     );
 };
