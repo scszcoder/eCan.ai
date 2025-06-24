@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import DetailLayout from '../../components/Layout/DetailLayout';
 import { useAppDataStore } from '../../stores/appDataStore';
 import ChatList from './components/ChatList';
 import ChatDetail from './components/ChatDetail';
@@ -19,6 +18,8 @@ const ChatPage: React.FC = () => {
     const agentId = searchParams.get('agentId');
     const [activeChatId, setActiveChatId] = useState<number | null>(null);
     const username = useUserStore((state) => state.username)
+    // 默认设置为有新消息，方便查看效果
+    const [hasNewAgentNotifications, setHasNewAgentNotifications] = useState(true);
 
     const {
         chats,
@@ -184,6 +185,24 @@ const ChatPage: React.FC = () => {
                     };
                 });
                 setChats(finalChats);
+                
+                // 模拟收到 Agent 执行结果的通知
+                setTimeout(() => {
+                    setHasNewAgentNotifications(true);
+                    
+                    // 添加一条新的 Agent 通知
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const dateString = now.toLocaleDateString();
+                    const newNotification = {
+                        id: Date.now().toString(),
+                        title: 'Agent 执行成功',
+                        content: `已完成任务: ${content}`,
+                        time: `${dateString} ${timeString}`
+                    };
+                    
+                    setAgentNotifications(prev => [newNotification, ...prev]);
+                }, 2000);
             } else {
                 console.error('[ChatPage] Failed to send message:', response.error);
                 const finalStatus: Message['status'] = 'failed';
@@ -230,9 +249,27 @@ const ChatPage: React.FC = () => {
     );
 
     // agent notify 示例数据
-    const [agentNotifications] = useState([
-        // { id: '1', title: 'Agent 执行成功', content: '任务已完成', time: '2024-06-24 19:00' },
+    const [agentNotifications, setAgentNotifications] = useState([
+        { 
+            id: '1', 
+            title: 'Agent 执行成功', 
+            content: '已完成搜索任务，找到相关结果 3 条', 
+            time: '2024-06-24 19:00' 
+        },
+        { 
+            id: '2', 
+            title: 'Agent 执行完成', 
+            content: '已完成数据分析任务，生成报告已保存', 
+            time: '2024-06-24 18:30' 
+        }
     ]);
+    
+    // 当右侧面板展开时，清除未读状态
+    const handleRightPanelToggle = (collapsed: boolean) => {
+        if (!collapsed) {
+            setHasNewAgentNotifications(false);
+        }
+    };
 
     // 获取当前聊天对象
     const currentChat = chats.find((c) => c.id === activeChatId);
@@ -245,6 +282,8 @@ const ChatPage: React.FC = () => {
             detailsContent={renderDetailsContent()}
             agentNotifyTitle={t('pages.chat.agentNotify')}
             agentNotifyContent={<AgentNotify notifications={agentNotifications} />}
+            hasNewAgentNotifications={hasNewAgentNotifications}
+            onRightPanelToggle={handleRightPanelToggle}
         />
     );
 };
