@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SkillInfo } from '../../typings/skill-info';
+import type { SkillInfo } from '../typings/skill-info';
 
 interface SkillInfoStoreState {
   skillInfo: SkillInfo | null;
