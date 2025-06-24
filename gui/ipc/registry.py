@@ -9,8 +9,8 @@ from .types import IPCRequest, IPCResponse, create_error_response
 from utils.logger_helper import logger_helper as logger
 
 # 定义处理器函数类型
-SyncHandlerFunc = Callable[[IPCRequest, Optional[Any], Optional[Any]], IPCResponse]
-BackgroundHandlerFunc = Callable[[IPCRequest, Optional[Any], Optional[Any]], IPCResponse]
+SyncHandlerFunc = Callable[[IPCRequest, Optional[Any]], IPCResponse]
+BackgroundHandlerFunc = Callable[[IPCRequest, Optional[Any]], IPCResponse]
 
 HandlerType = TypeVar('HandlerType')
 
@@ -29,13 +29,12 @@ class IPCHandlerRegistry:
         """同步处理器注册装饰器 (用于快速、非阻塞的任务)"""
         def decorator(func: SyncHandlerFunc) -> SyncHandlerFunc:
             @wraps(func)
-            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Optional[Any]) -> IPCResponse:
+            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
                 """同步处理器包装函数
                 
                 Args:
                     request: IPC 请求对象
                     params: 请求参数
-                    py_login: Python登录对象
                     
                 Returns:
                     IPCResponse: 响应对象
@@ -52,7 +51,7 @@ class IPCHandlerRegistry:
                     
                     # 调用同步处理器
                     logger.debug(f"Calling sync handler for method {method}")
-                    return func(request, params, py_login)
+                    return func(request, params)
                     
                 except Exception as e:
                     logger.error(f"Error in sync handler {method}: {e}", exc_info=True)
@@ -78,10 +77,10 @@ class IPCHandlerRegistry:
         """后台处理器注册装饰器 (用于耗时、阻塞的任务)"""
         def decorator(func: BackgroundHandlerFunc) -> BackgroundHandlerFunc:
             @wraps(func)
-            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Optional[Any]) -> IPCResponse:
+            def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
                 try:
                     logger.debug(f"Calling background handler for method {method}")
-                    return func(request, params, py_login)
+                    return func(request, params)
                 except Exception as e:
                     logger.error(f"Error in background handler {method}: {e}", exc_info=True)
                     return {"error": "HANDLER_ERROR", "message": str(e)}

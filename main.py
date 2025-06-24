@@ -1,4 +1,5 @@
 from utils.time_util import TimeUtil
+from app_context import AppContext
 
 print(TimeUtil.formatted_now_with_ms() + " app start...")
 import asyncio
@@ -34,6 +35,13 @@ def main():
     if not app:  # If no instance, create a new QApplication
         app = QApplication(sys.argv)
     
+    # 初始化全局 AppContext
+    ctx = AppContext()
+    ctx.set_app(app)
+    ctx.set_logger(logger)
+    ctx.set_config(app_settings)
+    ctx.set_app_info(app_info)
+
     # 设置应用程序图标（在 QApplication 创建之后）
     # 首先尝试从应用程序根目录加载图标
     icon_path = os.path.join(app_info.app_home_path, "ECBot.ico")
@@ -53,6 +61,7 @@ def main():
     # global login
     # login = Login()
     utils.logger_helper.login = Login()
+    ctx.set_login(utils.logger_helper.login)
 
     # if utils.logger_helper.login.isCommander():
     #     print("run as commander......")
@@ -71,6 +80,7 @@ def main():
     #     loop.run_forever()
 
     utils.logger_helper.login.setLoop(loop)
+    ctx.set_main_loop(loop)
     
     # 打印当前运行模式
     if app_settings.is_dev_mode:
@@ -80,6 +90,7 @@ def main():
 
     # 创建并显示 Web GUI
     web_gui = WebGUI(utils.logger_helper.login)
+    ctx.set_web_gui(web_gui)
 
     set_top_web_gui(web_gui)
     web_gui.show()
