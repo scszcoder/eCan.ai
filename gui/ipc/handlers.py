@@ -11,6 +11,7 @@ from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 import uuid
 import traceback
+from app_context import AppContext
 
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
@@ -34,7 +35,7 @@ def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tu
 
 
 @IPCHandlerRegistry.handler('get_all')
-def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> IPCResponse:
+def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -52,7 +53,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for login: {error}")
+            logger.warning(f"Invalid parameters for get all: {error}")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -63,16 +64,18 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
         # 获取用户名和密码
         username = data['username']
 
-        agents = py_login.main_win.agents
+        ctx = AppContext()
+        login:Login = ctx.login
+        agents = login.main_win.agents
         all_tasks = []
         for agent in agents:
             all_tasks.extend(agent.tasks)
 
-        skills = py_login.main_win.agent_skills
-        vehicles = py_login.main_win.vehicles
-        settings = py_login.main_win.general_settings
-        # knowledges = py_login.main_win.knowledges
-        # chats = py_login.main_win.chats
+        skills = login.main_win.agent_skills
+        vehicles = login.main_win.vehicles
+        settings = login.main_win.general_settings
+        # knowledges = login.main_win.knowledges
+        # chats = login.main_win.chats
         knowledges = {}
         chats = {}
         # 生成随机令牌
@@ -82,7 +85,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
             'token': token,
             'agents': [agent.to_dict() for agent in agents],
             'skills': [sk.to_dict() for sk in skills],
-            'tools': [tool.model_dump() for tool in py_login.main_win.mcp_tools_schemas],
+            'tools': [tool.model_dump() for tool in login.main_win.mcp_tools_schemas],
             'tasks': [task.to_dict() for task in all_tasks],
             'vehicles': [vehicle.genJson() for vehicle in vehicles],
             'settings': settings,
@@ -103,7 +106,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]], py_log
 
 
 @IPCHandlerRegistry.handler('get_vehicles')
-def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
+def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -135,7 +138,9 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"Get vehicles successful for user: {username}")
-        vehicles = py_login.main_win.vehicles
+        ctx = AppContext()
+        login:Login = ctx.login
+        vehicles = login.main_win.vehicles
 
         resultJS = {
             'token': token,
@@ -155,7 +160,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]], p
 
 
 @IPCHandlerRegistry.handler('get_knowledges')
-def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
+def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理获取知识库请求
     
     从知识库中获取条目。
@@ -186,7 +191,7 @@ def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]],
 
 
 @IPCHandlerRegistry.handler('save_all')
-def handle_save_all(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> IPCResponse:
+def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -232,7 +237,7 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]], py_login:A
         )
 
 @IPCHandlerRegistry.handler('get_available_tests')
-def handle_get_available_tests(request: IPCRequest, params: Optional[Any], py_login:Any) -> IPCResponse:
+def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理获取可用测试项请求
 
     Args:
@@ -263,7 +268,7 @@ def handle_get_available_tests(request: IPCRequest, params: Optional[Any], py_lo
 
 
 @IPCHandlerRegistry.handler('run_tests')
-def handle_run_tests(request: IPCRequest, params: Optional[Any], py_login: Any) -> IPCResponse:
+def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理跑测试请求
 
     Args:
@@ -285,7 +290,9 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any], py_login: Any) 
 
             # Process each test with its arguments
             if test_id == 'default_test':
-                result = run_default_tests(top_web_gui, py_login.main_win)
+                ctx = AppContext()
+                login:Login = ctx.login
+                result = run_default_tests(top_web_gui, login.main_win)
             # Add other test cases as needed
             else:
                 result = {"status": "error", "message": f"Unknown test: {test_id}"}
@@ -310,7 +317,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any], py_login: Any) 
 
 
 @IPCHandlerRegistry.handler('stop_tests')
-def handle_stop_tests(request: IPCRequest, params: Optional[Any], py_login: Any) -> IPCResponse:
+def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理停止测试项请求
 
     Args:

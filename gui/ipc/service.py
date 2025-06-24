@@ -22,11 +22,10 @@ class WorkerSignals(QObject):
 # 2. 创建一个通用的 QRunnable 工作任务
 class Worker(QRunnable):
     """可运行的工作线程，执行耗时任务"""
-    def __init__(self, handler: Callable, request: IPCRequest, py_login: Any):
+    def __init__(self, handler: Callable, request: IPCRequest):
         super().__init__()
         self.handler = handler
         self.request = request
-        self.py_login = py_login
         self.signals = WorkerSignals()
 
     @Slot()
@@ -35,7 +34,7 @@ class Worker(QRunnable):
         request_id = self.request.get('id', '')
         try:
             params = self.request.get('params')
-            response: IPCResponse = self.handler(self.request, params, self.py_login)
+            response: IPCResponse = self.handler(self.request, params)
             self.signals.result.emit(self.request, response)
         except Exception as e:
             logger.error(f"Error in background worker for request {request_id}: {e}", exc_info=True)
@@ -49,12 +48,11 @@ class IPCService(QObject):
     # 定义信号
     python_to_web = Signal(str)  # 发送消息到 Web 的信号
     
-    def __init__(self, py_login=None):
+    def __init__(self):
         super().__init__()
         logger.info("IPC service initialized")
         # 存储请求ID和对应的回调函数的映射
         self._request_callbacks: Dict[str, Callable[[IPCResponse], None]] = {}
-        self.py_login = py_login
         self.threadpool = QThreadPool()
         logger.info(f"QThreadPool max thread count: {self.threadpool.maxThreadCount()}")
     
@@ -138,13 +136,13 @@ class IPCService(QObject):
             # 直接在主线程调用同步处理器
             logger.debug(f"Executing sync handler for method: {method}")
             params = request.get('params')
-            sync_response = handler(request, params, self.py_login)
+            sync_response = handler(request, params)
             return json.dumps(sync_response)
         
         elif handler_type == 'background':
             # 为后台任务创建一个 Worker 并提交到线程池
             logger.debug(f"Submitting background handler for method: {method} to threadpool")
-            worker = Worker(handler, request, self.py_login)
+            worker = Worker(handler, request)
             worker.signals.result.connect(self._on_background_task_result)
             worker.signals.error.connect(self._on_background_task_error)
             self.threadpool.start(worker)

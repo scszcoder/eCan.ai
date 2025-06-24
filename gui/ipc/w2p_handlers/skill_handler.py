@@ -9,7 +9,7 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('get_skills')
-def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> IPCResponse:
+def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -53,7 +53,7 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]], py_
         )
     
 @IPCHandlerRegistry.handler('save_skills')
-def handle_save_skills(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> IPCResponse:
+def handle_save_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -100,7 +100,7 @@ def handle_save_skills(request: IPCRequest, params: Optional[list[Any]], py_logi
 
 
 @IPCHandlerRegistry.handler('save_skill')
-def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
+def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理保存skill流程图
 
     验证用户凭据并返回访问令牌。
@@ -143,7 +143,7 @@ def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_
     
 
 @IPCHandlerRegistry.handler('run_skill')
-def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
+def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理保存skill流程图
 
     验证用户凭据并返回访问令牌。

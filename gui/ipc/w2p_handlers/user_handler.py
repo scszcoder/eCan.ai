@@ -1,6 +1,7 @@
 import traceback
 from typing import Any, Optional, Dict
 import uuid
+from app_context import AppContext
 from gui.LoginoutGUI import Login
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
@@ -9,7 +10,7 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('login')
-def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> IPCResponse:
+def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理登录请求
     
     验证用户凭据并返回访问令牌。
@@ -39,7 +40,10 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login
         password = data['password']
         machine_role = data['machine_role']
         logger.debug("user name:" + username + " password:" + password + " machine_role:" + machine_role)
-        result = py_login.handleLogin(username, password, machine_role)
+        
+        ctx = AppContext()
+        login: Login = ctx.login
+        result = login.handleLogin(username, password, machine_role)
         # 简单的密码验证
         if result == 'Successful':
             # 生成随机令牌
@@ -65,7 +69,7 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]], py_login
         )
 
 @IPCHandlerRegistry.handler('get_last_login')
-def handle_get_last_login(request: IPCRequest, params: Optional[Any], py_login:Any) -> IPCResponse:
+def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理获取最后一次登录信息的请求
 
     Args:
@@ -78,7 +82,9 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any], py_login:A
     try:
         logger.debug(f"Get Last Login handler called with request: {request}")
 
-        result = py_login.handleGetLastLogin()
+        ctx = AppContext()
+        login: Login = ctx.login
+        result = login.handleGetLastLogin()
 
         logger.info(f"Get Last Login Info successful.")
         return create_success_response(request, {

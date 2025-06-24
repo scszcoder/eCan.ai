@@ -1,6 +1,7 @@
 import traceback
 from typing import Any, Optional, Dict
 import uuid
+from app_context import AppContext
 from gui.LoginoutGUI import Login
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
@@ -9,7 +10,7 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('get_tasks')
-def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> IPCResponse:
+def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -33,8 +34,9 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
                 'INVALID_PARAMS',
                 error
             )
-
-        agents = py_login.main_win.agents
+        ctx = AppContext()
+        login: Login = ctx.login
+        agents = login.main_win.agents
         all_tasks = []
         for agent in agents:
             all_tasks.extend(agent.tasks)
@@ -62,7 +64,7 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]], py_l
         )
     
 @IPCHandlerRegistry.handler('save_tasks')
-def handle_save_tasks(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> IPCResponse:
+def handle_save_tasks(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。

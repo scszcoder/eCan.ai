@@ -6,6 +6,8 @@ import os
 import traceback
 from typing import Any, Dict, Optional
 import uuid
+from app_context import AppContext
+from gui.LoginoutGUI import Login
 from gui.ipc.handlers import validate_params
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
@@ -25,20 +27,21 @@ import asyncio # 假设 runner.chat_wait_in_line 是异步的
 #     logger.debug("recipient found:" + recipient.card.name)
 #     return recipient
 
-def _find_agent_by_name(py_login: Any, name: str) -> Optional[Any]:
+def _find_agent_by_name(login: Login, name: str) -> Optional[Any]:
     """通过名称查找代理"""
-    return next((agent for agent in py_login.main_win.agents if agent.card.name == name), None)
+    return next((agent for agent in login.main_win.agents if agent.card.name == name), None)
 
 @IPCHandlerRegistry.background_handler('send_chat')
-def handle_send_chat(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> IPCResponse:
+def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
     处理发送聊天消息的后台任务。
     此函数在 QThreadPool 的一个工作线程中执行。
     """
     logger.info(f"Background task 'send_chat' started with params: {params}")
- 
-    sender_agent = _find_agent_by_name(py_login, "My Twin Agent")
-    recipient_agent = _find_agent_by_name(py_login, "Engineering Procurement Agent")
+    ctx = AppContext()
+    login: Login = ctx.login
+    sender_agent = _find_agent_by_name(login, "My Twin Agent")
+    recipient_agent = _find_agent_by_name(login, "Engineering Procurement Agent")
 
     if not sender_agent or not recipient_agent:
         error_msg = "Sender or recipient agent not found."
@@ -71,7 +74,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]], py_login:
         return {"error": "TASK_EXECUTION_ERROR", "message": str(e)} 
     
 @IPCHandlerRegistry.handler('get_chats')
-def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
+def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。

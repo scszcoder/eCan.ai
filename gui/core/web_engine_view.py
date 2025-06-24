@@ -86,7 +86,7 @@ class WebEngineView(QWebEngineView):
         self.setup_interceptor()
         
         # 4. 创建 IPC 服务（在页面初始化后）
-        self._ipc_service = IPCService(parent.py_login)
+        self._ipc_service = IPCService()
 
         # 5. 设置 WebChannel（在页面加载前）
         self.setup_webchannel()

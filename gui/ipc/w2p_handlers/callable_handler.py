@@ -10,7 +10,7 @@ from utils.logger_helper import logger_helper as logger
 
 
 @IPCHandlerRegistry.handler('get_callables')
-def handle_get_callables(request: IPCRequest, params: Optional[Dict[str, Any]], py_login: Login) -> IPCResponse:
+def handle_get_callables(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle get callables request
 
     Args:
@@ -43,7 +43,7 @@ def handle_get_callables(request: IPCRequest, params: Optional[Dict[str, Any]], 
         )
 
 @IPCHandlerRegistry.handler('manage_callable')
-def handle_manage_callable(request: IPCRequest, params: Optional[Dict[str, Any]], py_login:Any) -> IPCResponse:
+def handle_manage_callable(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle manage_callable IPC request.
 
     Args:

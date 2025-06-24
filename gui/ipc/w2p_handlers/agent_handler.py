@@ -5,11 +5,11 @@ from gui.LoginoutGUI import Login
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
-
+from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 
 @IPCHandlerRegistry.handler('get_agents')
-def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login: Login) -> IPCResponse:
+def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
@@ -34,8 +34,10 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
                 error
             )
 
+        ctx = AppContext()
+        login: Login = ctx.login
         # 获取用户名和密码
-        agents = py_login.main_win.agents
+        agents = login.main_win.agents
 
         # 简单的密码验证
         # 生成随机令牌
@@ -59,7 +61,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]], py_login
         )
     
 @IPCHandlerRegistry.handler('save_agents')
-def handle_save_agents(request: IPCRequest, params: Optional[list[Any]], py_login:Any) -> IPCResponse:
+def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """处理登录请求
 
     验证用户凭据并返回访问令牌。
