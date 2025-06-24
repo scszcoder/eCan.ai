@@ -1,5 +1,4 @@
 from utils.time_util import TimeUtil
-from app_context import AppContext
 
 print(TimeUtil.formatted_now_with_ms() + " app start...")
 import asyncio
@@ -25,6 +24,8 @@ from bot.network import runCommanderLAN, runPlatoonLAN
 
 # from tests.unittests import *
 from tests.unittests import *
+
+from app_context import AppContext
 
 
 # Press Shift+F10 to execute it or replace it with your code.
