@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Button } from 'antd';
+import { Card, Button, Badge } from 'antd';
 import styled from '@emotion/styled';
 import SplitPane from 'react-split-pane';
-import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 
 // 添加全局样式
@@ -39,6 +39,13 @@ const GlobalStyles = styled.div`
     height: 100% !important;
     width: 100% !important;
   }
+  
+  /* 自定义 Badge 样式 */
+  .custom-badge .ant-badge-dot {
+    width: 10px;
+    height: 10px;
+    box-shadow: 0 0 0 1px #fff;
+  }
 `;
 
 const LayoutContainer = styled.div`
@@ -74,6 +81,30 @@ const CollapseButton = styled(Button)<{ side: 'left' | 'right' }>`
   border-radius: 50%;
 `;
 
+const AgentButton = styled(Button)`
+  position: relative;
+  padding: 0;
+  width: 28px;
+  height: 28px !important;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+// 自定义红点样式
+const NotificationDot = styled.div`
+  position: absolute;
+  top: -0px;
+  right: -0px;
+  width: 8px;
+  height: 8px;
+  background-color: #ff4d4f;
+  border-radius: 50%;
+  border: 0px solid #fff;
+  z-index: 10;
+`;
+
 const CenterPane = styled.div`
   height: 100%;
   width: 100%;
@@ -97,6 +128,8 @@ interface ChatLayoutProps {
   detailsContent: React.ReactNode;
   agentNotifyTitle: React.ReactNode;
   agentNotifyContent: React.ReactNode;
+  hasNewAgentNotifications?: boolean;
+  onRightPanelToggle?: (collapsed: boolean) => void;
 }
 
 const ChatLayout: React.FC<ChatLayoutProps> = ({
@@ -106,6 +139,8 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
   detailsContent,
   agentNotifyTitle,
   agentNotifyContent,
+  hasNewAgentNotifications = false,
+  onRightPanelToggle,
 }) => {
   const { t } = useTranslation();
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -119,7 +154,15 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
     } else {
       setSplitSize('70%');
     }
-  }, [rightCollapsed]);
+    
+    // 调用父组件的回调函数
+    onRightPanelToggle?.(rightCollapsed);
+  }, [rightCollapsed, onRightPanelToggle]);
+
+  // 处理右侧面板的折叠/展开
+  const handleRightPanelToggle = () => {
+    setRightCollapsed((c) => !c);
+  };
 
   // 中间卡片的 title 区域，包含左右折叠按钮和聊天名
   const centerTitle = (
@@ -134,15 +177,16 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
         aria-label={leftCollapsed ? t('pages.chat.expandLeft') : t('pages.chat.collapseLeft')}
       />
       <span style={{ flex: 1 }}>{detailsTitle}</span>
-      <CollapseButton
-        type="text"
-        icon={rightCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-        onClick={() => setRightCollapsed((c) => !c)}
-        side="right"
-        style={{ position: 'static' }}
-        title={rightCollapsed ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
-        aria-label={rightCollapsed ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
-      />
+      <div style={{ position: 'relative' }}>
+        <AgentButton
+          type="text"
+          icon={<RobotOutlined style={{ fontSize: '16px' }} />}
+          onClick={handleRightPanelToggle}
+          title={rightCollapsed ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
+          aria-label={rightCollapsed ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
+        />
+        {hasNewAgentNotifications && rightCollapsed && <NotificationDot />}
+      </div>
     </CenterTitleBar>
   );
 
