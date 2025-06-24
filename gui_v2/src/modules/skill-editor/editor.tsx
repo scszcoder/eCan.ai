@@ -12,6 +12,7 @@ import { FlowDocumentJSON } from './typings';
 import emptyFlowData from './data/empty-flow.json';
 import { useSkillInfoStore } from './stores/skill-info-store';
 import { createSkillInfo } from './typings/skill-info';
+import { NodeInfoDisplay } from './components/node-info-display';
 
 export const Editor = () => {
   const emptyData: FlowDocumentJSON = emptyFlowData;
@@ -33,6 +34,7 @@ export const Editor = () => {
     <div className="doc-free-feature-overview">
       <FreeLayoutEditorProvider {...editorProps}>
         <SidebarProvider>
+          <NodeInfoDisplay />
           <div className="demo-container">
             <EditorRenderer className="demo-editor" />
           </div>
