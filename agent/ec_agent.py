@@ -120,10 +120,13 @@ class EC_Agent(Generic[Context]):
 		rank: Optional[str] = None,
 		organizations: Optional[List[str]] = None,
 		title: Optional[str] = None,
+		gender: Optional[str] = None,
+		birthday: Optional[str] = None,
 		personalities: Optional[List[str]] = None,
 		# runner: Runner[Context] = Runner(),
 		# Initial agent run parameters
 		sensitive_data: Optional[Dict[str, str]] = None,
+		vehicle: Optional[str] = None,
 		initial_actions: Optional[List[Dict[str, Dict[str, Any]]]] = None,
 		# Cloud Callbacks
 		register_new_step_callback: Union[
@@ -195,7 +198,11 @@ class EC_Agent(Generic[Context]):
 		self.rank = rank if rank is not None else ""
 		self.organizations = organizations if organizations is not None else []
 		self.title = title if title is not None else ""
+		self.gender = gender if gender is not None else "m"
+		self.birthday = birthday if birthday is not None else "2000-01-01"
 		self.personalities = personalities if personalities is not None else []
+		self.vehicle = vehicle if vehicle is not None else ""
+		self.status = "active"
 		self.embeddings = init_embeddings("openai:text-embedding-3-small")
 		self.store = InMemoryStore(
 			index={
