@@ -7,19 +7,32 @@ from agent.ec_agents.ec_rpa_operator_agent import *
 from agent.ec_agents.my_twin_agent import *
 from agent.ec_agents.ec_procurement_agent import *
 from agent.ec_agents.ec_marketing_agent import *
-
+from agent.ec_agents.agent_utils import load_agents_from_cloud
+from utils.logger_helper import logger_helper as logger
 
 def build_agents(main_win):
-    main_win.agents = []
-    # for now just build a few agents.
-    main_win.agents.append(set_up_my_twin_agent(main_win))
-    if "Platoon" in main_win.machine_role:
-        main_win.agents.append(set_up_ec_helper_agent(main_win))
-        main_win.agents.append(set_up_ec_rpa_operator_agent(main_win))
-    else:
-        main_win.agents.append(set_up_ec_helper_agent(main_win))
-        # self.agents.append(set_up_ec_rpa_supervisor_agent(self))
-        if "ONLY" not in main_win.machine_role:
-            # self.agents.append(set_up_ec_rpa_operator_agent(self))
-            main_win.agents.append(set_up_ec_procurement_agent(main_win))
+    try:
+        all_agents = []
 
+        # first try to obtain all agents from the cloud, if that fails or there are no agents
+        # then build the agents locally
+        all_agents = load_agents_from_cloud(main_win)
+        print("agents from cloud:", all_agents)
+        if not all_agents:
+            # for now just build a few agents.
+            all_agents.append(set_up_my_twin_agent(main_win))
+            if "Platoon" in main_win.machine_role:
+                all_agents.append(set_up_ec_helper_agent(main_win))
+                all_agents.append(set_up_ec_rpa_operator_agent(main_win))
+            else:
+                all_agents.append(set_up_ec_helper_agent(main_win))
+                # self.agents.append(set_up_ec_rpa_supervisor_agent(self))
+                if "ONLY" not in main_win.machine_role:
+                    # self.agents.append(set_up_ec_rpa_operator_agent(self))
+                    all_agents.append(set_up_ec_procurement_agent(main_win))
+
+        main_win.agents = all_agents
+
+    except Exception as e:
+        logger.error(f"Error in get agents handler: {e} {traceback.format_exc()}")
+        main_win.agents = []

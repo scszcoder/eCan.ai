@@ -10,6 +10,7 @@ from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.runner.service import Runner
 from agent.tasks import Repeat_Types
+from agent.ec_agents.create_agent_tasks import create_my_twin_chat_task
 import traceback
 import socket
 import uuid
@@ -35,33 +36,7 @@ def set_up_my_twin_agent(mainwin):
                 skills=[chatter_skill],
         )
         print("agent card created:", agent_card.name, agent_card.url)
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chat_task = ManagedTask(
-            id=task_id,
-            name="Human Chatter Task",
-            description="Represent human to chat with others",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="interaction",
-            schedule=task_schedule
-        )
+        chat_task = create_my_twin_chat_task(mainwin)
         helper = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
 
     except Exception as e:

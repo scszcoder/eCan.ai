@@ -9,6 +9,7 @@ from agent.cloud_api.cloud_api import *
 from agent.ec_agent import *
 import asyncio
 import traceback
+from utils.logger_helper import logger_helper as logger
 
 
 
@@ -65,8 +66,10 @@ def save_agents_to_cloud(mainwin, agents):
 
 def load_agents_from_cloud(mainwin):
     try:
+        print("load_agents_from_cloud.......")
         cloud_agents = []
         jresp = send_get_agents_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        print("cloud returns.......", jresp)
         all_agents = jresp['body']
         for ajs in all_agents:
             new_agent = gen_new_agent(mainwin, ajs)
