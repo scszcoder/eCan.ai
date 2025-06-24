@@ -10,6 +10,12 @@ export const CallableSelectorWrapper = styled.div`
   .settings-button {
     padding: 4px;
   }
+
+  /* 修复 semi-ui Select 输入时变窄的问题 */
+  .selector-container .semi-select {
+    flex-grow: 1;
+    min-width: 150px; /* 保证最小宽度 */
+  }
 `;
 
 export const CallableEditorWrapper = styled.div`
