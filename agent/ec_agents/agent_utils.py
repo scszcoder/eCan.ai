@@ -25,7 +25,7 @@ from utils.logger_helper import logger_helper
 from tests.unittests import *
 from tests.agent_tests import *
 
-from agent.ec_agents.build_agents import *
+
 import concurrent.futures
 
 
