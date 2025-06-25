@@ -75,7 +75,7 @@ from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readP
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from tests.unittests import *
 from tests.agent_tests import *
 import pandas as pd
@@ -907,7 +907,7 @@ class MainWindow(QMainWindow):
                         print(f"Error formatting WiFi info: {str(e)}")
                         wifi_info = None
 
-        logger_helper.info(f"wifi_info:{wifi_info}")
+        logger.info(f"wifi_info:{wifi_info}")
         if wifi_info:
             try:
                 wifi_data = wifi_info.decode('utf-8')
@@ -1135,6 +1135,11 @@ class MainWindow(QMainWindow):
         # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
 
         # print("MCP client tools listed....", tools)
+        self.agent_skills = []
+        self.agent_tasks = []
+        self.agent_tools = []
+        self.agent_knowledges = []
+        
         self.agent_skills = await build_agent_skills(self)
         self.agent_tasks = create_agent_tasks(self)
         self.agent_tools = obtain_agent_tools(self)
@@ -2358,16 +2363,16 @@ class MainWindow(QMainWindow):
         text_color = ""
         if level == "error":
             text_color = "color:#ff0000;"
-            logger_helper.error(msg)
+            logger.error(msg)
         elif level == "warn":
             text_color = "color:#ff8000;"
-            logger_helper.warning(msg)
+            logger.warning(msg)
         elif level == "info":
             text_color = "color:#004800;"
-            logger_helper.info(msg)
+            logger.info(msg)
         elif level == "debug":
             text_color = "color:#00ffff;"
-            logger_helper.debug(msg)
+            logger.debug(msg)
 
         msg_text = """ 
             <div style="display: flex; padding: 5pt;">
@@ -6643,8 +6648,8 @@ class MainWindow(QMainWindow):
                     ex_stat = "ErrorLoadSkillFile:" + traceback.format_exc() + " " + str(e)
                 else:
                     ex_stat = "ErrorLoadSkillFile: traceback information not available:" + str(e)
-                logger_helper.debug(ex_stat)
-                logger_helper.debug(QApplication.translate("QMainWindow", "Warning: load skill file error."))
+                logger.debug(ex_stat)
+                logger.debug(QApplication.translate("QMainWindow", "Warning: load skill file error."))
 
     def find_dependencies(self, main_file, visited, dependencies):
         if main_file in visited:
@@ -7035,7 +7040,7 @@ class MainWindow(QMainWindow):
         self.showMsg("starting servePlatoons")
 
         while True:
-            print("listening to platoons", datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
+            logger.trace("listening to platoons" + datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3])
 
             if not msgQueue.empty():
                 try:
@@ -7106,7 +7111,7 @@ class MainWindow(QMainWindow):
             lan_pre_time = datetime.now()
             while running:
                 log3("runbotwork Task.....", "runbotworks", self)
-                print("runbotworks................")
+                logger.trace("runbotworks................")
                 current_time = datetime.now()
 
                 # check whether there is vehicle for hire, if so, check any contract work in the queue
@@ -7188,7 +7193,7 @@ class MainWindow(QMainWindow):
                     else:
                         # nothing to do right now. check if all of today's work are done.
                         # if my own works are done and all platoon's reports are collected.
-                        print("empty to do...")
+                        logger.trace("empty to do...")
                         if self.host_role == "Platoon":
                             if len(self.todays_work["tbd"]) == 0:
                                 await self.doneWithToday()
@@ -7528,7 +7533,7 @@ class MainWindow(QMainWindow):
                 # check time. @certain time, time based, read out all manager missions, user can
                 #                  create missions and let them use certain skill and run at certain time.
                 managerBots, managerMissions = self.findManagerMissionsOfThisVehicle()
-                print("# manager missions:", len(managerMissions))
+                logger.trace("# manager missions:", len(managerMissions))
                 managerToRun = self.checkManagerToRuns(managerMissions)
 
                 if managerToRun:
@@ -7537,13 +7542,13 @@ class MainWindow(QMainWindow):
 
                 if not gui_manager_queue.empty():
                     # Process all available messages in the queue
-                    print("recevied manager queued msg...")
+                    logger.trace("recevied manager queued msg...")
                     while not gui_manager_queue.empty():
                         net_message = await gui_manager_queue.get()
                         await self.processManagerNetMessage(net_message, managerBots, gui_manager_queue, manager_rpa_queue, gui_monitor_queue)
                 else:
                     # always run some clean up after night
-                    print("manager msg queue empty...")
+                    logger.trace("manager msg queue empty...")
                     if current_time.hour == 0 and current_time.minute < 10:
                         # do some data structure and state cleaning and get rid   the
                         # next day
@@ -8733,7 +8738,7 @@ class MainWindow(QMainWindow):
                     self.c_send_chat(response)
                 chat_msg_queue.task_done()
 
-            print("chat Task ticking....")
+            logger.trace("chat Task ticking....")
             await asyncio.sleep(1)
 
     def getBV(self, bot):
@@ -8904,7 +8909,7 @@ class MainWindow(QMainWindow):
 
                 monitor_msg_queue.task_done()
 
-            print("running monitoring Task....", ticks)
+            logger.trace("running monitoring Task....", ticks)
             await asyncio.sleep(1)
         print("RPA monitor ended!!!")
 
@@ -10109,9 +10114,9 @@ class MainWindow(QMainWindow):
 
     def findManagerMissionsOfThisVehicle(self):
         managerBots = self.findManagerOfThisVehicle()
-        print("#manager::", len(managerBots))
+        logger.trace("#manager::", len(managerBots))
         managerBids = [x.getBid() for x in managerBots]
-        print("#managerBids::", managerBids)
+        logger.trace("#managerBids::", managerBids)
         managerMissions = [x for x in self.missions if x.getBid() in managerBids and ("completed" not in x.getStatus().lower())]
         return managerBots, managerMissions
 
