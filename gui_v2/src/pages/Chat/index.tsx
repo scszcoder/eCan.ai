@@ -1,236 +1,279 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useAppDataStore } from '../../stores/appDataStore';
+import { v4 as uuidv4 } from 'uuid';
 import ChatList from './components/ChatList';
 import ChatDetail from './components/ChatDetail';
-import { useUserStore } from '../../stores/userStore';
-import { Chat, Message } from './types/chat';
+import { Chat, Message, Attachment, Content } from './types/chat';
 import { logger } from '@/utils/logger';
-import { get_ipc_api } from '@/services/ipc_api';
-import { APIResponse } from '@/services/ipc';
 import ChatLayout from './components/ChatLayout';
 import AgentNotify from './components/AgentNotify';
+import { demoChatData } from './chatDemoData';
+import { get_ipc_api } from '@/services/ipc_api';
+import { useUserStore } from '@/stores/userStore';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const agentId = searchParams.get('agentId');
-    const [activeChatId, setActiveChatId] = useState<number | null>(null);
-    const username = useUserStore((state) => state.username)
-    // 默认设置为有新消息，方便查看效果
+    const username = useUserStore(state => state.username) || 'default_user';
+
+    const [chats, setChats] = useState<Chat[]>([]);
+    const [activeChatId, setActiveChatId] = useState<string | null>(null);
     const [hasNewAgentNotifications, setHasNewAgentNotifications] = useState(true);
+    const [agentNotifications, setAgentNotifications] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    const {
-        chats,
-        setChats,
-        setLoading,
-        setError,
-    } = useAppDataStore();
-
-    const fetchChats = useCallback(async (chat_ids: number[] = []) => {
-        if (!username) {
-            logger.warn('[ChatPage] Username not found, skipping fetchChats.');
-            return;
-        }
-        
-        logger.info(`[ChatPage] Username exists, fetching chats for "${username}" with chat_ids:`, chat_ids);
-        setLoading(true);
+    // 通用获取聊天数据的函数
+    const getChatsAndSetState = async (chatIds: string[] = [], setActive: boolean = false) => {
         try {
-            const response = await get_ipc_api().getChats<{chats: Chat[]}>(username, chat_ids.map(String));
+            const username = useUserStore.getState().username || 'default_user';
+            const response = await get_ipc_api().getChats<Chat[]>(username, chatIds);
+            
             if (response.success && response.data) {
-                console.log('[ChatPage] Fetched chats:', response.data.chats);
-                const fetchedChats = response.data.chats as Chat[];
-                if (chat_ids.length > 0) {
-                    // Merge new chat data with existing chats
-                    const updatedChats = chats.map(chat => {
-                        const newChat = fetchedChats.find(c => c.id === chat.id);
-                        return newChat ? { ...chat, ...newChat } : chat;
-                    });
-                    setChats(updatedChats);
-                } else {
-                    // Initial fetch, replace all chats
-                    setChats(fetchedChats);
-                    if (fetchedChats.length > 0 && !activeChatId) {
-                        setActiveChatId(fetchedChats[0].id);
+                let chatData = response.data.chats;
+                if (!Array.isArray(chatData)) {
+                    if (chatData && typeof chatData === 'object') {
+                        chatData = Object.values(chatData);
+                    } else {
+                        chatData = [];
                     }
                 }
+                if (chatIds.length === 1) {
+                    // 单聊更新
+                    setChats(prevChats => prevChats.map(c => c.id === chatIds[0] ? chatData[0] : c));
+                } else {
+                    setChats(chatData);
+                    if (setActive) setActiveChatId(chatData[0]?.id || null);
+                }
+                logger.debug('Chats loaded successfully:', chatData.length);
             } else {
-                setError(response.error?.message || 'Failed to fetch chats');
-                logger.error('[ChatPage] Error fetching chats:', response.error);
+                logger.error('Failed to load chats:', response.error);
+                setError(response.error?.message || 'Failed to load chats');
+                setChats(demoChatData);
+                if (setActive) setActiveChatId(demoChatData[0]?.id || null);
             }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            setError(errorMessage);
-            console.error('[ChatPage] fetchChats error stack:', error instanceof Error ? error.stack : 'No stack trace available');
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+            logger.error('Error loading chats:', errorMessage);
+            setError(`Error loading chats: ${errorMessage}`);
+            setChats(demoChatData);
+            if (setActive) setActiveChatId(demoChatData[0]?.id || null);
         } finally {
-            setLoading(false);
+            setIsLoading(false);
         }
-    }, [username, setLoading, setError, chats, activeChatId, setChats]);
+    };
 
-    // 初始化聊天
+    // 页面初始化
     useEffect(() => {
-        console.log('[ChatPage] username:', username);
-        fetchChats();
+        setIsLoading(true);
+        setError(null);
+        (async () => {
+            // 第一步：获取全部聊天
+            try {
+                const username = useUserStore.getState().username || 'default_user';
+                const response = await get_ipc_api().getChats<Chat[]>(username, []);
+                if (response.success && response.data) {
+                    let chatData = response.data.chats;
+                    if (!Array.isArray(chatData)) {
+                        if (chatData && typeof chatData === 'object') {
+                            chatData = Object.values(chatData);
+                        } else {
+                            chatData = [];
+                        }
+                    }
+                    setChats(chatData);
+                    const firstId = chatData[0]?.id || null;
+                    setActiveChatId(firstId);
+                    logger.debug('Chats loaded successfully:', chatData.length);
+                    // 第二步：获取第一个聊天的详细数据
+                    if (firstId) {
+                        await getChatsAndSetState([firstId], false);
+                    }
+                } else {
+                    logger.error('Failed to load chats:', response.error);
+                    setError(response.error?.message || 'Failed to load chats');
+                    setChats(demoChatData);
+                    setActiveChatId(demoChatData[0]?.id || null);
+                }
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                logger.error('Error loading chats:', errorMessage);
+                setError(`Error loading chats: ${errorMessage}`);
+                setChats(demoChatData);
+                setActiveChatId(demoChatData[0]?.id || null);
+            } finally {
+                setIsLoading(false);
+            }
+        })();
     }, [username]);
 
-    // 处理 agentId 参数
-    useEffect(() => {
-        if (agentId) {
-            const existingChat = chats.find(chat => chat.agentId === agentId);
-            if (!existingChat) {
-                const newChatId = Date.now();
-                const newChat: Chat = {
-                    id: newChatId,
-                    name: `Agent ${agentId}`,
-                    type: 'bot',
-                    status: 'online',
-                    agentId,
-                    lastMessage: t('pages.chat.startConversation'),
-                    lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    unreadCount: 0,
-                    messages: []
-                };
-                setChats([...chats, newChat]);
-                setActiveChatId(newChatId);
-            } else {
-                if (activeChatId !== existingChat.id) {
-                    setActiveChatId(existingChat.id);
-                }
-            }
-        }
-    }, [agentId, chats, setChats, t, activeChatId]);
-
     const handleFilterChange = (filters: Record<string, any>) => {
-        // 处理过滤器变化
         logger.debug('Filter changed:', filters);
     };
 
-    const handleChatSelect = (chatId: number) => {
-        const newChats = chats.map(chat =>
-            chat.id === chatId ? { ...chat, unreadCount: 0 } : chat
-        );
-        setChats(newChats);
+    // 点击chat时
+    const handleChatSelect = async (chatId: string) => {
+        // 先本地更新未读
+        const selectedChat = chats.find(c => c.id === chatId);
+        if (selectedChat && selectedChat.unread > 0) {
+            const newChats = chats.map(chat =>
+                chat.id === chatId ? { ...chat, unread: 0 } : chat
+            );
+            setChats(newChats);
+        }
         setActiveChatId(chatId);
-        fetchChats([chatId]);
+        // 获取最新chat
+        await getChatsAndSetState([chatId], false);
     };
 
-    const handleChatDelete = (chatId: number) => {
-        // 处理聊天删除
-        logger.debug('Delete chat:', chatId);
+    const handleChatDelete = (chatId: string) => {
+        const updatedChats = chats.filter(c => c.id !== chatId);
+        setChats(updatedChats);
+
+        if (activeChatId === chatId) {
+            setActiveChatId(updatedChats[0]?.id || null);
+        }
     };
 
-    const handleChatPin = (chatId: number) => {
-        // 处理聊天置顶
-        logger.debug('Pin chat:', chatId);
+    const handleChatPin = (chatId: string) => {
+        const newChats = chats.map(chat => 
+            chat.id === chatId ? { ...chat, pinned: !chat.pinned } : chat
+        );
+        newChats.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+        setChats(newChats);
     };
 
-    const handleChatMute = (chatId: number) => {
-        // 处理聊天静音
-        logger.debug('Mute chat:', chatId);
+    const handleChatMute = (chatId: string) => {
+        setChats(chats.map(chat => 
+            chat.id === chatId ? { ...chat, muted: !chat.muted } : chat
+        ));
     };
 
-    const handleMessageSend = async (content: string, attachments: any[]) => {
+    const handleMessageSend = async (content: string, attachments: Attachment[]) => {
         if (!activeChatId) return;
 
         const chat = chats.find(c => c.id === activeChatId);
         if (!chat) return;
-        
-        const tempId = Date.now();
-        let receiver = '';
-        if (chat.type === 'user') {
-            receiver = chat.name;
-        } else if (chat.type === 'bot') {
-            receiver = chat.agentId || '';
-        }
 
-        const newMessage: Message = {
-            id: tempId,
-            chat_id: activeChatId,
-            content,
-            attachments,
-            sender_id: 'user', // This should be the current user's ID
-            sender_name: 'You', // This should be the current user's name
-            recipient_id: receiver,
-            recipient_name: chat.name,
-            txTimestamp: new Date().toISOString(),
+        // 获取当前用户信息（假设第一个 user 角色为当前用户）
+        const userMember = chat.members.find(m => m.role === 'user') || chat.members[0];
+        
+        // 确保角色类型正确
+        const userRole = userMember.role === 'user' ? 'user' : 
+                        userMember.role === 'assistant' ? 'assistant' : 
+                        userMember.role === 'system' ? 'system' : 'agent';
+                        
+        const userMessage: Message = {
+            id: uuidv4(),
+            role: userRole,
+            createAt: Date.now(),
+            senderId: userMember.id,
+            senderName: userMember.name,
+            content: content,
             status: 'sending',
-            rxTimestamp: '',
-            readTimestamp: '',
+            attachment: attachments
         };
 
         const updatedChats = chats.map(c => {
             if (c.id !== activeChatId) return c;
             return {
                 ...c,
-                messages: [...(c.messages || []), newMessage],
-                lastMessage: content,
-                lastMessageTime: new Date().toISOString(),
+                messages: [...(c.messages || []), userMessage],
+                lastMsg: content,
+                lastMsgTime: userMessage.createAt,
             };
         });
         setChats(updatedChats);
 
         try {
-            const response: APIResponse<void> = await get_ipc_api().sendChat(newMessage);
-            if (response.success && response.data) {
-                console.log('[ChatPage] Message sent successfully', response.data);
-                const finalStatus: Message['status'] = 'sent';
-                // We need to get the latest chats state, because another message could have arrived.
-                // However, for this simple case, we'll base the update on `updatedChats`.
-                const finalChats = updatedChats.map((c: Chat) => {
-                    if (c.id !== activeChatId) return c;
-                    return {
-                        ...c,
-                        messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: finalStatus } : m) as Message[],
-                    };
-                });
-                setChats(finalChats);
+            // 发送消息到后端
+            const ipcApi = get_ipc_api();
+            if (ipcApi) {
+                // 准备发送消息的数据
+                const chatData = {
+                    chat_id: activeChatId,
+                    message: {
+                        content,
+                        attachments: attachments || [],
+                        sender_id: userMember.id,
+                        role: userRole
+                    }
+                };
                 
-                // 模拟收到 Agent 执行结果的通知
-                setTimeout(() => {
-                    setHasNewAgentNotifications(true);
-                    
-                    // 添加一条新的 Agent 通知
-                    const now = new Date();
-                    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    const dateString = now.toLocaleDateString();
-                    const newNotification = {
-                        id: Date.now().toString(),
-                        title: 'Agent 执行成功',
-                        content: `已完成任务: ${content}`,
-                        time: `${dateString} ${timeString}`
-                    };
-                    
-                    setAgentNotifications(prev => [newNotification, ...prev]);
-                }, 2000);
-            } else {
-                console.error('[ChatPage] Failed to send message:', response.error);
-                const finalStatus: Message['status'] = 'failed';
-                const finalChats = updatedChats.map((c: Chat) => {
-                    if (c.id !== activeChatId) return c;
-                    return {
-                        ...c,
-                        messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: finalStatus } : m) as Message[],
-                    };
-                });
-                setChats(finalChats);
+                // 发送消息
+                const response = await ipcApi.sendChat(chatData);
+                
+                if (!response.success) {
+                    logger.error('Failed to send message:', response.error);
+                    // 更新消息状态为错误
+                    setChats(prevChats => prevChats.map(c => {
+                        if (c.id !== activeChatId) return c;
+                        return {
+                            ...c,
+                            messages: c.messages.map(m => m.id === userMessage.id ? { ...m, status: 'error' } : m),
+                        };
+                    }));
+                    return;
+                }
             }
             
-
-        } catch (error) {
-            logger.error('Failed to send message:', error);
-            console.error('[ChatPage] Error stack:', error instanceof Error ? error.stack : 'No stack trace available');
-            const finalStatus: Message['status'] = 'failed';
-            const finalChats = updatedChats.map((c: Chat) => {
+            // 更新消息状态为已发送
+            setChats(prevChats => prevChats.map(c => {
                 if (c.id !== activeChatId) return c;
                 return {
                     ...c,
-                    messages: c.messages.map((m: Message) => m.id === tempId ? { ...m, status: finalStatus } : m) as Message[],
+                    messages: c.messages.map(m => m.id === userMessage.id ? { ...m, status: 'complete' } : m),
                 };
-            });
-            setChats(finalChats);
+            }));
+
+            // 模拟接收回复（在实际应用中，这应该由WebSocket或其他实时通信机制触发）
+            setTimeout(() => {
+                // 获取 AI/Agent 信息（假设第一个非 user 角色为 agent/assistant）
+                const agentMember = chat.members.find(m => m.role !== 'user') || chat.members[0];
+                
+                // 确保角色类型正确
+                const agentRole = agentMember.role === 'user' ? 'user' : 
+                                agentMember.role === 'assistant' ? 'assistant' : 
+                                agentMember.role === 'system' ? 'system' : 'agent';
+                                
+                const aiResponse: Message = {
+                    id: uuidv4(),
+                    role: agentRole,
+                    createAt: Date.now(),
+                    senderId: agentMember.id,
+                    senderName: agentMember.name,
+                    content: `Echo: "${content}"`,
+                    status: 'complete',
+                };
+
+                setChats(prevChats => prevChats.map(c => {
+                    if (c.id !== activeChatId) return c;
+                    const isMuted = c.muted || false;
+                    return {
+                        ...c,
+                        messages: [...c.messages, aiResponse],
+                        lastMsg: aiResponse.content.toString(),
+                        lastMsgTime: aiResponse.createAt,
+                        unread: isMuted ? c.unread : (c.unread || 0) + 1,
+                    };
+                }));
+            }, 1000);
+        } catch (err) {
+            logger.error('Error sending message:', err);
+            // 更新消息状态为错误
+            setChats(prevChats => prevChats.map(c => {
+                if (c.id !== activeChatId) return c;
+                return {
+                    ...c,
+                    messages: c.messages.map(m => m.id === userMessage.id ? { ...m, status: 'error' } : m),
+                };
+            }));
         }
     };
+    
+    const currentChat = chats.find((c) => c.id === activeChatId);
 
     const renderListContent = () => (
         <ChatList
@@ -245,34 +288,21 @@ const ChatPage: React.FC = () => {
     );
 
     const renderDetailsContent = () => (
-        <ChatDetail chatId={activeChatId} onSend={handleMessageSend} />
+        <ChatDetail 
+            chatId={activeChatId} 
+            chats={chats}
+            onSend={handleMessageSend} 
+        />
     );
 
-    // agent notify 示例数据
-    const [agentNotifications, setAgentNotifications] = useState([
-        { 
-            id: '1', 
-            title: 'Agent 执行成功', 
-            content: '已完成搜索任务，找到相关结果 3 条', 
-            time: '2024-06-24 19:00' 
-        },
-        { 
-            id: '2', 
-            title: 'Agent 执行完成', 
-            content: '已完成数据分析任务，生成报告已保存', 
-            time: '2024-06-24 18:30' 
-        }
-    ]);
-    
-    // 当右侧面板展开时，清除未读状态
-    const handleRightPanelToggle = (collapsed: boolean) => {
-        if (!collapsed) {
-            setHasNewAgentNotifications(false);
-        }
-    };
+    const renderRightPanel = () => (
+        <AgentNotify notifications={agentNotifications} />
+    );
 
-    // 获取当前聊天对象
-    const currentChat = chats.find((c) => c.id === activeChatId);
+    // 显示加载状态或错误信息
+    if (isLoading && chats.length === 0) {
+        return <div className="loading-container">{t('common.loading')}</div>;
+    }
 
     return (
         <ChatLayout
@@ -281,11 +311,15 @@ const ChatPage: React.FC = () => {
             listContent={renderListContent()}
             detailsContent={renderDetailsContent()}
             agentNotifyTitle={t('pages.chat.agentNotify')}
-            agentNotifyContent={<AgentNotify notifications={agentNotifications} />}
+            agentNotifyContent={renderRightPanel()}
             hasNewAgentNotifications={hasNewAgentNotifications}
-            onRightPanelToggle={handleRightPanelToggle}
+            onRightPanelToggle={(collapsed) => {
+                if (!collapsed) {
+                    setHasNewAgentNotifications(false);
+                }
+            }}
         />
     );
 };
 
-export default ChatPage; 
+export default ChatPage;
