@@ -1,115 +1,556 @@
 [
     {
-        "id": 1,
-        "name": "John Doe",
-        "type": "user",
-        "status": "online",
-        "lastMessage": "Can you help me with the delivery schedule?",
-        "lastMessageTime": "2024-07-30T09:00:00Z",
-        "unreadCount": 2,
-        "messages": [
-            {
-                "id": 1,
-                "chat_id": 1,
-                "content": "你好！有什么可以帮助你的吗？",
-                "attachments": [],
-                "sender_id": "1",
-                "sender_name": "AI助手",
-                "recipient_id": "user",
-                "recipient_name": "我",
-                "txTimestamp": "2024-07-30T08:00:00Z",
-                "rxTimestamp": "2024-07-30T08:01:00Z",
-                "readTimestamp": "2024-07-30T08:01:00Z",
-                "status": "read",
-                "ext": {},
-                "atList": []
-            },
-            {
-                "id": 2,
-                "chat_id": 1,
-                "content": "我想了解一下最新的AI技术进展。",
-                "attachments": [],
-                "sender_id": "user",
-                "sender_name": "我",
-                "recipient_id": "1",
-                "recipient_name": "AI助手",
-                "txTimestamp": "2024-07-30T08:05:00Z",
-                "rxTimestamp": "2024-07-30T08:06:00Z",
-                "readTimestamp": "2024-07-30T08:06:00Z",
-                "status": "read",
-                "ext": {},
-                "atList": []
-            },
-            {
-                "id": 3,
-                "chat_id": 1,
-                "content": "Can you help me with the delivery schedule?",
-                "attachments": [],
-                "sender_id": "John Doe",
-                "sender_name": "John Doe",
-                "recipient_id": "You",
-                "recipient_name": "You",
-                "txTimestamp": "2024-07-30T09:00:00Z",
-                "rxTimestamp": "2024-07-30T09:01:00Z",
-                "readTimestamp": "",
-                "status": "delivered",
-                "ext": {},
-                "atList": []
+      "id": "chat-1",
+      "type": "user-agent",
+      "name": "AI助手",
+      "avatar": "/src/assets/icons1_100.png",
+      "members": [
+        {
+          "id": "user-1",
+          "role": "user",
+          "name": "用户",
+          "avatar": "/src/assets/agent0_100.png"
+        },
+        {
+          "id": "assistant-1",
+          "role": "assistant",
+          "name": "AI助手",
+          "avatar": "/src/assets/icons1_100.png"
+        }
+      ],
+      "messages": [
+        {
+          "id": "ai-msg-1",
+          "role": "user",
+          "createAt": 1710100000000,
+          "content": "你好，AI助手！",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-2",
+          "role": "assistant",
+          "createAt": 1710100001000,
+          "content": "您好！我是您的AI助手。今天我能为您做些什么？",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-3",
+          "role": "user",
+          "createAt": 1710100002000,
+          "content": "请帮我写一个简单的React组件，用于显示一个待办事项列表。",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-4",
+          "role": "assistant",
+          "createAt": 1710100003000,
+          "content": {
+            "type": "code",
+            "code": {
+              "lang": "jsx",
+              "value": "import React, { useState } from 'react';\n\nconst TodoList = () => {\n  const [todos, setTodos] = useState([\n    { id: 1, text: '学习React', completed: false },\n    { id: 2, text: '完成项目', completed: false },\n    { id: 3, text: '准备面试', completed: true }\n  ]);\n  const [input, setInput] = useState('');\n\n  const addTodo = () => {\n    if (input.trim() !== '') {\n      setTodos([\n        ...todos,\n        { id: Date.now(), text: input, completed: false }\n      ]);\n      setInput('');\n    }\n  };\n\n  const toggleTodo = (id) => {\n    setTodos(todos.map(todo => \n      todo.id === id ? { ...todo, completed: !todo.completed } : todo\n    ));\n  };\n\n  return (\n    <div className=\"todo-list\">\n      <h2>待办事项列表</h2>\n      <div className=\"add-todo\">\n        <input \n          value={input}\n          onChange={(e) => setInput(e.target.value)}\n          placeholder=\"添加新的待办事项\"\n        />\n        <button onClick={addTodo}>添加</button>\n      </div>\n      <ul>\n        {todos.map(todo => (\n          <li \n            key={todo.id}\n            style={{ textDecoration: todo.completed ? 'line-through' : 'none' }}\n            onClick={() => toggleTodo(todo.id)}\n          >\n            {todo.text}\n          </li>\n        ))}\n      </ul>\n    </div>\n  );\n};\n\nexport default TodoList;"
             }
-        ]
+          },
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-5",
+          "role": "user",
+          "createAt": 1710100004000,
+          "content": "能否添加一个删除待办事项的功能？",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-6",
+          "role": "assistant",
+          "createAt": 1710100005000,
+          "content": "当然可以，以下是添加了删除功能的组件：",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-7",
+          "role": "assistant",
+          "createAt": 1710100006000,
+          "content": {
+            "type": "code",
+            "code": {
+              "lang": "jsx",
+              "value": "import React, { useState } from 'react';\nimport './TodoList.css'; // 假设有相应的CSS文件\n\nconst TodoList = () => {\n  const [todos, setTodos] = useState([\n    { id: 1, text: '学习React', completed: false },\n    { id: 2, text: '完成项目', completed: false },\n    { id: 3, text: '准备面试', completed: true }\n  ]);\n  const [input, setInput] = useState('');\n\n  const addTodo = () => {\n    if (input.trim() !== '') {\n      setTodos([\n        ...todos,\n        { id: Date.now(), text: input, completed: false }\n      ]);\n      setInput('');\n    }\n  };\n\n  const toggleTodo = (id) => {\n    setTodos(todos.map(todo => \n      todo.id === id ? { ...todo, completed: !todo.completed } : todo\n    ));\n  };\n\n  const deleteTodo = (id, e) => {\n    e.stopPropagation(); // 阻止事件冒泡，避免触发toggleTodo\n    setTodos(todos.filter(todo => todo.id !== id));\n  };\n\n  return (\n    <div className=\"todo-list\">\n      <h2>待办事项列表</h2>\n      <div className=\"add-todo\">\n        <input \n          value={input}\n          onChange={(e) => setInput(e.target.value)}\n          placeholder=\"添加新的待办事项\"\n        />\n        <button onClick={addTodo}>添加</button>\n      </div>\n      <ul>\n        {todos.map(todo => (\n          <li key={todo.id} className=\"todo-item\">\n            <span \n              className={todo.completed ? 'completed' : ''}\n              onClick={() => toggleTodo(todo.id)}\n            >\n              {todo.text}\n            </span>\n            <button \n              className=\"delete-btn\"\n              onClick={(e) => deleteTodo(todo.id, e)}\n            >\n              删除\n            </button>\n          </li>\n        ))}\n      </ul>\n    </div>\n  );\n};\n\nexport default TodoList;"
+            }
+          },
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-8",
+          "role": "user",
+          "createAt": 1710100007000,
+          "content": "太棒了！能否再添加一个CSS文件，让这个组件看起来更美观？",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-9",
+          "role": "assistant",
+          "createAt": 1710100008000,
+          "content": {
+            "type": "code",
+            "code": {
+              "lang": "css",
+              "value": ".todo-list {\n  max-width: 500px;\n  margin: 0 auto;\n  padding: 20px;\n  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);\n  border-radius: 8px;\n  background-color: #fff;\n}\n\nh2 {\n  color: #333;\n  text-align: center;\n  margin-bottom: 20px;\n}\n\n.add-todo {\n  display: flex;\n  margin-bottom: 20px;\n}\n\ninput {\n  flex: 1;\n  padding: 10px;\n  border: 1px solid #ddd;\n  border-radius: 4px 0 0 4px;\n  font-size: 16px;\n}\n\nbutton {\n  padding: 10px 15px;\n  background-color: #4caf50;\n  color: white;\n  border: none;\n  border-radius: 0 4px 4px 0;\n  cursor: pointer;\n  font-size: 16px;\n}\n\nbutton:hover {\n  background-color: #45a049;\n}\n\nul {\n  list-style-type: none;\n  padding: 0;\n}\n\n.todo-item {\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  padding: 10px;\n  margin-bottom: 10px;\n  background-color: #f9f9f9;\n  border-radius: 4px;\n  transition: background-color 0.3s;\n}\n\n.todo-item:hover {\n  background-color: #f1f1f1;\n}\n\n.completed {\n  text-decoration: line-through;\n  color: #888;\n}\n\n.delete-btn {\n  background-color: #f44336;\n  border-radius: 4px;\n  padding: 5px 10px;\n}\n\n.delete-btn:hover {\n  background-color: #d32f2f;\n}"
+            }
+          },
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-10",
+          "role": "user",
+          "createAt": 1710100009000,
+          "content": {
+            "type": "image",
+            "imageUrl": "/src/assets/icons3.png"
+          },
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-11",
+          "role": "assistant",
+          "createAt": 1710100010000,
+          "content": "这是一张图标图片。如果您想在待办事项应用中使用这些图标，我可以帮您将它们集成到组件中。您希望如何使用这些图标呢？",
+          "status": "complete"
+        }
+      ],
+      "lastMsg": "这是一张图标图片。如果您想在待办事项应用中使用这些图标，我可以帮您将它们集成到组件中。您希望如何使用这些图标呢？",
+      "lastMsgTime": 1710100010000,
+      "unread": 1
     },
     {
-        "id": 2,
-        "name": "Support Bot",
-        "type": "bot",
-        "status": "online",
-        "lastMessage": "How can I assist you today?",
-        "lastMessageTime": "2024-07-30T08:00:00Z",
-        "unreadCount": 0,
-        "messages": [
+      "id": "chat-2",
+      "type": "user-system",
+      "name": "系统通知",
+      "avatar": "/src/assets/icons0_door_100.png",
+      "members": [
+        {
+          "id": "user-1",
+          "role": "user",
+          "name": "用户",
+          "avatar": "/src/assets/agent0_100.png"
+        },
+        {
+          "id": "system-1",
+          "role": "system",
+          "name": "系统",
+          "avatar": "/src/assets/icons0_door_100.png"
+        }
+      ],
+      "messages": [
+        {
+          "id": "sys-msg-1",
+          "role": "system",
+          "createAt": 1710200000000,
+          "content": "欢迎使用我们的聊天系统！",
+          "status": "complete"
+        },
+        {
+          "id": "sys-msg-2",
+          "role": "system",
+          "createAt": 1710200001000,
+          "content": "系统已更新到最新版本 v2.5.0，新增功能：多人群聊、文件共享和消息引用。",
+          "status": "complete"
+        },
+        {
+          "id": "sys-msg-3",
+          "role": "system",
+          "createAt": 1710200002000,
+          "content": {
+            "type": "text",
+            "text": "您的账户已成功激活高级功能，有效期至2025年6月30日。"
+          },
+          "status": "complete"
+        },
+        {
+          "id": "sys-msg-4",
+          "role": "user",
+          "createAt": 1710200003000,
+          "content": "如何使用新的群聊功能？",
+          "status": "complete"
+        },
+        {
+          "id": "sys-msg-5",
+          "role": "system",
+          "createAt": 1710200004000,
+          "content": "请查看以下群聊功能使用指南：",
+          "status": "complete",
+          "attachment": [
             {
-                "id": 4,
-                "chat_id": 2,
-                "content": "How can I assist you today?",
-                "attachments": [],
-                "sender_id": "2",
-                "sender_name": "Support Bot",
-                "recipient_id": "You",
-                "recipient_name": "You",
-                "txTimestamp": "2024-07-30T08:00:00Z",
-                "rxTimestamp": "2024-07-30T08:01:00Z",
-                "readTimestamp": "2024-07-30T08:01:00Z",
-                "status": "read",
-                "ext": {},
-                "atList": []
+              "uid": "att-guide",
+              "name": "group_chat_guide.pdf",
+              "status": "done",
+              "url": "/files/group_chat_guide.pdf",
+              "size": 1024000,
+              "type": "application/pdf"
             }
-        ]
+          ]
+        },
+        {
+          "id": "sys-msg-6",
+          "role": "system",
+          "createAt": 1710200005000,
+          "content": "系统将于今晚22:00-23:00进行维护，期间服务可能短暂不可用。",
+          "status": "complete"
+        }
+      ],
+      "lastMsg": "系统将于今晚22:00-23:00进行维护，期间服务可能短暂不可用。",
+      "lastMsgTime": 1710200005000,
+      "unread": 2
     },
     {
-        "id": 3,
-        "name": "Team Alpha",
-        "type": "group",
-        "status": "busy",
-        "lastMessage": "Meeting at 2 PM",
-        "lastMessageTime": "2024-07-29T10:00:00Z",
-        "unreadCount": 5,
-        "messages": [
-            {
-                "id": 5,
-                "chat_id": 3,
-                "content": "Meeting at 2 PM",
-                "attachments": [],
-                "sender_id": "Team Lead",
-                "sender_name": "Team Lead",
-                "recipient_id": "Team Alpha",
-                "recipient_name": "Team Alpha",
-                "txTimestamp": "2024-07-29T10:00:00Z",
-                "rxTimestamp": "2024-07-29T10:00:00Z",
-                "readTimestamp": "",
-                "status": "delivered",
-                "ext": {},
-                "atList": []
+      "id": "chat-3",
+      "type": "user-agent",
+      "name": "客服中心",
+      "avatar": "/src/assets/icons2_100.png",
+      "members": [
+        {
+          "id": "user-1",
+          "role": "user",
+          "name": "用户",
+          "avatar": "/src/assets/agent0_100.png"
+        },
+        {
+          "id": "agent-1",
+          "role": "agent",
+          "name": "客服代理",
+          "avatar": "/src/assets/icons2_100.png"
+        }
+      ],
+      "messages": [
+        {
+          "id": "cs-msg-1",
+          "role": "system",
+          "createAt": 1710000000000,
+          "content": "欢迎来到客服中心，请问有什么可以帮您？",
+          "status": "complete"
+        },
+        {
+          "id": "cs-msg-2",
+          "role": "user",
+          "createAt": 1710000010000,
+          "content": "我的订单一直没有发货，订单号是：EC20240625001",
+          "status": "complete"
+        },
+        {
+          "id": "cs-msg-3",
+          "role": "agent",
+          "createAt": 1710000020000,
+          "content": "您好，我是客服小王，很高兴为您服务。我正在查询您的订单信息，请稍等。",
+          "status": "complete"
+        },
+        {
+          "id": "cs-msg-4",
+          "role": "agent",
+          "createAt": 1710000030000,
+          "content": {
+            "type": "text",
+            "text": "已经查询到您的订单，物流信息如下："
+          },
+          "status": "complete"
+        },
+        {
+          "id": "cs-msg-5",
+          "role": "agent",
+          "createAt": 1710000040000,
+          "content": {
+            "type": "code",
+            "code": {
+              "lang": "json",
+              "value": "{\n  \"orderNo\": \"EC20240625001\",\n  \"status\": \"shipping\",\n  \"logistics\": {\n    \"company\": \"顺丰快递\",\n    \"trackingNo\": \"SF1234567890\",\n    \"estimatedDelivery\": \"2024-06-28\"\n  }\n}"
             }
-        ]
+          },
+          "status": "complete"
+        },
+        {
+          "id": "cs-msg-6",
+          "role": "user",
+          "createAt": 1710000050000,
+          "content": "谢谢，请问有没有更详细的物流跟踪信息？",
+          "status": "complete"
+        },
+        {
+          "id": "cs-msg-7",
+          "role": "agent",
+          "createAt": 1710000060000,
+          "content": "当然，以下是详细的物流跟踪信息：",
+          "status": "complete",
+          "attachment": [
+            {
+              "uid": "att-logistics",
+              "name": "logistics_tracking.pdf",
+              "status": "done",
+              "url": "/files/logistics_tracking.pdf",
+              "size": 512000,
+              "type": "application/pdf"
+            }
+          ]
+        },
+        {
+          "id": "cs-msg-8",
+          "role": "user",
+          "createAt": 1710000070000,
+          "content": "非常感谢您的帮助！",
+          "status": "complete"
+        },
+        {
+          "id": "cs-msg-9",
+          "role": "agent",
+          "createAt": 1710000080000,
+          "content": "不客气，很高兴能帮到您。如果还有其他问题，随时联系我们。祝您生活愉快！",
+          "status": "complete"
+        }
+      ],
+      "lastMsg": "不客气，很高兴能帮到您。如果还有其他问题，随时联系我们。祝您生活愉快！",
+      "lastMsgTime": 1710000080000,
+      "unread": 0
+    },
+    {
+      "id": "chat-4",
+      "type": "group",
+      "name": "项目讨论组",
+      "avatar": "/src/assets/icons3.png",
+      "members": [
+        {
+          "id": "user-1",
+          "role": "user",
+          "name": "张经理",
+          "avatar": "/src/assets/agent0_100.png"
+        },
+        {
+          "id": "agent-1",
+          "role": "agent",
+          "name": "李设计",
+          "avatar": "/src/assets/icons1_100.png"
+        },
+        {
+          "id": "agent-2",
+          "role": "agent",
+          "name": "王工程",
+          "avatar": "/src/assets/icons2_100.png"
+        },
+        {
+          "id": "agent-3",
+          "role": "agent",
+          "name": "赵产品",
+          "avatar": "/src/assets/icons3.png"
+        },
+        {
+          "id": "assistant-1",
+          "role": "assistant",
+          "name": "QA助手",
+          "avatar": "/src/assets/icons5.png"
+        }
+      ],
+      "messages": [
+        {
+          "id": "grp-msg-1",
+          "role": "system",
+          "createAt": 1710300000000,
+          "content": "项目讨论群已创建，已添加所有团队成员。",
+          "status": "complete"
+        },
+        {
+          "id": "grp-msg-2",
+          "role": "user",
+          "createAt": 1710300001000,
+          "content": "大家好，我们今天需要讨论一下新项目的进度。",
+          "status": "complete",
+          "senderId": "user-1",
+          "senderName": "张经理"
+        },
+        {
+          "id": "grp-msg-3",
+          "role": "agent",
+          "createAt": 1710300002000,
+          "content": "我已经完成了UI设计稿，请大家查看并提供反馈。",
+          "status": "complete",
+          "senderId": "agent-1",
+          "senderName": "李设计",
+          "attachment": [
+            {
+              "uid": "att-design",
+              "name": "ui_design.fig",
+              "status": "done",
+              "url": "/files/ui_design.fig",
+              "size": 5120000,
+              "type": "application/figma"
+            }
+          ]
+        },
+        {
+          "id": "grp-msg-4",
+          "role": "agent",
+          "createAt": 1710300003000,
+          "content": "后端API已经开发完成，文档如下：",
+          "status": "complete",
+          "senderId": "agent-2",
+          "senderName": "王工程"
+        },
+        {
+          "id": "grp-msg-5",
+          "role": "agent",
+          "createAt": 1710300004000,
+          "content": {
+            "type": "code",
+            "code": {
+              "lang": "markdown",
+              "value": "# API 文档\n\n## 用户认证\n- POST /api/auth/login\n- POST /api/auth/register\n- GET /api/auth/profile\n\n## 数据接口\n- GET /api/data/list\n- POST /api/data/create\n- PUT /api/data/update/{id}\n- DELETE /api/data/delete/{id}\n\n所有接口返回格式：\n```json\n{\n  \"code\": 0,\n  \"message\": \"success\",\n  \"data\": {}\n}\n```\n\n详细参数请参考完整文档。"
+            }
+          },
+          "status": "complete",
+          "senderId": "agent-2",
+          "senderName": "王工程"
+        },
+        {
+          "id": "grp-msg-6",
+          "role": "assistant",
+          "createAt": 1710300005000,
+          "content": "我已经将所有需求整理成了测试用例，并创建了自动化测试脚本。",
+          "status": "complete",
+          "senderId": "assistant-1",
+          "senderName": "QA助手"
+        },
+        {
+          "id": "grp-msg-7",
+          "role": "user",
+          "createAt": 1710300006000,
+          "content": "非常好！我们下周一安排一次全体会议，讨论下一阶段的工作计划。",
+          "status": "complete",
+          "senderId": "user-1",
+          "senderName": "张经理"
+        },
+        {
+          "id": "grp-msg-8",
+          "role": "agent",
+          "createAt": 1710300007000,
+          "content": {
+            "type": "image",
+            "imageUrl": "/src/assets/icons4.png"
+          },
+          "status": "complete",
+          "senderId": "agent-3",
+          "senderName": "赵产品"
+        },
+        {
+          "id": "grp-msg-9",
+          "role": "agent",
+          "createAt": 1710300008000,
+          "content": "这是我设计的新图标，大家觉得怎么样？",
+          "status": "complete",
+          "senderId": "agent-3",
+          "senderName": "赵产品"
+        },
+        {
+          "id": "grp-msg-10",
+          "role": "user",
+          "createAt": 1710300009000,
+          "content": "看起来不错，但颜色可能需要调整一下，与我们的品牌色更一致。",
+          "status": "complete",
+          "senderId": "user-1",
+          "senderName": "张经理"
+        }
+      ],
+      "lastMsg": "看起来不错，但颜色可能需要调整一下，与我们的品牌色更一致。",
+      "lastMsgTime": 1710300009000,
+      "unread": 5,
+      "pinned": true
+    },
+    {
+      "id": "chat-5",
+      "type": "user-assistant",
+      "name": "错误状态演示",
+      "avatar": "/src/assets/icons6.png",
+      "members": [
+        {
+          "id": "user-1",
+          "role": "user",
+          "name": "用户",
+          "avatar": "/src/assets/agent0_100.png"
+        },
+        {
+          "id": "assistant-1",
+          "role": "assistant",
+          "name": "助手",
+          "avatar": "/src/assets/icons6.png"
+        }
+      ],
+      "messages": [
+        {
+          "id": "err-msg-1",
+          "role": "user",
+          "createAt": 1710400000000,
+          "content": "你能帮我分析一下这段代码吗？",
+          "status": "complete"
+        },
+        {
+          "id": "err-msg-2",
+          "role": "user",
+          "createAt": 1710400001000,
+          "content": {
+            "type": "code",
+            "code": {
+              "lang": "javascript",
+              "value": "function calculateSum(arr) {\n  let sum = 0;\n  for (let i = 0; i < arr.length; i++) {\n    sum += arr[i];\n  }\n  return sum;\n}"
+            }
+          },
+          "status": "complete"
+        },
+        {
+          "id": "err-msg-3",
+          "role": "assistant",
+          "createAt": 1710400002000,
+          "content": "正在分析代码...",
+          "status": "loading"
+        },
+        {
+          "id": "err-msg-4",
+          "role": "assistant",
+          "createAt": 1710400003000,
+          "content": "这是一个计算数组元素总和的函数，实现方式是通过循环遍历数组并累加每个元素。这种实现方式简单明了，时间复杂度为O(n)，其中n是数组的长度。",
+          "status": "incomplete"
+        },
+        {
+          "id": "err-msg-5",
+          "role": "assistant",
+          "createAt": 1710400004000,
+          "content": "不过，在现代JavaScript中，你也可以使用数组的reduce方法来实现相同的功能，代码会更简洁：",
+          "status": "error"
+        },
+        {
+          "id": "err-msg-6",
+          "role": "user",
+          "createAt": 1710400005000,
+          "content": "看起来消息发送失败了，能重新发送吗？",
+          "status": "complete"
+        },
+        {
+          "id": "err-msg-7",
+          "role": "assistant",
+          "createAt": 1710400006000,
+          "content": {
+            "type": "code",
+            "code": {
+              "lang": "javascript",
+              "value": "// 使用reduce方法的现代实现\nfunction calculateSum(arr) {\n  return arr.reduce((sum, current) => sum + current, 0);\n}"
+            }
+          },
+          "status": "sending"
+        },
+        {
+          "id": "err-msg-8",
+          "role": "system",
+          "createAt": 1710400007000,
+          "content": "由于网络问题，部分消息可能发送失败。请检查您的网络连接并重试。",
+          "status": "complete"
+        }
+      ],
+      "lastMsg": "由于网络问题，部分消息可能发送失败。请检查您的网络连接并重试。",
+      "lastMsgTime": 1710400007000,
+      "unread": 1
     }
-] 
+  ]

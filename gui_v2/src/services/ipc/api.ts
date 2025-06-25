@@ -129,8 +129,8 @@ export class IPCAPI {
         return this.executeRequest<T>('get_tools', {username, tool_ids });
     }
 
-    public async getChats<T>(username: string, chat_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_chats', {username, chat_ids });
+    public async getChats<T>(username: string, ids: string[]): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_chats', {username, ids });
     }
 
     public async getKnowledges<T>(username: string, knowledge_ids: string[]): Promise<APIResponse<T>> {

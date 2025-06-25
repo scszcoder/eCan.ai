@@ -1,44 +1,126 @@
+/**
+ * This file defines the core data structures for the chat feature,
+ * based on SemiDesign's Chat component standards with added application-specific fields.
+ */
+
+/**
+ * Represents a file attachment in a message.
+ */
+export interface Attachment {
+    uid: string;      // 附件唯一标识符
+    name: string;     // 附件名称
+    status: string;   // 附件状态（'done', 'uploading', 'error' 等）
+    url?: string;     // 附件访问链接
+    size?: number;    // 附件大小（字节）
+    type?: string;    // 附件MIME类型
+}
+
+/**
+ * 消息状态枚举
+ */
+export type MessageStatus = 'loading' | 'incomplete' | 'complete' | 'error' | 'sending' | 'sent';
+
+/**
+ * Represents a single message within a chat.
+ */
+export interface Message {
+    role: 'user' | 'assistant' | 'system' | 'agent';
+    id: string;
+    createAt: number;
+    content: string | Content;  // 支持字符串或Content对象
+    status: MessageStatus;      // 使用枚举类型
+    attachment?: Attachment[];  // 保留此字段以直接支持 Semi Chat 组件
+    
+    // 以下字段为应用内部使用，不是Semi Chat组件必需的
+    chatId?: string;
+    senderId?: string;
+    senderName?: string;
+    time?: number;
+}
+
+/**
+ * Represents a chat conversation.
+ */
 export interface Chat {
-    id: number;
+    id: string; // Unique chat identifier
+    type: 'user-system' | 'user-agent' | 'agent-agent' | 'group';
+    name: string; // Display name of the chat
+    avatar?: string; // URL for the chat's avatar
+    
+    members: Member[];
+
+    messages: Message[];
+
+    // Application-specific fields for managing chat list
+    lastMsg?: string; 
+    lastMsgTime?: number;
+    unread: number;
+    
+    // Custom fields for additional functionality
+    pinned?: boolean;
+    muted?: boolean;
+
+    ext?: Record<string, any>; // For any extra data
+}
+
+/**
+ * Represents a member in a chat.
+ */
+export interface Member {
+    id: string;
+    role: string; // 与 roleConfig key 对应
     name: string;
     avatar?: string;
-    type: 'user' | 'bot' | 'group';
-    status: 'online' | 'offline' | 'busy';
-    agentId?: string;
-    lastMessage: string;
-    lastMessageTime: string;
-    unreadCount: number;
-    isGroup?: boolean;
-    members?: string[];
-    messages: Message[];
-}
-
-export interface Message {
-    id: number;
-    chat_id: number;
-    content: string;
-    attachments: Attachment[];
-    sender_id: string;
-    sender_name: string;
-    recipient_id: string;
-    recipient_name: string;
-    txTimestamp: string;
-    rxTimestamp: string;
-    readTimestamp: string;
-    status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
-    isEdited?: boolean;
-    isRetracted?: boolean;
+    status?: 'online' | 'offline' | 'busy';
     ext?: Record<string, any>;
-    replyTo?: number;
-    atList?: string[];
 }
 
-export interface Attachment {
-    id: string;
+/**
+ * Represents a message content.
+ * 注意：此接口用于应用内部消息处理，不直接用于 Semi Chat 组件。
+ * 使用 Semi Chat 组件时，应将此对象转换为 Message.content 字符串。
+ */
+export interface Content {
+    type: 'text' | 'image' | 'file' | 'code' | 'system' | 'custom';
+    text?: string;
+    code?: { lang: string; value: string };
+    imageUrl?: string;
+    fileUrl?: string;
+    fileName?: string;
+    fileSize?: number;
+    // 移除 attachments 字段，统一使用 Message.attachment
+    [key: string]: any;
+}
+
+/**
+ * Represents a role configuration item.
+ */
+export interface RoleConfigItem {
     name: string;
-    type: string;
-    size: number;
-    url?: string;
-    content?: string; // base64
-    file?: File;
-} 
+    avatar: string;
+    status?: 'online' | 'offline' | 'busy';
+    ext?: Record<string, any>;
+}
+
+/**
+ * Semi UI Chat 组件的 Metadata 接口
+ */
+export interface Metadata {
+    name: string;
+    avatar: string;
+    color?: string; // 头像背景颜色，支持 amber、blue、cyan、green 等
+}
+
+/**
+ * Semi UI Chat 组件的 RoleConfig 类型
+ * 使用索引签名使其与 Semi UI 的 RoleConfig 类型兼容
+ */
+export interface RoleConfig {
+    [key: string]: Metadata; // 添加索引签名，使其与 Semi UI 兼容
+    user: Metadata;
+    assistant: Metadata;
+    system: Metadata;
+    agent: Metadata; // 添加 agent 角色，设为必需
+}
+
+export type RoleKey = string; 

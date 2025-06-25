@@ -143,11 +143,11 @@ const ChatListArea = styled.div`
 
 interface ChatListProps {
     chats: Chat[];
-    activeChatId: number | null;
-    onChatSelect: (chatId: number) => void;
-    onChatDelete: (chatId: number) => void;
-    onChatPin: (chatId: number) => void;
-    onChatMute: (chatId: number) => void;
+    activeChatId: string | null;
+    onChatSelect: (chatId: string) => void;
+    onChatDelete: (chatId: string) => void;
+    onChatPin: (chatId: string) => void;
+    onChatMute: (chatId: string) => void;
     onFilterChange: (filters: Record<string, any>) => void;
     onSearch?: (value: string) => void;
     onReset?: () => void;
@@ -178,36 +178,25 @@ const ChatList: React.FC<ChatListProps> = ({
 }) => {
     const { t } = useTranslation();
     const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-    const [selectedChatId, setSelectedChatId] = useState<number | null>(null);
-    const [hoveredDeleteButton, setHoveredDeleteButton] = useState<number | null>(null);
+    const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+    const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
 
     // Ensure chats is always an array to prevent crashes
     const safeChats = Array.isArray(chats) ? chats : [];
 
-    const handleDeleteConfirm = (chatId: number) => {
+    const handleDeleteConfirm = (chatId: string) => {
         setSelectedChatId(chatId);
         setIsDeleteConfirmOpen(true);
     };
 
     const getAvatarIcon = (type: Chat['type']) => {
         switch (type) {
-            case 'user':
-                return <UserOutlined />;
-            case 'bot':
+            case 'user-agent':
                 return <RobotOutlined />;
             case 'group':
                 return <TeamOutlined />;
-        }
-    };
-
-    const getStatusColor = (status: Chat['status']) => {
-        switch (status) {
-            case 'online':
-                return 'success';
-            case 'busy':
-                return 'warning';
             default:
-                return 'default';
+                return <UserOutlined />;
         }
     };
 
@@ -222,12 +211,36 @@ const ChatList: React.FC<ChatListProps> = ({
         setIsDeleteConfirmOpen(false);
     };
 
-    const handleDeleteButtonMouseEnter = (chatId: number) => {
+    const handleDeleteButtonMouseEnter = (chatId: string) => {
         setHoveredDeleteButton(chatId);
     };
 
     const handleDeleteButtonMouseLeave = () => {
         setHoveredDeleteButton(null);
+    };
+
+    // 格式化时间显示
+    const formatTime = (timestamp?: number): string => {
+        if (!timestamp) return '--:--';
+        
+        const date = new Date(timestamp);
+        if (isNaN(date.getTime())) return '--:--';
+        
+        const now = new Date();
+        
+        // 同一天显示时间，不同天显示日期
+        if (date.toDateString() === now.toDateString()) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else {
+            // 一周内显示星期几，否则显示日期
+            const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays < 7) {
+                const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                return weekdays[date.getDay()];
+            } else {
+                return date.toLocaleDateString([], { month: 'numeric', day: 'numeric' });
+            }
+        }
     };
 
     return (
@@ -281,28 +294,18 @@ const ChatList: React.FC<ChatListProps> = ({
                             </div>
                             <div className="chat-content">
                                 <div className="chat-header">
-                                    <Badge status={getStatusColor(chat.status)} />
                                     <Avatar icon={getAvatarIcon(chat.type)} size="small" />
                                     <Text strong className="chat-name">{chat.name}</Text>
-                                    {chat.unreadCount > 0 && (
-                                        <Badge count={chat.unreadCount} />
+                                    {chat.unread > 0 && (
+                                        <Badge count={chat.unread} />
                                     )}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <Text type="secondary" className="chat-message">
-                                        {chat.lastMessage || t('pages.chat.noMessages')}
+                                        {chat.lastMsg || t('pages.chat.noMessages')}
                                     </Text>
                                     <Text type="secondary" className="chat-time">
-                                        {(() => {
-                                            const date = new Date(chat.lastMessageTime);
-                                            if (isNaN(date.getTime())) {
-                                                return '--:--';
-                                            }
-                                            return date.toLocaleTimeString([], {
-                                                hour: '2-digit',
-                                                minute: '2-digit'
-                                            });
-                                        })()}
+                                        {formatTime(chat.lastMsgTime)}
                                     </Text>
                                 </div>
                             </div>

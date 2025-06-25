@@ -76,13 +76,14 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
     
 @IPCHandlerRegistry.handler('get_chats')
 def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """处理获取聊天列表请求
 
-    验证用户凭据并返回访问令牌。
+    根据用户ID获取聊天列表，返回符合前端格式的聊天数据。
+    数据格式遵循 gui_v2/src/pages/Chat/types/chat.ts 中的定义。
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'chat_ids' 字段
+        params: 请求参数，必须包含 'username' 和 'ids' 字段
 
     Returns:
         str: JSON 格式的响应消息
@@ -91,7 +92,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         logger.debug(f"get chats handler called with request: {request}, params: {params}")
 
         # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'chat_ids'])
+        is_valid, data, error = validate_params(params, ['username', 'ids'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get chats: {error}")
             return create_error_response(
@@ -100,38 +101,29 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 error
             )
 
-        # 获取用户名和密码
         username = data['username']
-        chat_ids = data['chat_ids']
+        chat_ids = data['ids']
 
-        # 简单的密码验证
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"get chats successful for user: {username}")
-        
-        script_dir = os.path.dirname(__file__)
-        json_path = os.path.join(script_dir, 'chats_demo.json')
-
-        with open(json_path, 'r', encoding='utf-8') as f:
+        # 读取前端导出的完整 demo 数据
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        demo_json_path = os.path.join(script_dir, './chats_demo.json')
+        with open(demo_json_path, 'r', encoding='utf-8') as f:
             all_chats = json.load(f)
 
         if not chat_ids:
-            chats = all_chats
+            # 返回所有 chat，但不包含 messages 字段
+            chats = []
+            for chat in all_chats:
+                chat_copy = dict(chat)
+                if 'messages' in chat_copy:
+                    del chat_copy['messages']
+                chats.append(chat_copy)
         else:
-            # chat_ids from frontend might be integer, but in json they are integers.
-            # So convert them to int for comparison.
-            chat_ids_int = [int(cid) for cid in chat_ids]
-            
-            chats = [chat for chat in all_chats if chat['id'] in chat_ids_int]
-            
-            found_ids = [chat['id'] for chat in chats]
-            not_found_ids = [cid for cid in chat_ids_int if cid not in found_ids]
-
-            if not_found_ids:
-                logger.warning(f"Could not find chats with the following IDs: {not_found_ids}")
+            # chat_ids 可能是字符串或整数，统一转字符串比较
+            chat_ids_str = [str(cid) for cid in chat_ids]
+            chats = [chat for chat in all_chats if str(chat['id']) in chat_ids_str]
 
         resultJS = {
-            'token': token,
             'chats': chats,
             'message': 'Get all successful'
         }
@@ -142,6 +134,6 @@ def handle_get_chats(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         logger.error(f"Error in get chats handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
-            'LOGIN_ERROR',
+            'GET_CHATS_ERROR',
             f"Error during get chats: {str(e)}"
         )

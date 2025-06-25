@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import { Chat as LocalChat, Message as LocalMessage, Attachment } from '../types/chat';
-import { useAppDataStore } from '../../../stores/appDataStore';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
+import { defaultRoleConfig } from '../chatDemoData';
+import { Message, Content, Chat } from '../types/chat';
 
 const ChatDetailWrapper = styled.div`
     display: flex;
@@ -54,64 +54,90 @@ const commonOuterStyle = {
     display: 'flex',
     flexDirection: 'column' as 'column',
     overflow: 'hidden'
-}
+};
+
+// 处理消息内容，确保返回符合 Semi UI Chat 组件要求的消息对象
+const processMessageContent = (message: Message): any => {
+    if (!message.content) {
+        return message;
+    }
+
+    // 创建一个新的消息对象，保留原始消息的所有属性
+    const processedMessage = { ...message };
+
+    // 如果content是对象，转换为字符串
+    if (typeof message.content !== 'string') {
+        const content = message.content as Content;
+        let contentStr = '';
+
+        switch (content.type) {
+            case 'text':
+                contentStr = content.text || '';
+                break;
+            case 'code':
+                contentStr = content.code ? `\`\`\`${content.code.lang}\n${content.code.value}\n\`\`\`` : '';
+                break;
+            case 'image':
+                contentStr = content.imageUrl ? `![image](${content.imageUrl})` : '';
+                break;
+            case 'file':
+                contentStr = content.fileName || content.fileUrl || 'File';
+                break;
+            default:
+                contentStr = JSON.stringify(content);
+        }
+
+        processedMessage.content = contentStr;
+    }
+
+    return processedMessage;
+};
+
+// 上传组件的配置
+const uploadProps = {
+    // 使用 mock 上传地址，实际应用中应替换为真实的上传 API
+    action: 'https://api.mocksample.dev/upload',
+    // 禁用上传功能，避免实际发送请求
+    beforeUpload: () => false,
+    // 文件上传成功的回调
+    onSuccess: (response: any, file: any) => {
+        console.log('Upload success:', response, file);
+    },
+    // 文件上传失败的回调
+    onError: (error: any, file: any) => {
+        console.error('Upload error:', error, file);
+    }
+};
 
 interface ChatDetailProps {
-    chatId: number | null;
-    onSend: (content: string, attachments: Attachment[]) => void;
+    chatId?: string | null;
+    chats?: Chat[];
+    onSend?: (content: string, attachments: any[]) => void;
 }
 
-const roleConfig = {
-    user: {
-        name: '你',
-        avatar: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/ptlz_zlp/ljhwZthlaukjlkulzlp/docs-icon.png',
-    },
-    assistant: {
-        name: 'AI',
-        avatar: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/ptlz_zlp/ljhwZthlaukjlkulzlp/other/logo.png',
-    },
-    system: {
-        name: '系统',
-        avatar: 'https://lf3-static.bytednsdoc.com/obj/eden-cn/ptlz_zlp/ljhwZthlaukjlkulzlp/other/logo.png',
-    },
-};
-
-function mapLocalToSemiMessages(messages: LocalMessage[]): any[] {
-    return (messages || []).map((msg) => {
-        let role: 'user' | 'assistant' | 'system' = 'assistant';
-        if (msg.sender_id === 'You' || msg.sender_id === 'user') role = 'user';
-        else if (msg.sender_id === 'system') role = 'system';
-        else role = 'assistant';
-        return {
-            role,
-            id: String(msg.id),
-            createAt: new Date(msg.txTimestamp).getTime(),
-            content: msg.content,
-            status: msg.status === 'sending' ? 'loading' : (msg.status === 'failed' ? 'error' : 'complete'),
-            // 可扩展 attachment 映射
-        };
-    });
-}
-
-const uploadProps = {
-    action: 'https://api.semi.design/upload',
-};
-
-const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, onSend }) => {
+const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) => {
     const { t } = useTranslation();
-    const { chats } = useAppDataStore();
-    const chat = useMemo(() => (Array.isArray(chats) ? chats.find((c: LocalChat) => c.id === chatId) : undefined), [chats, chatId]);
 
-    // 适配消息数据
-    const semiMessages = useMemo(() => mapLocalToSemiMessages(chat?.messages || []), [chat]);
+    // 根据 chatId 获取对应的聊天数据
+    const currentChat = useMemo(() => {
+        if (!chatId || !chats.length) return null;
+        return chats.find(chat => chat.id === chatId);
+    }, [chatId, chats]);
 
-    // 发送消息适配
-    const handleMessageSend = (content: string, attachment: any[]) => {
-        // attachment 结构可扩展
-        onSend(content, attachment || []);
-    };
+    // 处理消息，确保content是字符串
+    const messages = useMemo(() => {
+        // 如果有当前聊天，使用其消息
+        if (currentChat && currentChat.messages) {
+            return currentChat.messages.map(processMessageContent);
+        }
+        // 否则返回空数组
+        return [];
+    }, [currentChat]);
 
-    if (!chat) {
+    // 聊天标题
+    const chatTitle = currentChat ? currentChat.name : t('pages.chat.defaultTitle');
+
+    if (!messages || messages.length === 0) {
         return (
             <EmptyState>
                 {t('pages.chat.selectChat')}
@@ -122,14 +148,15 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, onSend }) => {
     return (
         <ChatDetailWrapper>
             <SemiChat
-                chats={semiMessages}
-                roleConfig={roleConfig}
-                onMessageSend={handleMessageSend}
+                chats={messages}
                 style={{ ...commonOuterStyle }}
                 align="leftRight"
                 mode="userBubble"
                 placeholder={t('pages.chat.typeMessage')}
+                onMessageSend={onSend}
+                roleConfig={defaultRoleConfig}
                 uploadProps={uploadProps}
+                title={chatTitle}
             />
         </ChatDetailWrapper>
     );
