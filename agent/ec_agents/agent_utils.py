@@ -65,9 +65,9 @@ def save_agents_to_cloud(mainwin, agents):
 
 
 def load_agents_from_cloud(mainwin):
+    cloud_agents = []
     try:
         print("load_agents_from_cloud.......")
-        cloud_agents = []
         jresp = send_get_agents_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
         print("cloud returns.......", jresp)
         all_agents = jresp['body']
@@ -87,6 +87,8 @@ def load_agents_from_cloud(mainwin):
         else:
             ex_stat = "ErrorLoadAgentsFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+    
+    return cloud_agents
 
 
 def gen_agent_from_cloud_data(mainwin, ajs):
@@ -273,8 +275,8 @@ def save_agent_skills_to_cloud(mainwin, skills):
 
 
 def load_agent_skills_from_cloud(mainwin):
+    cloud_agent_skills = []
     try:
-        cloud_agent_skills = []
         jresp = send_get_agent_skills_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
         all_agent_skills = jresp['body']
         for askjs in all_agent_skills:
@@ -293,6 +295,8 @@ def load_agent_skills_from_cloud(mainwin):
         else:
             ex_stat = "ErrorLoadAgentsFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+
+    return cloud_agent_skills
 
 
 def gen_agent_skill_from_cloud_data(mainwin, askjs):
@@ -676,8 +680,8 @@ def save_agent_tasks_to_cloud(mainwin, tasks):
 
 
 def load_agent_tasks_from_cloud(mainwin):
+    cloud_agent_tasks = []
     try:
-        cloud_agent_tasks = []
         jresp = send_get_agent_tasks_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
         all_agent_tasks = jresp['body']
         for askjs in all_agent_tasks:
@@ -696,6 +700,8 @@ def load_agent_tasks_from_cloud(mainwin):
         else:
             ex_stat = "ErrorLoadAgentTasksFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+
+    return cloud_agent_tasks
 
 
 def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
