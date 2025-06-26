@@ -5,6 +5,7 @@
 import { IPCClient } from './client';
 import { IPCResponse } from './types';
 import { logger } from '../../utils/logger';
+import { createChatApi } from './chatApi';
 
 /**
  * API 响应类型
@@ -38,8 +39,13 @@ export class IPCAPI {
     private static instance: IPCAPI;
     private client: IPCClient;
 
+    // 新增 chat 字段
+    public chat: ReturnType<typeof createChatApi>;
+
     private constructor() {
         this.client = IPCClient.getInstance();
+        // 初始化 chat api
+        this.chat = createChatApi(this);
     }
 
     /**
@@ -129,10 +135,6 @@ export class IPCAPI {
         return this.executeRequest<T>('get_tools', {username, tool_ids });
     }
 
-    public async getChats<T>(username: string, ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_chats', {username, ids });
-    }
-
     public async getKnowledges<T>(username: string, knowledge_ids: string[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_knowledges', {username, knowledge_ids });
     }
@@ -183,12 +185,6 @@ export class IPCAPI {
         return this.executeRequest<void>('save_knowledges', values);
     }
 
-
-
-    public async sendChat<T>(values: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('send_chat', values);
-    }
-
     public async getAvailableTests<T>(): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_available_tests', {});
     }
@@ -234,6 +230,23 @@ export class IPCAPI {
         return this.executeRequest<void>('save_settings', settings);
     }
     */
+
+    public async getChatMessages<T>(params: {
+        chatId: string;
+        limit?: number;
+        offset?: number;
+        reverse?: boolean;
+    }): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_chat_messages', params);
+    }
+
+    public async deleteChat<T>(chatId: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('delete_chat', { chatId });
+    }
+
+    public async markMessageAsRead<T>(messageIds: string[], userId: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('mark_message_as_read', { messageIds, userId });
+    }
 }
 
 /**

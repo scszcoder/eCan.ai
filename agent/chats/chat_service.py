@@ -1,15 +1,13 @@
-from typing import List, Optional, Dict, Any, Union
-from datetime import datetime
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session, sessionmaker
-from .chats_db import (
-    ChatUser, Conversation, Message, ChatSession,
-    ConversationMember, Attachment, MessageRead,
-    MessageType, MessageStatus, SessionLocal, get_engine, get_session_factory, Base
-)
+from sqlalchemy import select
+from .chats_db import Chat, Member, Message, Attachment, get_engine, get_session_factory, Base
 from contextlib import contextmanager
 import threading
-from functools import wraps
 import weakref
+import os
+import json
+import logging
 
 
 class SingletonMeta(type):
@@ -54,310 +52,396 @@ class ChatService(metaclass=SingletonMeta):
             session: SQLAlchemy会话实例
         """
         if session is not None:
-            self._session = session
+            self.SessionFactory = lambda: session
         elif engine is not None:
-            Session = sessionmaker(bind=engine)
-            self._session = Session()
+            self.SessionFactory = sessionmaker(bind=engine)
         elif db_path is not None:
             engine = get_engine(db_path)
-            Session = get_session_factory(db_path)
-            self._session = Session()
-            # 确保数据库表已创建
+            self.SessionFactory = get_session_factory(db_path)
             Base.metadata.create_all(engine)
         else:
             raise ValueError("Must provide db_path, engine or session")
-        self._initialized = True
-        self._lock = threading.Lock()
+
+    @contextmanager
+    def session_scope(self):
+        """事务管理器，确保线程安全"""
+        session = self.SessionFactory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     @classmethod
-    def initialize(cls, db_path: str = None) -> 'ChatService':
+    def initialize(cls, db_path: str = None, import_demo: bool = True) -> 'ChatService':
         """
         初始化聊天服务实例
         
         Args:
             db_path (str, optional): 数据库文件路径
-            
+            import_demo (bool, optional): 是否导入演示数据，默认 True
         Returns:
             ChatService: 聊天服务实例
         """
-        return cls(db_path=db_path)
+        service = cls(db_path=db_path)
+        if import_demo and db_path is not None:
+            demo_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'gui', 'ipc', 'w2p_handlers', 'chats_demo.json')
+            if os.path.exists(demo_path):
+                try:
+                    with open(demo_path, 'r', encoding='utf-8') as f:
+                        demo_chats = json.load(f)
+                    if not service.query_chats_by_user():
+                        service.import_demo_chats_from_json(demo_chats)
+                except Exception as e:
+                    print(f"[ChatService] 导入演示数据失败: {e}")
+        return service
 
-    def _get_session(self) -> Session:
-        """获取数据库会话，确保线程安全"""
-        if not self._initialized or self._session is None:
-            with self._lock:
-                if not self._initialized or self._session is None:
-                    try:
-                        self._session = SessionLocal()
-                        self._initialized = True
-                    except Exception as e:
-                        self._session = None
-                        self._initialized = False
-                        raise RuntimeError(f"Failed to initialize database session: {str(e)}")
-        if self._session is None:
-            raise RuntimeError("Database session is not initialized")
-        return self._session
-
-    def _close_session(self):
-        """关闭数据库会话"""
-        if self._session is not None:
-            with self._lock:
-                if self._session is not None:
-                    try:
-                        self._session.close()
-                    except Exception:
-                        pass
-                    finally:
-                        self._session = None
-                        self._initialized = False
-
-    @contextmanager
-    def transaction(self):
-        """事务管理器，确保线程安全"""
-        session = self._get_session()
-        if session is None:
-            raise RuntimeError("Database session is not initialized")
-        try:
-            yield session
-            session.commit()
-        except Exception as e:
-            session.rollback()
-            raise e
-
-    def __del__(self):
-        """清理资源"""
-        self._close_session()
-
-    def _ensure_session(self):
-        """确保session已初始化"""
-        if not self._initialized or self._session is None:
-            self._initialize()
-        if self._session is None:
-            raise RuntimeError("Failed to initialize database session")
-
-    # 用户相关操作
-    def create_user(self, username: str, display_name: str, avatar_url: Optional[str] = None) -> ChatUser:
-        """创建新用户"""
-        self._ensure_session()
-        with self.transaction() as session:
-            user = ChatUser.create(session,
-                username=username,
-                display_name=display_name,
-                avatar_url=avatar_url
-            )
-            session.refresh(user)
-            return user
-
-    def get_user(self, user_id: int) -> Optional[ChatUser]:
-        """通过ID获取用户"""
-        self._ensure_session()
-        return ChatUser.get_by_id(self._get_session(), user_id)
-
-    def get_user_by_username(self, username: str) -> Optional[ChatUser]:
-        """通过用户名获取用户"""
-        self._ensure_session()
-        return ChatUser.get_by_username(self._get_session(), username)
-
-    def update_user(self, user_id: int, **kwargs) -> Optional[ChatUser]:
-        """更新用户信息"""
-        self._ensure_session()
-        user = self.get_user(user_id)
-        if user:
-            with self.transaction() as session:
-                updated_user = user.update(session, **kwargs)
-                session.refresh(updated_user)
-                return updated_user
-        return None
-
-    def delete_user(self, user_id: int) -> bool:
-        """删除用户"""
-        self._ensure_session()
-        user = self.get_user(user_id)
-        if user:
-            with self.transaction() as session:
-                return user.delete(session)
-        return False
-
-    # 会话相关操作
-    def create_conversation(self, name: str, is_group: bool = False,
-                          description: Optional[str] = None) -> Conversation:
-        """创建新会话"""
-        self._ensure_session()
-        with self.transaction() as session:
-            conversation = Conversation.create(session,
-                name=name,
-                is_group=is_group,
-                description=description
-            )
-            session.refresh(conversation)
-            return conversation
-
-    def get_conversation(self, conversation_id: int) -> Optional[Conversation]:
-        """获取会话信息"""
-        self._ensure_session()
-        return Conversation.get_by_id(self._get_session(), conversation_id)
-
-    def get_user_conversations(self, user_id: int) -> List[Conversation]:
-        """获取用户的所有会话"""
-        self._ensure_session()
-        return Conversation.get_user_conversations(self._get_session(), user_id)
-
-    def add_user_to_conversation(self, conversation_id: int, user_id: int,
-                               role: str = 'member') -> Optional[ConversationMember]:
-        """添加用户到会话"""
-        self._ensure_session()
-        with self.transaction() as session:
-            member = ConversationMember.create(session,
-                conversation_id=conversation_id,
-                user_id=user_id,
-                role=role
-            )
-            session.refresh(member)
-            return member
-
-    def remove_user_from_conversation(self, conversation_id: int, user_id: int) -> bool:
-        """从会话中移除用户"""
-        self._ensure_session()
-        member = self._get_session().query(ConversationMember).filter(
-            ConversationMember.conversation_id == conversation_id,
-            ConversationMember.user_id == user_id
-        ).first()
-        if member:
-            with self.transaction() as session:
-                return member.delete(session)
-        return False
-
-    # 消息相关操作
-    def send_message(self, conversation_id: int, sender_id: int, content: str,
-                    message_type: MessageType = MessageType.TEXT,
-                    parent_id: Optional[int] = None) -> Message:
-        """发送消息"""
-        with self._lock:
-            with self.transaction() as session:
-                return Message.create(session,
-                    conversation_id=conversation_id,
-                    sender_id=sender_id,
-                    content=content,
-                    message_type=message_type,
-                    parent_id=parent_id
+    def create_chat(
+        self,
+        members: list,              # 必须，成员列表
+        name: str,                  # 必须，会话名称
+        type: str = "user-agent",  # 可选，会话类型，默认 user-agent
+        avatar: str = None,         # 可选，会话头像
+        lastMsg: str = None,        # 可选，最后一条消息内容
+        lastMsgTime: int = None,    # 可选，最后一条消息时间戳
+        unread: int = 0,            # 可选，未读数，默认0
+        pinned: bool = False,       # 可选，是否置顶，默认False
+        muted: bool = False,        # 可选，是否静音，默认False
+        ext: dict = None            # 可选，扩展字段，默认{}
+    ) -> Dict[str, Any]:
+        """
+        创建会话及成员
+        必须参数：members, name
+        可选参数：type, avatar, lastMsg, lastMsgTime, unread, pinned, muted, ext
+        """
+        # 参数校验
+        if not members or not name:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "Missing required fields: members, name"
+            }
+        # 简化可选参数补全
+        type = "user-agent" if type is None else type
+        avatar = "" if avatar is None else avatar
+        lastMsg = "" if lastMsg is None else lastMsg
+        lastMsgTime = 0 if lastMsgTime is None else lastMsgTime
+        unread = 0 if unread is None else unread
+        pinned = False if pinned is None else pinned
+        muted = False if muted is None else muted
+        ext = {} if ext is None else ext
+        with self.session_scope() as session:
+            try:
+                input_member_ids = set(str(m['user_id']) for m in members)
+                candidate_chats = session.query(Chat).filter(Chat.type == type).all()
+                for chat in candidate_chats:
+                    db_member_ids = set(str(m.user_id) for m in chat.members)
+                    logging.debug(f"[create_chat] Comparing input {sorted(input_member_ids)} with db {sorted(db_member_ids)} (chat_id={chat.id})")
+                    if db_member_ids == input_member_ids:
+                        return {
+                            "success": False,
+                            "id": chat.id,
+                            "data": chat.to_dict(deep=True),
+                            "error": f"Chat with members {sorted(input_member_ids)} already exists"
+                        }
+                # 生成有规律的 chat_id
+                max_id = 0
+                for c in session.query(Chat).all():
+                    if c.id and c.id.startswith('chat-'):
+                        try:
+                            num = int(c.id[5:])
+                            if num > max_id:
+                                max_id = num
+                        except Exception:
+                            continue
+                chat_id = f"chat-{max_id+1:06d}"
+                chat = Chat(
+                    id=chat_id,
+                    type=type,
+                    name=name,
+                    avatar=avatar,
+                    lastMsg=lastMsg,
+                    lastMsgTime=lastMsgTime,
+                    unread=unread,
+                    pinned=pinned,
+                    muted=muted,
+                    ext=ext
                 )
-
-    def get_conversation_messages(self, conversation_id: int, limit: int = 50,
-                                offset: int = 0) -> List[Message]:
-        """获取会话消息"""
-        with self._lock:
-            return Message.get_conversation_messages(
-                self._get_session(),
-                conversation_id=conversation_id,
-                limit=limit,
-                offset=offset
-            )
-
-    def edit_message(self, message_id: int, content: str) -> Optional[Message]:
-        """编辑消息"""
-        with self._lock:
-            message = Message.get_by_id(self._get_session(), message_id)
-            if message and message.is_editable:
-                with self.transaction() as session:
-                    return message.update(session, content=content, is_edited=True)
-            return None
-
-    def delete_message(self, message_id: int) -> bool:
-        """删除消息"""
-        with self._lock:
-            message = Message.get_by_id(self._get_session(), message_id)
-            if message:
-                with self.transaction() as session:
-                    return message.delete(session)
-            return False
-
-    def delete_messages(self, message_ids: List[int]) -> bool:
-        """删除消息"""
-        with self._lock:
-            messages = Message.get_by_ids(self._get_session(), message_ids)
-            if messages:
-                with self.transaction() as session:
-                    for message in messages:
-                        message.delete(session)
-                    return True
-            return False
-
-    def delete_conversation(self, conversation_id: int) -> bool:
-        """删除消息"""
-        with self._lock:
-            conversation = Conversation.get_by_id(self._get_session(), conversation_id)
-            if conversation:
-                with self.transaction() as session:
-                    return conversation.delete(session)
-            return False
-
-    # 附件相关操作
-    def add_attachment(self, message_id: int, file_name: str, file_size: int,
-                      mime_type: str, file_path: str) -> Attachment:
-        """添加附件"""
-        with self._lock:
-            with self.transaction() as session:
-                return Attachment.create(session,
-                    message_id=message_id,
-                    file_name=file_name,
-                    file_size=file_size,
-                    mime_type=mime_type,
-                    file_path=file_path
-                )
-
-    def get_message_attachments(self, message_id: int) -> list:
-        session = self._get_session()
-        return session.query(Attachment).filter(Attachment.message_id == message_id).all()
-
-    # 消息状态相关操作
-    def update_message_status(self, message_id: int,
-                            status: MessageStatus) -> Optional[Message]:
-        """更新消息状态"""
-        with self._lock:
-            message = Message.get_by_id(self._get_session(), message_id)
-            if message:
-                with self.transaction() as session:
-                    return message.update(session, status=status)
-            return None
-
-    def mark_message_as_read(self, message_id: int, user_id: int):
-        with self._lock:
-            with self.transaction() as session:
-                read = session.query(MessageRead).filter_by(message_id=message_id, user_id=user_id).first()
-                if not read:
-                    read = MessageRead(
-                        message_id=message_id,
-                        user_id=user_id,
-                        read_at=datetime.now()
+                for m in members:
+                    member = Member(
+                        chat_id=chat.id,
+                        user_id=m["user_id"],
+                        role=m.get("role", "user"),
+                        name=m.get("name", m["user_id"]),
+                        avatar=m.get("avatar"),
+                        status=m.get("status"),
+                        ext=m.get("ext"),
+                        agentName=m.get("agentName")
                     )
-                    session.add(read)
-                    session.commit()
-                return read
+                    chat.members.append(member)
+                session.add(chat)
+                session.flush()
+                return {
+                    "success": True,
+                    "id": chat.id,
+                    "data": chat.to_dict(deep=True),
+                    "error": None
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "id": None,
+                    "data": None,
+                    "error": str(e)
+                }
 
-    def get_unread_messages(self, user_id: int, conversation_id: int) -> List[Message]:
-        """获取未读消息"""
-        with self._lock:
-            return self._get_session().query(Message).filter(
-                Message.conversation_id == conversation_id,
-                ~Message.id.in_(
-                    self._get_session().query(MessageRead.message_id)
-                    .filter(MessageRead.user_id == user_id)
+    def add_message(
+        self,
+        chat_id: str,
+        role: str,
+        content: Any,
+        senderId: str,
+        createAt: int,
+        id: str = None,
+        status: str = "complete",
+        senderName: str = None,
+        time: int = None,
+        ext: dict = None,
+        attachment: list = None
+    ) -> Dict[str, Any]:
+        """向会话添加消息及附件，必传 chat_id、role、content、senderId、createAt，返回标准化结构"""
+        if not chat_id or not role or content is None or not senderId or not createAt:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "Missing required fields: chat_id, role, content, senderId, createAt"
+            }
+        # 简化可选参数补全
+        id = f"msg-{createAt}" if id is None else id
+        status = "complete" if status is None else status
+        senderName = "" if senderName is None else senderName
+        time = createAt if time is None else time
+        ext = {} if ext is None else ext
+        attachment = [] if attachment is None else attachment
+        with self.session_scope() as session:
+            chat = session.get(Chat, chat_id)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": None,
+                    "data": None,
+                    "error": f"Chat {chat_id} not found"
+                }
+            message = Message(
+                id=id,
+                chat_id=chat.id,
+                role=role,
+                createAt=createAt,
+                content=content,
+                status=status,
+                senderId=senderId,
+                senderName=senderName,
+                time=time,
+                ext=ext,
+                is_read=False
+            )
+            for att in attachment:
+                attachment_obj = Attachment(
+                    uid=att["uid"],
+                    message_id=message.id,
+                    name=att.get("name", "file"),
+                    status=att.get("status", "done"),
+                    url=att.get("url"),
+                    size=att.get("size"),
+                    type=att.get("type"),
+                    ext=att.get("ext")
                 )
-            ).all()
+                message.attachments.append(attachment_obj)
+            chat.messages.append(message)
+            # 新增消息未读，chat.unread +1
+            chat.unread = (chat.unread or 0) + 1
+            session.add(message)
+            session.flush()
+            return {
+                "success": True,
+                "id": message.id,
+                "data": message.to_dict(deep=True),
+                "error": None
+            }
 
-    # 会话状态相关操作
-    def get_active_session(self, conversation_id: int) -> Optional[ChatSession]:
-        """获取活跃会话"""
-        with self._lock:
-            conversation = self.get_conversation(conversation_id)
-            if conversation:
-                return conversation.get_active_session(self._get_session())
-            return None
+    def query_chats_by_user(self, user_id: Optional[str] = None, deep: bool = False) -> Dict[str, Any]:
+        """
+        查询用户参与的所有会话（含成员，默认不含消息），如需消息请 deep=True。
+        user_id 不能为空，否则返回错误。
+        返回结构与其他接口保持一致。
+        """
+        if not user_id:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "user_id is required"
+            }
+        with self.session_scope() as session:
+            stmt = select(Chat).join(Member).where(Member.user_id == user_id)
+            chats = session.execute(stmt).scalars().all()
+            return {
+                "success": True,
+                "id": None,
+                "data": [chat.to_dict(deep=deep) for chat in chats],
+                "error": None
+            }
 
-    def end_session(self, session_id: int):
-        session = self._get_session()
-        chat_session = session.get(ChatSession, session_id)
-        if chat_session and not chat_session.ended_at:
-            chat_session.ended_at = datetime.now()
-            session.commit()
-        return None 
+    def import_demo_chats_from_json(self, demo_chats: List[Dict[str, Any]]) -> List[str]:
+        """
+        解析 json 数据并写入数据库表
+        """
+        imported_ids = []
+        for ui_chat in demo_chats:
+            try:
+                self.create_chat(
+                    members=ui_chat.get("members", []),
+                    name=ui_chat.get("name"),
+                    type=ui_chat.get("type"),
+                    avatar=ui_chat.get("avatar"),
+                    lastMsg=ui_chat.get("lastMsg"),
+                    lastMsgTime=ui_chat.get("lastMsgTime"),
+                    unread=ui_chat.get("unread", 0),
+                    pinned=ui_chat.get("pinned", False),
+                    muted=ui_chat.get("muted", False),
+                    ext=ui_chat.get("ext", {})
+                )
+                for msg in ui_chat.get("messages", []):
+                    self.add_message(
+                        chat_id=msg.get("chat_id", ui_chat["id"]),
+                        role=msg["role"],
+                        content=msg["content"],
+                        senderId=msg.get("senderId", msg["role"]),
+                        createAt=msg["createAt"],
+                        id=msg.get("id"),
+                        status=msg.get("status", "complete"),
+                        senderName=msg.get("senderName"),
+                        time=msg.get("time"),
+                        ext=msg.get("ext"),
+                        attachment=msg.get("attachment", [])
+                    )
+                imported_ids.append(ui_chat["id"])
+            except Exception as e:
+                print(f"Error importing chat: {str(e)}")
+                continue
+        return imported_ids
+
+    def query_messages_by_chat(
+        self,
+        chat_id: str,
+        limit: int = 20,
+        offset: int = 0,
+        reverse: bool = False
+    ) -> Dict[str, Any]:
+        """
+        查询指定 chat_id 的消息列表，支持翻页。
+        参数：
+            chat_id: 必需，会话ID
+            limit: 可选，返回消息数量，默认20
+            offset: 可选，起始偏移，默认0
+            reverse: 可选，是否倒序，默认False
+        返回：标准结构，data为消息列表
+        """
+        if not chat_id:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chat_id is required"
+            }
+        with self.session_scope() as session:
+            chat = session.get(Chat, chat_id)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": chat_id,
+                    "data": None,
+                    "error": f"Chat {chat_id} not found"
+                }
+            query = session.query(Message).filter(Message.chat_id == chat_id)
+            if reverse:
+                query = query.order_by(Message.createAt.desc())
+            else:
+                query = query.order_by(Message.createAt.asc())
+            messages = query.offset(offset).limit(limit).all()
+            return {
+                "success": True,
+                "id": chat_id,
+                "data": [msg.to_dict(deep=True) for msg in messages],
+                "error": None
+            }
+
+    def delete_chat(self, chat_id: str) -> Dict[str, Any]:
+        """
+        删除指定 chat_id 的会话及其相关的成员、消息、附件等数据。
+        参数：chat_id（必需）
+        返回：标准结构
+        """
+        if not chat_id:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chat_id is required"
+            }
+        with self.session_scope() as session:
+            chat = session.get(Chat, chat_id)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": chat_id,
+                    "data": None,
+                    "error": f"Chat {chat_id} not found"
+                }
+            session.delete(chat)
+            session.flush()
+            return {
+                "success": True,
+                "id": chat_id,
+                "data": None,
+                "error": None
+            }
+
+    def mark_message_as_read(self, message_ids: list, user_id: str) -> Dict[str, Any]:
+        """
+        批量将指定消息标记为已读，并同步更新 chat 的未读数。
+        参数：message_ids（必需，list），user_id（必需）
+        返回：标准结构，data为已处理的 message_id 列表
+        """
+        if not message_ids or not user_id:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "message_ids and user_id are required"
+            }
+        updated_ids = []
+        with self.session_scope() as session:
+            for message_id in message_ids:
+                message = session.get(Message, message_id)
+                if not message:
+                    continue
+                if not message.is_read:
+                    message.is_read = True
+                    # 同步更新 chat 的未读数
+                    chat = session.get(Chat, message.chat_id)
+                    if chat and chat.unread > 0:
+                        chat.unread = max(0, chat.unread - 1)
+                updated_ids.append(message_id)
+            session.flush()
+            return {
+                "success": True,
+                "id": None,
+                "data": updated_ids,
+                "error": None
+            } 

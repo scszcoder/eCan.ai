@@ -6,16 +6,18 @@
       "avatar": "/src/assets/icons1_100.png",
       "members": [
         {
-          "id": "user-1",
+          "user_id": "user-1",
           "role": "user",
           "name": "用户",
-          "avatar": "/src/assets/agent0_100.png"
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
         },
         {
-          "id": "assistant-1",
+          "user_id": "assistant-1",
           "role": "assistant",
           "name": "AI助手",
-          "avatar": "/src/assets/icons1_100.png"
+          "avatar": "/src/assets/icons1_100.png",
+          "agentName": "AI助手"
         }
       ],
       "messages": [
@@ -48,7 +50,7 @@
             "type": "code",
             "code": {
               "lang": "jsx",
-              "value": "import React, { useState } from 'react';\n\nconst TodoList = () => {\n  const [todos, setTodos] = useState([\n    { id: 1, text: '学习React', completed: false },\n    { id: 2, text: '完成项目', completed: false },\n    { id: 3, text: '准备面试', completed: true }\n  ]);\n  const [input, setInput] = useState('');\n\n  const addTodo = () => {\n    if (input.trim() !== '') {\n      setTodos([\n        ...todos,\n        { id: Date.now(), text: input, completed: false }\n      ]);\n      setInput('');\n    }\n  };\n\n  const toggleTodo = (id) => {\n    setTodos(todos.map(todo => \n      todo.id === id ? { ...todo, completed: !todo.completed } : todo\n    ));\n  };\n\n  return (\n    <div className=\"todo-list\">\n      <h2>待办事项列表</h2>\n      <div className=\"add-todo\">\n        <input \n          value={input}\n          onChange={(e) => setInput(e.target.value)}\n          placeholder=\"添加新的待办事项\"\n        />\n        <button onClick={addTodo}>添加</button>\n      </div>\n      <ul>\n        {todos.map(todo => (\n          <li \n            key={todo.id}\n            style={{ textDecoration: todo.completed ? 'line-through' : 'none' }}\n            onClick={() => toggleTodo(todo.id)}\n          >\n            {todo.text}\n          </li>\n        ))}\n      </ul>\n    </div>\n  );\n};\n\nexport default TodoList;"
+              "value": ""
             }
           },
           "status": "complete"
@@ -75,7 +77,7 @@
             "type": "code",
             "code": {
               "lang": "jsx",
-              "value": "import React, { useState } from 'react';\nimport './TodoList.css'; // 假设有相应的CSS文件\n\nconst TodoList = () => {\n  const [todos, setTodos] = useState([\n    { id: 1, text: '学习React', completed: false },\n    { id: 2, text: '完成项目', completed: false },\n    { id: 3, text: '准备面试', completed: true }\n  ]);\n  const [input, setInput] = useState('');\n\n  const addTodo = () => {\n    if (input.trim() !== '') {\n      setTodos([\n        ...todos,\n        { id: Date.now(), text: input, completed: false }\n      ]);\n      setInput('');\n    }\n  };\n\n  const toggleTodo = (id) => {\n    setTodos(todos.map(todo => \n      todo.id === id ? { ...todo, completed: !todo.completed } : todo\n    ));\n  };\n\n  const deleteTodo = (id, e) => {\n    e.stopPropagation(); // 阻止事件冒泡，避免触发toggleTodo\n    setTodos(todos.filter(todo => todo.id !== id));\n  };\n\n  return (\n    <div className=\"todo-list\">\n      <h2>待办事项列表</h2>\n      <div className=\"add-todo\">\n        <input \n          value={input}\n          onChange={(e) => setInput(e.target.value)}\n          placeholder=\"添加新的待办事项\"\n        />\n        <button onClick={addTodo}>添加</button>\n      </div>\n      <ul>\n        {todos.map(todo => (\n          <li key={todo.id} className=\"todo-item\">\n            <span \n              className={todo.completed ? 'completed' : ''}\n              onClick={() => toggleTodo(todo.id)}\n            >\n              {todo.text}\n            </span>\n            <button \n              className=\"delete-btn\"\n              onClick={(e) => deleteTodo(todo.id, e)}\n            >\n              删除\n            </button>\n          </li>\n        ))}\n      </ul>\n    </div>\n  );\n};\n\nexport default TodoList;"
+              "value": ""
             }
           },
           "status": "complete"
@@ -129,16 +131,18 @@
       "avatar": "/src/assets/icons0_door_100.png",
       "members": [
         {
-          "id": "user-1",
+          "user_id": "user-1",
           "role": "user",
           "name": "用户",
-          "avatar": "/src/assets/agent0_100.png"
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
         },
         {
-          "id": "system-1",
+          "user_id": "system-1",
           "role": "system",
           "name": "系统",
-          "avatar": "/src/assets/icons0_door_100.png"
+          "avatar": "/src/assets/icons0_door_100.png",
+          "agentName": "系统"
         }
       ],
       "messages": [
@@ -209,16 +213,18 @@
       "avatar": "/src/assets/icons2_100.png",
       "members": [
         {
-          "id": "user-1",
+          "user_id": "user-1",
           "role": "user",
           "name": "用户",
-          "avatar": "/src/assets/agent0_100.png"
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
         },
         {
-          "id": "agent-1",
+          "user_id": "agent-1",
           "role": "agent",
           "name": "客服代理",
-          "avatar": "/src/assets/icons2_100.png"
+          "avatar": "/src/assets/icons2_100.png",
+          "agentName": "客服代理"
         }
       ],
       "messages": [
@@ -316,34 +322,39 @@
       "avatar": "/src/assets/icons3.png",
       "members": [
         {
-          "id": "user-1",
+          "user_id": "user-1",
           "role": "user",
           "name": "张经理",
-          "avatar": "/src/assets/agent0_100.png"
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
         },
         {
-          "id": "agent-1",
+          "user_id": "agent-1",
           "role": "agent",
           "name": "李设计",
-          "avatar": "/src/assets/icons1_100.png"
+          "avatar": "/src/assets/icons1_100.png",
+          "agentName": "李设计"
         },
         {
-          "id": "agent-2",
+          "user_id": "agent-2",
           "role": "agent",
           "name": "王工程",
-          "avatar": "/src/assets/icons2_100.png"
+          "avatar": "/src/assets/icons2_100.png",
+          "agentName": "王工程"
         },
         {
-          "id": "agent-3",
+          "user_id": "agent-3",
           "role": "agent",
           "name": "赵产品",
-          "avatar": "/src/assets/icons3.png"
+          "avatar": "/src/assets/icons3.png",
+          "agentName": "赵产品"
         },
         {
-          "id": "assistant-1",
+          "user_id": "assistant-1",
           "role": "assistant",
           "name": "QA助手",
-          "avatar": "/src/assets/icons5.png"
+          "avatar": "/src/assets/icons5.png",
+          "agentName": "QA助手"
         }
       ],
       "messages": [
@@ -360,7 +371,7 @@
           "createAt": 1710300001000,
           "content": "大家好，我们今天需要讨论一下新项目的进度。",
           "status": "complete",
-          "senderId": "user-1",
+          "sender_id": "user-1",
           "senderName": "张经理"
         },
         {
@@ -369,7 +380,7 @@
           "createAt": 1710300002000,
           "content": "我已经完成了UI设计稿，请大家查看并提供反馈。",
           "status": "complete",
-          "senderId": "agent-1",
+          "sender_id": "agent-1",
           "senderName": "李设计",
           "attachment": [
             {
@@ -388,7 +399,7 @@
           "createAt": 1710300003000,
           "content": "后端API已经开发完成，文档如下：",
           "status": "complete",
-          "senderId": "agent-2",
+          "sender_id": "agent-2",
           "senderName": "王工程"
         },
         {
@@ -403,7 +414,7 @@
             }
           },
           "status": "complete",
-          "senderId": "agent-2",
+          "sender_id": "agent-2",
           "senderName": "王工程"
         },
         {
@@ -412,7 +423,7 @@
           "createAt": 1710300005000,
           "content": "我已经将所有需求整理成了测试用例，并创建了自动化测试脚本。",
           "status": "complete",
-          "senderId": "assistant-1",
+          "sender_id": "assistant-1",
           "senderName": "QA助手"
         },
         {
@@ -421,7 +432,7 @@
           "createAt": 1710300006000,
           "content": "非常好！我们下周一安排一次全体会议，讨论下一阶段的工作计划。",
           "status": "complete",
-          "senderId": "user-1",
+          "sender_id": "user-1",
           "senderName": "张经理"
         },
         {
@@ -433,7 +444,7 @@
             "imageUrl": "/src/assets/icons4.png"
           },
           "status": "complete",
-          "senderId": "agent-3",
+          "sender_id": "agent-3",
           "senderName": "赵产品"
         },
         {
@@ -442,7 +453,7 @@
           "createAt": 1710300008000,
           "content": "这是我设计的新图标，大家觉得怎么样？",
           "status": "complete",
-          "senderId": "agent-3",
+          "sender_id": "agent-3",
           "senderName": "赵产品"
         },
         {
@@ -451,7 +462,7 @@
           "createAt": 1710300009000,
           "content": "看起来不错，但颜色可能需要调整一下，与我们的品牌色更一致。",
           "status": "complete",
-          "senderId": "user-1",
+          "sender_id": "user-1",
           "senderName": "张经理"
         }
       ],
@@ -467,16 +478,18 @@
       "avatar": "/src/assets/icons6.png",
       "members": [
         {
-          "id": "user-1",
+          "user_id": "user-1",
           "role": "user",
           "name": "用户",
-          "avatar": "/src/assets/agent0_100.png"
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
         },
         {
-          "id": "assistant-1",
+          "user_id": "assistant-1",
           "role": "assistant",
           "name": "助手",
-          "avatar": "/src/assets/icons6.png"
+          "avatar": "/src/assets/icons6.png",
+          "agentName": "助手"
         }
       ],
       "messages": [
@@ -552,5 +565,128 @@
       "lastMsg": "由于网络问题，部分消息可能发送失败。请检查您的网络连接并重试。",
       "lastMsgTime": 1710400007000,
       "unread": 1
+    },
+    {
+      "id": "chat-6",
+      "type": "user-agent",
+      "name": "AI写作助手",
+      "avatar": "/src/assets/icons1_100.png",
+      "members": [
+        {
+          "user_id": "user-1",
+          "role": "user",
+          "name": "小明",
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
+        },
+        {
+          "user_id": "agent-5",
+          "role": "agent",
+          "name": "写作AI",
+          "avatar": "/src/assets/icons1_100.png",
+          "agentName": "ECBot Helper Agent"
+        }
+      ],
+      "messages": [
+        {
+          "id": "ai-msg-12",
+          "role": "user",
+          "createAt": 1710500000000,
+          "content": "帮我写一篇关于人工智能的短文。",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-13",
+          "role": "assistant",
+          "createAt": 1710500001000,
+          "content": "人工智能（AI）是指使计算机能够模拟人类智能行为的技术。它在医疗、教育、金融等领域有着广泛的应用。",
+          "status": "complete"
+        }
+      ],
+      "lastMsg": "人工智能（AI）是指使计算机能够模拟人类智能行为的技术。它在医疗、教育、金融等领域有着广泛的应用。",
+      "lastMsgTime": 1710500001000,
+      "unread": 0
+    },
+    {
+      "id": "chat-7",
+      "type": "user-agent",
+      "name": "翻译助手",
+      "avatar": "/src/assets/icons2_100.png",
+      "members": [
+        {
+          "user_id": "user-1",
+          "role": "user",
+          "name": "小红",
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
+        },
+        {
+          "user_id": "agent-6",
+          "role": "agent",
+          "name": "翻译AI",
+          "avatar": "/src/assets/icons2_100.png",
+          "agentName": "ECBot RPA Operator Agent"
+        }
+      ],
+      "messages": [
+        {
+          "id": "ai-msg-14",
+          "role": "user",
+          "createAt": 1710600000000,
+          "content": "请将你好，世界翻译成英文。",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-15",
+          "role": "assistant",
+          "createAt": 1710600001000,
+          "content": "Hello, world!",
+          "status": "complete"
+        }
+      ],
+      "lastMsg": "Hello, world!",
+      "lastMsgTime": 1710600001000,
+      "unread": 1
+    },
+    {
+      "id": "chat-8",
+      "type": "user-agent",
+      "name": "健康顾问AI",
+      "avatar": "/src/assets/icons3.png",
+      "members": [
+        {
+          "user_id": "user-1",
+          "role": "user",
+          "name": "小刚",
+          "avatar": "/src/assets/agent0_100.png",
+          "agentName": "My Twin Agent"
+        },
+        {
+          "user_id": "agent-7",
+          "role": "agent",
+          "name": "健康AI",
+          "avatar": "/src/assets/icons3.png",
+          "agentName": "Engineering Procurement Agent"
+        }
+      ],
+      "messages": [
+        {
+          "id": "ai-msg-16",
+          "role": "user",
+          "createAt": 1710700000000,
+          "content": "每天喝多少水比较合适？",
+          "status": "complete"
+        },
+        {
+          "id": "ai-msg-17",
+          "role": "assistant",
+          "createAt": 1710700001000,
+          "content": "一般建议成年人每天饮水量为1500-2000毫升，具体可根据个人情况调整。",
+          "status": "complete"
+        }
+      ],
+      "lastMsg": "一般建议成年人每天饮水量为1500-2000毫升，具体可根据个人情况调整。",
+      "lastMsgTime": 1710700001000,
+      "unread": 0
     }
   ]

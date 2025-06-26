@@ -182,7 +182,7 @@ const ChatList: React.FC<ChatListProps> = ({
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
 
     // Ensure chats is always an array to prevent crashes
-    const safeChats = Array.isArray(chats) ? chats : [];
+    const safeChats = Array.isArray(chats) ? chats.filter(chat => chat && chat.id) : [];
 
     const handleDeleteConfirm = (chatId: string) => {
         setSelectedChatId(chatId);
@@ -334,7 +334,7 @@ const ChatList: React.FC<ChatListProps> = ({
                         marginTop: '8px'
                     }}>
                         <strong style={{ color: 'var(--text-primary)' }}>
-                            {safeChats.find(chat => chat.id === selectedChatId)?.name}
+                            {selectedChatId && safeChats.length > 0 ? (safeChats.find(chat => chat.id === selectedChatId)?.name || '') : ''}
                         </strong>
                     </div>
                 </div>

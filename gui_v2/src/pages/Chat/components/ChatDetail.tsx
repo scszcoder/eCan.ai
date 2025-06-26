@@ -127,7 +127,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
     // 处理消息，确保content是字符串
     const messages = useMemo(() => {
         // 如果有当前聊天，使用其消息
-        if (currentChat && currentChat.messages) {
+        if (currentChat && Array.isArray(currentChat.messages)) {
             return currentChat.messages.map(processMessageContent);
         }
         // 否则返回空数组
@@ -136,14 +136,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
 
     // 聊天标题
     const chatTitle = currentChat ? currentChat.name : t('pages.chat.defaultTitle');
-
-    if (!messages || messages.length === 0) {
-        return (
-            <EmptyState>
-                {t('pages.chat.selectChat')}
-            </EmptyState>
-        );
-    }
 
     return (
         <ChatDetailWrapper>

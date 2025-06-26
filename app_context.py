@@ -1,5 +1,3 @@
-from gui.LoginoutGUI import Login
-
 
 class AppContext:
     _instance = None
@@ -23,7 +21,7 @@ class AppContext:
         self.thread_pool = None   # 线程池
         self.app_info = None      # 应用信息
         self.main_loop = None     # 主循环实例
-        self.login: Login = None  # 登录实例
+        self.login = None  # 登录实例
         # ... 其他全局对象
 
     def set_app(self, app):

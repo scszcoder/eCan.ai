@@ -67,12 +67,13 @@ export interface Chat {
  * Represents a member in a chat.
  */
 export interface Member {
-    id: string;
+    userId: string;
     role: string; // 与 roleConfig key 对应
     name: string;
     avatar?: string;
     status?: 'online' | 'offline' | 'busy';
     ext?: Record<string, any>;
+    agentName?: string;
 }
 
 /**
