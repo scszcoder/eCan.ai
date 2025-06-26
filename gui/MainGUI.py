@@ -1,6 +1,8 @@
 import ast
 import json
 
+from agent.chats.chat_service import ChatService
+from agent.chats.chats_db import ECBOT_CHAT_DB
 from common.models import VehicleModel
 from utils.server import HttpServer
 from utils.time_util import TimeUtil
@@ -266,6 +268,7 @@ class MainWindow(QMainWindow):
         else:
             self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
         print("my chatId:", self.chat_id)
+        self.chat_service = ChatService.initialize(db_path=os.path.join(self.my_ecb_data_homepath, ECBOT_CHAT_DB))
         self.staff_officer_on_line = False
         self.working_state = "running_idle"
         usrparts = self.user.split("@")

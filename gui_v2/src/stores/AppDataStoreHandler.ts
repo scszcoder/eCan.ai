@@ -56,5 +56,10 @@ export class AppDataStoreHandler {
         }
         
         logger.info('AppDataStoreHandler: Store update complete.');
+        // 标记全局数据已初始化
+        useAppDataStore.getState().setInitialized(true);
+        if (typeof window !== 'undefined' && (window as any).onAppDataInitialized) {
+            (window as any).onAppDataInitialized();
+        }
     }
 } 

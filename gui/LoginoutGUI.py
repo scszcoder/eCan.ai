@@ -1,3 +1,4 @@
+from app_context import AppContext
 from utils.logger_helper import logger_helper
 from utils.time_util import TimeUtil
 
@@ -666,6 +667,8 @@ class Login(QDialog):
                 self.main_win.set_top_gui(self.top_gui)
                 # self.main_win.show()
 
+            app_ctx = AppContext()
+            app_ctx.set_main_window(self.main_win)
 
             # print("refrsh tokeN:", refresh_token)
             asyncio.create_task(self.refresh_tokens_periodically(refresh_token))

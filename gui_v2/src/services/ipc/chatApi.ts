@@ -1,0 +1,62 @@
+import { IPCAPI } from './api';
+import { APIResponse } from './api';
+
+// 传入 apiInstance，返回 chat 相关方法的对象
+export function createChatApi(apiInstance: IPCAPI) {
+    return {
+        /**
+         * 获取聊天列表
+         * 查询用户参与的所有会话（含成员，默认不含消息），如需消息请 deep=True
+         */
+        getChats<T>(userId: string, deep?: boolean): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('get_chats', { userId, deep });
+        },
+        /**
+         * 创建新会话
+         */
+        createChat<T>(chat_data: any): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('create_chat', chat_data);
+        },
+        /**
+         * 发送聊天消息
+         */
+        sendChat<T>(message: {
+            chatId: string;
+            role: string;
+            content: string;
+            senderId: string;
+            createAt: string;
+            id?: string;
+            status?: string;
+            senderName?: string;
+            time?: string;
+            ext?: any;
+            attachment?: any;
+        }): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('send_chat', message);
+        },
+        /**
+         * 获取指定会话消息列表
+         */
+        getChatMessages<T>(params: {
+            chatId: string;
+            limit?: number;
+            offset?: number;
+            reverse?: boolean;
+        }): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('get_chat_messages', params);
+        },
+        /**
+         * 删除会话
+         */
+        deleteChat<T>(chatId: string): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('delete_chat', { chatId });
+        },
+        /**
+         * 批量标记消息为已读
+         */
+        markMessageAsRead<T>(messageIds: string[], userId: string): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('mark_message_as_read', { messageIds, userId });
+        },
+    };
+} 

@@ -21,6 +21,7 @@ export interface AppData {
   chats: Chat[];
   isLoading: boolean;
   error: string | null;
+  initialized: boolean;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setAgents: (agents: Agent[]) => void;
@@ -32,6 +33,9 @@ export interface AppData {
   setSettings: (settings: Settings) => void;
   // Chat actions
   setChats: (chats: Chat[]) => void;
+  myTwinAgent: () => Agent | null;
+  setInitialized: (v: boolean) => void;
+  getAgentById: (id: string) => Agent | null;
 }
 
 const useAppDataStore = create<AppData>()(
@@ -47,6 +51,7 @@ const useAppDataStore = create<AppData>()(
       chats: [],
       isLoading: false,
       error: null,
+      initialized: false,
       setLoading: (loading) => set({ isLoading: loading }),
       setError: (error) => set({ error }),
       setAgents: (agents) => set({ agents }),
@@ -59,6 +64,15 @@ const useAppDataStore = create<AppData>()(
 
       // Chat actions implementation
       setChats: (chats) => set({ chats }),
+      myTwinAgent: () => {
+        const agents = get().agents;
+        return agents.find(a => a.card?.name === 'My Twin Agent') || null;
+      },
+      setInitialized: (v) => set({ initialized: v }),
+      getAgentById: (id) => {
+        const agents = get().agents;
+        return agents.find(a => a.card?.id === id) || null;
+      },
     }),
     {
       name: 'system-storage',
