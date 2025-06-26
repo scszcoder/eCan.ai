@@ -613,6 +613,7 @@
         "runTest": "Click To Run Test",
         "stopTest": "Stop Test",
         "getAllTest": "Get All Test",
+        "flowTest": "Flow Test",
         "testOutput": "Test Output",
         "runningTest": "Test is running...",
         "testStopped": "Test was stopped by user",

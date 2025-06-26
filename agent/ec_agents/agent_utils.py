@@ -10,8 +10,7 @@ from agent.ec_agent import *
 import asyncio
 import traceback
 from utils.logger_helper import logger_helper as logger
-
-
+from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 
 from lzstring import LZString
 import openpyxl
@@ -27,7 +26,7 @@ from tests.agent_tests import *
 
 
 import concurrent.futures
-
+SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "json", "file"]
 
 def add_new_agents_to_cloud(mainwin, agents):
     try:
@@ -70,13 +69,14 @@ def load_agents_from_cloud(mainwin):
         print("load_agents_from_cloud.......")
         jresp = send_get_agents_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
         print("cloud returns.......", jresp)
-        all_agents = jresp['body']
+        all_agents = json.loads(jresp['body'])
         for ajs in all_agents:
             new_agent = gen_new_agent(mainwin, ajs)
             if new_agent:
                 cloud_agents.append(new_agent)
 
         mainwin.agents = cloud_agents
+        return cloud_agents
 
     except Exception as e:
         # Get the traceback information
@@ -117,8 +117,8 @@ def gen_agent_from_cloud_data(mainwin, ajs):
             description=ajs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -142,11 +142,14 @@ def gen_new_agent(mainwin, ajs):
         llm = mainwin.llm
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
+        print("ajs:", ajs)
         if ajs['skills'].strip():
             skids = [int(sskid.strip()) for sskid in ajs['skills'].split(",")]
         else:
             skids = []
-        agent_skills = [sk for sk in all_skills if sk.getSkid() in skids]
+
+        print("skids:", skids, len(all_skills), all_skills[0])
+        agent_skills = [sk for sk in all_skills if int(sk.id) in skids]
 
         if ajs['tasks'].strip():
             taskids = [int(staskid.strip()) for staskid in ajs['tasks'].split(",")]
@@ -278,13 +281,16 @@ def load_agent_skills_from_cloud(mainwin):
     cloud_agent_skills = []
     try:
         jresp = send_get_agent_skills_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_agent_skills = jresp['body']
+        print("cloud get agent skills returns.......", jresp)
+        all_agent_skills = json.loads(jresp['body'])
+        print("true cloud agent skills ...", all_agent_skills)
         for askjs in all_agent_skills:
-            new_agent_skill = gen_new_agent(mainwin, askjs)
+            new_agent_skill = gen_new_agent_skill(mainwin, askjs)
             if new_agent_skill:
                 cloud_agent_skills.append(new_agent_skill)
 
         mainwin.agent_skills = cloud_agent_skills
+        return cloud_agent_skills
 
     except Exception as e:
         # Get the traceback information
@@ -295,6 +301,7 @@ def load_agent_skills_from_cloud(mainwin):
         else:
             ex_stat = "ErrorLoadAgentsFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+        return []
 
     return cloud_agent_skills
 
@@ -345,7 +352,7 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
         return None
 
 
-def gen_new_agent_skills(mainwin, askjs):
+def gen_new_agent_skill(mainwin, askjs):
     try:
         llm = mainwin.llm
         all_skills = mainwin.agent_skills
@@ -454,6 +461,7 @@ def add_new_agent_tools_to_cloud(mainwin, tools):
         else:
             ex_stat = "ErrorAddNewAgentTasksToCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+        return []
 
 
 def save_agent_tools_to_cloud(mainwin, tools):
@@ -478,24 +486,26 @@ def save_agent_tools_to_cloud(mainwin, tools):
 def load_agent_tools_from_cloud(mainwin):
     try:
         cloud_agent_tools = []
-        jresp = send_get_agent_tasks_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_agent_tasks = jresp['body']
-        for askjs in all_agent_tasks:
-            new_agent_task = gen_new_agent_tools(mainwin, askjs)
-            if new_agent_task:
-                cloud_agent_tools.append(new_agent_task)
+        jresp = send_get_agent_tools_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        all_agent_tools = json.loads(jresp['body'])
+        for atooljs in all_agent_tools:
+            new_agent_tool = gen_new_agent_tools(mainwin, atooljs)
+            if new_agent_tool:
+                cloud_agent_tools.append(new_agent_tool)
 
         mainwin.agent_tools = cloud_agent_tools
+        return cloud_agent_tools
 
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorLoadAgentTasksFromCloud:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorLoadAgentToolsFromCloud:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorLoadAgentTasksFromCloud: traceback information not available:" + str(e)
+            ex_stat = "ErrorLoadAgentToolsFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+        return []
 
 
 def gen_agent_tools_from_cloud_data(mainwin, taskjs):
@@ -683,13 +693,15 @@ def load_agent_tasks_from_cloud(mainwin):
     cloud_agent_tasks = []
     try:
         jresp = send_get_agent_tasks_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_agent_tasks = jresp['body']
+        all_agent_tasks = json.loads(jresp['body'])
+        print("true cloud agent tasks ...", all_agent_tasks)
         for askjs in all_agent_tasks:
             new_agent_task = gen_new_agent_tasks(mainwin, askjs)
             if new_agent_task:
                 cloud_agent_tasks.append(new_agent_task)
 
         mainwin.agent_tasks = cloud_agent_tasks
+        return cloud_agent_tasks
 
     except Exception as e:
         # Get the traceback information
@@ -700,6 +712,7 @@ def load_agent_tasks_from_cloud(mainwin):
         else:
             ex_stat = "ErrorLoadAgentTasksFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+        return []
 
     return cloud_agent_tasks
 
@@ -881,13 +894,14 @@ def load_knowledges_from_cloud(mainwin):
     try:
         cloud_knowledges = []
         jresp = send_get_knowledges_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_knowledges = jresp['body']
+        all_knowledges = json.loads(jresp['body'])
         for kjs in all_knowledges:
             new_knowledge = gen_new_knowledge(mainwin, kjs)
             if new_knowledge:
                 cloud_knowledges.append(new_knowledge)
 
         mainwin.knowledges = cloud_knowledges
+        return cloud_knowledges
 
     except Exception as e:
         # Get the traceback information
@@ -898,6 +912,7 @@ def load_knowledges_from_cloud(mainwin):
         else:
             ex_stat = "ErrorLoadKnowledgesFromCloud: traceback information not available:" + str(e)
         log3(ex_stat)
+        return []
 
 
 def gen_knowledge_from_cloud_data(mainwin, kjs):

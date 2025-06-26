@@ -621,6 +621,7 @@
         "runTest": "点击运行测试",
         "stopTest": "停止测试",
         "getAllTest": "获取所有数据测试",
+        "flowTest": "流程测试",
         "testOutput": "测试输出",
         "runningTest": "测试运行中...",
         "testStopped": "测试已被用户停止",

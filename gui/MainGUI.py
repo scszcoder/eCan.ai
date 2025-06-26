@@ -247,6 +247,11 @@ class MainWindow(QMainWindow):
         else:
             self.functions = ""
 
+        self.agent_skills = []
+        self.agent_tasks = []
+        self.agent_tools = []
+        self.agent_knowledges = []
+
         self.todaysSchedule = {}
         self.schedule_mode = schedule_mode
         self.ip = ip

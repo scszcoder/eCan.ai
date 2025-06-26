@@ -182,11 +182,16 @@ class Goal(TypedDict):
     score: float
     weight: float
 
+class FileAttachment(TypedDict):
+    filename: str
+    file_url: str
+    file_data: bytes
+
 
 # State for LangGraph
 class NodeState(TypedDict):
     input: str
-    attachments: List[Any]
+    attachments: List[FileAttachment]
     messages: List[Any]
     attributes: dict
     result: dict
@@ -222,10 +227,16 @@ prompt1 = ChatPromptTemplate.from_messages([
             """),
             ("human", [
                 {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+                {"type": "image", "source_type": "base64", "data":"{image_b64}", "mime_type": "image/jpeg"}
             ]),
             ("placeholder", "{messages}"),
         ])
+
+# openai file id can be obtained after uploading files to the /v1/files
+# post https://api.openai.com/v1/batches
+# post https://api.openai.com/v1/files
+# get https://api.openai.com/v1/files/{file_id}
+# get https://api.openai.com/v1/files   ---  Returns a list of files.
 
 
 prompt2 = ChatPromptTemplate.from_messages([
@@ -237,7 +248,11 @@ prompt2 = ChatPromptTemplate.from_messages([
             """),
             ("human", [
                 {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+                {"type": "image_url", "source_type": "url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
+                {"type": "audio", "source_type": "base64", "data": "audio_data", "mime_type": "audio/wav", "cache_control": {"type": "ephemeral"}},
+                {"type": "file", "file": { "filename": "draconomicon.pdf", "file_data": "...base64 encoded bytes here..." }},
+                {"type": "file", "file": { "file_id": "file-6F2ksmvXxt4VdoqmHRw6kL" }},
+                { "type": "input_audio", "input_audio": { "data": "encoded_string", "format": "wav" }}
             ]),
             ("placeholder", "{messages}"),
         ])

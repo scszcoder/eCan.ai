@@ -30,7 +30,7 @@ export interface Message {
     content: string | Content;  // 支持字符串或Content对象
     status: MessageStatus;      // 使用枚举类型
     attachment?: Attachment[];  // 保留此字段以直接支持 Semi Chat 组件
-    
+
     // 以下字段为应用内部使用，不是Semi Chat组件必需的
     chatId?: string;
     senderId?: string;
@@ -46,16 +46,16 @@ export interface Chat {
     type: 'user-system' | 'user-agent' | 'agent-agent' | 'group';
     name: string; // Display name of the chat
     avatar?: string; // URL for the chat's avatar
-    
+
     members: Member[];
 
     messages: Message[];
 
     // Application-specific fields for managing chat list
-    lastMsg?: string; 
+    lastMsg?: string;
     lastMsgTime?: number;
     unread: number;
-    
+
     // Custom fields for additional functionality
     pinned?: boolean;
     muted?: boolean;
@@ -124,4 +124,4 @@ export interface RoleConfig {
     agent: Metadata; // 添加 agent 角色，设为必需
 }
 
-export type RoleKey = string; 
+export type RoleKey = string;

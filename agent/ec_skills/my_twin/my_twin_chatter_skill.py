@@ -16,7 +16,7 @@ def human_message(state):
     human_msg = True
     return human_msg
 
-async def parrot(state: NodeState) -> NodeState:
+def parrot(state: NodeState) -> NodeState:
     # this function simply routes the incoming chat message, if the chat message is for
     # human, then sends it to the GUI section, (update message DB)
     # if the chat message is for agent, then sends it to the recipient agent using A2A protocol (update message DB)
@@ -41,7 +41,8 @@ async def parrot(state: NodeState) -> NodeState:
             #     await ipc_api.update_chats({"chats": [chat], "agent": agent})
             recipient_agent = next((ag for ag in mainwin.agents if "Engineering Procurement Agent" == ag.card.name), None)
             print("parrot recipient found:", recipient_agent.card.name)
-            result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
+            # result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
+            result = agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
     except Exception as e:

@@ -68,6 +68,27 @@ const Tests: React.FC = () => {
         }
     };
 
+    const workflowTest = async () => {
+        try {
+            console.log('current username is:', username);
+            const testConfig = {
+                    test_id: "workflow0",
+                    args: testArgument ? JSON.parse(testArgument) : {}
+                };
+            const response = await get_ipc_api().runTest(username, [testConfig]);
+            // Update testOutput with the response
+            setTestOutput(JSON.stringify(response, null, 2));
+
+        } catch (error) {
+            console.error('Error fetching tests:', error);
+            message.error(t('pages.tests.fetchError'));
+            // Still show default test even if fetch fails
+            if (tests.length === 0 || tests[0].value !== defaultTest.value) {
+                setTests([defaultTest]);
+            }
+        }
+    };
+
     // Load tests on component mount
     useEffect(() => {
         fetchTests();
@@ -92,14 +113,14 @@ const Tests: React.FC = () => {
                     test_id: 'default_test',
                     args: testArgument ? JSON.parse(testArgument) : {}
                 };
-                response = await get_ipc_api().runTest([testConfig]);
+                response = await get_ipc_api().runTest(username, [testConfig]);
             } else {
                 // For other tests, use the appropriate method
                 const testConfig = {
                     test_id: selectedTest,
                     args: testArgument ? JSON.parse(testArgument) : {}
                 };
-                response = await get_ipc_api().runTest([testConfig]);
+                response = await get_ipc_api().runTest(username, [testConfig]);
             }
             
             setTestOutput(JSON.stringify(response || 'No response data', null, 2));
@@ -204,7 +225,18 @@ const Tests: React.FC = () => {
                         >
                             {t('pages.tests.getAllTest')}
                         </Button>
-
+                        <Button
+                            type="default"
+                            onClick={workflowTest}
+                            disabled={!selectedTest || isTestRunning}
+                            style={{
+                                color: 'white',
+                                borderColor: 'white',
+                                background: 'transparent'
+                            }}
+                        >
+                            {t('pages.tests.flowTest')}
+                        </Button>
                     </Space>
 
                     {/* Test Output */}

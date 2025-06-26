@@ -143,7 +143,7 @@ export class IPCAPI {
         return this.executeRequest<T>('get_settings', {username});
     }
 
-    public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
+    public async runTest<T>(username: string, tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
     }
 
@@ -188,6 +188,8 @@ export class IPCAPI {
     public async getAvailableTests<T>(): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_available_tests', {});
     }
+
+
 
     /**
      * 获取可调用函数列表

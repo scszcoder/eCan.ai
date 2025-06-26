@@ -1651,8 +1651,10 @@ class EC_Agent(Generic[Context]):
 	# 	role: Literal["user", "agent"]
 	# 	parts: List[Part]
 	# 	metadata: dict[str, Any] | None = None
-	@time_execution_async('--a2a_send_message (agent, message)')
-	async def a2a_send_chat_message(self, recipient_agent, message):
+	# @time_execution_async('--a2a_send_message (agent, message)')
+	# async def a2a_send_chat_message(self, recipient_agent, message):
+	@time_execution_sync('--a2a_send_chat_message (agent, message)')
+	def a2a_send_chat_message(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
 		print("recipient card:", recipient_agent.get_card().name.lower())
 		print("sending message:", message)
@@ -1671,7 +1673,8 @@ class EC_Agent(Generic[Context]):
 			}
 
 			print("client payload:", payload)
-			response = await self.a2a_client.send_task(payload)
+			# response = await self.a2a_client.send_task(payload)
+			response = self.a2a_client.sync_send_task(payload)
 			print("A2A RESPONSE:", response)
 			return response
 		except Exception as e:

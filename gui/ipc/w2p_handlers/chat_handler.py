@@ -73,6 +73,11 @@ def echo_and_push_message_async(chat_id, message):
         web_gui.get_ipc_api().push_chat_message(chat_id, echo_msg)
     threading.Thread(target=do_push, daemon=True).start()
 
+def _find_agent_by_id(login: Login, id: str) -> Optional[EC_Agent]:
+    """通过名称查找代理"""
+    return next((agent for agent in login.main_win.agents if agent.card.id == id), None)
+
+
 @IPCHandlerRegistry.background_handler('send_chat')
 def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
     """
@@ -156,7 +161,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse
         logger.error(f"Error in get chats handler: {e}")
         return create_error_response(request, 'GET_CHATS_ERROR', str(e))
 
-@IPCHandlerRegistry.handler('create_chat') 
+@IPCHandlerRegistry.handler('create_chat')
 def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     """
     创建新的聊天会话，直接调用 chat_service.create_chat。
@@ -248,3 +253,4 @@ def handle_mark_message_as_read(request: IPCRequest, params: Optional[dict]) -> 
     except Exception as e:
         logger.error(f"Error in mark_message_as_read handler: {e}")
         return create_error_response(request, 'MARK_MESSAGE_AS_READ_ERROR', str(e))
+
