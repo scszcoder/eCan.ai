@@ -5,6 +5,7 @@
 import { IPCRequest } from './types';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { logger } from '../../utils/logger';
+import { eventBus } from '@/utils/eventBus';
 
 // 处理器类型定义
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -42,6 +43,7 @@ export class IPCHandlers {
         this.registerHandler('update_chats', this.updateChats);
         // this.registerHandler('update_tools', this.updateTools);
         // this.registerHandler('update_vehicles', this.updateVehicles);
+        this.registerHandler('push_chat_message', this.pushChatMessage);
         this.registerHandler('update_all', this.updateAll);
     }
 
@@ -112,6 +114,12 @@ export class IPCHandlers {
 
     async updateAll(request: IPCRequest): Promise<{ success: boolean }> {
         logger.info('Received update_all request:', request.params);
+        return { success: true };
+    }
+
+    async pushChatMessage(request: IPCRequest): Promise<{ success: boolean }> {
+        logger.info('Received pushChatMessage request:', request.params);
+        eventBus.emit('chat:newMessage', request.params);
         return { success: true };
     }
 }

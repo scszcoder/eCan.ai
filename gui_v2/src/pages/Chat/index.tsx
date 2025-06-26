@@ -11,6 +11,7 @@ import AgentNotify from './components/AgentNotify';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
+import { eventBus } from '@/utils/eventBus';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -31,6 +32,35 @@ const ChatPage: React.FC = () => {
     const lastFetchedAgentId = useRef<string | undefined>();
     const prevInitialized = useRef(initialized);
     const fetchOnceRef = useRef(false);
+
+    useEffect(() => {
+        const handler = (params: any) => {
+            const { chatId, chat_id, message } = params;
+            const realChatId = chatId || chat_id || message.chatId || message.chat_id;
+            //logger.debug('[eventBus] push_chat_message received:', { realChatId, message });
+            setChats((prevChats: Chat[]) => {
+                //logger.debug('[eventBus] prevChats:', prevChats.map(c => ({ id: c.id, messages: c.messages })));
+                return prevChats.map((chat: Chat) => {
+                    //logger.debug('[eventBus] checking chat:', chat.id, 'activeChatId:', activeChatId);
+                    if (chat.id !== realChatId) return chat;
+                    const messages: Message[] = Array.isArray(chat.messages) ? chat.messages : [];
+                    if (messages.some((m: Message) => m.id === message.id)) {
+                        // logger.debug('[eventBus] message already exists, skip:', message.id);
+                        return chat;
+                    }
+                    logger.debug('[eventBus] appending new message:', message);
+                    return {
+                        ...chat,
+                        messages: [...messages, message],
+                        lastMsg: message.content,
+                        lastMsgTime: message.createAt,
+                    };
+                });
+            });
+        };
+        eventBus.on('chat:newMessage', handler);
+        return () => eventBus.off('chat:newMessage', handler);
+    }, [activeChatId]);
 
     // tryCreateAndSelectChat 只定义一次
     const tryCreateAndSelectChat = async () => {

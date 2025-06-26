@@ -288,6 +288,21 @@ class IPCAPI:
         """
         self._send_request('update_all', data=all, callback=callback)
 
+    def push_chat_message(
+        self,
+        chat_id: str,
+        message: dict,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        推送单条聊天消息到指定会话
+        Args:
+            chat_id: 会话ID
+            message: 消息内容（Message 对象或 dict，需符合后端 schema）
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        params = {'chat_id': chat_id, 'message': message}
+        self._send_request('push_chat_message', params, callback=callback)
 
 
 # 使用示例
