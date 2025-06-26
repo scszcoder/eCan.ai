@@ -12,7 +12,7 @@ from utils.logger_helper import logger_helper as logger
 import uuid
 import traceback
 from app_context import AppContext
-
+import asyncio
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """验证请求参数
@@ -283,7 +283,11 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         tests = params.get('tests', [])
 
         results = []
-        top_web_gui = get_top_web_gui()
+        ctx = AppContext()
+        login: Login = ctx.login
+        agents = login.main_win.agents
+
+        top_web_gui = login.top_gui
         for test in tests:
             test_id = test.get('test_id')
             test_args = test.get('args', {})
@@ -295,7 +299,97 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
                 result = run_default_tests(top_web_gui, login.main_win)
             # Add other test cases as needed
             else:
-                result = {"status": "error", "message": f"Unknown test: {test_id}"}
+                print(">>>>>running test:", test_id, "trigger running procrement task")
+
+                request['params'] = {
+                    "message": [
+                        {
+                            "id": "10",
+                            "chat_id": "2",
+                            "session_id": "1",
+                            "content": "please help analyze these files and provided a detailed description of each file.",
+                            "attachments": [
+                                {
+                                    "id": "0",
+                                    "name": "test0.png",
+                                    "type": "image",
+                                    "size": "",
+                                    "url": "",
+                                    "content": "",
+                                    "file": "C:/Users/songc/PycharmProjects/ecbot/test0.png",
+                                },
+                                {
+                                    "id": "1",
+                                    "name": "test1.pdf",
+                                    "type": "application",
+                                    "size": "",
+                                    "url": "",
+                                    "content": "",
+                                    "file": "C:/Users/songc/PycharmProjects/ecbot/test1.pdf",
+                                },
+                                {
+                                    "id": "2",
+                                    "name": "test2.wav",
+                                    "type": "audio",
+                                    "size": "",
+                                    "url": "",
+                                    "content": "",
+                                    "file": "C:/Users/songc/PycharmProjects/ecbot/test2.wav",
+                                }
+                            ],
+                            "sender_id": "1",
+                            "sender_name": "twin",
+                            "recipient_id": "2",
+                            "recipient_name": "procurement",
+                            "txTimestamp": "string",
+                            "rxTimestamp": "string",
+                            "readTimestamp": "string",
+                            "status": 'sending',
+                            "isEdited": False,
+                            "isRetracted": False,
+                            "ext": None,
+                            "replyTo": "0",
+                            "atList": []
+                        }
+                    ]
+                }
+
+                print("test params:", params)
+                print("# agents:", len(agents), [ag.card.name for ag in agents])
+                # simply drop a message to the queue
+                procurement_agent = next((ag for ag in agents if ag.card.name == "Engineering Procurement Agent"), None)
+                twin_agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
+                print("twin:", twin_agent.card.name, "procurement:", procurement_agent.card.name)
+
+                runner_method = twin_agent.runner.chat_wait_in_line
+                if asyncio.iscoroutinefunction(runner_method):
+                    logger.debug("Runner method is a coroutine, running with asyncio.run()")
+
+                    def run_async():
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            return loop.run_until_complete(runner_method(request))
+                        finally:
+                            loop.close()
+
+                    # Run the coroutine in a separate thread
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(run_async)
+                        result = future.result()
+
+                    # loop = asyncio.get_event_loop()
+                    # # asyncio.set_event_loop(loop)
+                    # # 在独立的后台线程中，可以安全使用 asyncio.run()
+                    # # result = await runner_method(params["message"])
+                    # result = loop.run_until_complete(runner_method(params["message"]))
+                else:
+                    logger.debug("Runner method is synchronous, calling directly.")
+                    result = runner_method(request)
+
+                logger.info(f"Background task 'send_chat' completed with result: {result}")
+
 
             results.append({
                 "test_id": test_id,

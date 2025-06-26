@@ -350,7 +350,7 @@ def create_ec_rpa_operator_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator chatter"), None)
+    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa operator run RPA"), None)
     chatter_task = next((task for task in agent_tasks if task.name == "ECBot RPA Operator Chatter Task"), None)
 
     if not chatter_task:
@@ -387,7 +387,7 @@ def create_ec_rpa_operator_work_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    worker_skill = next((sk for sk in agent_skills if "ecbot rpa operator" in sk.name), None)
+    worker_skill = next((sk for sk in agent_skills if "ecbot rpa operator run RPA" in sk.name), None)
     worker_task = next((task for task in agent_tasks if task.name == "ECBot RPA operates daily routine task"), None)
 
     if not worker_task:
@@ -426,7 +426,7 @@ def create_ec_rpa_supervisor_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor chatter"), None)
+    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa supervisor task scheduling"), None)
     chatter_task = next((task for task in agent_tasks if task.name == "ECBot RPA Operator Chatter Task"), None)
 
     if not chatter_task:
@@ -620,8 +620,8 @@ def create_agent_tasks(main_win):
             all_agent_tasks.append(create_my_twin_chat_task(main_win))
             all_agent_tasks.append(create_ec_helper_chat_task(main_win))
             all_agent_tasks.append(create_ec_helper_work_task(main_win))
-            all_agent_tasks.append(create_ec_customer_support_chat_task(main_win))
-            all_agent_tasks.append(create_ec_customer_support_work_task(main_win))
+            # all_agent_tasks.append(create_ec_customer_support_chat_task(main_win))
+            # all_agent_tasks.append(create_ec_customer_support_work_task(main_win))
             all_agent_tasks.append(create_ec_procurement_chat_task(main_win))
             all_agent_tasks.append(create_ec_procurement_work_task(main_win))
             all_agent_tasks.append(create_ec_rpa_operator_chat_task(main_win))
@@ -629,8 +629,8 @@ def create_agent_tasks(main_win):
             all_agent_tasks.append(create_ec_rpa_supervisor_chat_task(main_win))
             all_agent_tasks.append(create_ec_rpa_supervisor_daily_task(main_win))
             all_agent_tasks.append(create_ec_rpa_supervisor_on_request_task(main_win))
-            all_agent_tasks.append(create_ec_sales_chat_task(main_win))
-            all_agent_tasks.append(create_ec_sales_work_task(main_win))
+            # all_agent_tasks.append(create_ec_sales_chat_task(main_win))
+            # all_agent_tasks.append(create_ec_sales_work_task(main_win))
 
         return all_agent_tasks
 

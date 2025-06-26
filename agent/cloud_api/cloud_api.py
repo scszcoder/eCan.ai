@@ -389,8 +389,6 @@ def gen_get_agent_skills_string():
     return query_string
 
 
-
-
 def gen_add_agent_tasks_string(tasks, test_settings={}):
     query_string = """
         mutation MyAMMutation {

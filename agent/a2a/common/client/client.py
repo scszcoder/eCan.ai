@@ -43,6 +43,10 @@ class A2AClient:
         request = SendTaskRequest(params=payload)
         return SendTaskResponse(**await self._send_request(request))
 
+    def sync_send_task(self, payload: dict[str, Any]) -> SendTaskResponse:
+        request = SendTaskRequest(params=payload)
+        return SendTaskResponse(**self._sync_send_request(request))
+
     async def send_task_streaming(
         self, payload: dict[str, Any]
     ) -> AsyncIterable[SendTaskStreamingResponse]:
@@ -75,6 +79,24 @@ class A2AClient:
                 raise A2AClientHTTPError(e.response.status_code, str(e)) from e
             except json.JSONDecodeError as e:
                 raise A2AClientJSONError(str(e)) from e
+
+    def _sync_send_request(self, request: JSONRPCRequest) -> dict[str, Any]:
+        with httpx.Client() as client:
+            try:
+                # Image generation could take time, adding timeout
+                print("[SYNC] A2A URL:", self.url, request.model_dump())
+                response = client.post(
+                    self.url, json=request.model_dump(), timeout=30
+                )
+                print("[SYNC] response received from server:", type(response), response)
+                response.raise_for_status()
+                print("[SYNC] response", response)
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                raise A2AClientHTTPError(e.response.status_code, str(e)) from e
+            except json.JSONDecodeError as e:
+                raise A2AClientJSONError(str(e)) from e
+
 
     async def get_task(self, payload: dict[str, Any]) -> GetTaskResponse:
         request = GetTaskRequest(params=payload)

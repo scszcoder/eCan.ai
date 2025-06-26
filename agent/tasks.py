@@ -154,10 +154,10 @@ class ManagedTask(Task):
                 }
             }
 
-        agen = self.skill.runnable.astream(in_args, config=config, **kwargs)
+        agen = self.skill.runnable.stream(in_args, config=config, **kwargs)
         try:
             print("running skill:", self.skill.name, in_msg)
-            print("astream_run config:", config)
+            print("stream_run config:", config)
 
             # Set up default config if not provided
 

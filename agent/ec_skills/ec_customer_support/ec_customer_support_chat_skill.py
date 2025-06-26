@@ -20,10 +20,7 @@ from langmem.short_term import SummarizationNode
 
 from onnxruntime.transformers.models.stable_diffusion.benchmark import get_negative_prompt_kwargs
 from scipy.stats import chatterjeexi
-import io
-import os
 import base64
-from agent.ec_skills.file_utils.file_utils import extract_file_text
 from bot.Logger import *
 from agent.ec_skill import *
 
@@ -132,7 +129,16 @@ def debug_node(state: NodeState) -> NodeState:
 
 
 
-def llm_node_with_extracted_files(state: NodeState) -> NodeState:
+
+def extract_file_text(file_bytes: bytes, filename: str) -> str:
+    # Example for PDFs; add more logic for other file types as needed
+    import io
+    import PyPDF2
+    with io.BytesIO(file_bytes) as buf:
+        reader = PyPDF2.PdfReader(buf)
+        return "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+
+def llm_node_with_files(state: dict) -> dict:
     user_input = state.get("input", "")
     attachments = state.get("attachments", [])
     if not attachments:
@@ -157,91 +163,11 @@ def llm_node_with_extracted_files(state: NodeState) -> NodeState:
         "file_contents": file_contents
     }
 
-    llm = ChatOpenAI(model="gpt-4.1", temperature=0.5)
-    prompt_messages = [
-        {
-            "role": "system",
-            "content": "You are an expert assistant. Carefully answer the user's request."
-        },
-        {
-            "role": "user",
-            "content": user_content
-        }
-    ]
-    result = llm.invoke(prompt_messages)
+    llm = ChatOpenAI(model="gpt-4", temperature=0.2)
+    prompt_str = prompt.format(**prompt_vars)
+    result = llm.invoke(prompt_str)
     return {"llm_response": result.content}
 
-
-# for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
-# .wav (.mp3) and .mp4
-async def llm_node_with_raw_files(state: NodeState) -> NodeState:
-    user_input = state.get("input", "")
-    attachments = state.get("attachments", [])
-    user_content = []
-
-    # Add user text
-    user_content.append({"type": "text", "text": user_input})
-
-    # Add all attachments in supported format
-    for att in attachments:
-        fname = att["filename"].lower()
-        data = att["file_data"]
-        if isinstance(data, str):
-            # If base64-encoded, decode first
-            data = base64.b64decode(data)
-
-        # Add as the appropriate type
-        if fname.endswith(".png") or fname.endswith(".jpg") or fname.endswith(".jpeg") or fname.endswith(".gif"):
-            fformat = fname.split(".")[-1]
-            if fformat == "jpeg":
-                fformat = "jpg"
-            user_content.append({
-                "type": "image",
-                "source_type": "base64",
-                "data": base64.b64encode(data).decode('utf-8'),
-                "mime_type": f"image/{fformat}"
-            })
-        elif fname.endswith(".wav") or fname.endswith(".mp3"):
-            fformat = fname.split(".")[-1]
-            user_content.append({
-                "type": "audio",
-                "source_type": "base64",
-                "data": base64.b64encode(data).decode('utf-8'),
-                "mime_type": f"audio/{fformat}"
-            })
-        elif fname.endswith(".pdf"):
-            fformat = fname.split(".")[-1]
-            user_content.append({
-                "type": "file",
-                "source_type": "base64",
-                "data": base64.b64encode(data).decode('utf-8'),
-                "mime_type": f"application/{fformat}"
-            })
-        else:
-            # Fallback: attach as generic file
-            user_content.append({
-                "type": "file",
-                "file": {
-                    "filename": att["filename"],
-                    "file_data": base64.b64encode(data).decode("utf-8")
-                }
-            })
-
-    llm = ChatOpenAI(model="gpt-4.1", temperature=0.5)
-    prompt_messages = [
-        {
-            "role": "system",
-            "content": "You are an expert assistant. Carefully answer the user's request."
-        },
-        {
-            "role": "user",
-            "content": user_content
-        }
-    ]
-    result = await llm.ainvoke(prompt_messages)
-    print("LLM node with raw files result:", result)
-
-    return {"llm_response": result.content}
 
 
 def pre_model_hook(state):
@@ -267,7 +193,7 @@ def pre_model_hook(state):
 
 
 
-async def create_search_1688_chatter_skill(mainwin):
+async def create_ec_customer_support_chat_skill(mainwin):
     try:
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
@@ -332,7 +258,6 @@ async def create_search_1688_chatter_skill(mainwin):
 
         # initial classification node
         chat_node = process_chat
-        chat_node = llm_node_with_raw_files
 
         prompt1 = ChatPromptTemplate.from_messages([
             ("system", """
@@ -553,14 +478,3 @@ async def create_search_1688_chatter_skill(mainwin):
     return searcher_chatter_skill
 
 
-
-# (
-#     "you are a electronics component procurement expert helping sourcing this component {part} you will chat with your human boss to collect "
-#  "all the requirements for sourcing this component and distill all requirement information in a JSON format with the following schema"
-#  " {schema}"
-#  )
-#
-# "The requirements are divided into three categories: "
-# "1. application and usage which will dictates some of the technical requirements:"
-# ("2. technical requirements this will usually be a list of electrical parameters with value range requirements:"
-# "3. the electrical requirement will usally grouped into DC paramters and AC parameters.additional parameters or selection criteria")
