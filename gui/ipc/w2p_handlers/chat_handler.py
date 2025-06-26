@@ -16,7 +16,62 @@ from utils.logger_helper import logger_helper as logger
 from gui.ipc.registry import IPCHandlerRegistry
 import asyncio # 假设 runner.chat_wait_in_line 是异步的
 from agent.chats.chat_service import ChatService
+import threading
 
+ECHO_REPLY_ENABLED = True  # 开关控制
+
+def echo_and_push_message_async(chat_id, message):
+    """
+    延迟2秒后异步推送一条 echo 消息到 chat，自动修改 role、status、发送者/接收者。
+    """
+    import copy
+    import time
+    def do_push():
+        time.sleep(2)
+        echo_msg = copy.deepcopy(message)
+        # 互换 senderId/Name，role=agent，status=complete，内容加 echo
+        echo_msg['role'] = 'agent'
+        echo_msg['status'] = 'complete'
+        # 互换 senderId/Name 和 receiverId/Name（如有）
+        if 'senderId' in echo_msg and 'receiverId' in echo_msg:
+            echo_msg['senderId'], echo_msg['receiverId'] = echo_msg['receiverId'], echo_msg['senderId']
+        if 'senderName' in echo_msg and 'receiverName' in echo_msg:
+            echo_msg['senderName'], echo_msg['receiverName'] = echo_msg['receiverName'], echo_msg['senderName']
+        # 内容 echo
+        if isinstance(echo_msg.get('content'), dict):
+            if 'text' in echo_msg['content']:
+                echo_msg['content']['text'] = f"echo: {echo_msg['content']['text']}"
+        elif isinstance(echo_msg.get('content'), str):
+            echo_msg['content'] = f"echo: {echo_msg['content']}"
+        # 生成新 id
+        import uuid
+        echo_msg['id'] = str(uuid.uuid4())
+        # 存入数据库
+        try:
+            from app_context import AppContext
+            app_ctx = AppContext()
+            chat_service = app_ctx.main_window.chat_service
+            chat_service.add_message(
+                chat_id=chat_id,
+                role=echo_msg.get('role'),
+                content=echo_msg.get('content'),
+                senderId=echo_msg.get('senderId'),
+                createAt=echo_msg.get('createAt'),
+                id=echo_msg.get('id'),
+                status=echo_msg.get('status'),
+                senderName=echo_msg.get('senderName'),
+                time=echo_msg.get('time'),
+                ext=echo_msg.get('ext'),
+                attachment=echo_msg.get('attachment')
+            )
+        except Exception as e:
+            import traceback
+            print(f"[echo_and_push_message_async] add_message error: {e}\n{traceback.format_exc()}")
+        # 推送
+        app_ctx = AppContext()
+        web_gui = app_ctx.web_gui
+        web_gui.get_ipc_api().push_chat_message(chat_id, echo_msg)
+    threading.Thread(target=do_push, daemon=True).start()
 
 @IPCHandlerRegistry.background_handler('send_chat')
 def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
@@ -56,6 +111,28 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             attachment=attachment
         )
         logger.info(f"add_message result: {result}")
+        # echo reply
+        if ECHO_REPLY_ENABLED:
+            # 构造 message dict 传递给 echo_and_push_message_async
+            msg_dict = {
+                'chat_id': chat_id,
+                'role': role,
+                'content': content,
+                'senderId': senderId,
+                'senderName': senderName,
+                'createAt': createAt,
+                'id': message_id,
+                'status': status,
+                'time': time,
+                'ext': ext,
+                'attachment': attachment
+            }
+            # 补充 receiverId/receiverName（如有）
+            if 'receiverId' in params:
+                msg_dict['receiverId'] = params['receiverId']
+            if 'receiverName' in params:
+                msg_dict['receiverName'] = params['receiverName']
+            echo_and_push_message_async(chat_id, msg_dict)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in handle_send_chat: {e}", exc_info=True)
