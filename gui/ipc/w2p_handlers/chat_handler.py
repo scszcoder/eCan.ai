@@ -3,6 +3,7 @@
 """
 import json
 import os
+import time
 import traceback
 from typing import Any, Dict, Optional
 import uuid
@@ -27,7 +28,7 @@ def echo_and_push_message_async(chatId, message):
     import copy
     import time
     def do_push():
-        time.sleep(2)
+        time.sleep(1)
         echo_msg = copy.deepcopy(message)
         # 互换 senderId/Name，role=agent，status=complete，内容加 echo
         echo_msg['role'] = 'agent'
@@ -46,6 +47,7 @@ def echo_and_push_message_async(chatId, message):
         # 生成新 id
         import uuid
         echo_msg['id'] = str(uuid.uuid4())
+        echo_msg['createAt'] = int(time.time() * 1000)
         # 存入数据库
         try:
             from app_context import AppContext
@@ -93,9 +95,9 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         role = params['role']
         content = params['content']
         senderId = params['senderId']
-        createAt = params['createAt']
+        createAt = params['createAt'] or int(time.time() * 1000)
         # 可选参数
-        message_id = params.get('id')
+        messageId = params.get('id')
         status = params.get('status')
         senderName = params.get('senderName')
         time = params.get('time')
@@ -108,7 +110,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             content=content,
             senderId=senderId,
             createAt=createAt,
-            id=message_id,
+            id=messageId,
             status=status,
             senderName=senderName,
             time=time,
@@ -126,7 +128,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 'senderId': senderId,
                 'senderName': senderName,
                 'createAt': createAt,
-                'id': message_id,
+                'id': messageId,
                 'status': status,
                 'time': time,
                 'ext': ext,
@@ -177,7 +179,7 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
         chat_type = params.get('type', 'user-agent')
         avatar = params.get('avatar')
         lastMsg = params.get('lastMsg')
-        lastMsgTime = params.get('lastMsgTime')
+        lastMsgTime = params.get('lastMsgTime') or int(time.time() * 1000)
         unread = params.get('unread', 0)
         pinned = params.get('pinned', False)
         muted = params.get('muted', False)

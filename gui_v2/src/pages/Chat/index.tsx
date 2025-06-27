@@ -48,7 +48,7 @@ const ChatPage: React.FC = () => {
                         // logger.debug('[eventBus] message already exists, skip:', message.id);
                         return chat;
                     }
-                    logger.debug('[eventBus] appending new message:', message);
+                    // logger.debug('[eventBus] appending new message:', message);
                     return {
                         ...chat,
                         messages: [...messages, message],
@@ -77,55 +77,70 @@ const ChatPage: React.FC = () => {
                 name: receiver_agent?.card.name || `Chat with ${agentId}`,
                 type: 'user-agent',
             };
+            console.log('[createChat] chatData:', chatData);
             const response = await get_ipc_api().chat.createChat(chatData);
-            console.log(response.data)
-            if (response.success && response.data) {
-                const newChat = response.data as Chat;
+            console.log('[createChat] response.data:', response.data);
+            const resp: any = response;
+            if (resp.success && resp.data && resp.data.data) {
+                // 正确提取新 chat 数据，并兜底 name 字段
+                const newChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
                 setChats(prevChats => {
                     const exists = prevChats.some(c => c.id === newChat.id);
-                    if (exists) {
-                        // 更新已存在的 chat
-                        return prevChats.map(c => c.id === newChat.id ? { ...c, ...newChat } : c);
-                    } else {
-                        // 添加新 chat
-                        return [...prevChats, newChat];
-                    }
+                    const updated = exists
+                        ? prevChats.map(c => c.id === newChat.id ? { ...c, ...newChat } : c)
+                        : [...prevChats, newChat];
+                    console.log('[createChat] setChats before:', prevChats);
+                    console.log('[createChat] setChats after:', updated);
+                    return updated;
                 });
                 setActiveChatId(newChat.id);
-                // 2. 获取当前 chat 的 message
-                handleChatSelect(newChat.id);
             }
         }
     };
+
+    // 新增：监听 activeChatId，自动拉取消息并更新 ChatDetail（避免死循环）
+    useEffect(() => {
+        if (!activeChatId) return;
+        handleChatSelect(activeChatId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeChatId]);
 
     // 页面每次显示都拉取聊天，拉取完后如有agentId再创建
     useEffect(() => {
         if (!initialized) return;
         let cancelled = false;
         setIsLoading(true);
+
         const fetchChatsAndMaybeCreate = async () => {
-            // 获取最新的 myTwinAgentId
-            const myTwinAgent = useAppDataStore.getState().myTwinAgent();
-            const myTwinAgentId = myTwinAgent?.card?.id;
+            // 等待 myTwinAgentId 可用，最多重试 10 次
+            let myTwinAgentId: string | undefined;
+            let retry = 0;
+            while (retry < 10) {
+                const myTwinAgent = useAppDataStore.getState().myTwinAgent();
+                myTwinAgentId = myTwinAgent?.card?.id;
+                if (myTwinAgentId) break;
+                await new Promise(res => setTimeout(res, 100)); // 100ms
+                retry++;
+            }
             if (!myTwinAgentId) {
                 setIsLoading(false);
                 return;
             }
-            await getChatsAndSetState(myTwinAgentId, true);
+            await getChatsAndSetState(myTwinAgentId);
             setIsLoading(false);
             if (agentId && !cancelled) {
                 await tryCreateAndSelectChat();
             }
         };
+
         fetchChatsAndMaybeCreate();
         return () => { cancelled = true; };
     }, [initialized, agentId]);
 
     // 通用获取聊天数据的函数，使用新的 API
-    const getChatsAndSetState = async (userId?: string, setActive: boolean = false) => {
+    const getChatsAndSetState = async (userId?: string) => {
         try {
             setIsLoading(true);
-            
             // 使用新的 API 获取聊天数据
             const response = await get_ipc_api().chat.getChats(
                 userId || '',
@@ -145,13 +160,29 @@ const ChatPage: React.FC = () => {
                         chatData = [];
                     }
                 }
-                
-                // 更新所有聊天
                 setChats(chatData);
-                if (setActive && chatData.length > 0) {
-                    setActiveChatId(chatData[0]?.id || null);
+                // 选择 active chat 并拉取消息
+                let selectedChatId: string | null = null;
+                if (chatData.length > 0) {
+                    if (agentId) {
+                        const found = chatData.find(c => c.members?.some(m => m.userId === agentId));
+                        if (found) {
+                            selectedChatId = found.id;
+                        } else {
+                            selectedChatId = chatData[0].id;
+                        }
+                    } else {
+                        selectedChatId = chatData[0].id;
+                    }
+                    setActiveChatId(selectedChatId);
+                    // 等待 setChats 完成后再拉取详细消息
+                    // 通过 setTimeout 0 保证 setState 执行后再调用 handleChatSelect
+                    setTimeout(() => {
+                        if (selectedChatId) {
+                            handleChatSelect(selectedChatId);
+                        }
+                    }, 0);
                 }
-                
                 logger.debug('Chats loaded successfully:', chatData.length);
             } else {
                 logger.error('Failed to load chats:', response.error);
