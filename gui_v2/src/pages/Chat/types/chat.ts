@@ -125,3 +125,26 @@ export interface RoleConfig {
 }
 
 export type RoleKey = string;
+
+export const defaultRoleConfig: RoleConfig = {
+    user: {
+      name: '用户',
+      avatar: '/src/assets/agent0_100.png',
+      color: 'blue'
+    },
+    assistant: {
+      name: 'AI助手',
+      avatar: '/src/assets/icons1_100.png',
+      color: 'green'
+    },
+    system: {
+      name: '系统',
+      avatar: '/src/assets/icons0_door_100.png',
+      color: 'grey'
+    },
+    agent: {
+      name: '客服代理',
+      avatar: '/src/assets/icons2_100.png',
+      color: 'purple'
+    }
+  };
