@@ -289,8 +289,11 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
             raise ValueError("Only base64 string is supported for 'data' field")
         with open(file_path, 'wb') as f:
             f.write(file_bytes)
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
         # 构造 url
-        url = f"/files/{unique_name}"
+        url = os.path.join(main_window.temp_dir, unique_name)
+        logger.debug(url)
         result = {
             'url': url,
             'name': name,
