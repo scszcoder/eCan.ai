@@ -11,9 +11,20 @@ def init_my_twin_chatter_skill(agent, msg):
         attachments = []
         for fname in file_names:
             # print("reading file:", fname)
+            fext = fname.split(".")[-1].lower()
+            if fext in ['bitmap', 'gif', 'jpeg', 'jpg', 'png', 'gif', 'webp']:
+                mtype = "image/"+fext
+            elif fext in ['mp3', 'wav']:
+                mtype = "audio/"+fext
+            else:
+                mtype = "application/"+fext
+
             with open(fname, "rb") as f:
-                # attachments.append({"filename": fname, "file_url": "", "file_data": f.read()})
-                attachments.append({"filename": fname, "file_url": "", "file_data": ""})
+                fake_url = ""
+                # fake_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+                fdata = f.read()
+                # fdata = ""
+                attachments.append({"filename": fname, "file_url": fake_url, "mime_type": mtype, "file_data": fdata})
 
         init_state = {
             "messages": [agent.card.id, msg_txt],
