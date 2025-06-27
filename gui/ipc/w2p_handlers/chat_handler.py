@@ -18,6 +18,7 @@ from gui.ipc.registry import IPCHandlerRegistry
 import asyncio # 假设 runner.chat_wait_in_line 是异步的
 from agent.chats.chat_service import ChatService
 import threading
+import tempfile
 
 ECHO_REPLY_ENABLED = True  # 开关控制
 
@@ -27,6 +28,7 @@ def echo_and_push_message_async(chatId, message):
     """
     import copy
     import time
+    import uuid  # 确保 uuid 在 do_push 作用域可用
     def do_push():
         time.sleep(1)
         echo_msg = copy.deepcopy(message)
@@ -44,8 +46,13 @@ def echo_and_push_message_async(chatId, message):
                 echo_msg['content']['text'] = f"echo: {echo_msg['content']['text']}"
         elif isinstance(echo_msg.get('content'), str):
             echo_msg['content'] = f"echo: {echo_msg['content']}"
+        # 为每个附件生成新的 uid，避免数据库唯一约束冲突
+        if echo_msg.get('attachment'):
+            for att in echo_msg['attachment']:
+                att['uid'] = str(uuid.uuid4())
+                if 'fileInstance' in att and isinstance(att['fileInstance'], dict):
+                    att['fileInstance']['uid'] = att['uid']
         # 生成新 id
-        import uuid
         echo_msg['id'] = str(uuid.uuid4())
         echo_msg['createAt'] = int(time.time() * 1000)
         # 存入数据库
@@ -255,4 +262,45 @@ def handle_mark_message_as_read(request: IPCRequest, params: Optional[dict]) -> 
     except Exception as e:
         logger.error(f"Error in mark_message_as_read handler: {e}")
         return create_error_response(request, 'MARK_MESSAGE_AS_READ_ERROR', str(e))
+
+@IPCHandlerRegistry.handler('upload_attachment')
+def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    处理上传附件，将附件保存到临时目录，并返回 url、name、type、size 等信息。
+    """
+    try:
+        name = params['name']
+        file_type = params['type']
+        size = params['size']
+        data = params['data']  # base64 或 bytes
+        logger.debug(f"handle_upload_attachment handler called with params: {name},{file_type}, {size}")
+        # 生成唯一文件名，防止冲突
+        ext = os.path.splitext(name)[1]
+        unique_name = f"{uuid.uuid4().hex}{ext}"
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, unique_name)
+        # 保存文件
+        if isinstance(data, str):
+            import base64
+            if data.startswith('data:'):
+                data = data.split(',', 1)[-1]
+            file_bytes = base64.b64decode(data)
+        else:
+            raise ValueError("Only base64 string is supported for 'data' field")
+        with open(file_path, 'wb') as f:
+            f.write(file_bytes)
+        # 构造 url
+        url = f"/files/{unique_name}"
+        result = {
+            'url': url,
+            'name': name,
+            'type': file_type,
+            'size': size,
+            'status': 'done',
+            'uid': str(uuid.uuid4()),
+        }
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in upload_attachment handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'UPLOAD_ATTACHMENT_ERROR', str(e))
 
