@@ -35,8 +35,8 @@ const ChatPage: React.FC = () => {
 
     useEffect(() => {
         const handler = (params: any) => {
-            const { chatId, chat_id, message } = params;
-            const realChatId = chatId || chat_id || message.chatId || message.chat_id;
+            const { chatId, message } = params;
+            const realChatId = chatId || message.chatId;
             //logger.debug('[eventBus] push_chat_message received:', { realChatId, message });
             setChats((prevChats: Chat[]) => {
                 //logger.debug('[eventBus] prevChats:', prevChats.map(c => ({ id: c.id, messages: c.messages })));
@@ -71,8 +71,8 @@ const ChatPage: React.FC = () => {
             // 1. 先调用 create_chat
             const chatData = {
                 members:  [
-                    {"user_id": myTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
-                    {"user_id": agentId, "role": "agent", "name": receiver_agent?.card.name || "receiver agent"}
+                    {"userId": myTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
+                    {"userId": agentId, "role": "agent", "name": receiver_agent?.card.name || "receiver agent"}
                   ],
                 name: receiver_agent?.card.name || `Chat with ${agentId}`,
                 type: 'user-agent',

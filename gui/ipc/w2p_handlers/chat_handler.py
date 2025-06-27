@@ -20,7 +20,7 @@ import threading
 
 ECHO_REPLY_ENABLED = True  # 开关控制
 
-def echo_and_push_message_async(chat_id, message):
+def echo_and_push_message_async(chatId, message):
     """
     延迟2秒后异步推送一条 echo 消息到 chat，自动修改 role、status、发送者/接收者。
     """
@@ -52,7 +52,7 @@ def echo_and_push_message_async(chat_id, message):
             app_ctx = AppContext()
             chat_service = app_ctx.main_window.chat_service
             chat_service.add_message(
-                chat_id=chat_id,
+                chatId=chatId,
                 role=echo_msg.get('role'),
                 content=echo_msg.get('content'),
                 senderId=echo_msg.get('senderId'),
@@ -70,7 +70,7 @@ def echo_and_push_message_async(chat_id, message):
         # 推送
         app_ctx = AppContext()
         web_gui = app_ctx.web_gui
-        web_gui.get_ipc_api().push_chat_message(chat_id, echo_msg)
+        web_gui.get_ipc_api().push_chat_message(chatId, echo_msg)
     threading.Thread(target=do_push, daemon=True).start()
 
 def _find_agent_by_id(login: Login, id: str) -> Optional[EC_Agent]:
@@ -89,7 +89,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         main_window: MainWindow = app_ctx.main_window
         chat_service = main_window.chat_service
         # 参数提取
-        chat_id = params['chatId']
+        chatId = params['chatId']
         role = params['role']
         content = params['content']
         senderId = params['senderId']
@@ -103,7 +103,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         attachment = params.get('attachment')
         # 调用 add_message
         result = chat_service.add_message(
-            chat_id=chat_id,
+            chatId=chatId,
             role=role,
             content=content,
             senderId=senderId,
@@ -120,7 +120,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         if ECHO_REPLY_ENABLED:
             # 构造 message dict 传递给 echo_and_push_message_async
             msg_dict = {
-                'chat_id': chat_id,
+                'chatId': chatId,
                 'role': role,
                 'content': content,
                 'senderId': senderId,
@@ -137,7 +137,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 msg_dict['receiverId'] = params['receiverId']
             if 'receiverName' in params:
                 msg_dict['receiverName'] = params['receiverName']
-            echo_and_push_message_async(chat_id, msg_dict)
+            echo_and_push_message_async(chatId, msg_dict)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in handle_send_chat: {e}", exc_info=True)
@@ -150,12 +150,12 @@ def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse
     """
     try:
         logger.debug(f"get chats handler called with request: {request}")
-        user_id = params.get('userId')
+        userId = params.get('userId')
         deep = params.get('deep', False)
         app_ctx = AppContext()
         main_window: MainWindow = app_ctx.main_window
         chat_service = main_window.chat_service
-        result = chat_service.query_chats_by_user(user_id=user_id, deep=deep)
+        result = chat_service.query_chats_by_user(userId=userId, deep=deep)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in get chats handler: {e}")
@@ -208,14 +208,14 @@ def handle_get_chat_messages(request: IPCRequest, params: Optional[dict]) -> IPC
     """
     try:
         logger.debug(f"get_chat_messages handler called with request: {request}")
-        chat_id = params.get('chatId')
+        chatId = params.get('chatId')
         limit = params.get('limit', 20)
         offset = params.get('offset', 0)
         reverse = params.get('reverse', False)
         app_ctx = AppContext()
         main_window: MainWindow = app_ctx.main_window
         chat_service = main_window.chat_service
-        result = chat_service.query_messages_by_chat(chat_id=chat_id, limit=limit, offset=offset, reverse=reverse)
+        result = chat_service.query_messages_by_chat(chatId=chatId, limit=limit, offset=offset, reverse=reverse)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in get_chat_messages handler: {e}")
@@ -227,11 +227,11 @@ def handle_delete_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
     处理删除会话请求，调用 chat_service.delete_chat。
     """
     try:
-        chat_id = params.get('chatId')
+        chatId = params.get('chatId')
         app_ctx = AppContext()
         main_window: MainWindow = app_ctx.main_window
         chat_service = main_window.chat_service
-        result = chat_service.delete_chat(chat_id=chat_id)
+        result = chat_service.delete_chat(chatId=chatId)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in delete_chat handler: {e}")
@@ -243,12 +243,12 @@ def handle_mark_message_as_read(request: IPCRequest, params: Optional[dict]) -> 
     处理批量标记消息为已读请求，调用 chat_service.mark_message_as_read。
     """
     try:
-        message_ids = params.get('messageIds')
-        user_id = params.get('userId')
+        messageIds = params.get('messageIds')
+        userId = params.get('userId')
         app_ctx = AppContext()
         main_window: MainWindow = app_ctx.main_window
         chat_service = main_window.chat_service
-        result = chat_service.mark_message_as_read(message_ids=message_ids, user_id=user_id)
+        result = chat_service.mark_message_as_read(messageIds=messageIds, userId=userId)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in mark_message_as_read handler: {e}")

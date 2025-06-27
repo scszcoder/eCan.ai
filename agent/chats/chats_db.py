@@ -35,8 +35,8 @@ class Chat(Base):
 
 class Member(Base):
     __tablename__ = 'members'
-    chat_id = Column(String(64), ForeignKey('chats.id'), primary_key=True)
-    user_id = Column(String(64), primary_key=True)
+    chatId = Column(String(64), ForeignKey('chats.id'), primary_key=True)
+    userId = Column(String(64), primary_key=True)
     role = Column(String(32), nullable=False)
     name = Column(String(100), nullable=False)
     avatar = Column(String(255))
@@ -51,7 +51,7 @@ class Member(Base):
 class Message(Base):
     __tablename__ = 'messages'
     id = Column(String(64), primary_key=True)
-    chat_id = Column(String(64), ForeignKey('chats.id'), nullable=False)
+    chatId = Column(String(64), ForeignKey('chats.id'), nullable=False)
     role = Column(String(32), nullable=False)
     createAt = Column(Integer, nullable=False)
     content = Column(JSON, nullable=False)
@@ -60,7 +60,7 @@ class Message(Base):
     senderName = Column(String(100))
     time = Column(Integer)
     ext = Column(JSON)
-    is_read = Column(Boolean, default=False)
+    isRead = Column(Boolean, default=False)
     chat = relationship('Chat', back_populates='messages')
     attachments = relationship('Attachment', back_populates='message', cascade='all, delete-orphan')
 
@@ -73,7 +73,7 @@ class Message(Base):
 class Attachment(Base):
     __tablename__ = 'attachments'
     uid = Column(String(64), primary_key=True)
-    message_id = Column(String(64), ForeignKey('messages.id'), nullable=False)
+    messageId = Column(String(64), ForeignKey('messages.id'), nullable=False)
     name = Column(String(255), nullable=False)
     status = Column(String(32), nullable=False)
     url = Column(String(512))

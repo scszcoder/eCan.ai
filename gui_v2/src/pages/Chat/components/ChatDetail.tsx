@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
-import { defaultRoleConfig } from '../chatDemoData';
+import { defaultRoleConfig } from '../types/chat';
 import { Message, Content, Chat } from '../types/chat';
 
 const ChatDetailWrapper = styled.div`

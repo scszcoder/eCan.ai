@@ -136,11 +136,10 @@ class ChatService(metaclass=SingletonMeta):
         ext = {} if ext is None else ext
         with self.session_scope() as session:
             try:
-                input_member_ids = set(str(m['user_id']) for m in members)
+                input_member_ids = set(str(m['userId']) for m in members)
                 candidate_chats = session.query(Chat).filter(Chat.type == type).all()
                 for chat in candidate_chats:
-                    db_member_ids = set(str(m.user_id) for m in chat.members)
-                    logging.debug(f"[create_chat] Comparing input {sorted(input_member_ids)} with db {sorted(db_member_ids)} (chat_id={chat.id})")
+                    db_member_ids = set(str(m.userId) for m in chat.members)
                     if db_member_ids == input_member_ids:
                         return {
                             "success": False,
@@ -173,10 +172,10 @@ class ChatService(metaclass=SingletonMeta):
                 )
                 for m in members:
                     member = Member(
-                        chat_id=chat.id,
-                        user_id=m["user_id"],
+                        chatId=chat.id,
+                        userId=m["userId"],
                         role=m.get("role", "user"),
-                        name=m.get("name", m["user_id"]),
+                        name=m.get("name", m["userId"]),
                         avatar=m.get("avatar"),
                         status=m.get("status"),
                         ext=m.get("ext"),
@@ -201,7 +200,7 @@ class ChatService(metaclass=SingletonMeta):
 
     def add_message(
         self,
-        chat_id: str,
+        chatId: str,
         role: str,
         content: Any,
         senderId: str,
@@ -214,12 +213,12 @@ class ChatService(metaclass=SingletonMeta):
         attachment: list = None
     ) -> Dict[str, Any]:
         """向会话添加消息及附件，必传 chat_id、role、content、senderId、createAt，返回标准化结构"""
-        if not chat_id or not role or content is None or not senderId or not createAt:
+        if not chatId or not role or content is None or not senderId or not createAt:
             return {
                 "success": False,
                 "id": None,
                 "data": None,
-                "error": "Missing required fields: chat_id, role, content, senderId, createAt"
+                "error": "Missing required fields: chatId, role, content, senderId, createAt"
             }
         # 简化可选参数补全
         id = f"msg-{createAt}" if id is None else id
@@ -229,17 +228,17 @@ class ChatService(metaclass=SingletonMeta):
         ext = {} if ext is None else ext
         attachment = [] if attachment is None else attachment
         with self.session_scope() as session:
-            chat = session.get(Chat, chat_id)
+            chat = session.get(Chat, chatId)
             if not chat:
                 return {
                     "success": False,
                     "id": None,
                     "data": None,
-                    "error": f"Chat {chat_id} not found"
+                    "error": f"Chat {chatId} not found"
                 }
             message = Message(
                 id=id,
-                chat_id=chat.id,
+                chatId=chat.id,
                 role=role,
                 createAt=createAt,
                 content=content,
@@ -248,12 +247,12 @@ class ChatService(metaclass=SingletonMeta):
                 senderName=senderName,
                 time=time,
                 ext=ext,
-                is_read=False
+                isRead=False
             )
             for att in attachment:
                 attachment_obj = Attachment(
                     uid=att["uid"],
-                    message_id=message.id,
+                    messageId=message.id,
                     name=att.get("name", "file"),
                     status=att.get("status", "done"),
                     url=att.get("url"),
@@ -274,21 +273,21 @@ class ChatService(metaclass=SingletonMeta):
                 "error": None
             }
 
-    def query_chats_by_user(self, user_id: Optional[str] = None, deep: bool = False) -> Dict[str, Any]:
+    def query_chats_by_user(self, userId: Optional[str] = None, deep: bool = False) -> Dict[str, Any]:
         """
         查询用户参与的所有会话（含成员，默认不含消息），如需消息请 deep=True。
         user_id 不能为空，否则返回错误。
         返回结构与其他接口保持一致。
         """
-        if not user_id:
+        if not userId:
             return {
                 "success": False,
                 "id": None,
                 "data": None,
-                "error": "user_id is required"
+                "error": "userId is required"
             }
         with self.session_scope() as session:
-            stmt = select(Chat).join(Member).where(Member.user_id == user_id)
+            stmt = select(Chat).join(Member).where(Member.userId == userId)
             chats = session.execute(stmt).scalars().all()
             return {
                 "success": True,
@@ -318,7 +317,7 @@ class ChatService(metaclass=SingletonMeta):
                 )
                 for msg in ui_chat.get("messages", []):
                     self.add_message(
-                        chat_id=msg.get("chat_id", ui_chat["id"]),
+                        chat_id=msg.get("chatId", ui_chat["id"]),
                         role=msg["role"],
                         content=msg["content"],
                         senderId=msg.get("senderId", msg["role"]),
@@ -338,37 +337,37 @@ class ChatService(metaclass=SingletonMeta):
 
     def query_messages_by_chat(
         self,
-        chat_id: str,
+        chatId: str,
         limit: int = 20,
         offset: int = 0,
         reverse: bool = False
     ) -> Dict[str, Any]:
         """
-        查询指定 chat_id 的消息列表，支持翻页。
+        查询指定 chatId 的消息列表，支持翻页。
         参数：
-            chat_id: 必需，会话ID
+            chatId: 必需，会话ID
             limit: 可选，返回消息数量，默认20
             offset: 可选，起始偏移，默认0
             reverse: 可选，是否倒序，默认False
         返回：标准结构，data为消息列表
         """
-        if not chat_id:
+        if not chatId:
             return {
                 "success": False,
                 "id": None,
                 "data": None,
-                "error": "chat_id is required"
+                "error": "chatId is required"
             }
         with self.session_scope() as session:
-            chat = session.get(Chat, chat_id)
+            chat = session.get(Chat, chatId)
             if not chat:
                 return {
                     "success": False,
-                    "id": chat_id,
+                    "id": chatId,
                     "data": None,
-                    "error": f"Chat {chat_id} not found"
+                    "error": f"Chat {chatId} not found"
                 }
-            query = session.query(Message).filter(Message.chat_id == chat_id)
+            query = session.query(Message).filter(Message.chatId == chatId)
             if reverse:
                 query = query.order_by(Message.createAt.desc())
             else:
@@ -376,49 +375,49 @@ class ChatService(metaclass=SingletonMeta):
             messages = query.offset(offset).limit(limit).all()
             return {
                 "success": True,
-                "id": chat_id,
+                "id": chatId,
                 "data": [msg.to_dict(deep=True) for msg in messages],
                 "error": None
             }
 
-    def delete_chat(self, chat_id: str) -> Dict[str, Any]:
+    def delete_chat(self, chatId: str) -> Dict[str, Any]:
         """
-        删除指定 chat_id 的会话及其相关的成员、消息、附件等数据。
-        参数：chat_id（必需）
+        删除指定 chatId 的会话及其相关的成员、消息、附件等数据。
+        参数：chatId（必需）
         返回：标准结构
         """
-        if not chat_id:
+        if not chatId:
             return {
                 "success": False,
                 "id": None,
                 "data": None,
-                "error": "chat_id is required"
+                "error": "chatId is required"
             }
         with self.session_scope() as session:
-            chat = session.get(Chat, chat_id)
+            chat = session.get(Chat, chatId)
             if not chat:
                 return {
                     "success": False,
-                    "id": chat_id,
+                    "id": chatId,
                     "data": None,
-                    "error": f"Chat {chat_id} not found"
+                    "error": f"Chat {chatId} not found"
                 }
             session.delete(chat)
             session.flush()
             return {
                 "success": True,
-                "id": chat_id,
+                "id": chatId,
                 "data": None,
                 "error": None
             }
 
-    def mark_message_as_read(self, message_ids: list, user_id: str) -> Dict[str, Any]:
+    def mark_message_as_read(self, messageIds: list, userId: str) -> Dict[str, Any]:
         """
         批量将指定消息标记为已读，并同步更新 chat 的未读数。
-        参数：message_ids（必需，list），user_id（必需）
+        参数：messageIds（必需，list），userId（必需）
         返回：标准结构，data为已处理的 message_id 列表
         """
-        if not message_ids or not user_id:
+        if not messageIds or not userId:
             return {
                 "success": False,
                 "id": None,
@@ -427,14 +426,14 @@ class ChatService(metaclass=SingletonMeta):
             }
         updated_ids = []
         with self.session_scope() as session:
-            for message_id in message_ids:
+            for message_id in messageIds:
                 message = session.get(Message, message_id)
                 if not message:
                     continue
-                if not message.is_read:
-                    message.is_read = True
+                if not message.isRead:
+                    message.isRead = True
                     # 同步更新 chat 的未读数
-                    chat = session.get(Chat, message.chat_id)
+                    chat = session.get(Chat, message.chatId)
                     if chat and chat.unread > 0:
                         chat.unread = max(0, chat.unread - 1)
                 updated_ids.append(message_id)

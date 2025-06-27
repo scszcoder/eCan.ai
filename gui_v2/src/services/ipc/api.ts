@@ -233,18 +233,18 @@ export class IPCAPI {
     }
     */
 
-    public async getChatMessages<T>(params: {
-        chatId: string;
-        limit?: number;
-        offset?: number;
-        reverse?: boolean;
-    }): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_chat_messages', params);
-    }
+    // public async getChatMessages<T>(params: {
+    //     chatId: string;
+    //     limit?: number;
+    //     offset?: number;
+    //     reverse?: boolean;
+    // }): Promise<APIResponse<T>> {
+    //     return this.executeRequest<T>('get_chat_messages', params);
+    // }
 
-    public async deleteChat<T>(chatId: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('delete_chat', { chatId });
-    }
+    // public async deleteChat<T>(chatId: string): Promise<APIResponse<T>> {
+    //     return this.executeRequest<T>('delete_chat', { chatId });
+    // }
 
     public async markMessageAsRead<T>(messageIds: string[], userId: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('mark_message_as_read', { messageIds, userId });
