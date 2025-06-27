@@ -1,3 +1,4 @@
+import { Attachment } from '@/pages/Chat/types/chat';
 import { IPCAPI } from './api';
 import { APIResponse } from './api';
 
@@ -31,7 +32,7 @@ export function createChatApi(apiInstance: IPCAPI) {
             senderName?: string;
             time?: string;
             ext?: any;
-            attachment?: any;
+            attachment?: Attachment;
         }): Promise<APIResponse<T>> {
             return apiInstance['executeRequest']('send_chat', message);
         },
@@ -57,6 +58,17 @@ export function createChatApi(apiInstance: IPCAPI) {
          */
         markMessageAsRead<T>(messageIds: string[], userId: string): Promise<APIResponse<T>> {
             return apiInstance['executeRequest']('mark_message_as_read', { messageIds, userId });
+        },
+        /**
+         * 上传附件
+         */
+        uploadAttachment<T>(params: {
+            name: string;
+            type: string;
+            size: number;
+            data: string | ArrayBuffer;
+        }): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('upload_attachment', params);
         },
     };
 } 

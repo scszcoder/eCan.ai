@@ -293,6 +293,7 @@ const ChatPage: React.FC = () => {
     };
 
     const handleMessageSend = async (content: string, attachments: Attachment[]) => {
+        console.log('[handleMessageSend] attachments:', attachments);
         if (!activeChatId) {
             logger.error('No activeChatId!!!');
             return;
@@ -307,6 +308,32 @@ const ChatPage: React.FC = () => {
         const senderName = my_twin_agent?.card.name;
         if (!senderId || !senderName) return;
 
+        // 只保留可序列化字段，优先使用 response 字段（如有）
+        const safeAttachments = (attachments || []).map(att => {
+            if (!att) return att;
+            const attAny = att as any;
+            if (attAny.response && typeof attAny.response === 'object') {
+                // response 字段通常是后端返回的 attachment 信息
+                const resp = attAny.response;
+                return {
+                    name: resp.name,
+                    type: resp.type,
+                    size: resp.size,
+                    url: resp.url || resp.base64 || resp.data || '',
+                    status: resp.status || 'done',
+                    uid: resp.uid || attAny.uid || ('' + Date.now())
+                };
+            }
+            return {
+                name: att.name,
+                type: att.type,
+                size: att.size,
+                url: att.url,
+                status: att.status,
+                uid: att.uid
+            };
+        });
+
         const userMessage: Message = {
             id: uuidv4(),
             chatId: activeChatId,
@@ -316,7 +343,7 @@ const ChatPage: React.FC = () => {
             senderName,
             content: content,
             status: 'sending',
-            attachment: attachments
+            attachment: safeAttachments
         };
 
         // 先乐观地更新 UI
@@ -341,7 +368,7 @@ const ChatPage: React.FC = () => {
                 createAt: String(Date.now()),
                 senderName,
                 status: 'sending',
-                attachment: attachments as any
+                attachment: safeAttachments as any
             };
             
             const response = await get_ipc_api().chat.sendChat(messageData);

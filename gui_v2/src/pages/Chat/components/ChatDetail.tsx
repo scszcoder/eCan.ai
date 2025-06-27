@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
 import { defaultRoleConfig } from '../types/chat';
 import { Message, Content, Chat } from '../types/chat';
+import { get_ipc_api } from '@/services/ipc_api';
+import { logger } from '@/utils/logger';
 
 const ChatDetailWrapper = styled.div`
     display: flex;
@@ -95,18 +97,84 @@ const processMessageContent = (message: Message): any => {
 
 // 上传组件的配置
 const uploadProps = {
-    // 使用 mock 上传地址，实际应用中应替换为真实的上传 API
-    action: 'https://api.mocksample.dev/upload',
-    // 禁用上传功能，避免实际发送请求
-    beforeUpload: () => false,
-    // 文件上传成功的回调
-    onSuccess: (response: any, file: any) => {
-        console.log('Upload success:', response, file);
+    action: '', // 禁用 HTTP 上传
+    beforeUpload: () => true, // 必须返回 true，允许 customRequest 执行
+    customRequest: async (options: any) => {
+        const { file, onSuccess, onError } = options;
+        try {
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const fileData = e.target?.result;
+                if (!fileData) {
+                    console.error('[uploadProps] FileReader failed');
+                    onError(new Error('读取文件失败'), file);
+                    return;
+                }
+                const api = get_ipc_api();
+                const resp = await api.chat.uploadAttachment({
+                    name: fileName,
+                    type: fileType,
+                    size: fileSize,
+                    data: fileData as string, // base64 字符串
+                });
+                logger.debug('[uploadProps] uploadAttachment resp:', resp);
+                if (resp.success) {
+                    logger.debug('[uploadProps] Attachment upload success, data:', resp.data);
+                    const data: any = resp.data;
+                    // 只传递可序列化的 attachment 字段，避免 circular JSON
+                    const safeAttachment = {
+                        name: data.name,
+                        type: data.type,
+                        size: data.size,
+                        url: data.url || data.base64 || data.data || '',
+                        status: 'done',
+                        uid: data.uid || file.uid || ('' + Date.now())
+                    };
+                    console.log('[uploadProps] safeAttachment:', safeAttachment)
+                    onSuccess(safeAttachment, file);
+                } else {
+                    logger.error('[uploadProps] Attachment upload error:', resp.error);
+                    onError(resp.error, file);
+                }
+            };
+            reader.onerror = (e) => {
+                console.error('[uploadProps] FileReader onerror', e);
+                onError(new Error('FileReader error'), file);
+            };
+            // 兼容更多 UI 上传组件的 file 结构，优先用 fileInstance
+            let realFile = null;
+            if (file.fileInstance instanceof Blob) {
+                realFile = file.fileInstance;
+            } else if (file.originFileObj instanceof Blob) {
+                realFile = file.originFileObj;
+            } else if (file instanceof Blob) {
+                realFile = file;
+            } else if (file.raw instanceof Blob) {
+                realFile = file.raw;
+            } else {
+                for (const key in file) {
+                    if (file[key] instanceof Blob) {
+                        realFile = file[key];
+                        break;
+                    }
+                }
+            }
+            if (!realFile) {
+                console.error('[uploadProps] Not a Blob/File:', file);
+                onError(new Error('文件类型错误，无法上传'), file);
+                return;
+            }
+            // 优先从 realFile 获取 type、name、size
+            const fileType = realFile.type || file.type || '';
+            const fileName = realFile.name || file.name || '';
+            const fileSize = realFile.size || file.size || 0;
+            reader.readAsDataURL(realFile);
+        } catch (err) {
+            console.error('[uploadProps] customRequest catch', err);
+            onError(err, file);
+        }
     },
-    // 文件上传失败的回调
-    onError: (error: any, file: any) => {
-        console.error('Upload error:', error, file);
-    }
+    // 其他配置可按需添加
 };
 
 interface ChatDetailProps {
