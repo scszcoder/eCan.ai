@@ -808,7 +808,7 @@ class TaskRunner(Generic[Context]):
                                 response = task2run.stream_run()
                                 print("task run response:", response)
 
-                                print("msg is now becoming:", type(msg), msg)
+                                # print("msg is now becoming:", type(msg), msg)
                                 # if isinstance(msg, dict):
                                 #     msg = SendTaskRequest(**msg)
                                 # task_id = msg.params.id
