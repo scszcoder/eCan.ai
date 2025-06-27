@@ -100,10 +100,17 @@ const ChatPage: React.FC = () => {
 
     // 页面每次显示都拉取聊天，拉取完后如有agentId再创建
     useEffect(() => {
+        if (!initialized) return;
         let cancelled = false;
+        setIsLoading(true);
         const fetchChatsAndMaybeCreate = async () => {
-            if (!myTwinAgentId) return;
-            setIsLoading(true);
+            // 获取最新的 myTwinAgentId
+            const myTwinAgent = useAppDataStore.getState().myTwinAgent();
+            const myTwinAgentId = myTwinAgent?.card?.id;
+            if (!myTwinAgentId) {
+                setIsLoading(false);
+                return;
+            }
             await getChatsAndSetState(myTwinAgentId, true);
             setIsLoading(false);
             if (agentId && !cancelled) {
@@ -112,7 +119,7 @@ const ChatPage: React.FC = () => {
         };
         fetchChatsAndMaybeCreate();
         return () => { cancelled = true; };
-    }, [myTwinAgentId, agentId]);
+    }, [initialized, agentId]);
 
     // 通用获取聊天数据的函数，使用新的 API
     const getChatsAndSetState = async (userId?: string, setActive: boolean = false) => {
@@ -124,7 +131,7 @@ const ChatPage: React.FC = () => {
                 userId || '',
                 false // deep 参数，按需可调整
             );
-            console.log("[chats]" + response.data)
+            console.log(response.data)
             if (response.success && response.data) {
                 let chatData: Chat[] = Array.isArray((response.data as any).data)
                     ? (response.data as any).data
