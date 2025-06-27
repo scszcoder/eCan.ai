@@ -274,6 +274,11 @@ class MainWindow(QMainWindow):
             self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
         print("my chatId:", self.chat_id)
         self.chat_service = ChatService.initialize(db_path=os.path.join(self.my_ecb_data_homepath, ECBOT_CHAT_DB))
+        self.temp_dir = os.path.join(self.my_ecb_data_homepath, "temp")
+        logger.info("temp dir:" + self.temp_dir)
+        if not os.path.exists(self.temp_dir):
+            os.makedirs(self.temp_dir, exist_ok=True)
+            logger.info(f"build temp directory {self.temp_dir}")
         self.staff_officer_on_line = False
         self.working_state = "running_idle"
         usrparts = self.user.split("@")
