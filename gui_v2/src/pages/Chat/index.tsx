@@ -359,7 +359,7 @@ const ChatPage: React.FC = () => {
                     type: resp.type,
                     size: resp.size,
                     url: resp.url || resp.base64 || resp.data || '',
-                    status: resp.status || 'done',
+                    status: resp.status || 'complete',
                     uid: resp.uid || attAny.uid || ('' + Date.now())
                 };
             }

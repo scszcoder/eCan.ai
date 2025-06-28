@@ -356,7 +356,7 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
             'name': name,
             'type': file_type,
             'size': size,
-            'status': 'done',
+            'status': 'complete',
             'uid': str(uuid.uuid4()),
         }
         return create_success_response(request, result)

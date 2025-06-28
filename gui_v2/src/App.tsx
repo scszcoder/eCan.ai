@@ -11,7 +11,7 @@ import 'antd/dist/reset.css';
 import './index.css';
 import { set_ipc_api } from './services/ipc_api';
 import { createIPCAPI } from './services/ipc';
-import { protocolHandler } from './services/ipc/protocolHandler';
+import { protocolHandler } from './pages/Chat/utils/protocolHandler';
 
 // 初始化应用
 const initializeApp = () => {
@@ -43,12 +43,12 @@ const initializeApp = () => {
 };
 
 // 配置 React Router future flags
-const router = {
-    future: {
-        v7_startTransition: true,
-        v7_relativeSplatPath: true
-    }
-};
+// const router = {
+//     future: {
+//         v7_startTransition: true,
+//         v7_relativeSplatPath: true
+//     }
+// };
 
 // 自定义主题配置
 const getThemeConfig = (isDark: boolean) => ({

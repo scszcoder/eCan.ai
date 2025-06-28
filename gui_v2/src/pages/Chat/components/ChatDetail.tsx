@@ -39,85 +39,6 @@ const ChatDetailWrapper = styled.div`
         height: 100% !important;
         min-height: 0 !important;
     }
-
-    /* 附件样式 */
-    .attachment-container {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px;
-        border: 1px solid var(--semi-color-border);
-        border-radius: 6px;
-        background: var(--semi-color-bg-1);
-        margin: 4px 0;
-        max-width: 300px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-
-    .attachment-container:hover {
-        background: var(--semi-color-bg-2);
-        border-color: var(--semi-color-primary);
-    }
-
-    .attachment-icon {
-        font-size: 24px;
-        min-width: 24px;
-        text-align: center;
-    }
-
-    .attachment-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .attachment-name {
-        display: block;
-        font-weight: 500;
-        margin-bottom: 2px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--semi-color-text-0);
-    }
-
-    .attachment-size {
-        display: block;
-        color: var(--semi-color-text-2);
-        font-size: 12px;
-    }
-
-    .attachment-thumbnail {
-        width: 60px;
-        height: 60px;
-        border-radius: 4px;
-        overflow: hidden;
-        background: var(--semi-color-bg-2);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        object-fit: cover;
-    }
-
-    .attachment-thumbnail-placeholder {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--semi-color-bg-2);
-        color: var(--semi-color-text-2);
-        font-size: 12px;
-    }
-`;
-
-const EmptyState = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--text-muted);
-    font-size: 14px;
 `;
 
 const commonOuterStyle = {
@@ -132,10 +53,6 @@ const commonOuterStyle = {
 
 // 处理消息内容，确保返回符合 Semi UI Chat 组件要求的消息对象
 const processMessageContent = (message: Message): any => {
-    if (!message.content) {
-        return message;
-    }
-
     // 创建一个新的消息对象，保留原始消息的所有属性
     const processedMessage = { ...message };
 
@@ -152,11 +69,12 @@ const processMessageContent = (message: Message): any => {
         // 添加文本内容（如果有）
         if (typeof message.content === 'string' && message.content.trim()) {
             contentStr = message.content;
-        } else if (typeof message.content === 'object') {
-            const content = message.content as Content;
-            if (content.type === 'text' && content.text) {
-                contentStr = content.text;
-            }
+        } else if (Array.isArray(message.content)) {
+            // 处理 Content[] 数组
+            contentStr = message.content
+                .filter(item => item.type === 'text' && item.text)
+                .map(item => item.text)
+                .join(' ');
         }
         
         // 添加附件信息到字符串中
@@ -176,27 +94,14 @@ const processMessageContent = (message: Message): any => {
     } else {
         // 没有附件时，保持原有的字符串格式
         if (typeof message.content !== 'string') {
-            const content = message.content as Content;
-            let contentStr = '';
-
-            switch (content.type) {
-                case 'text':
-                    contentStr = content.text || '';
-                    break;
-                case 'code':
-                    contentStr = content.code ? `\`\`\`${content.code.lang}\n${content.code.value}\n\`\`\`` : '';
-                    break;
-                case 'image':
-                    contentStr = content.imageUrl ? `![image](${content.imageUrl})` : '';
-                    break;
-                case 'file':
-                    contentStr = content.fileName || content.fileUrl || 'File';
-                    break;
-                default:
-                    contentStr = JSON.stringify(content);
+            if (Array.isArray(message.content)) {
+                // 处理 Content[] 数组
+                const contentStr = message.content
+                    .filter(item => item.type === 'text' && item.text)
+                    .map(item => item.text)
+                    .join(' ');
+                processedMessage.content = contentStr;
             }
-
-            processedMessage.content = contentStr;
         }
     }
 
@@ -242,7 +147,7 @@ const uploadProps = {
                         filePath: filePath, // 保存文件路径
                         mimeType: data.type,
                         isImage: FileUtils.isImageFile(data.type),
-                        status: 'done',
+                        status: 'complete',
                         uid: data.uid || file.uid || ('' + Date.now())
                     };
                     console.log('[uploadProps] safeAttachment:', safeAttachment)
