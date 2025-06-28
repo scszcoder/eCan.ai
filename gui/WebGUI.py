@@ -330,11 +330,11 @@ class WebGUI(QMainWindow):
     #         logger_helper.error(f"Error updating vehicles data: {e}")
 
     # receive new chat message from a opposite agent, and update GUI
-    def receive_new_chat_message(self, dataHolder):
+    def receive_new_chat_message(self, chatId, dataHolder):
         """add new chat message to data structure and update DB and GUI"""
         try:
             # 生成随机数据
-            dataJS = [
+            msg_js = [
                 {
                     'id': 1,
                     'session_id': 1,
@@ -356,8 +356,8 @@ class WebGUI(QMainWindow):
                     logger.error(f"Failed to update Chats data: {response.error}")
 
             logger.info("about to update GUI chats data...." + str(dataHolder))
-            echo_and_push_message_async(chatId, msg_dict)
-            # IPCAPI.get_instance().update_chats(dataJS, handle_response)
+            # echo_and_push_message_async(chatId, msg_dict)
+            IPCAPI.get_instance().push_chat_message(chatId, msg_js)
 
         except Exception as e:
             logger.error(f"Error updating Chats data: {e}")
