@@ -183,9 +183,10 @@ class Goal(TypedDict):
     weight: float
 
 class FileAttachment(TypedDict):
-    filename: str
-    file_url: str
-    file_data: bytes
+    name: str
+    type: str
+    url: str
+    data: bytes
 
 
 # State for LangGraph
@@ -202,6 +203,12 @@ class NodeState(TypedDict):
     goals: List[Goal]
 
 
+def is_json_parsable(s):
+    try:
+        json.loads(s)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 # ============ scratch here ==============================
 prompt0 = ChatPromptTemplate.from_messages([

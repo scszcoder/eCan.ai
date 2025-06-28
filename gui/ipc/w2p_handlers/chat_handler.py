@@ -19,8 +19,9 @@ import asyncio # 假设 runner.chat_wait_in_line 是异步的
 from agent.chats.chat_service import ChatService
 import threading
 import tempfile
+from agent.chats.chat_utils import a2a_send_chat
 
-ECHO_REPLY_ENABLED = True  # 开关控制
+ECHO_REPLY_ENABLED = False  # 开关控制
 
 def echo_and_push_message_async(chatId, message):
     """
@@ -189,6 +190,9 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             if 'receiverName' in params:
                 msg_dict['receiverName'] = params['receiverName']
             echo_and_push_message_async(chatId, msg_dict)
+
+        else:
+            a2a_send_chat(main_window, request)
         return create_success_response(request, result)
     except Exception as e:
         logger.error(f"Error in handle_send_chat: {e}", exc_info=True)

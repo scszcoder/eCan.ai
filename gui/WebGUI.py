@@ -15,6 +15,7 @@ from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
 from agent.chats.chat_service import ChatService
+from gui.ipc.w2p_handlers.chat_handler import echo_and_push_message_async
 
 class WebGUI(QMainWindow):
     def __init__(self, py_login: Login=None):
@@ -328,6 +329,7 @@ class WebGUI(QMainWindow):
     #     except Exception as e:
     #         logger_helper.error(f"Error updating vehicles data: {e}")
 
+    # receive new chat message from a opposite agent, and update GUI
     def receive_new_chat_message(self, dataHolder):
         """add new chat message to data structure and update DB and GUI"""
         try:
@@ -354,12 +356,14 @@ class WebGUI(QMainWindow):
                     logger.error(f"Failed to update Chats data: {response.error}")
 
             logger.info("about to update GUI chats data...." + str(dataHolder))
-            IPCAPI.get_instance().update_chats(dataJS, handle_response)
+            echo_and_push_message_async(chatId, msg_dict)
+            # IPCAPI.get_instance().update_chats(dataJS, handle_response)
 
         except Exception as e:
             logger.error(f"Error updating Chats data: {e}")
 
 
+    # receive a new chat message from GUI to python...
     def send_new_chat_message(self, dataHolder):
         """更新聊天数据"""
         try:
