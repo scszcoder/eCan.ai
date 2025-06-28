@@ -44,16 +44,48 @@ const ChatPage: React.FC = () => {
                     //logger.debug('[eventBus] checking chat:', chat.id, 'activeChatId:', activeChatId);
                     if (chat.id !== realChatId) return chat;
                     const messages: Message[] = Array.isArray(chat.messages) ? chat.messages : [];
-                    if (messages.some((m: Message) => m.id === message.id)) {
+                    
+                    // 改进的去重检查：基于多个字段进行更精确的匹配
+                    const isDuplicate = messages.some((m: Message) => {
+                        // 1. 检查 ID 是否相同
+                        if (m.id === message.id) return true;
+                        
+                        // 2. 检查是否是同一时间发送的相同内容（时间窗口：5秒内）
+                        const timeDiff = Math.abs((m.createAt || 0) - (message.createAt || 0));
+                        const isSameTime = timeDiff < 5000; // 5秒内
+                        const isSameContent = JSON.stringify(m.content) === JSON.stringify(message.content);
+                        const isSameSender = m.senderId === message.senderId;
+                        
+                        if (isSameTime && isSameContent && isSameSender) return true;
+                        
+                        // 3. 检查是否是乐观更新的消息（通过 ID 前缀判断）
+                        if (m.id.startsWith('user_msg_') && message.id.startsWith('user_msg_')) {
+                            const mTime = parseInt(m.id.split('_')[2]) || 0;
+                            const msgTime = parseInt(message.id.split('_')[2]) || 0;
+                            const timeDiff = Math.abs(mTime - msgTime);
+                            if (timeDiff < 1000 && isSameContent && isSameSender) return true;
+                        }
+                        
+                        return false;
+                    });
+                    
+                    if (isDuplicate) {
                         // logger.debug('[eventBus] message already exists, skip:', message.id);
                         return chat;
                     }
-                    // logger.debug('[eventBus] appending new message:', message);
+                    
+                    // 确保新消息有唯一的 id
+                    const newMessage = {
+                        ...message,
+                        id: message.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    };
+                    
+                    // logger.debug('[eventBus] appending new message:', newMessage);
                     return {
                         ...chat,
-                        messages: [...messages, message],
-                        lastMsg: message.content,
-                        lastMsgTime: message.createAt,
+                        messages: [...messages, newMessage],
+                        lastMsg: typeof newMessage.content === 'string' ? newMessage.content : JSON.stringify(newMessage.content),
+                        lastMsgTime: newMessage.createAt,
                     };
                 });
             });
@@ -230,6 +262,13 @@ const ChatPage: React.FC = () => {
                     : Array.isArray(response.data)
                         ? response.data as Message[]
                         : [];
+                
+                // 确保每个消息都有唯一的 ID
+                messages = messages.map((message, index) => ({
+                    ...message,
+                    id: message.id || `server_msg_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`
+                }));
+                
                 setChats(prevChats => prevChats.map(c =>
                     c.id === chatId ? { ...c, messages } : c
                 ));
@@ -335,7 +374,7 @@ const ChatPage: React.FC = () => {
         });
 
         const userMessage: Message = {
-            id: uuidv4(),
+            id: `user_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             chatId: activeChatId,
             role: "user",
             createAt: Date.now(),
@@ -392,11 +431,19 @@ const ChatPage: React.FC = () => {
                     if (c.id !== activeChatId) return c;
                     return {
                         ...c,
-                        messages: c.messages.map(m => 
-                            m.id === userMessage.id 
-                                ? { ...m, id: (response.data as any).id, status: 'complete' } 
-                                : m
-                        ),
+                        messages: c.messages.map(m => {
+                            // 替换乐观更新的消息，使用服务器返回的 ID
+                            if (m.id === userMessage.id) {
+                                return { 
+                                    ...m, 
+                                    id: (response.data as any).id, 
+                                    status: 'complete',
+                                    // 保留服务器返回的其他字段
+                                    ...(response.data as any)
+                                };
+                            }
+                            return m;
+                        }),
                     };
                 }));
             } else {

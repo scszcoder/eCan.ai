@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
@@ -6,6 +6,8 @@ import { defaultRoleConfig } from '../types/chat';
 import { Message, Content, Chat } from '../types/chat';
 import { get_ipc_api } from '@/services/ipc_api';
 import { logger } from '@/utils/logger';
+import { FileUtils } from '../utils/fileUtils';
+import { Toast } from '@douyinfe/semi-ui';
 
 const ChatDetailWrapper = styled.div`
     display: flex;
@@ -37,6 +39,76 @@ const ChatDetailWrapper = styled.div`
         height: 100% !important;
         min-height: 0 !important;
     }
+
+    /* 附件样式 */
+    .attachment-container {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid var(--semi-color-border);
+        border-radius: 6px;
+        background: var(--semi-color-bg-1);
+        margin: 4px 0;
+        max-width: 300px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .attachment-container:hover {
+        background: var(--semi-color-bg-2);
+        border-color: var(--semi-color-primary);
+    }
+
+    .attachment-icon {
+        font-size: 24px;
+        min-width: 24px;
+        text-align: center;
+    }
+
+    .attachment-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .attachment-name {
+        display: block;
+        font-weight: 500;
+        margin-bottom: 2px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--semi-color-text-0);
+    }
+
+    .attachment-size {
+        display: block;
+        color: var(--semi-color-text-2);
+        font-size: 12px;
+    }
+
+    .attachment-thumbnail {
+        width: 60px;
+        height: 60px;
+        border-radius: 4px;
+        overflow: hidden;
+        background: var(--semi-color-bg-2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        object-fit: cover;
+    }
+
+    .attachment-thumbnail-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--semi-color-bg-2);
+        color: var(--semi-color-text-2);
+        font-size: 12px;
+    }
 `;
 
 const EmptyState = styled.div`
@@ -67,29 +139,65 @@ const processMessageContent = (message: Message): any => {
     // 创建一个新的消息对象，保留原始消息的所有属性
     const processedMessage = { ...message };
 
-    // 如果content是对象，转换为字符串
-    if (typeof message.content !== 'string') {
-        const content = message.content as Content;
+    // 确保消息有唯一的 id
+    if (!processedMessage.id) {
+        processedMessage.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    // 如果有附件，将消息内容转换为 Semi UI Chat 的 Content 数组格式
+    if (message.attachments && message.attachments.length > 0) {
+        // 暂时转换为字符串格式，避免 Semi UI Chat 内部处理数组时的 key 冲突
         let contentStr = '';
-
-        switch (content.type) {
-            case 'text':
-                contentStr = content.text || '';
-                break;
-            case 'code':
-                contentStr = content.code ? `\`\`\`${content.code.lang}\n${content.code.value}\n\`\`\`` : '';
-                break;
-            case 'image':
-                contentStr = content.imageUrl ? `![image](${content.imageUrl})` : '';
-                break;
-            case 'file':
-                contentStr = content.fileName || content.fileUrl || 'File';
-                break;
-            default:
-                contentStr = JSON.stringify(content);
+        
+        // 添加文本内容（如果有）
+        if (typeof message.content === 'string' && message.content.trim()) {
+            contentStr = message.content;
+        } else if (typeof message.content === 'object') {
+            const content = message.content as Content;
+            if (content.type === 'text' && content.text) {
+                contentStr = content.text;
+            }
         }
+        
+        // 添加附件信息到字符串中
+        const attachmentInfo = message.attachments.map(attachment => {
+            const mimeType = attachment.mimeType || attachment.type || '';
+            const isImage = attachment.isImage || FileUtils.isImageFile(mimeType);
+            const rawFilePath = attachment.filePath || attachment.url || '';
+            
+            if (isImage) {
+                return `[图片: ${attachment.name}]`;
+            } else {
+                return `[文件: ${attachment.name}]`;
+            }
+        }).join(' ');
+        
+        processedMessage.content = contentStr + (contentStr ? ' ' : '') + attachmentInfo;
+    } else {
+        // 没有附件时，保持原有的字符串格式
+        if (typeof message.content !== 'string') {
+            const content = message.content as Content;
+            let contentStr = '';
 
-        processedMessage.content = contentStr;
+            switch (content.type) {
+                case 'text':
+                    contentStr = content.text || '';
+                    break;
+                case 'code':
+                    contentStr = content.code ? `\`\`\`${content.code.lang}\n${content.code.value}\n\`\`\`` : '';
+                    break;
+                case 'image':
+                    contentStr = content.imageUrl ? `![image](${content.imageUrl})` : '';
+                    break;
+                case 'file':
+                    contentStr = content.fileName || content.fileUrl || 'File';
+                    break;
+                default:
+                    contentStr = JSON.stringify(content);
+            }
+
+            processedMessage.content = contentStr;
+        }
     }
 
     return processedMessage;
@@ -121,12 +229,19 @@ const uploadProps = {
                 if (resp.success) {
                     logger.debug('[uploadProps] Attachment upload success, data:', resp.data);
                     const data: any = resp.data;
+                    
+                    // 直接使用返回的 URL，不添加协议前缀
+                    const filePath = data.url || '';
+                    
                     // 只传递可序列化的 attachment 字段，避免 circular JSON
                     const safeAttachment = {
                         name: data.name,
                         type: data.type,
                         size: data.size,
-                        url: data.url || data.base64 || data.data || '',
+                        url: filePath, // 直接使用返回的 URL
+                        filePath: filePath, // 保存文件路径
+                        mimeType: data.type,
+                        isImage: FileUtils.isImageFile(data.type),
                         status: 'done',
                         uid: data.uid || file.uid || ('' + Date.now())
                     };
@@ -196,7 +311,39 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
     const messages = useMemo(() => {
         // 如果有当前聊天，使用其消息
         if (currentChat && Array.isArray(currentChat.messages)) {
-            return currentChat.messages.map(processMessageContent);
+            // 改进的去重处理，确保没有重复的消息
+            const uniqueMessages = currentChat.messages.reduce((acc: Message[], message) => {
+                // 检查是否已存在相同的消息
+                const exists = acc.find(m => {
+                    // 1. 检查 ID 是否相同
+                    if (m.id === message.id) return true;
+                    
+                    // 2. 检查是否是同一时间发送的相同内容（时间窗口：5秒内）
+                    const timeDiff = Math.abs((m.createAt || 0) - (message.createAt || 0));
+                    const isSameTime = timeDiff < 5000; // 5秒内
+                    const isSameContent = JSON.stringify(m.content) === JSON.stringify(message.content);
+                    const isSameSender = m.senderId === message.senderId;
+                    
+                    if (isSameTime && isSameContent && isSameSender) return true;
+                    
+                    // 3. 检查是否是乐观更新的消息（通过 ID 前缀判断）
+                    if (m.id.startsWith('user_msg_') && message.id.startsWith('user_msg_')) {
+                        const mTime = parseInt(m.id.split('_')[2]) || 0;
+                        const msgTime = parseInt(message.id.split('_')[2]) || 0;
+                        const timeDiff = Math.abs(mTime - msgTime);
+                        if (timeDiff < 1000 && isSameContent && isSameSender) return true;
+                    }
+                    
+                    return false;
+                });
+                
+                if (!exists) {
+                    acc.push(message);
+                }
+                return acc;
+            }, []);
+            
+            return uniqueMessages.map(processMessageContent);
         }
         // 否则返回空数组
         return [];
@@ -205,9 +352,15 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
     // 聊天标题
     const chatTitle = currentChat ? currentChat.name : t('pages.chat.defaultTitle');
 
+    // 为 Semi UI Chat 生成稳定的 key
+    const chatKey = useMemo(() => {
+        return `chat_${chatId}_${messages.length}`;
+    }, [chatId, messages.length]);
+
     return (
         <ChatDetailWrapper>
             <SemiChat
+                key={chatKey}
                 chats={messages}
                 style={{ ...commonOuterStyle }}
                 align="leftRight"
