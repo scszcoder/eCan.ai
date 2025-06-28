@@ -1,4 +1,4 @@
-import { Attachment } from '@/pages/Chat/types/chat';
+import { Attachment, FileInfo, FileContent } from '@/pages/Chat/types/chat';
 import { IPCAPI } from './api';
 import { APIResponse } from './api';
 
@@ -32,7 +32,7 @@ export function createChatApi(apiInstance: IPCAPI) {
             senderName?: string;
             time?: string;
             ext?: any;
-            attachment?: Attachment;
+            attachments?: Attachment[];
         }): Promise<APIResponse<T>> {
             return apiInstance['executeRequest']('send_chat', message);
         },
@@ -69,6 +69,18 @@ export function createChatApi(apiInstance: IPCAPI) {
             data: string | ArrayBuffer;
         }): Promise<APIResponse<T>> {
             return apiInstance['executeRequest']('upload_attachment', params);
+        },
+        /**
+         * 获取文件信息
+         */
+        getFileInfo(filePath: string): Promise<APIResponse<FileInfo>> {
+            return apiInstance['executeRequest']('get_file_info', { filePath });
+        },
+        /**
+         * 获取文件内容
+         */
+        getFileContent(filePath: string): Promise<APIResponse<FileContent>> {
+            return apiInstance['executeRequest']('get_file_content', { filePath });
         },
     };
 } 

@@ -118,7 +118,7 @@ export class IPCHandlers {
     }
 
     async pushChatMessage(request: IPCRequest): Promise<{ success: boolean }> {
-        logger.info('Received pushChatMessage request:', request.params);
+        // logger.info('Received pushChatMessage request:', request.params);
         eventBus.emit('chat:newMessage', request.params);
         return { success: true };
     }

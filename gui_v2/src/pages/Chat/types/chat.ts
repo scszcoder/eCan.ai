@@ -29,7 +29,7 @@ export interface Message {
     createAt: number;
     content: string | Content;  // 支持字符串或Content对象
     status: MessageStatus;      // 使用枚举类型
-    attachment?: Attachment[];  // 保留此字段以直接支持 Semi Chat 组件
+    attachments?: Attachment[]; // 统一使用 attachments 字段，匹配后端数据结构
 
     // 以下字段为应用内部使用，不是Semi Chat组件必需的
     chatId?: string;
@@ -148,3 +148,30 @@ export const defaultRoleConfig: RoleConfig = {
       color: 'purple'
     }
   };
+
+/**
+ * 文件信息接口
+ * 用于 getFileInfo API 返回的数据
+ */
+export interface FileInfo {
+    fileName: string;        // 文件名
+    filePath: string;        // 文件路径
+    fileSize: number;        // 文件大小（字节）
+    fileExt: string;         // 文件扩展名
+    mimeType: string;        // MIME 类型
+    isImage: boolean;        // 是否为图片文件
+    isText: boolean;         // 是否为文本文件
+    lastModified: number;    // 最后修改时间（毫秒时间戳）
+    created: number;         // 创建时间（毫秒时间戳）
+}
+
+/**
+ * 文件内容接口
+ * 用于 getFileContent API 返回的数据
+ */
+export interface FileContent {
+    dataUrl: string;         // 完整的 data URL (data:mimeType;base64,base64Data)
+    mimeType: string;        // MIME 类型
+    fileName: string;        // 文件名
+    fileSize: number;        // 文件大小（字节）
+}
