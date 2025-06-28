@@ -30,6 +30,9 @@ def echo_and_push_message_async(chatId, message):
     import time
     import uuid  # 确保 uuid 在 do_push 作用域可用
     def do_push():
+        from app_context import AppContext  # 确保 AppContext 在 do_push 作用域可用
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
         time.sleep(1)
         echo_msg = copy.deepcopy(message)
         # 互换 senderId/Name，role=agent，status=complete，内容加 echo
@@ -49,7 +52,37 @@ def echo_and_push_message_async(chatId, message):
         # 为每个附件生成新的 uid，避免数据库唯一约束冲突
         if echo_msg.get('attachments'):
             for att in echo_msg['attachments']:
+                # 生成新的 uid
                 att['uid'] = str(uuid.uuid4())
+                # 生成新的文件名和 url，当作新附件处理
+                if 'name' in att:
+                    ext = os.path.splitext(att['name'])[1]
+                    new_filename = f"{uuid.uuid4().hex}{ext}"
+                    # 构造新的 url 和文件路径
+
+                    new_url = os.path.join(main_window.temp_dir, new_filename)
+                    new_file_path = os.path.join(main_window.temp_dir, new_filename)
+                    att['url'] = new_url
+                    
+                    # 复制原文件到新地址
+                    try:
+                        if 'url' in att and att['url']:
+                            # 处理 pyqtfile:// 协议前缀
+                            original_url = att['url']
+                            if original_url.startswith('pyqtfile://'):
+                                original_url = original_url.replace('pyqtfile://', '')
+                            
+                            # 检查原文件是否存在
+                            if os.path.exists(original_url):
+                                import shutil
+                                shutil.copy2(original_url, new_file_path)
+                                logger.debug(f"Copied file from {original_url} to {new_file_path}")
+                            else:
+                                logger.warning(f"Original file not found: {original_url}")
+                    except Exception as e:
+                        logger.error(f"Failed to copy file: {e}")
+                
+                # 更新 fileInstance 中的 uid（如果有）
                 if 'fileInstance' in att and isinstance(att['fileInstance'], dict):
                     att['fileInstance']['uid'] = att['uid']
         # 生成新 id
@@ -57,9 +90,7 @@ def echo_and_push_message_async(chatId, message):
         echo_msg['createAt'] = int(time.time() * 1000)
         # 存入数据库
         try:
-            from app_context import AppContext
-            app_ctx = AppContext()
-            chat_service: ChatService = app_ctx.main_window.chat_service
+            chat_service: ChatService = main_window.chat_service
             chat_service.add_message(
                 chatId=chatId,
                 role=echo_msg.get('role'),
@@ -77,7 +108,6 @@ def echo_and_push_message_async(chatId, message):
             import traceback
             print(f"[echo_and_push_message_async] add_message error: {e}\n{traceback.format_exc()}")
         # 推送
-        app_ctx = AppContext()
         web_gui = app_ctx.web_gui
         web_gui.get_ipc_api().push_chat_message(chatId, echo_msg)
     threading.Thread(target=do_push, daemon=True).start()
@@ -277,8 +307,12 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
         # 生成唯一文件名，防止冲突
         ext = os.path.splitext(name)[1]
         unique_name = f"{uuid.uuid4().hex}{ext}"
-        temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, unique_name)
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        # 使用 main_window.temp_dir 而不是 tempfile.gettempdir()
+        file_path = os.path.join(main_window.temp_dir, unique_name)
+        # 确保目录存在
+        os.makedirs(main_window.temp_dir, exist_ok=True)
         # 保存文件
         if isinstance(data, str):
             import base64
@@ -289,8 +323,6 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
             raise ValueError("Only base64 string is supported for 'data' field")
         with open(file_path, 'wb') as f:
             f.write(file_bytes)
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
         # 构造 url
         url = os.path.join(main_window.temp_dir, unique_name)
         logger.debug(f"upload attachem name:{name}; url:{url};file  type:{file_type};size:{size}")
