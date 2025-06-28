@@ -11,7 +11,9 @@ import AgentNotify from './components/AgentNotify';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
-import { eventBus } from '@/utils/eventBus';
+import { useNotifications } from './hooks/useNotifications';
+import { useMessages } from './hooks/useMessages';
+import { messageManager } from './managers/MessageManager';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -24,8 +26,6 @@ const ChatPage: React.FC = () => {
 
     const [chats, setChats] = useState<Chat[]>([]);
     const [activeChatId, setActiveChatId] = useState<string | null>(null);
-    const [hasNewAgentNotifications, setHasNewAgentNotifications] = useState(true);
-    const [agentNotifications, setAgentNotifications] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [hasFetched, setHasFetched] = useState(false);
@@ -33,102 +33,34 @@ const ChatPage: React.FC = () => {
     const prevInitialized = useRef(initialized);
     const fetchOnceRef = useRef(false);
 
-    useEffect(() => {
-        const handler = (params: any) => {
-            const { chatId, message } = params;
-            const realChatId = chatId || message.chatId;
-            //logger.debug('[eventBus] push_chat_message received:', { realChatId, message });
-            setChats((prevChats: Chat[]) => {
-                //logger.debug('[eventBus] prevChats:', prevChats.map(c => ({ id: c.id, messages: c.messages })));
-                return prevChats.map((chat: Chat) => {
-                    //logger.debug('[eventBus] checking chat:', chat.id, 'activeChatId:', activeChatId);
-                    if (chat.id !== realChatId) return chat;
-                    const messages: Message[] = Array.isArray(chat.messages) ? chat.messages : [];
-                    
-                    // 改进的去重检查：基于多个字段进行更精确的匹配
-                    const isDuplicate = messages.some((m: Message) => {
-                        // 1. 检查 ID 是否相同
-                        if (m.id === message.id) return true;
-                        
-                        // 2. 检查是否是同一时间发送的相同内容（时间窗口：5秒内）
-                        const timeDiff = Math.abs((m.createAt || 0) - (message.createAt || 0));
-                        const isSameTime = timeDiff < 5000; // 5秒内
-                        const isSameContent = JSON.stringify(m.content) === JSON.stringify(message.content);
-                        const isSameSender = m.senderId === message.senderId;
-                        
-                        if (isSameTime && isSameContent && isSameSender) return true;
-                        
-                        // 3. 检查是否是乐观更新的消息（通过 ID 前缀判断）
-                        if (m.id.startsWith('user_msg_') && message.id.startsWith('user_msg_')) {
-                            const mTime = parseInt(m.id.split('_')[2]) || 0;
-                            const msgTime = parseInt(message.id.split('_')[2]) || 0;
-                            const timeDiff = Math.abs(mTime - msgTime);
-                            if (timeDiff < 1000 && isSameContent && isSameSender) return true;
-                        }
-                        
-                        return false;
-                    });
-                    
-                    if (isDuplicate) {
-                        // logger.debug('[eventBus] message already exists, skip:', message.id);
-                        return chat;
-                    }
-                    
-                    // 确保新消息有唯一的 id
-                    const newMessage = {
-                        ...message,
-                        id: message.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-                    };
-                    
-                    // logger.debug('[eventBus] appending new message:', newMessage);
-                    return {
-                        ...chat,
-                        messages: [...messages, newMessage],
-                        lastMsg: typeof newMessage.content === 'string' ? newMessage.content : JSON.stringify(newMessage.content),
-                        lastMsgTime: newMessage.createAt,
-                    };
-                });
-            });
-        };
-        eventBus.on('chat:newMessage', handler);
-        return () => eventBus.off('chat:newMessage', handler);
-    }, [activeChatId]);
+    // 使用全局通知管理器和消息管理器
+    const { hasNew, markAsRead } = useNotifications();
+    const { allMessages, unreadCounts, markAsRead: markMessageAsRead, updateMessages, addMessageToChat, updateMessage } = useMessages();
 
-    // tryCreateAndSelectChat 只定义一次
-    const tryCreateAndSelectChat = async () => {
-        if (agentId && myTwinAgentId) {
-            if (!myTwinAgentId) return;
-            const my_twin_agent = useAppDataStore.getState().getAgentById(myTwinAgentId);
-            const receiver_agent = useAppDataStore.getState().getAgentById(agentId);
-            // 1. 先调用 create_chat
-            const chatData = {
-                members:  [
-                    {"userId": myTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
-                    {"userId": agentId, "role": "agent", "name": receiver_agent?.card.name || "receiver agent"}
-                  ],
-                name: receiver_agent?.card.name || `Chat with ${agentId}`,
-                type: 'user-agent',
-            };
-            console.log('[createChat] chatData:', chatData);
-            const response = await get_ipc_api().chat.createChat(chatData);
-            console.log('[createChat] response.data:', response.data);
-            const resp: any = response;
-            if (resp.success && resp.data && resp.data.data) {
-                // 正确提取新 chat 数据，并兜底 name 字段
-                const newChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
-                setChats(prevChats => {
-                    const exists = prevChats.some(c => c.id === newChat.id);
-                    const updated = exists
-                        ? prevChats.map(c => c.id === newChat.id ? { ...c, ...newChat } : c)
-                        : [...prevChats, newChat];
-                    console.log('[createChat] setChats before:', prevChats);
-                    console.log('[createChat] setChats after:', updated);
-                    return updated;
-                });
-                setActiveChatId(newChat.id);
-            }
-        }
-    };
+    // 同步消息管理器中的消息到聊天列表
+    useEffect(() => {
+        setChats(prevChats => {
+            return prevChats.map(chat => {
+                const messages = allMessages.get(chat.id) || [];
+                const unreadCount = unreadCounts.get(chat.id) || 0;
+                
+                // 更新最后一条消息信息
+                const lastMessage = messages[messages.length - 1];
+                const lastMsg = lastMessage 
+                    ? (typeof lastMessage.content === 'string' ? lastMessage.content : JSON.stringify(lastMessage.content))
+                    : chat.lastMsg;
+                const lastMsgTime = lastMessage?.createAt || chat.lastMsgTime;
+                
+                return {
+                    ...chat,
+                    messages,
+                    unread: unreadCount,
+                    lastMsg,
+                    lastMsgTime,
+                };
+            });
+        });
+    }, [allMessages, unreadCounts]);
 
     // 新增：监听 activeChatId，自动拉取消息并更新 ChatDetail（避免死循环）
     useEffect(() => {
@@ -161,6 +93,41 @@ const ChatPage: React.FC = () => {
             await getChatsAndSetState(myTwinAgentId);
             setIsLoading(false);
             if (agentId && !cancelled) {
+                // tryCreateAndSelectChat 函数定义
+                const tryCreateAndSelectChat = async () => {
+                    if (agentId && myTwinAgentId) {
+                        if (!myTwinAgentId) return;
+                        const my_twin_agent = useAppDataStore.getState().getAgentById(myTwinAgentId);
+                        const receiver_agent = useAppDataStore.getState().getAgentById(agentId);
+                        // 1. 先调用 create_chat
+                        const chatData = {
+                            members:  [
+                                {"userId": myTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
+                                {"userId": agentId, "role": "agent", "name": receiver_agent?.card.name || "receiver agent"}
+                              ],
+                            name: receiver_agent?.card.name || `Chat with ${agentId}`,
+                            type: 'user-agent',
+                        };
+                        console.log('[createChat] chatData:', chatData);
+                        const response = await get_ipc_api().chat.createChat(chatData);
+                        console.log('[createChat] response.data:', response.data);
+                        const resp: any = response;
+                        if (resp.success && resp.data && resp.data.data) {
+                            // 正确提取新 chat 数据，并兜底 name 字段
+                            const newChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
+                            setChats(prevChats => {
+                                const exists = prevChats.some(c => c.id === newChat.id);
+                                const updated = exists
+                                    ? prevChats.map(c => c.id === newChat.id ? { ...c, ...newChat } : c)
+                                    : [...prevChats, newChat];
+                                console.log('[createChat] setChats before:', prevChats);
+                                console.log('[createChat] setChats after:', updated);
+                                return updated;
+                            });
+                            setActiveChatId(newChat.id);
+                        }
+                    }
+                };
                 await tryCreateAndSelectChat();
             }
         };
@@ -241,16 +208,10 @@ const ChatPage: React.FC = () => {
 
     // 点击chat时
     const handleChatSelect = async (chatId: string) => {
-        // 先本地更新未读
-        const selectedChat = chats.find(c => c.id === chatId);
-        if (!selectedChat) return;
-        if (selectedChat.unread > 0) {
-            const newChats = chats.map(chat =>
-                chat.id === chatId ? { ...chat, unread: 0 } : chat
-            );
-            setChats(newChats);
-        }
+        // 标记为已读
+        markMessageAsRead(chatId);
         setActiveChatId(chatId);
+        
         // 获取最新消息
         try {
             const response = await get_ipc_api().chat.getChatMessages({ chatId });
@@ -269,23 +230,18 @@ const ChatPage: React.FC = () => {
                     id: message.id || `server_msg_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`
                 }));
                 
-                setChats(prevChats => prevChats.map(c =>
-                    c.id === chatId ? { ...c, messages } : c
-                ));
+                // 使用消息管理器更新消息
+                updateMessages(chatId, messages);
             } else {
                 // 失败时清空消息并可选提示
-                setChats(prevChats => prevChats.map(c =>
-                    c.id === chatId ? { ...c, messages: [] } : c
-                ));
+                updateMessages(chatId, []);
                 if (response.error) {
                     setError(typeof response.error === 'string' ? response.error : response.error.message || 'Failed to load messages');
                 }
             }
         } catch (err) {
             logger.error('Error fetching chat messages:', err);
-            setChats(prevChats => prevChats.map(c =>
-                c.id === chatId ? { ...c, messages: [] } : c
-            ));
+            updateMessages(chatId, []);
             setError('Error fetching chat messages');
         }
     };
@@ -385,17 +341,8 @@ const ChatPage: React.FC = () => {
             attachments: safeAttachments
         };
 
-        // 先乐观地更新 UI
-        const updatedChats = chats.map(c => {
-            if (c.id !== activeChatId) return c;
-            return {
-                ...c,
-                messages: [...(c.messages || []), userMessage],
-                lastMsg: content,
-                lastMsgTime: userMessage.createAt,
-            };
-        });
-        setChats(updatedChats);
+        // 先乐观地更新 UI - 使用消息管理器
+        addMessageToChat(activeChatId, userMessage);
 
         try {
             // 使用新的 API 发送消息
@@ -415,59 +362,29 @@ const ChatPage: React.FC = () => {
             if (!response.success) {
                 logger.error('Failed to send message:', response.error);
                 // 更新消息状态为错误
-                setChats(prevChats => prevChats.map(c => {
-                    if (c.id !== activeChatId) return c;
-                    return {
-                        ...c,
-                        messages: c.messages.map(m => m.id === userMessage.id ? { ...m, status: 'error' } : m),
-                    };
-                }));
+                updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
                 return;
             }
             
             // 更新消息状态为已发送，并使用服务器返回的消息 ID
             if (response.data && (response.data as any).id) {
-                setChats(prevChats => prevChats.map(c => {
-                    if (c.id !== activeChatId) return c;
-                    return {
-                        ...c,
-                        messages: c.messages.map(m => {
-                            // 替换乐观更新的消息，使用服务器返回的 ID
-                            if (m.id === userMessage.id) {
-                                return { 
-                                    ...m, 
-                                    id: (response.data as any).id, 
-                                    status: 'complete',
-                                    // 保留服务器返回的其他字段
-                                    ...(response.data as any)
-                                };
-                            }
-                            return m;
-                        }),
-                    };
-                }));
+                // 替换乐观更新的消息，使用服务器返回的 ID
+                updateMessage(activeChatId, userMessage.id, { 
+                    id: (response.data as any).id, 
+                    status: 'complete' as const,
+                    // 保留服务器返回的其他字段
+                    ...(response.data as any)
+                });
             } else {
                 // 如果服务器没有返回消息 ID，则只更新状态
-                setChats(prevChats => prevChats.map(c => {
-                    if (c.id !== activeChatId) return c;
-                    return {
-                        ...c,
-                        messages: c.messages.map(m => m.id === userMessage.id ? { ...m, status: 'complete' } : m),
-                    };
-                }));
+                updateMessage(activeChatId, userMessage.id, { status: 'complete' as const });
             }
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
             logger.error('Error sending message:', errorMessage);
             
             // 更新消息状态为错误
-            setChats(prevChats => prevChats.map(c => {
-                if (c.id !== activeChatId) return c;
-                return {
-                    ...c,
-                    messages: c.messages.map(m => m.id === userMessage.id ? { ...m, status: 'error' } : m),
-                };
-            }));
+            updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
         }
     };
     
@@ -496,7 +413,7 @@ const ChatPage: React.FC = () => {
     );
 
     const renderRightPanel = () => (
-        <AgentNotify notifications={agentNotifications} />
+        <AgentNotify />
     );
 
     // 显示加载状态或错误信息
@@ -513,10 +430,10 @@ const ChatPage: React.FC = () => {
             detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">请选择一个聊天</div>}
             agentNotifyTitle={t('pages.chat.agentNotify')}
             agentNotifyContent={renderRightPanel()}
-            hasNewAgentNotifications={hasNewAgentNotifications}
+            hasNewAgentNotifications={hasNew}
             onRightPanelToggle={(collapsed) => {
                 if (!collapsed) {
-                    setHasNewAgentNotifications(false);
+                    markAsRead();
                 }
             }}
         />
