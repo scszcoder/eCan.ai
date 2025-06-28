@@ -10,9 +10,14 @@ export interface Attachment {
     uid: string;      // 附件唯一标识符
     name: string;     // 附件名称
     status: string;   // 附件状态（'done', 'uploading', 'error' 等）
-    url?: string;     // 附件访问链接
+    url?: string;     // 附件访问链接 (支持 pyqtfile:// 协议)
     size?: number;    // 附件大小（字节）
     type?: string;    // 附件MIME类型
+    // 新增字段，支持 pyqtfile:// 协议
+    filePath?: string;      // 文件路径，用于 pyqtfile:// 协议
+    thumbnailUrl?: string;  // 缩略图URL（图片专用）
+    isImage?: boolean;      // 是否为图片
+    mimeType?: string;      // MIME类型
 }
 
 /**

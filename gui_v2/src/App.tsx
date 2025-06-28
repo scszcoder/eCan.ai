@@ -11,6 +11,7 @@ import 'antd/dist/reset.css';
 import './index.css';
 import { set_ipc_api } from './services/ipc_api';
 import { createIPCAPI } from './services/ipc';
+import { protocolHandler } from './services/ipc/protocolHandler';
 
 // 初始化应用
 const initializeApp = () => {
@@ -36,6 +37,9 @@ const initializeApp = () => {
 
   // 初始化页面刷新管理器
   pageRefreshManager.initialize();
+
+  // 初始化协议处理器
+  protocolHandler.init();
 };
 
 // 配置 React Router future flags

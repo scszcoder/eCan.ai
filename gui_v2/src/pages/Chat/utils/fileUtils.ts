@@ -4,11 +4,71 @@ import { logger } from '@/utils/logger';
 import { ImagePreviewManager } from './imagePreviewManager';
 
 /**
+ * 文件类型常量
+ */
+export const FILE_TYPES = {
+    IMAGE: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml'],
+    DOCUMENT: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'],
+    SPREADSHEET: ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    PRESENTATION: ['application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ARCHIVE: ['application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed'],
+    CODE: ['text/javascript', 'text/typescript', 'text/python', 'text/java', 'text/c', 'text/cpp', 'text/html', 'text/css', 'text/xml', 'application/json']
+};
+
+/**
  * 文件处理工具类
  * 提供文件信息获取、内容读取、预览等功能
  */
 export class FileUtils {
     private static api = createIPCAPI();
+
+    /**
+     * 判断文件是否为图片
+     */
+    static isImageFile(mimeType: string): boolean {
+        return FILE_TYPES.IMAGE.includes(mimeType);
+    }
+
+    /**
+     * 判断文件是否为文档
+     */
+    static isDocumentFile(mimeType: string): boolean {
+        return FILE_TYPES.DOCUMENT.includes(mimeType);
+    }
+
+    /**
+     * 获取文件图标
+     */
+    static getFileIcon(mimeType: string): string {
+        if (this.isImageFile(mimeType)) return '📷';
+        if (this.isDocumentFile(mimeType)) return '📄';
+        if (FILE_TYPES.SPREADSHEET.includes(mimeType)) return '📊';
+        if (FILE_TYPES.PRESENTATION.includes(mimeType)) return '📈';
+        if (FILE_TYPES.ARCHIVE.includes(mimeType)) return '📦';
+        if (FILE_TYPES.CODE.includes(mimeType)) return '💻';
+        return '📎';
+    }
+
+    /**
+     * 格式化文件大小
+     */
+    static formatFileSize(bytes: number): string {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    /**
+     * 从 pyqtfile:// URL 中提取文件路径
+     */
+    static extractFilePathFromUrl(url: string): string | null {
+        if (!url || !url.startsWith('pyqtfile://')) {
+            return null;
+        }
+        return url.replace('pyqtfile://', '');
+    }
 
     /**
      * 获取文件信息
@@ -63,6 +123,69 @@ export class FileUtils {
     }
 
     /**
+     * 下载文件（通过 pyqtfile:// 协议）
+     */
+    static async downloadFile(filePath: string, fileName?: string): Promise<void> {
+        try {
+            logger.debug(`[downloadFile] Starting download for: ${filePath}`);
+            
+            const fileContent = await this.getFileContent(filePath);
+            
+            if (!fileContent || !fileContent.dataUrl) {
+                throw new Error('文件内容为空');
+            }
+            
+            // 从 data URL 创建 Blob
+            const base64Data = fileContent.dataUrl.split(',')[1];
+            const binaryData = atob(base64Data);
+            const bytes = new Uint8Array(binaryData.length);
+            for (let i = 0; i < binaryData.length; i++) {
+                bytes[i] = binaryData.charCodeAt(i);
+            }
+            
+            const blob = new Blob([bytes], { type: fileContent.mimeType });
+            
+            // 创建下载链接
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = fileName || fileContent.fileName || 'download';
+            document.body.appendChild(a);
+            a.click();
+            
+            // 清理
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            logger.debug(`[downloadFile] Download completed: ${fileName || fileContent.fileName}`);
+        } catch (error) {
+            logger.error('[downloadFile] Download failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 获取文件缩略图（仅用于图片）
+     */
+    static async getFileThumbnail(filePath: string): Promise<string | null> {
+        try {
+            const fileContent = await this.getFileContent(filePath);
+            
+            if (!fileContent || !fileContent.dataUrl) {
+                return null;
+            }
+            
+            return fileContent.dataUrl;
+        } catch (error) {
+            logger.error('[getFileThumbnail] Failed to get thumbnail:', error);
+            return null;
+        }
+    }
+
+    /**
      * 预览文件（图片显示，其他文件下载）
      * @param filePath 文件路径
      * @returns Promise<boolean> 是否成功处理
@@ -90,7 +213,7 @@ export class FileUtils {
                 const fileContent = await this.getFileContent(filePath);
                 
                 if (fileContent) {
-                    this.downloadFile(fileContent.dataUrl, fileInfo.fileName);
+                    this.downloadFile(filePath, fileInfo.fileName);
                     return true;
                 }
             }
@@ -111,24 +234,6 @@ export class FileUtils {
     private static showImagePreview(dataUrl: string, fileName: string): void {
         // 使用图片预览管理器显示模态窗口
         ImagePreviewManager.showImagePreview(dataUrl, fileName);
-    }
-
-    /**
-     * 下载文件
-     * @param dataUrl 文件的 data URL
-     * @param fileName 文件名
-     */
-    private static downloadFile(dataUrl: string, fileName: string): void {
-        try {
-            const link = document.createElement('a');
-            link.href = dataUrl;
-            link.download = fileName;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        } catch (error) {
-            console.error('[FileUtils] Download failed:', error);
-        }
     }
 
     /**

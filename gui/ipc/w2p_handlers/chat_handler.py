@@ -59,28 +59,40 @@ def echo_and_push_message_async(chatId, message):
                     ext = os.path.splitext(att['name'])[1]
                     new_filename = f"{uuid.uuid4().hex}{ext}"
                     # 构造新的 url 和文件路径
-
                     new_url = os.path.join(main_window.temp_dir, new_filename)
                     new_file_path = os.path.join(main_window.temp_dir, new_filename)
-                    att['url'] = new_url
+                    
+                    # 先保存原文件 URL，再修改为新的 URL
+                    original_url = att.get('url', '')
+                    
+                    # 确保新文件目录存在
+                    os.makedirs(main_window.temp_dir, exist_ok=True)
                     
                     # 复制原文件到新地址
                     try:
-                        if 'url' in att and att['url']:
+                        if original_url:
                             # 处理 pyqtfile:// 协议前缀
-                            original_url = att['url']
                             if original_url.startswith('pyqtfile://'):
                                 original_url = original_url.replace('pyqtfile://', '')
                             
+                            logger.debug(f"Original attachment url: {original_url}")
+                            logger.debug(f"Checking if file exists: {original_url}")
                             # 检查原文件是否存在
                             if os.path.exists(original_url):
                                 import shutil
                                 shutil.copy2(original_url, new_file_path)
-                                logger.debug(f"Copied file from {original_url} to {new_file_path}")
+                                logger.debug(f"Successfully copied file from {original_url} to {new_file_path}")
                             else:
-                                logger.warning(f"Original file not found: {original_url}")
+                                logger.warning(f"Original file not found: {original_url}, skipping file copy")
+                                # 如果原文件不存在，只更新 URL 和 UID，不复制文件
+                                # 这样 echo 消息仍然可以显示，但不会有实际的文件副本
                     except Exception as e:
                         logger.error(f"Failed to copy file: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                    
+                    # 最后才修改 URL
+                    att['url'] = new_url
                 
                 # 更新 fileInstance 中的 uid（如果有）
                 if 'fileInstance' in att and isinstance(att['fileInstance'], dict):
@@ -323,6 +335,15 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
             raise ValueError("Only base64 string is supported for 'data' field")
         with open(file_path, 'wb') as f:
             f.write(file_bytes)
+        
+        # 验证文件是否保存成功
+        if os.path.exists(file_path):
+            actual_size = os.path.getsize(file_path)
+            logger.debug(f"File saved successfully: {file_path} (size: {actual_size} bytes)")
+        else:
+            logger.error(f"File save failed: {file_path}")
+            raise Exception(f"Failed to save file to {file_path}")
+        
         # 构造 url
         url = os.path.join(main_window.temp_dir, unique_name)
         logger.debug(f"upload attachem name:{name}; url:{url};file  type:{file_type};size:{size}")
