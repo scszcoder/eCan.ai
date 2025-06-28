@@ -210,7 +210,7 @@ class ChatService(metaclass=SingletonMeta):
         senderName: str = None,
         time: int = None,
         ext: dict = None,
-        attachment: list = None
+        attachments: list = None
     ) -> Dict[str, Any]:
         """向会话添加消息及附件，必传 chat_id、role、content、senderId、createAt，返回标准化结构"""
         if not chatId or not role or content is None or not senderId or not createAt:
@@ -226,7 +226,7 @@ class ChatService(metaclass=SingletonMeta):
         senderName = "" if senderName is None else senderName
         time = createAt if time is None else time
         ext = {} if ext is None else ext
-        attachment = [] if attachment is None else attachment
+        attachments = [] if attachments is None else attachments
         with self.session_scope() as session:
             chat = session.get(Chat, chatId)
             if not chat:
@@ -249,7 +249,7 @@ class ChatService(metaclass=SingletonMeta):
                 ext=ext,
                 isRead=False
             )
-            for att in attachment:
+            for att in attachments:
                 attachment_obj = Attachment(
                     uid=att["uid"],
                     messageId=message.id,
@@ -327,7 +327,7 @@ class ChatService(metaclass=SingletonMeta):
                         senderName=msg.get("senderName"),
                         time=msg.get("time"),
                         ext=msg.get("ext"),
-                        attachment=msg.get("attachment", [])
+                        attachments=msg.get("attachments", [])
                     )
                 imported_ids.append(ui_chat["id"])
             except Exception as e:

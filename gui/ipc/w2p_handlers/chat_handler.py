@@ -47,8 +47,8 @@ def echo_and_push_message_async(chatId, message):
         elif isinstance(echo_msg.get('content'), str):
             echo_msg['content'] = f"echo: {echo_msg['content']}"
         # 为每个附件生成新的 uid，避免数据库唯一约束冲突
-        if echo_msg.get('attachment'):
-            for att in echo_msg['attachment']:
+        if echo_msg.get('attachments'):
+            for att in echo_msg['attachments']:
                 att['uid'] = str(uuid.uuid4())
                 if 'fileInstance' in att and isinstance(att['fileInstance'], dict):
                     att['fileInstance']['uid'] = att['uid']
@@ -59,7 +59,7 @@ def echo_and_push_message_async(chatId, message):
         try:
             from app_context import AppContext
             app_ctx = AppContext()
-            chat_service = app_ctx.main_window.chat_service
+            chat_service: ChatService = app_ctx.main_window.chat_service
             chat_service.add_message(
                 chatId=chatId,
                 role=echo_msg.get('role'),
@@ -71,7 +71,7 @@ def echo_and_push_message_async(chatId, message):
                 senderName=echo_msg.get('senderName'),
                 time=echo_msg.get('time'),
                 ext=echo_msg.get('ext'),
-                attachment=echo_msg.get('attachment')
+                attachments=echo_msg.get('attachments')
             )
         except Exception as e:
             import traceback
@@ -96,7 +96,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
     try:
         app_ctx = AppContext()
         main_window: MainWindow = app_ctx.main_window
-        chat_service = main_window.chat_service
+        chat_service: ChatService = main_window.chat_service
         # 参数提取
         chatId = params['chatId']
         role = params['role']
@@ -109,7 +109,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         senderName = params.get('senderName')
         time = params.get('time')
         ext = params.get('ext')
-        attachment = params.get('attachment')
+        attachments = params.get('attachments')
         # 调用 add_message
         result = chat_service.add_message(
             chatId=chatId,
@@ -122,7 +122,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             senderName=senderName,
             time=time,
             ext=ext,
-            attachment=attachment
+            attachments=attachments
         )
         logger.info(f"add_message result: {result}")
         # echo reply
@@ -139,7 +139,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 'status': status,
                 'time': time,
                 'ext': ext,
-                'attachment': attachment
+                'attachments': attachments
             }
             # 补充 receiverId/receiverName（如有）
             if 'receiverId' in params:
@@ -293,7 +293,7 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
         main_window: MainWindow = app_ctx.main_window
         # 构造 url
         url = os.path.join(main_window.temp_dir, unique_name)
-        logger.debug(url)
+        logger.debug(f"upload attachem name:{name}; url:{url};file  type:{file_type};size:{size}")
         result = {
             'url': url,
             'name': name,
@@ -306,4 +306,157 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
     except Exception as e:
         logger.error(f"Error in upload_attachment handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'UPLOAD_ATTACHMENT_ERROR', str(e))
+
+@IPCHandlerRegistry.handler('get_file_content')
+def handle_get_file_content(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    处理获取文件内容请求，读取本地文件并返回 base64 数据。
+    用于前端预览或下载本地文件附件。
+    """
+    try:
+        file_path = params.get('filePath')
+        if not file_path:
+            return create_error_response(request, 'MISSING_FILE_PATH', 'filePath parameter is required')
+        
+        # 处理 pyqtfile:// 协议前缀
+        if file_path.startswith('pyqtfile://'):
+            file_path = file_path.replace('pyqtfile://', '')
+        
+        # 安全检查：确保文件路径在允许的目录内
+        temp_dir = tempfile.gettempdir()
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        allowed_dir = main_window.temp_dir if hasattr(main_window, 'temp_dir') else temp_dir
+        
+        # 规范化路径并检查安全性
+        file_path = os.path.abspath(file_path)
+        allowed_dir = os.path.abspath(allowed_dir)
+        
+        if not file_path.startswith(allowed_dir):
+            logger.warning(f"Access denied to file: {file_path} (not in allowed directory: {allowed_dir})")
+            return create_error_response(request, 'ACCESS_DENIED', 'File access denied for security reasons')
+        
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            return create_error_response(request, 'FILE_NOT_FOUND', f'File not found: {file_path}')
+        
+        # 检查文件大小，防止读取过大的文件
+        file_size = os.path.getsize(file_path)
+        max_size = 50 * 1024 * 1024  # 50MB 限制
+        if file_size > max_size:
+            return create_error_response(request, 'FILE_TOO_LARGE', f'File too large: {file_size} bytes (max: {max_size})')
+        
+        # 读取文件并转换为 base64
+        import base64
+        import mimetypes
+        
+        with open(file_path, 'rb') as f:
+            file_bytes = f.read()
+        
+        # 获取文件的 MIME 类型
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+        
+        # 转换为 base64
+        base64_data = base64.b64encode(file_bytes).decode('utf-8')
+        
+        # 构造 data URL
+        data_url = f"data:{mime_type};base64,{base64_data}"
+        
+        result = {
+            'dataUrl': data_url,
+            'mimeType': mime_type,
+            'fileName': os.path.basename(file_path),
+            'fileSize': file_size
+        }
+        
+        logger.debug(f"Successfully read file: {file_path} (size: {file_size} bytes)")
+        return create_success_response(request, result)
+        
+    except PermissionError as e:
+        logger.error(f"Permission error reading file: {e}")
+        return create_error_response(request, 'PERMISSION_ERROR', f'Permission denied: {str(e)}')
+    except Exception as e:
+        logger.error(f"Error in get_file_content handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'GET_FILE_CONTENT_ERROR', str(e))
+
+@IPCHandlerRegistry.handler('get_file_info')
+def handle_get_file_info(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    处理获取文件信息请求，返回文件的基本信息而不读取内容。
+    用于前端判断文件类型和大小。
+    """
+    try:
+        file_path = params.get('filePath')
+        if not file_path:
+            return create_error_response(request, 'MISSING_FILE_PATH', 'filePath parameter is required')
+        
+        # 处理 pyqtfile:// 协议前缀
+        if file_path.startswith('pyqtfile://'):
+            file_path = file_path.replace('pyqtfile://', '')
+        
+        # 安全检查：确保文件路径在允许的目录内
+        temp_dir = tempfile.gettempdir()
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        allowed_dir = main_window.temp_dir if hasattr(main_window, 'temp_dir') else temp_dir
+        
+        # 规范化路径并检查安全性
+        file_path = os.path.abspath(file_path)
+        allowed_dir = os.path.abspath(allowed_dir)
+        
+        if not file_path.startswith(allowed_dir):
+            logger.warning(f"Access denied to file: {file_path} (not in allowed directory: {allowed_dir})")
+            return create_error_response(request, 'ACCESS_DENIED', 'File access denied for security reasons')
+        
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            return create_error_response(request, 'FILE_NOT_FOUND', f'File not found: {file_path}')
+        
+        # 获取文件信息
+        import mimetypes
+        import stat
+        
+        file_stat = os.stat(file_path)
+        file_size = file_stat.st_size
+        file_name = os.path.basename(file_path)
+        file_ext = os.path.splitext(file_name)[1].lower()
+        
+        # 获取 MIME 类型
+        mime_type, _ = mimetypes.guess_type(file_path)
+        if not mime_type:
+            mime_type = 'application/octet-stream'
+        
+        # 判断是否为图片文件
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico'}
+        is_image = file_ext in image_extensions or mime_type.startswith('image/')
+        
+        # 判断是否为文本文件
+        text_extensions = {'.txt', '.md', '.json', '.xml', '.html', '.css', '.js', '.py', '.java', '.cpp', '.c', '.h', '.sql', '.log'}
+        text_mime_types = {'text/', 'application/json', 'application/xml', 'application/javascript'}
+        is_text = (file_ext in text_extensions or 
+                   any(mime_type.startswith(prefix) for prefix in text_mime_types))
+        
+        result = {
+            'fileName': file_name,
+            'filePath': file_path,
+            'fileSize': file_size,
+            'fileExt': file_ext,
+            'mimeType': mime_type,
+            'isImage': is_image,
+            'isText': is_text,
+            'lastModified': int(file_stat.st_mtime * 1000),  # 转换为毫秒时间戳
+            'created': int(file_stat.st_ctime * 1000)  # 转换为毫秒时间戳
+        }
+        
+        logger.debug(f"File info retrieved: {file_path} (size: {file_size} bytes, type: {mime_type})")
+        return create_success_response(request, result)
+        
+    except PermissionError as e:
+        logger.error(f"Permission error getting file info: {e}")
+        return create_error_response(request, 'PERMISSION_ERROR', f'Permission denied: {str(e)}')
+    except Exception as e:
+        logger.error(f"Error in get_file_info handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'GET_FILE_INFO_ERROR', str(e))
 
