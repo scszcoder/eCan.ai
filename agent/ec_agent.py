@@ -1666,14 +1666,14 @@ class EC_Agent(Generic[Context]):
 			msg_parts = [TextPart(type="text", text=message['chat']['input'])]
 			if message['chat']['attachments']:
 				for attachment in message['chat']['attachments']:
-					file_data = attachment['file_data']
+					file_data = attachment['data']
 					if isinstance(file_data, bytes):
 						file_data = base64.b64encode(file_data).decode('utf-8')
 
-					fc = FileContent(name=attachment['filename'],
-								mimeType=attachment['mime_type'],
+					fc = FileContent(name=attachment['name'],
+								mimeType=attachment['type'],
 								bytes= file_data,
-								uri = attachment['file_url'])
+								uri = attachment['url'])
 					msg_parts.append(FilePart(type="file", file=fc))
 
 			chat_msg = Message(role="user", parts=msg_parts, metadata={"type": "send_chat"})

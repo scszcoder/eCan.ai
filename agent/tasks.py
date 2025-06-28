@@ -639,6 +639,7 @@ class TaskRunner(Generic[Context]):
         await self.resume_task(task_id)
 
     def sendChatToGUI(self, msg):
+        print("sendChatToGUI::", msg)
         try:
             msg_data = {
                 "from": "",
@@ -646,7 +647,7 @@ class TaskRunner(Generic[Context]):
                 "message": msg,
                 "time": ""
             }
-            resp = self.agent.mainwin.top_gui.update_chats_data(msg_data)
+            resp = self.agent.mainwin.top_gui.receive_new_chat_message(msg_data)
             # ipc_api.update_chats([msg])
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)

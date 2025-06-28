@@ -44,6 +44,7 @@ export class IPCHandlers {
         // this.registerHandler('update_tools', this.updateTools);
         // this.registerHandler('update_vehicles', this.updateVehicles);
         this.registerHandler('push_chat_message', this.pushChatMessage);
+        this.registerHandler('push_chat_notification', this.pushChatNotification);
         this.registerHandler('update_all', this.updateAll);
     }
 
@@ -120,6 +121,12 @@ export class IPCHandlers {
     async pushChatMessage(request: IPCRequest): Promise<{ success: boolean }> {
         logger.info('Received pushChatMessage request:', request.params);
         eventBus.emit('chat:newMessage', request.params);
+        return { success: true };
+    }
+
+    async pushChatNotification(request: IPCRequest): Promise<{ success: boolean }> {
+        logger.info('Received pushChatNotification request:', request.params);
+        eventBus.emit('chat:newNotification', request.params);
         return { success: true };
     }
 }

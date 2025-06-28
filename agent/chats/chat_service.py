@@ -443,4 +443,49 @@ class ChatService(metaclass=SingletonMeta):
                 "id": None,
                 "data": updated_ids,
                 "error": None
-            } 
+            }
+
+    def get_chat_by_id(
+        self, 
+        chat_id: str, 
+        deep: bool = False
+    ) -> Dict[str, Any]:
+        """
+        根据 chatId 查询会话详情
+        
+        Args:
+            chat_id: 会话ID
+            deep: 是否深度查询（包含成员和消息）
+            
+        Returns:
+            标准返回结构，data为会话详情
+        """
+        if not chat_id:
+            return {
+                "success": False,
+                "data": None,
+                "error": "chat_id is required"
+            }
+            
+        with self.session_scope() as session:
+            try:
+                chat = session.query(Chat).filter(Chat.id == chat_id).first()
+                if not chat:
+                    return {
+                        "success": False,
+                        "data": None,
+                        "error": f"Chat with id {chat_id} not found"
+                    }
+                
+                return {
+                    "success": True,
+                    "data": chat.to_dict(deep=deep),
+                    "error": None
+                }
+                
+            except Exception as e:
+                return {
+                    "success": False,
+                    "data": None,
+                    "error": str(e)
+                }
