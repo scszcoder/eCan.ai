@@ -5,8 +5,8 @@ def init_my_twin_chatter_skill(agent, msg):
     msg_txt = msg['params']['content']
     print("init task with message text:", msg_txt)
     atts = []
-    if msg['params']['attachment']:
-        for att in msg['params']['attachment']:
+    if msg['params']['attachments']:
+        for att in msg['params']['attachments']:
             atts.append(FileAttachment(name= att['name'],type= att['type'],url= att['url'], data=""))
 
     init_state = {
