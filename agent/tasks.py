@@ -638,7 +638,7 @@ class TaskRunner(Generic[Context]):
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))
         await self.resume_task(task_id)
 
-    def sendChatToGUI(self, msg):
+    def sendChatToGUI(self, chatId, msg):
         print("sendChatToGUI::", msg)
         try:
             msg_data = {
@@ -821,7 +821,7 @@ class TaskRunner(Generic[Context]):
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
                                     print("prompt to human:", prompt)
-                                    self.sendChatToGUI(prompt)
+                                    self.sendChatToGUI(msg.params.chatId, prompt)
                                     print("prompt sent to GUI<<<<<<<<<<<")
 
                                 if not isinstance(msg, dict):
