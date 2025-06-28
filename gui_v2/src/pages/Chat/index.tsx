@@ -343,7 +343,7 @@ const ChatPage: React.FC = () => {
             senderName,
             content: content,
             status: 'sending',
-            attachment: safeAttachments
+            attachments: safeAttachments
         };
 
         // 先乐观地更新 UI
@@ -368,7 +368,7 @@ const ChatPage: React.FC = () => {
                 createAt: String(Date.now()),
                 senderName,
                 status: 'sending',
-                attachment: safeAttachments as any
+                attachments: safeAttachments as any
             };
             
             const response = await get_ipc_api().chat.sendChat(messageData);
