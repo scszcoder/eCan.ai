@@ -102,8 +102,8 @@ def test_chatservice_import_demo():
     # 检查群聊成员
     assert len(chats[1]['members']) == 3
     # 检查附件
-    assert any(msg['attachment'] for msg in chats[0]['messages'] if msg['id'] == 'msg-3')
-    assert any(msg['attachment'] for msg in chats[1]['messages'] if msg['id'] == 'msg-6')
+    assert any(msg['attachments'] for msg in chats[0]['messages'] if msg['id'] == 'msg-3')
+    assert any(msg['attachments'] for msg in chats[1]['messages'] if msg['id'] == 'msg-6')
     # 检查不同类型消息
     assert any(isinstance(msg['content'], dict) and msg['content'].get('type') == 'code' for msg in chats[0]['messages'])
     assert any(isinstance(msg['content'], dict) and msg['content'].get('type') == 'file' for msg in chats[1]['messages'])

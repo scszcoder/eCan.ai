@@ -32,7 +32,7 @@ export interface Message {
     role: 'user' | 'assistant' | 'system' | 'agent';
     id: string;
     createAt: number;
-    content: string | Content;  // 支持字符串或Content对象
+    content: string | Content[];  // 只支持字符串或Content数组
     status: MessageStatus;      // 使用枚举类型
     attachments?: Attachment[]; // 统一使用 attachments 字段，匹配后端数据结构
 
@@ -87,13 +87,12 @@ export interface Member {
  * 使用 Semi Chat 组件时，应将此对象转换为 Message.content 字符串。
  */
 export interface Content {
-    type: 'text' | 'image' | 'file' | 'code' | 'system' | 'custom';
+    type: 'text' | 'image_url' | 'file_url' | 'code' | 'system' | 'custom';
     text?: string;
     code?: { lang: string; value: string };
-    imageUrl?: string;
-    fileUrl?: string;
-    fileName?: string;
-    fileSize?: number;
+    image_url?: { url: string }; // 当type为image_url时的内容数据
+    file_url?: { url: string; name: string; size: string; type: string }; // 当type为file_url时的内容数据
+    key?: string; // 用于React渲染的唯一标识符
     // 移除 attachments 字段，统一使用 Message.attachment
     [key: string]: any;
 }
