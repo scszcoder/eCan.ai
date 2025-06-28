@@ -174,60 +174,71 @@ def llm_node_with_extracted_files(state: NodeState) -> NodeState:
 
 # for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
 # .wav (.mp3) and .mp4
-async def llm_node_with_raw_files(state: NodeState) -> NodeState:
+def llm_node_with_raw_files(state: NodeState) -> NodeState:
     user_input = state.get("input", "")
     attachments = state.get("attachments", [])
     user_content = []
 
+    print("LLM input text:", user_input)
     # Add user text
     user_content.append({"type": "text", "text": user_input})
 
     # Add all attachments in supported format
     for att in attachments:
         fname = att["filename"].lower()
-        data = att["file_data"]
-        if isinstance(data, str):
-            # If base64-encoded, decode first
-            data = base64.b64decode(data)
 
-        # Add as the appropriate type
-        if fname.endswith(".png") or fname.endswith(".jpg") or fname.endswith(".jpeg") or fname.endswith(".gif"):
-            fformat = fname.split(".")[-1]
-            if fformat == "jpeg":
-                fformat = "jpg"
+        mime_type = att.get("mime_type", "").lower()
+        print(f"Processing file: {fname} (MIME: {mime_type})")
+
+        # Skip if no file data
+        if not att.get("file_data"):
+            print(f"Skipping empty file: {fname}")
+            continue
+
+        data = att["file_data"]
+
+        # Handle image files (PNG, JPG, etc.)
+        if mime_type.startswith('image/'):
+            print(f"Processing image file: {fname}")
+            file_data = data if isinstance(data, str) else base64.b64encode(data).decode('utf-8')
             user_content.append({
-                "type": "image",
-                "source_type": "base64",
-                "data": base64.b64encode(data).decode('utf-8'),
-                "mime_type": f"image/{fformat}"
-            })
-        elif fname.endswith(".wav") or fname.endswith(".mp3"):
-            fformat = fname.split(".")[-1]
-            user_content.append({
-                "type": "audio",
-                "source_type": "base64",
-                "data": base64.b64encode(data).decode('utf-8'),
-                "mime_type": f"audio/{fformat}"
-            })
-        elif fname.endswith(".pdf"):
-            fformat = fname.split(".")[-1]
-            user_content.append({
-                "type": "file",
-                "source_type": "base64",
-                "data": base64.b64encode(data).decode('utf-8'),
-                "mime_type": f"application/{fformat}"
-            })
-        else:
-            # Fallback: attach as generic file
-            user_content.append({
-                "type": "file",
-                "file": {
-                    "filename": att["filename"],
-                    "file_data": base64.b64encode(data).decode("utf-8")
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{file_data}"
+                    # "detail": "auto"
                 }
             })
 
-    llm = ChatOpenAI(model="gpt-4.1", temperature=0.5)
+        # Handle PDF files
+        elif mime_type == 'application/pdf':
+            print(f"Processing PDF file: {fname}")
+            # For PDFs, we'll just note its existence since we can't process it directly
+            user_content.append({
+                "type": "text",
+                "text": f"[PDF file: {fname} - PDF content cannot be processed directly]"
+            })
+
+        # Handle audio files
+        elif mime_type.startswith('audio/'):
+            print(f"Processing audio file: {fname}")
+            # For audio files, we'll just note its existence
+            user_content.append({
+                "type": "text",
+                "text": f"[Audio file: {fname} - Audio content cannot be processed directly]"
+            })
+
+        # Handle other file types
+        else:
+            print(f"Unsupported file type: {fname} ({mime_type})")
+            # user_content.append({
+            #     "type": "text",
+            #     "text": f"[File: {fname} - This file type is not supported for direct analysis]"
+            # })
+
+
+
+    llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+
     prompt_messages = [
         {
             "role": "system",
@@ -238,7 +249,9 @@ async def llm_node_with_raw_files(state: NodeState) -> NodeState:
             "content": user_content
         }
     ]
-    result = await llm.ainvoke(prompt_messages)
+
+    print("llm prompt ready:", prompt_messages)
+    result = llm.invoke(prompt_messages)
     print("LLM node with raw files result:", result)
 
     return {"llm_response": result.content}
@@ -290,15 +303,16 @@ async def create_search_1688_chatter_skill(mainwin):
             ("human", "{input}")
         ])
 
-        async def process_chat(state: NodeState) -> NodeState:
+        def process_chat(state: NodeState) -> NodeState:
             # Get the last message (the actual user input)
             last_message = state["messages"][-1]
 
             # Format the prompt with just the message content
-            messages = await prompt0.ainvoke({"input": last_message})
+            last_message = "how are you"
+            messages = prompt0.invoke({"input": last_message})
             print("LLM prompt:", messages)
             # Call the LLM
-            response = await llm.ainvoke(messages)
+            response = llm.invoke(messages)
 
             print("LLM response:", response)
             # Parse the response
@@ -331,7 +345,7 @@ async def create_search_1688_chatter_skill(mainwin):
                 return {**state, "analysis": {"job_related": False}}
 
         # initial classification node
-        chat_node = process_chat
+        # chat_node = process_chat
         chat_node = llm_node_with_raw_files
 
         prompt1 = ChatPromptTemplate.from_messages([
@@ -341,15 +355,15 @@ async def create_search_1688_chatter_skill(mainwin):
             ("human", "{input}")
         ])
 
-        async def gen_chat_back(state: NodeState) -> NodeState:
+        def gen_chat_back(state: NodeState) -> NodeState:
             # Get the last message (the actual user input)
             last_message = state["messages"][-1]
 
             # Format the prompt with just the message content
-            messages = await prompt1.ainvoke({"input": last_message})
+            messages = prompt1.invoke({"input": last_message})
             print("chat back LLM prompt:", messages)
             # Call the LLM
-            response = await llm.ainvoke(messages)
+            response = llm.invoke(messages)
 
             print("chat back LLM response:", response)
             # Parse the response

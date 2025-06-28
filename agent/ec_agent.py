@@ -46,7 +46,7 @@ from agent.a2a.common.server import A2AServer
 from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
-from agent.a2a.common.types import Message, TextPart
+from agent.a2a.common.types import Message, TextPart, FilePart, DataPart, FileContent
 
 from agent.ec_skills.browser.browser import Browser
 from agent.ec_skills.browser.context import BrowserContext
@@ -71,6 +71,7 @@ from agent.tasks import TaskRunner, ManagedTask
 from agent.human_chatter import *
 import threading
 import concurrent.futures
+import base64
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -1662,7 +1663,20 @@ class EC_Agent(Generic[Context]):
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
 			print("a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
-			chat_msg = Message(role="user", parts=[TextPart(type="text", text=message['chat'])], metadata={"type": "send_chat"})
+			msg_parts = [TextPart(type="text", text=message['chat']['input'])]
+			if message['chat']['attachments']:
+				for attachment in message['chat']['attachments']:
+					file_data = attachment['file_data']
+					if isinstance(file_data, bytes):
+						file_data = base64.b64encode(file_data).decode('utf-8')
+
+					fc = FileContent(name=attachment['filename'],
+								mimeType=attachment['mime_type'],
+								bytes= file_data,
+								uri = attachment['file_url'])
+					msg_parts.append(FilePart(type="file", file=fc))
+
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"type": "send_chat"})
 
 			payload = {
 				"id": "task-001X",
