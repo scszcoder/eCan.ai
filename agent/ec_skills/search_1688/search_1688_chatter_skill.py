@@ -103,10 +103,14 @@ async def any_attachment(state: NodeState) -> str:
 
 def chat_or_work(state: NodeState) -> str:
     print("chat_or_work input:", state)
-    state_output = state['result']
-    if state_output.get("job_related", False):
-        return "do_work"
-    return "chat_back"
+    if isinstance(state['result'], dict):
+        state_output = state['result']
+        if state_output.get("job_related", False):
+            return "do_work"
+        else:
+            return "chat_back"
+    else:
+        return "chat_back"
 
 def all_requirement_filled(state: NodeState) -> str:
     print("all_requirement_filled:", state)
@@ -251,10 +255,44 @@ def llm_node_with_raw_files(state: NodeState) -> NodeState:
     ]
 
     print("llm prompt ready:", prompt_messages)
-    result = llm.invoke(prompt_messages)
-    print("LLM node with raw files result:", result)
+    response = llm.invoke(prompt_messages)
+    print("LLM response:", response)
+    # Parse the response
+    try:
+        import json
+        import ast  # Add this import at the top of your file
 
-    return {"llm_response": result.content}
+        # Extract content from AIMessage if needed
+        raw_content = response.content if hasattr(response, 'content') else str(response)
+        print("Raw content:", raw_content)  # Debug log
+
+        # Clean up the response
+        if is_json_parsable(raw_content):
+            result = json.loads(raw_content)
+        else:
+            content = raw_content.strip('`').strip()
+            if content.startswith('json'):
+                content = content[4:].strip()
+            # Parse the JSON
+            # Convert to proper JSON string if it's a Python dict string
+            if content.startswith('{') and content.endswith('}'):
+                # Replace single quotes with double quotes for JSON
+                content = content.replace("'", '"')
+                # Convert Python's True/False to JSON's true/false
+                content = content.replace("True", "true").replace("False", "false")
+                if is_json_parsable(content):
+                    # Return the full state with the analysis
+                    result = json.loads(content)
+                else:
+                    result = raw_content
+            else:
+                result = raw_content
+
+        return {**state, "result": result}
+    except Exception as e:
+        print(f"Error parsing LLM response: {e}")
+        print(f"Raw response: {response}")
+        return {**state, "analysis": {"job_related": False}}
 
 
 def pre_model_hook(state):
