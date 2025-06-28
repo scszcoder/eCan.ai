@@ -42,7 +42,7 @@ def parrot(state: NodeState) -> NodeState:
             recipient_agent = next((ag for ag in mainwin.agents if "Engineering Procurement Agent" == ag.card.name), None)
             print("parrot recipient found:", recipient_agent.card.name)
             # result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
-            result = agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
+            result = agent.a2a_send_chat_message(recipient_agent, {"chat": state})
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
     except Exception as e:
