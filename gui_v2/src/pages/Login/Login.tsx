@@ -108,7 +108,7 @@ const Login: React.FC = () => {
 			
 			messageApi.success(t('login.success'));
 			setTimeout(() => {
-				navigate('/dashboard');
+				navigate('/agents');
 			}, 3000)
 		} else {
 			logger.error('Login failed', response.error);
