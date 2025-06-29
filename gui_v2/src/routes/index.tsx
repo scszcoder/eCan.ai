@@ -55,7 +55,7 @@ export const protectedRoutes: RouteConfig[] = [
         children: [
             {
                 path: '',
-                element: <Navigate to="/dashboard" replace />,
+                element: <Navigate to="/agents" replace />,
             },
             {
                 path: 'dashboard',
