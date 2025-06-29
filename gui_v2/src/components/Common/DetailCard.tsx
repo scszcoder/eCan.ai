@@ -13,6 +13,9 @@ const StyledCard = styled(Card)`
     .ant-card-body {
         padding: 16px;
     }
+    .ant-card-head-title {
+        color: white !important;
+    }
 `;
 
 export interface DetailItem {

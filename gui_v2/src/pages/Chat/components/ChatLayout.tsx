@@ -46,6 +46,16 @@ const GlobalStyles = styled.div`
     height: 10px;
     box-shadow: 0 0 0 1px #fff;
   }
+
+  /* Card 标题白色字体样式 */
+  .ant-card-head-title {
+    color: white !important;
+  }
+  
+  /* 确保所有Card标题都是白色 */
+  .ant-card .ant-card-head .ant-card-head-title {
+    color: white !important;
+  }
 `;
 
 const LayoutContainer = styled.div`
@@ -176,7 +186,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
         title={leftCollapsed ? t('pages.chat.expandLeft') : t('pages.chat.collapseLeft')}
         aria-label={leftCollapsed ? t('pages.chat.expandLeft') : t('pages.chat.collapseLeft')}
       />
-      <span style={{ flex: 1 }}>{detailsTitle}</span>
+      <span style={{ flex: 1, color: 'white' }}>{detailsTitle}</span>
       <div style={{ position: 'relative' }}>
         <AgentButton
           type="text"
