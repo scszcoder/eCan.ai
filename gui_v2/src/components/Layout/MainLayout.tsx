@@ -74,23 +74,19 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     };
 
     const menuItems = React.useMemo<MenuProps['items']>(() => [
-        {
-            key: '/',
-            icon: <DashboardOutlined />, label: t('menu.dashboard'),
-        },
-        { key: '/vehicles', icon: <CarOutlined />, label: t('menu.vehicles') },
-        { key: '/schedule', icon: <CalendarOutlined />, label: t('menu.schedule') },
+        { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
         { key: '/chat', icon: <MessageOutlined />, label: t('menu.chat') },
+        { key: '/tasks', icon: <OrderedListOutlined />, label: t('menu.tasks') },
         { key: '/skills', icon: <RobotOutlined />, label: t('menu.skills') },
         { key: '/skill_editor', icon: <EditOutlined />, label: t('menu.skill_editor') },
-        { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
-        { key: '/analytics', icon: <BarChartOutlined />, label: t('menu.analytics') },
-        { key: '/apps', icon: <AppstoreOutlined />, label: t('menu.apps') },
-        { key: '/tasks', icon: <OrderedListOutlined />, label: t('menu.tasks') },
+        { key: '/schedule', icon: <CalendarOutlined />, label: t('menu.schedule') },
+        { key: '/vehicles', icon: <CarOutlined />, label: t('menu.vehicles') },
         { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
-        { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
-        { key: '/console', icon: <AlignLeftOutlined />, label: t('menu.console') },
         { key: '/knowledge', icon: <ReadOutlined />, label: t('menu.knowledge') },
+        { key: '/apps', icon: <AppstoreOutlined />, label: t('menu.apps') },
+        { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
+        { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
+        { key: '/console', icon: <AlignLeftOutlined />, label: t('menu.console') },
         { key: '/tests', icon: <ExperimentOutlined />, label: t('menu.tests') },
     ], [t]);
 
@@ -99,7 +95,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: 'settings', icon: <SettingOutlined />, label: t('common.settings') },
         { type: 'divider' },
         { key: 'logout', icon: <LogoutOutlined />, label: t('common.logout'), onClick: handleLogout },
-    ], [t]);
+    ], [t]) || [];
 
     const onMenuClick = ({ key }: { key: string }) => navigate(key);
 
