@@ -126,7 +126,9 @@ export class IPCClient {
         }
 
         const request = createRequest(method, params);
-        logger.debug(`Sending request: ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
+        const paramsStr = params ? JSON.stringify(params) : '';
+        const truncatedParams = paramsStr.length > 500 ? paramsStr.substring(0, 500) + '...' : paramsStr;
+        logger.debug(`Sending request: ${method}`, params ? `with params: ${truncatedParams}` : '');
 
         // 1. 设置一个超时Promise
         let timeoutId: number;

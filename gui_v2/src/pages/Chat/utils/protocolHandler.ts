@@ -8,9 +8,11 @@
  * 3. 根据文件类型自动执行预览或下载
  */
 import { logger } from '../../../utils/logger';
-import { get_ipc_api } from '../../../services/ipc_api';
 import { FileUtils } from './fileUtils';
 import { Toast } from '@douyinfe/semi-ui';
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import ImageViewer from '../components/ImageViewer';
 
 /**
  * 协议处理器类
@@ -140,23 +142,20 @@ export class ProtocolHandler {
         try {
             logger.info(`Handling pyqtfile:// URL: ${filePath}`);
             
-            // 通过 IPC API 获取文件信息
-            const api = get_ipc_api();
-            const fileInfoResponse = await api.chat.getFileInfo(filePath);
+            // 使用 FileUtils 获取文件信息，确保路径处理一致性
+            const fileInfo = await FileUtils.getFileInfo(filePath);
             
-            if (fileInfoResponse.success && fileInfoResponse.data) {
-                const fileInfo = fileInfoResponse.data;
-                
+            if (fileInfo) {
                 // 根据文件类型决定处理方式
                 if (FileUtils.isImageFile(fileInfo.mimeType || '')) {
                     // 图片文件：显示预览
-                    await this.showImagePreview(filePath, fileInfo.fileName);
+                    await this.showImagePreview(filePath, fileInfo.fileName, fileInfo.mimeType || '');
                 } else {
                     // 其他文件：下载
                     await this.downloadFile(filePath, fileInfo.fileName);
                 }
             } else {
-                logger.error('Failed to get file info:', fileInfoResponse.error);
+                logger.error('Failed to get file info for path:', filePath);
                 Toast.error('文件不存在或无法访问');
             }
         } catch (error) {
@@ -168,13 +167,13 @@ export class ProtocolHandler {
     /**
      * 显示图片预览
      */
-    private async showImagePreview(filePath: string, fileName: string): Promise<void> {
+    private async showImagePreview(filePath: string, fileName: string, mimeType: string): Promise<void> {
         try {
             const imageUrl = await FileUtils.getFileThumbnail(filePath);
             
             if (imageUrl) {
                 // 创建预览模态框
-                this.createImagePreviewModal(imageUrl, fileName);
+                this.createImagePreviewModal(imageUrl, fileName, filePath, mimeType);
             } else {
                 Toast.error('无法加载图片预览');
             }
@@ -200,40 +199,33 @@ export class ProtocolHandler {
     /**
      * 创建图片预览模态框
      */
-    private createImagePreviewModal(imageUrl: string, fileName: string): void {
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            cursor: pointer;
-        `;
-        
-        const img = document.createElement('img');
-        img.src = imageUrl;
-        img.alt = fileName;
-        img.style.cssText = `
-            max-width: 80%;
-            max-height: 80%;
-            object-fit: contain;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        `;
-        
+    private createImagePreviewModal(imageUrl: string, fileName: string, filePath: string, mimeType: string): void {
+        // 创建容器元素
+        const container = document.createElement('div');
+        container.id = 'image-viewer-container';
+        document.body.appendChild(container);
+
+        // 创建 React 18 root
+        const root = createRoot(container);
+
+        // 关闭函数
         const closeModal = () => {
-            document.body.removeChild(modal);
+            if (container && container.parentNode) {
+                root.unmount();
+                container.parentNode.removeChild(container);
+            }
         };
-        
-        modal.appendChild(img);
-        modal.addEventListener('click', closeModal);
-        document.body.appendChild(modal);
+
+        // 渲染ImageViewer组件
+        root.render(
+            React.createElement(ImageViewer, {
+                imageUrl,
+                fileName,
+                filePath,
+                mimeType,
+                onClose: closeModal
+            })
+        );
     }
 
     /**
@@ -254,7 +246,7 @@ export class ProtocolHandler {
             
             if (FileUtils.isImageFile(mimeType)) {
                 // 图片文件：显示预览
-                await this.showImagePreview(filePath, fileName);
+                await this.showImagePreview(filePath, fileName, mimeType);
             } else {
                 // 其他文件：下载
                 await this.downloadFile(filePath, fileName);

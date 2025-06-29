@@ -213,8 +213,7 @@ const ChatPage: React.FC = () => {
         // 获取最新消息
         try {
             const response = await get_ipc_api().chat.getChatMessages({ chatId });
-            logger.debug("[chat message] result>>>")
-            console.log(response.data)
+            console.log("[chat message] result>>>", response.data)
             if (response.success && response.data) {
                 let messages: Message[] = Array.isArray((response.data as any).data)
                     ? (response.data as any).data

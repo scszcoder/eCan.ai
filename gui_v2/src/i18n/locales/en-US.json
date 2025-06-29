@@ -273,7 +273,12 @@
       "userCancelledSave": "User cancelled file save",
       "failedToGetFileContent": "Failed to get file content",
       "nativeDownloadFailed": "Native download failed",
-      "failedToDownloadFile": "Failed to download file"
+      "failedToDownloadFile": "Failed to download file",
+      "zoomIn": "Zoom In",
+      "zoomOut": "Zoom Out",
+      "rotate": "Rotate",
+      "reset": "Reset",
+      "fullscreen": "Fullscreen"
     },
     "skills": {
       "title": "Skills",

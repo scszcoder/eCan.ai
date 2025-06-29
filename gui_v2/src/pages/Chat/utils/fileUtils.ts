@@ -1,7 +1,9 @@
-import { createIPCAPI } from '@/services/ipc/api';
-import { FileInfo, FileContent } from '@/pages/Chat/types/chat';
-import { logger } from '@/utils/logger';
-import { ImagePreviewManager } from './imagePreviewManager';
+import { FileInfo, FileContent } from '../types/chat';
+import { logger } from '../../../utils/logger';
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import ImageViewer from '../components/ImageViewer';
+import { get_ipc_api } from '@/services/ipc_api';
 
 /**
  * 文件类型常量
@@ -20,7 +22,17 @@ export const FILE_TYPES = {
  * 提供文件信息获取、内容读取、预览等功能
  */
 export class FileUtils {
-    private static api = createIPCAPI();
+    private static _api: any = null;
+
+    /**
+     * 获取 API 实例（懒加载）
+     */
+    private static get api() {
+        if (!this._api) {
+            this._api = get_ipc_api();
+        }
+        return this._api;
+    }
 
     /**
      * 判断文件是否为图片
@@ -77,10 +89,13 @@ export class FileUtils {
      */
     static async getFileInfo(filePath: string): Promise<FileInfo | null> {
         try {
-            // 如果是绝对路径，转换为 pyqtfile: 协议格式
+            // 标准化路径：移除 pyqtfile:// 前缀，因为后端期望接收不带前缀的路径
             let normalizedPath = filePath;
-            if (!filePath.startsWith('pyqtfile:')) {
-                normalizedPath = `pyqtfile://${filePath}`;
+            if (filePath.startsWith('pyqtfile://')) {
+                normalizedPath = filePath.replace('pyqtfile://', '');
+            } else if (!filePath.startsWith('pyqtfile:')) {
+                // 如果不是 pyqtfile 协议，保持原样
+                normalizedPath = filePath;
             }
             
             const response = await this.api.chat.getFileInfo(normalizedPath);
@@ -103,21 +118,40 @@ export class FileUtils {
      */
     static async getFileContent(filePath: string): Promise<FileContent | null> {
         try {
-            // 如果是绝对路径，转换为 pyqtfile: 协议格式
+            //logger.debug(`[getFileContent] Input filePath: ${filePath}`);
+            
+            // 标准化路径：移除 pyqtfile:// 前缀，因为后端期望接收不带前缀的路径
             let normalizedPath = filePath;
-            if (!filePath.startsWith('pyqtfile:')) {
-                normalizedPath = `pyqtfile://${filePath}`;
+            if (filePath.startsWith('pyqtfile://')) {
+                normalizedPath = filePath.replace('pyqtfile://', '');
+            } else if (!filePath.startsWith('pyqtfile:')) {
+                // 如果不是 pyqtfile 协议，保持原样
+                normalizedPath = filePath;
             }
             
+            //logger.debug(`[getFileContent] Normalized path: ${normalizedPath}`);
+            
             const response = await this.api.chat.getFileContent(normalizedPath);
+            
             if (response.success && response.data) {
+                //logger.debug(`[getFileContent] Success, data received`);
                 return response.data;
             } else {
                 logger.error('Failed to get file content:', response.error);
+                logger.error('Response details:', {
+                    success: response.success,
+                    error: response.error,
+                    data: response.data
+                });
                 return null;
             }
         } catch (error) {
             logger.error('Error getting file content:', error);
+            logger.error('Error details:', {
+                message: error instanceof Error ? error.message : 'Unknown error',
+                stack: error instanceof Error ? error.stack : undefined,
+                filePath
+            });
             return null;
         }
     }
@@ -232,8 +266,32 @@ export class FileUtils {
      * @param fileName 文件名
      */
     private static showImagePreview(dataUrl: string, fileName: string): void {
-        // 使用图片预览管理器显示模态窗口
-        ImagePreviewManager.showImagePreview(dataUrl, fileName);
+        // 创建容器元素
+        const container = document.createElement('div');
+        container.id = 'image-viewer-container';
+        document.body.appendChild(container);
+
+        // 创建 React 18 root
+        const root = createRoot(container);
+
+        // 关闭函数
+        const closeModal = () => {
+            if (container && container.parentNode) {
+                root.unmount();
+                container.parentNode.removeChild(container);
+            }
+        };
+
+        // 渲染ImageViewer组件
+        root.render(
+            React.createElement(ImageViewer, {
+                imageUrl: dataUrl,
+                fileName,
+                filePath: `temp://${fileName}`,
+                mimeType: 'image/jpeg',
+                onClose: closeModal
+            })
+        );
     }
 
     /**
