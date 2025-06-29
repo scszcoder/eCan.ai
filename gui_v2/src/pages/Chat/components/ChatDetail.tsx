@@ -336,7 +336,10 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
                 const textBefore = content.slice(currentIndex, match.index);
                 if (textBefore.trim()) {
                     parts.push(
-                        <span key={`text-${currentIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
+                        <span key={`text-${currentIndex}`} style={{ 
+                            whiteSpace: 'pre-wrap',
+                            color: '#ffffff' // 设置文本为白色
+                        }}>
                             {textBefore}
                         </span>
                     );
@@ -370,7 +373,8 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
                                 maxWidth: '100%',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
+                                whiteSpace: 'nowrap',
+                                color: '#ffffff' // 设置附件名称为白色
                             }}>
                                 {fileName}
                             </span>
@@ -409,7 +413,7 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
                             </span>
                             <span className="attachment-name" style={{ 
                                 fontSize: '13px',
-                                color: 'var(--semi-color-text-1)',
+                                color: '#ffffff', // 设置文件附件名称为白色
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -438,14 +442,17 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
             const remainingText = content.slice(currentIndex);
             if (remainingText.trim()) {
                 parts.push(
-                    <span key={`text-${currentIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
+                    <span key={`text-${currentIndex}`} style={{ 
+                        whiteSpace: 'pre-wrap',
+                        color: '#ffffff' // 设置剩余文本为白色
+                    }}>
                         {remainingText}
                     </span>
                 );
             }
         }
         
-        return parts.length > 0 ? parts : <span>{content}</span>;
+        return parts.length > 0 ? parts : <span style={{ color: '#ffffff' }}>{content}</span>;
     };
 
     return (
@@ -456,7 +463,8 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
             wordBreak: 'break-word',
             whiteSpace: 'pre-wrap',
             maxWidth: '100%',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            color: '#ffffff' // 设置整体文本颜色为白色
         }}>
             {renderContent()}
         </div>
@@ -768,25 +776,23 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
 
     return (
         <ChatDetailWrapper>
-            {/* <ChatWrapper> */}
-                <SemiChat
-                    key={chatKey}
-                    chats={messages}
-                    style={{ ...commonOuterStyle }}
-                    align="leftRight"
-                    mode="bubble"
-                    placeholder={t('pages.chat.typeMessage')}
-                    onMessageSend={onSend}
-                    roleConfig={defaultRoleConfig}
-                    uploadProps={uploadProps}
-                    title={chatTitle}
-                    showAvatar={true}
-                    showTime={true}
-                    showStatus={true}
-                    maxLength={5000}
-                    chatBoxRenderConfig={chatBoxRenderConfig}
-                />
-            {/* </ChatWrapper> */}
+            <SemiChat
+                key={chatKey}
+                chats={messages}
+                style={{ ...commonOuterStyle }}
+                align="leftRight"
+                mode="bubble"
+                placeholder={t('pages.chat.typeMessage')}
+                onMessageSend={onSend}
+                roleConfig={defaultRoleConfig}
+                uploadProps={uploadProps}
+                title={chatTitle}
+                showAvatar={true}
+                showTime={true}
+                showStatus={true}
+                maxLength={5000}
+                chatBoxRenderConfig={chatBoxRenderConfig}
+            />
         </ChatDetailWrapper>
     );
 };

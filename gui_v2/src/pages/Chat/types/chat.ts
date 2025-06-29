@@ -130,25 +130,29 @@ export interface RoleConfig {
 
 export type RoleKey = string;
 
+/**
+ * 优化的角色配置，更好地体现AI交互特点
+ * 每个角色的avatar都经过精心选择，以表现其在AI交互中的独特作用
+ */
 export const defaultRoleConfig: RoleConfig = {
     user: {
       name: '用户',
-      avatar: '/src/assets/agent0_100.png',
+      avatar: '/src/assets/icons3.png', // 用户图标 - 表现人类用户的交互特点，简洁明了
       color: 'blue'
     },
     assistant: {
       name: 'AI助手',
-      avatar: '/src/assets/icons1_100.png',
+      avatar: '/src/assets/icons6.png', // AI助手图标 - 表现智能AI的科技感和专业性
       color: 'green'
     },
     system: {
       name: '系统',
-      avatar: '/src/assets/icons0_door_100.png',
+      avatar: '/src/assets/icons5.png', // 系统图标 - 表现系统管理和控制功能，稳定可靠
       color: 'grey'
     },
     agent: {
       name: '客服代理',
-      avatar: '/src/assets/icons2_100.png',
+      avatar: '/src/assets/icons4.png', // 客服代理图标 - 表现专业服务和支持，友好亲切
       color: 'purple'
     }
   };
