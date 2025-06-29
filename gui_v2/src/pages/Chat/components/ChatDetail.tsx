@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
@@ -7,7 +7,7 @@ import { Message, Content, Chat } from '../types/chat';
 import { get_ipc_api } from '@/services/ipc_api';
 import { logger } from '@/utils/logger';
 import { FileUtils } from '../utils/fileUtils';
-import { Toast } from '@douyinfe/semi-ui';
+import { protocolHandler } from '../utils/protocolHandler';
 
 const ChatDetailWrapper = styled.div`
     display: flex;
@@ -39,6 +39,46 @@ const ChatDetailWrapper = styled.div`
         height: 100% !important;
         min-height: 0 !important;
     }
+
+    /* 自定义附件样式 */
+    .custom-attachment {
+        display: inline-block;
+        margin: 4px 8px 4px 0;
+        padding: 8px 12px;
+        background-color: var(--semi-color-fill-0);
+        border-radius: 8px;
+        border: 1px solid var(--semi-color-border);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .custom-attachment:hover {
+        background-color: var(--semi-color-fill-1);
+        border-color: var(--semi-color-primary);
+    }
+
+    .custom-attachment-image {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--semi-color-link);
+    }
+
+    .custom-attachment-file {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--semi-color-text-1);
+    }
+
+    .attachment-icon {
+        font-size: 16px;
+    }
+
+    .attachment-name {
+        font-size: 14px;
+        word-break: break-all;
+    }
 `;
 
 const commonOuterStyle = {
@@ -51,7 +91,7 @@ const commonOuterStyle = {
     overflow: 'hidden'
 };
 
-// 处理消息内容，确保返回符合 Semi UI Chat 组件要求的消息对象
+// 处理消息内容，简化为字符串类型
 const processMessageContent = (message: Message): any => {
     // 创建一个新的消息对象，保留原始消息的所有属性
     const processedMessage = { ...message };
@@ -61,51 +101,281 @@ const processMessageContent = (message: Message): any => {
         processedMessage.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 
-    // 如果有附件，将消息内容转换为 Semi UI Chat 的 Content 数组格式
+    // 构建文本内容
+    let textContent = '';
+    
+    // 处理原始文本内容
+    if (typeof message.content === 'string' && message.content.trim()) {
+        textContent = message.content;
+    } else if (Array.isArray(message.content)) {
+        // 如果已经是数组，提取文本内容
+        const textItems = message.content
+            .filter(item => item.type === 'text' && item.text)
+            .map(item => item.text);
+        textContent = textItems.join('\n');
+    }
+
+    // 处理附件，将附件信息添加到文本内容中
     if (message.attachments && message.attachments.length > 0) {
-        // 暂时转换为字符串格式，避免 Semi UI Chat 内部处理数组时的 key 冲突
-        let contentStr = '';
-        
-        // 添加文本内容（如果有）
-        if (typeof message.content === 'string' && message.content.trim()) {
-            contentStr = message.content;
-        } else if (Array.isArray(message.content)) {
-            // 处理 Content[] 数组
-            contentStr = message.content
-                .filter(item => item.type === 'text' && item.text)
-                .map(item => item.text)
-                .join(' ');
-        }
-        
-        // 添加附件信息到字符串中
-        const attachmentInfo = message.attachments.map(attachment => {
-            const mimeType = attachment.mimeType || attachment.type || '';
+        const attachmentTexts = message.attachments.map((attachment, index) => {
+            const mimeType = attachment.mimeType || attachment.type || 'application/octet-stream';
             const isImage = attachment.isImage || FileUtils.isImageFile(mimeType);
             const rawFilePath = attachment.filePath || attachment.url || '';
+            const fileName = attachment.name || `file_${index}`;
             
-            if (isImage) {
-                return `[图片: ${attachment.name}]`;
-            } else {
-                return `[文件: ${attachment.name}]`;
+            // 检查文件路径是否有效
+            if (!rawFilePath || rawFilePath.trim() === '') {
+                return null; // 跳过无效的附件
             }
-        }).join(' ');
+            
+            // 使用 pyqtfile:// 协议生成文件路径
+            const filePath = rawFilePath.startsWith('pyqtfile://') 
+                ? rawFilePath 
+                : `pyqtfile://${rawFilePath}`;
+            
+            const attachmentText = isImage 
+                ? `[image|${filePath}|${fileName}|${mimeType}]`
+                : `[file|${filePath}|${fileName}|${mimeType}]`;
+            
+            return attachmentText;
+        }).filter(Boolean); // 过滤掉 null 值
         
-        processedMessage.content = contentStr + (contentStr ? ' ' : '') + attachmentInfo;
-    } else {
-        // 没有附件时，保持原有的字符串格式
-        if (typeof message.content !== 'string') {
-            if (Array.isArray(message.content)) {
-                // 处理 Content[] 数组
-                const contentStr = message.content
-                    .filter(item => item.type === 'text' && item.text)
-                    .map(item => item.text)
-                    .join(' ');
-                processedMessage.content = contentStr;
+        if (attachmentTexts.length > 0) {
+            if (textContent) {
+                textContent += '\n' + attachmentTexts.join('\n');
+            } else {
+                textContent = attachmentTexts.join('\n');
             }
         }
     }
 
+    // 将处理后的文本内容赋值给消息
+    processedMessage.content = textContent;
+
     return processedMessage;
+};
+
+// 自定义内容渲染组件
+const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
+    // 使用系统原生文件保存对话框下载文件
+    const downloadFileWithNativeDialog = async (filePath: string, fileName: string, mimeType: string) => {
+        try {
+            // 获取文件内容
+            const actualPath = filePath.replace('pyqtfile://', '');
+            const fileContent = await FileUtils.getFileContent(actualPath);
+            
+            if (!fileContent || !fileContent.dataUrl) {
+                throw new Error('无法获取文件内容');
+            }
+
+            // 从 data URL 创建 Blob
+            const base64Data = fileContent.dataUrl.split(',')[1];
+            const binaryData = atob(base64Data);
+            const bytes = new Uint8Array(binaryData.length);
+            for (let i = 0; i < binaryData.length; i++) {
+                bytes[i] = binaryData.charCodeAt(i);
+            }
+            
+            const blob = new Blob([bytes], { type: mimeType });
+
+            // 尝试使用 File System Access API（现代浏览器）
+            if ('showSaveFilePicker' in window) {
+                try {
+                    const handle = await (window as any).showSaveFilePicker({
+                        suggestedName: fileName,
+                        types: [{
+                            description: 'File',
+                            accept: { [mimeType]: [`.${fileName.split('.').pop()}`] }
+                        }]
+                    });
+                    
+                    const writable = await handle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    return;
+                } catch (e: any) {
+                    if (e.name === 'AbortError') {
+                        console.log('用户取消了文件保存');
+                        return;
+                    }
+                    throw e;
+                }
+            }
+
+            // 回退到传统的下载方法
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            
+            // 清理
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+
+        } catch (error) {
+            console.error('Native download failed:', error);
+            throw error;
+        }
+    };
+
+    const handleAttachmentClick = async (filePath: string, fileName: string, mimeType: string, isImage: boolean) => {
+        if (isImage) {
+            // 图片点击时预览
+            protocolHandler.handleFile(filePath, fileName, mimeType);
+        } else {
+            // 文件点击时下载，使用系统原生保存对话框
+            try {
+                await downloadFileWithNativeDialog(filePath, fileName, mimeType);
+            } catch (error) {
+                console.error('Failed to download file:', error);
+                // 回退到原来的方法
+                protocolHandler.handleFile(filePath, fileName, mimeType);
+            }
+        }
+    };
+
+    // 解析内容中的附件标记
+    const renderContent = () => {
+        if (!content) return null;
+
+        const parts = [];
+        let currentIndex = 0;
+        
+        // 使用简单的字符串分割方法来解析附件标记
+        // 格式: [类型|文件路径|文件名|MIME类型]
+        const attachmentRegex = /\[(image|file)\|([^|]+)\|([^|]+)\|([^\]]+)\]/g;
+        let match;
+        
+        while ((match = attachmentRegex.exec(content)) !== null) {
+            const [fullMatch, type, filePath, fileName, mimeType] = match;
+            const isImage = type === 'image';
+            
+            // 添加附件前的文本
+            if (match.index > currentIndex) {
+                const textBefore = content.slice(currentIndex, match.index);
+                if (textBefore.trim()) {
+                    parts.push(
+                        <span key={`text-${currentIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
+                            {textBefore}
+                        </span>
+                    );
+                }
+            }
+            
+            // 添加附件组件
+            if (isImage) {
+                // 图片显示预览图
+                parts.push(
+                    <div
+                        key={`attachment-${match.index}`}
+                        className="custom-attachment custom-attachment-image"
+                    >
+                        <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}>
+                            <ImagePreview 
+                                filePath={filePath}
+                                fileName={fileName}
+                                mimeType={mimeType}
+                            />
+                            <span className="attachment-name" style={{ fontSize: '12px', textAlign: 'center' }}>
+                                {fileName}
+                            </span>
+                        </div>
+                    </div>
+                );
+            } else {
+                // 文件显示文件信息
+                parts.push(
+                    <div
+                        key={`attachment-${match.index}`}
+                        className="custom-attachment custom-attachment-file"
+                        onClick={() => handleAttachmentClick(filePath, fileName, mimeType, false)}
+                    >
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '12px',
+                            padding: '8px 12px',
+                            backgroundColor: 'var(--semi-color-fill-0)',
+                            borderRadius: '8px',
+                            border: '1px solid var(--semi-color-border)',
+                            minWidth: '200px'
+                        }}>
+                            <span className="attachment-icon" style={{ fontSize: '20px' }}>
+                                📎
+                            </span>
+                            <div style={{ 
+                                display: 'flex', 
+                                flexDirection: 'column', 
+                                gap: '2px',
+                                flex: 1,
+                                minWidth: 0
+                            }}>
+                                <span className="attachment-name" style={{ 
+                                    fontSize: '14px', 
+                                    fontWeight: '500',
+                                    wordBreak: 'break-all',
+                                    color: 'var(--semi-color-text-0)'
+                                }}>
+                                    {fileName}
+                                </span>
+                                <span style={{ 
+                                    fontSize: '12px', 
+                                    color: 'var(--semi-color-text-2)'
+                                }}>
+                                    {mimeType}
+                                </span>
+                            </div>
+                            <span style={{ 
+                                fontSize: '12px', 
+                                color: 'var(--semi-color-text-2)',
+                                whiteSpace: 'nowrap'
+                            }}>
+                                选择保存位置
+                            </span>
+                        </div>
+                    </div>
+                );
+            }
+            
+            currentIndex = match.index + fullMatch.length;
+        }
+        
+        // 添加剩余的文本
+        if (currentIndex < content.length) {
+            const remainingText = content.slice(currentIndex);
+            if (remainingText.trim()) {
+                parts.push(
+                    <span key={`text-${currentIndex}`} style={{ whiteSpace: 'pre-wrap' }}>
+                        {remainingText}
+                    </span>
+                );
+            }
+        }
+        
+        return parts.length > 0 ? parts : <span>{content}</span>;
+    };
+
+    return (
+        <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '8px',
+            wordBreak: 'break-word',
+            whiteSpace: 'pre-wrap'
+        }}>
+            {renderContent()}
+        </div>
+    );
 };
 
 // 上传组件的配置
@@ -140,17 +410,17 @@ const uploadProps = {
                     
                     // 只传递可序列化的 attachment 字段，避免 circular JSON
                     const safeAttachment = {
-                        name: data.name,
-                        type: data.type,
-                        size: data.size,
+                        name: data.name || file.name || 'unknown',
+                        type: data.type || file.type || 'application/octet-stream',
+                        size: data.size || file.size || 0,
                         url: filePath, // 直接使用返回的 URL
                         filePath: filePath, // 保存文件路径
-                        mimeType: data.type,
-                        isImage: FileUtils.isImageFile(data.type),
+                        mimeType: data.type || file.type || 'application/octet-stream',
+                        isImage: FileUtils.isImageFile(data.type || file.type || ''),
                         status: 'complete',
                         uid: data.uid || file.uid || ('' + Date.now())
                     };
-                    console.log('[uploadProps] safeAttachment:', safeAttachment)
+                    
                     onSuccess(safeAttachment, file);
                 } else {
                     logger.error('[uploadProps] Attachment upload error:', resp.error);
@@ -197,6 +467,122 @@ const uploadProps = {
     // 其他配置可按需添加
 };
 
+// 图片预览组件
+const ImagePreview: React.FC<{ filePath: string; fileName: string; mimeType: string }> = ({ 
+    filePath, 
+    fileName, 
+    mimeType 
+}) => {
+    const [imageUrl, setImageUrl] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [hasError, setHasError] = useState(false);
+
+    useEffect(() => {
+        const loadImage = async () => {
+            if (!filePath.startsWith('pyqtfile://')) {
+                setImageUrl(filePath);
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                setIsLoading(true);
+                setHasError(false);
+                
+                // 使用 FileUtils 获取图片的 data URL
+                const actualPath = filePath.replace('pyqtfile://', '');
+                const dataUrl = await FileUtils.getFileThumbnail(actualPath);
+                
+                if (dataUrl) {
+                    setImageUrl(dataUrl);
+                } else {
+                    setHasError(true);
+                }
+            } catch (error) {
+                console.error('[ImagePreview] Failed to load pyqtfile image:', error);
+                setHasError(true);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        loadImage();
+    }, [filePath]);
+
+    const handleClick = () => {
+        // 直接使用完整的文件路径（包含协议）
+        protocolHandler.handleFile(filePath, fileName, mimeType);
+    };
+
+    if (isLoading) {
+        return (
+            <div style={{
+                width: '120px',
+                height: '80px',
+                backgroundColor: 'var(--semi-color-fill-0)',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px solid var(--semi-color-border)',
+                fontSize: '12px',
+                color: 'var(--semi-color-text-2)'
+            }}>
+                加载中...
+            </div>
+        );
+    }
+
+    if (hasError) {
+        return (
+            <div 
+                style={{
+                    width: '120px',
+                    height: '80px',
+                    backgroundColor: 'var(--semi-color-fill-0)',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: '1px solid var(--semi-color-border)',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    color: 'var(--semi-color-text-2)'
+                }}
+                onClick={handleClick}
+            >
+                点击查看
+            </div>
+        );
+    }
+
+    return (
+        <div 
+            style={{
+                width: '120px',
+                height: '80px',
+                borderRadius: '8px',
+                border: '1px solid var(--semi-color-border)',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                backgroundColor: 'var(--semi-color-fill-0)'
+            }}
+            onClick={handleClick}
+        >
+            <img 
+                src={imageUrl} 
+                alt={fileName}
+                style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover'
+                }}
+                onError={() => setHasError(true)}
+            />
+        </div>
+    );
+};
+
 interface ChatDetailProps {
     chatId?: string | null;
     chats?: Chat[];
@@ -205,6 +591,11 @@ interface ChatDetailProps {
 
 const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) => {
     const { t } = useTranslation();
+
+    // 初始化协议处理器
+    useEffect(() => {
+        protocolHandler.init();
+    }, []);
 
     // 根据 chatId 获取对应的聊天数据
     const currentChat = useMemo(() => {
@@ -216,7 +607,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
     const messages = useMemo(() => {
         // 如果有当前聊天，使用其消息
         if (currentChat && Array.isArray(currentChat.messages)) {
-            console.log('[ChatDetail] currentChat.messages:', currentChat.messages);
             // 改进的去重处理，确保没有重复的消息
             const uniqueMessages = currentChat.messages.reduce((acc: Message[], message) => {
                 // 检查是否已存在相同的消息
@@ -249,7 +639,17 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
                 return acc;
             }, []);
             
-            return uniqueMessages.map(processMessageContent);
+            // 按时间排序，确保消息顺序稳定
+            uniqueMessages.sort((a, b) => (a.createAt || 0) - (b.createAt || 0));
+            
+            const processedMessages = uniqueMessages.map((message, index) => {
+                const processed = processMessageContent(message);
+                // 确保每个消息都有唯一的 key，使用消息 ID 而不是索引
+                processed.key = `msg_${processed.id}`;
+                return processed;
+            });
+            
+            return processedMessages;
         }
         // 否则返回空数组
         return [];
@@ -263,22 +663,42 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
         return `chat_${chatId}_${messages.length}`;
     }, [chatId, messages.length]);
 
+    // 自定义渲染配置
+    const chatBoxRenderConfig = {
+        renderChatBoxContent: (props: any) => {
+            // Semi UI Chat 的 renderChatBoxContent 接收 RenderContentProps 类型
+            const { message, role, defaultContent, className } = props;
+            // 从 message 中获取 content
+            const content = message?.content || '';
+            
+            return <CustomContentRenderer content={content} />;
+        }
+    };
+
     return (
         <ChatDetailWrapper>
-            <SemiChat
-                key={chatKey}
-                chats={messages}
-                style={{ ...commonOuterStyle }}
-                align="leftRight"
-                mode="userBubble"
-                placeholder={t('pages.chat.typeMessage')}
-                onMessageSend={onSend}
-                roleConfig={defaultRoleConfig}
-                uploadProps={uploadProps}
-                title={chatTitle}
-            />
+            {/* <ChatWrapper> */}
+                <SemiChat
+                    key={chatKey}
+                    chats={messages}
+                    style={{ ...commonOuterStyle }}
+                    align="leftRight"
+                    mode="bubble"
+                    placeholder={t('pages.chat.typeMessage')}
+                    onMessageSend={onSend}
+                    roleConfig={defaultRoleConfig}
+                    uploadProps={uploadProps}
+                    title={chatTitle}
+                    showAvatar={true}
+                    showTime={true}
+                    showStatus={true}
+                    maxLength={5000}
+                    chatBoxRenderConfig={chatBoxRenderConfig}
+                />
+            {/* </ChatWrapper> */}
         </ChatDetailWrapper>
     );
 };
+
 
 export default ChatDetail; 
