@@ -216,6 +216,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
     const messages = useMemo(() => {
         // 如果有当前聊天，使用其消息
         if (currentChat && Array.isArray(currentChat.messages)) {
+            console.log('[ChatDetail] currentChat.messages:', currentChat.messages);
             // 改进的去重处理，确保没有重复的消息
             const uniqueMessages = currentChat.messages.reduce((acc: Message[], message) => {
                 // 检查是否已存在相同的消息

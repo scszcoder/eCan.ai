@@ -46,7 +46,7 @@ from agent.a2a.common.server import A2AServer
 from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
-from agent.a2a.common.types import Message, TextPart, FilePart, DataPart, FileContent
+from agent.a2a.common.types import Message, TextPart, FilePart, DataPart, FileContent, TaskSendParams
 
 from agent.ec_skills.browser.browser import Browser
 from agent.ec_skills.browser.context import BrowserContext
@@ -1678,13 +1678,19 @@ class EC_Agent(Generic[Context]):
 
 			chat_msg = Message(role="user", parts=msg_parts, metadata={"type": "send_chat"})
 
-			payload = {
-				"id": "task-001X",
-				"sessionId": "sess-abc",
-				"message": chat_msg,
-				"acceptedOutputModes": ["json"],
-				"skill": "resolve_rpa_failure"  # Or whatever your agent expects
-			}
+			payload = TaskSendParams(
+				id="0001",
+				sessionId= message['chat']['messages'][3],
+				message =chat_msg,
+				acceptedOutputModes = ["text", "json", "image/png"],
+				pushNotification = None,
+				historyLength = None,
+				metadata = {
+					"type": "send_chat",
+					"msgId": message['chat']['messages'][2],
+					"chatId": message['chat']['messages'][1],
+				}
+			)
 
 			print("client payload:", payload)
 			# response = await self.a2a_client.send_task(payload)

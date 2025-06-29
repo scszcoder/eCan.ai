@@ -3,6 +3,8 @@ from PySide6.QtGui import QAction, QKeySequence, QShortcut
 import sys
 import os
 from datetime import datetime
+import time
+import uuid
 from gui.LoginoutGUI import Login
 from gui.ipc.api import IPCAPI
 
@@ -330,23 +332,25 @@ class WebGUI(QMainWindow):
     #         logger_helper.error(f"Error updating vehicles data: {e}")
 
     # receive new chat message from a opposite agent, and update GUI
-    def receive_new_chat_message(self, chatId, dataHolder):
+    def receive_new_chat_message(self, sender_agent, chatId, dataHolder):
         """add new chat message to data structure and update DB and GUI"""
         try:
-            # 生成随机数据
-            msg_js = [
-                {
-                    'id': 1,
-                    'session_id': 1,
-                    'sender': "12",
-                    'chat_id': 2,
-                    'is_group': False,
-                    'recipients': [],
-                    'content': dataHolder["message"],
-                    'attachments': [],
-                    'tx_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-            ]
+
+            msg_js = {
+                'role': 'assistant',
+                'id': "msg-"+str(uuid.uuid4()),
+                'createAt': int(time.time() * 1000),
+                'content': dataHolder["message"],
+                'status': 'sent',
+                'attachments': [],
+
+                'chatId': chatId,
+                'senderId': sender_agent.card.id,
+                "senderName": sender_agent.card.name,
+                'sessionId': "1",
+                'is_group': False
+            }
+
 
             # 调用 refresh_dashboard API
             def handle_response(response):

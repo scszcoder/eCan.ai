@@ -10,7 +10,7 @@ def init_my_twin_chatter_skill(agent, msg):
             atts.append(FileAttachment(name= att['name'],type= att['type'],url= att['url'], data=""))
 
     init_state = {
-        "messages": [agent.card.id, msg_txt],
+        "messages": [agent.card.id, msg['params']['chatId'], msg['id'], "", msg_txt],
         "input": msg_txt,
         "attachments": atts
     }
