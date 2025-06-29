@@ -9,7 +9,7 @@
           "user_id": "user-1",
           "role": "user",
           "name": "用户",
-          "avatar": "/src/assets/agent0_100.png",
+          "avatar": "/src/assets/agent02_100.png",
           "agentName": "My Twin Agent"
         },
         {
@@ -134,7 +134,7 @@
           "user_id": "user-1",
           "role": "user",
           "name": "用户",
-          "avatar": "/src/assets/agent0_100.png",
+          "avatar": "/src/assets/agent02_100.png",
           "agentName": "My Twin Agent"
         },
         {
@@ -216,7 +216,7 @@
           "user_id": "user-1",
           "role": "user",
           "name": "用户",
-          "avatar": "/src/assets/agent0_100.png",
+          "avatar": "/src/assets/agent02_100.png",
           "agentName": "My Twin Agent"
         },
         {
@@ -658,7 +658,7 @@
           "user_id": "user-1",
           "role": "user",
           "name": "小刚",
-          "avatar": "/src/assets/agent0_100.png",
+          "avatar": "/src/assets/agent02_100.png",
           "agentName": "My Twin Agent"
         },
         {

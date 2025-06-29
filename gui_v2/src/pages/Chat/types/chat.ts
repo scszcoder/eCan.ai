@@ -133,7 +133,7 @@ export type RoleKey = string;
 export const defaultRoleConfig: RoleConfig = {
     user: {
       name: '用户',
-      avatar: '/src/assets/agent0_100.png',
+      avatar: '/src/assets/agent02_100.png',
       color: 'blue'
     },
     assistant: {
