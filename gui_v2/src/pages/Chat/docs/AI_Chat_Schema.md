@@ -294,7 +294,7 @@ classDiagram
 export const defaultRoleConfig: RoleConfig = {
   user: {
     name: '用户',
-    avatar: '/assets/agent0_100.png',
+    avatar: '/assets/agent02_100.png',
     color: 'blue'
   },
   assistant: {
