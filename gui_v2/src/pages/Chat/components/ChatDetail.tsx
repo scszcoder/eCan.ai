@@ -40,6 +40,14 @@ const ChatDetailWrapper = styled.div`
         min-height: 0 !important;
     }
 
+    /* Semi UI 原生附件文件标题宽度调整 */
+    .semi-chat-attachment-file-title {
+        max-width: 400px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
     /* 自定义附件样式 */
     .custom-attachment {
         display: inline-block;
@@ -50,6 +58,8 @@ const ChatDetailWrapper = styled.div`
         border: 1px solid var(--semi-color-border);
         cursor: pointer;
         transition: all 0.2s ease;
+        max-width: 100% !important;
+        overflow: hidden !important;
     }
 
     .custom-attachment:hover {
@@ -86,13 +96,19 @@ const ChatDetailWrapper = styled.div`
         color: white !important;
     }
 
-    .attachment-icon {
+    /* 只针对自定义附件中的图标和名称 */
+    .custom-attachment .attachment-icon {
         font-size: 16px;
     }
 
-    .attachment-name {
+    .custom-attachment .attachment-name {
         font-size: 14px;
         word-break: break-all;
+    }
+
+    /* 文件类型图标样式 */
+    .custom-attachment-file .attachment-icon {
+        font-size: 18px;
     }
 `;
 
@@ -166,6 +182,10 @@ const processMessageContent = (message: Message): any => {
 
     // 将处理后的文本内容赋值给消息
     processedMessage.content = textContent;
+    
+    // 移除原始的 attachments 字段，防止 Semi UI 渲染原生附件组件
+    // 因为我们已经将附件信息转换为文本内容，使用自定义渲染器处理
+    delete processedMessage.attachments;
 
     return processedMessage;
 };
@@ -173,6 +193,46 @@ const processMessageContent = (message: Message): any => {
 // 自定义内容渲染组件
 const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
     const { t } = useTranslation();
+    
+    // 根据文件类型获取对应的图标
+    const getFileTypeIcon = (fileName: string, mimeType: string): string => {
+        const extension = fileName.split('.').pop()?.toLowerCase() || '';
+        const type = mimeType.toLowerCase();
+        
+        // 文档类型
+        if (type.includes('pdf') || extension === 'pdf') return '📄';
+        if (type.includes('word') || extension === 'doc' || extension === 'docx') return '📝';
+        if (type.includes('excel') || extension === 'xls' || extension === 'xlsx') return '📊';
+        if (type.includes('powerpoint') || extension === 'ppt' || extension === 'pptx') return '📈';
+        if (type.includes('text') || extension === 'txt') return '📄';
+        
+        // 代码文件
+        if (type.includes('javascript') || extension === 'js') return '📜';
+        if (type.includes('typescript') || extension === 'ts') return '📜';
+        if (type.includes('python') || extension === 'py') return '🐍';
+        if (type.includes('java') || extension === 'java') return '☕';
+        if (type.includes('cpp') || extension === 'cpp' || extension === 'c') return '⚙️';
+        if (type.includes('html') || extension === 'html' || extension === 'htm') return '🌐';
+        if (type.includes('css') || extension === 'css') return '🎨';
+        if (type.includes('json') || extension === 'json') return '📋';
+        if (type.includes('xml') || extension === 'xml') return '📋';
+        
+        // 压缩文件
+        if (type.includes('zip') || extension === 'zip') return '📦';
+        if (type.includes('rar') || extension === 'rar') return '📦';
+        if (type.includes('7z') || extension === '7z') return '📦';
+        if (type.includes('tar') || extension === 'tar') return '📦';
+        if (type.includes('gz') || extension === 'gz') return '📦';
+        
+        // 音频文件
+        if (type.includes('audio') || ['mp3', 'wav', 'flac', 'aac', 'ogg'].includes(extension)) return '🎵';
+        
+        // 视频文件
+        if (type.includes('video') || ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv'].includes(extension)) return '🎬';
+        
+        // 默认文件图标
+        return '📎';
+    };
     
     // 使用系统原生文件保存对话框下载文件
     const downloadFileWithNativeDialog = async (filePath: string, fileName: string, mimeType: string) => {
@@ -296,14 +356,23 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
                             display: 'flex', 
                             flexDirection: 'column', 
                             alignItems: 'center',
-                            gap: '8px'
+                            gap: '8px',
+                            maxWidth: '150px',
+                            overflow: 'hidden'
                         }}>
                             <ImagePreview 
                                 filePath={filePath}
                                 fileName={fileName}
                                 mimeType={mimeType}
                             />
-                            <span className="attachment-name" style={{ fontSize: '12px', textAlign: 'center' }}>
+                            <span className="attachment-name" style={{ 
+                                fontSize: '12px', 
+                                textAlign: 'center',
+                                maxWidth: '100%',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                            }}>
                                 {fileName}
                             </span>
                         </div>
@@ -327,23 +396,35 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
                             borderRadius: '6px',
                             border: '1px solid var(--semi-color-border)',
                             cursor: 'pointer',
-                            transition: 'all 0.2s ease'
+                            transition: 'all 0.2s ease',
+                            maxWidth: '300px',
+                            minWidth: '120px',
+                            overflow: 'hidden'
                         }}>
                             <span className="attachment-icon" style={{ 
                                 fontSize: '16px',
-                                color: 'var(--semi-color-primary)'
+                                color: 'var(--semi-color-primary)',
+                                flexShrink: 0
                             }}>
-                                ⬇️
+                                {getFileTypeIcon(fileName, mimeType)}
                             </span>
                             <span className="attachment-name" style={{ 
                                 fontSize: '13px',
                                 color: 'var(--semi-color-text-1)',
-                                maxWidth: '120px',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
+                                whiteSpace: 'nowrap',
+                                flex: 1,
+                                minWidth: 0
                             }}>
                                 {fileName}
+                            </span>
+                            <span style={{ 
+                                fontSize: '12px',
+                                color: 'var(--semi-color-text-2)',
+                                flexShrink: 0
+                            }}>
+                                ⬇️
                             </span>
                         </div>
                     </div>
@@ -374,7 +455,9 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
             flexDirection: 'column', 
             gap: '8px',
             wordBreak: 'break-word',
-            whiteSpace: 'pre-wrap'
+            whiteSpace: 'pre-wrap',
+            maxWidth: '100%',
+            overflow: 'hidden'
         }}>
             {renderContent()}
         </div>
