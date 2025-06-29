@@ -261,12 +261,18 @@
       "deleteConfirmTitle": "确认删除",
       "deleteConfirmDescription": "确定要删除这个聊天吗？此操作无法撤销。",
       "noMessages": "暂无消息",
-      "attachment": "附件",
       "download": "下载",
       "preview": "预览",
       "downloadFailed": "下载失败",
       "previewFailed": "预览失败",
-      "fileNotFound": "文件未找到"
+      "fileNotFound": "文件未找到",
+      "selectSaveLocation": "选择保存位置",
+      "clickToView": "点击查看",
+      "loading": "加载中...",
+      "userCancelledSave": "用户取消了文件保存",
+      "failedToGetFileContent": "无法获取文件内容",
+      "nativeDownloadFailed": "原生下载失败",
+      "failedToDownloadFile": "下载文件失败"
     },
     "skills": {
       "title": "技能",

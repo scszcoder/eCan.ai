@@ -82,11 +82,5 @@ export function createChatApi(apiInstance: IPCAPI) {
         getFileContent(filePath: string): Promise<APIResponse<FileContent>> {
             return apiInstance['executeRequest']('get_file_content', { filePath });
         },
-        /**
-         * 下载文件（通过 pyqtfile:// 协议）
-         */
-        downloadFile(filePath: string, fileName?: string): Promise<APIResponse<FileContent>> {
-            return apiInstance['executeRequest']('get_file_content', { filePath });
-        },
     };
 } 

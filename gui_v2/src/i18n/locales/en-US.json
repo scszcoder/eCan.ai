@@ -266,7 +266,14 @@
       "preview": "Preview",
       "downloadFailed": "Download failed",
       "previewFailed": "Preview failed",
-      "fileNotFound": "File not found"
+      "fileNotFound": "File not found",
+      "selectSaveLocation": "Select Save Location",
+      "clickToView": "Click to View",
+      "loading": "Loading...",
+      "userCancelledSave": "User cancelled file save",
+      "failedToGetFileContent": "Failed to get file content",
+      "nativeDownloadFailed": "Native download failed",
+      "failedToDownloadFile": "Failed to download file"
     },
     "skills": {
       "title": "Skills",
