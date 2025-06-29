@@ -69,7 +69,9 @@ class IPCService(QObject):
         try:
             # 解析消息
             data = json.loads(message)
-            logger.debug(f"web_to_python: Received message: {data}")
+            data_str = str(data)
+            truncated_data = data_str[:800] + "..." if len(data_str) > 500 else data_str
+            logger.debug(f"web_to_python: Received message: {truncated_data}")
 
             # 检查消息类型
             if 'type' not in data:
@@ -219,7 +221,9 @@ class IPCService(QObject):
             
             # 发送请求
             self.python_to_web.emit(json.dumps(request))
-            logger.debug(f"Request sent: {json.dumps(request)}")
+            request_str = json.dumps(request)
+            truncated_request = request_str[:800] + "..." if len(request_str) > 500 else request_str
+            logger.debug(f"Request sent: {truncated_request}")
         except Exception as e:
             logger.error(f"Error sending request: {e}")
             if callback:

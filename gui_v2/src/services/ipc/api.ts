@@ -66,7 +66,7 @@ export class IPCAPI {
      */
     private async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
         try {
-            logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
+            //logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
             const response = await this.client.sendRequest(method, params) as IPCResponse;
 
             if (response.status === 'success') {

@@ -237,9 +237,8 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
     // 使用系统原生文件保存对话框下载文件
     const downloadFileWithNativeDialog = async (filePath: string, fileName: string, mimeType: string) => {
         try {
-            // 获取文件内容
-            const actualPath = filePath.replace('pyqtfile://', '');
-            const fileContent = await FileUtils.getFileContent(actualPath);
+            // 直接使用完整的文件路径，让 FileUtils 内部处理路径转换
+            const fileContent = await FileUtils.getFileContent(filePath);
             
             if (!fileContent || !fileContent.dataUrl) {
                 throw new Error(t('pages.chat.failedToGetFileContent'));
@@ -477,7 +476,10 @@ const ImagePreview: React.FC<{ filePath: string; fileName: string; mimeType: str
 
     useEffect(() => {
         const loadImage = async () => {
+            console.log('[ImagePreview] Loading image with filePath:', filePath);
+            
             if (!filePath.startsWith('pyqtfile://')) {
+                console.log('[ImagePreview] Not a pyqtfile, using as direct URL');
                 setImageUrl(filePath);
                 setIsLoading(false);
                 return;
@@ -487,13 +489,14 @@ const ImagePreview: React.FC<{ filePath: string; fileName: string; mimeType: str
                 setIsLoading(true);
                 setHasError(false);
                 
-                // 使用 FileUtils 获取图片的 data URL
-                const actualPath = filePath.replace('pyqtfile://', '');
-                const dataUrl = await FileUtils.getFileThumbnail(actualPath);
+                console.log('[ImagePreview] Calling FileUtils.getFileThumbnail with:', filePath);
+                // 直接使用完整的文件路径，让 FileUtils 内部处理路径转换
+                const dataUrl = await FileUtils.getFileThumbnail(filePath);
                 
                 if (dataUrl) {
                     setImageUrl(dataUrl);
                 } else {
+                    console.log('[ImagePreview] No dataUrl returned');
                     setHasError(true);
                 }
             } catch (error) {
@@ -725,7 +728,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
                     });
                     logger.debug('[uploadProps] uploadAttachment resp:', resp);
                     if (resp.success) {
-                        logger.debug('[uploadProps] Attachment upload success, data:', resp.data);
                         const data: any = resp.data;
                         
                         // 直接使用返回的 URL，不添加协议前缀

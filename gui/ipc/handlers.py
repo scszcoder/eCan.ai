@@ -93,7 +93,9 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
             'chats': chats,
             'message': 'Get all successful'
         }
-        logger.debug('get all resultJS:' + str(resultJS))
+        resultJS_str = str(resultJS)
+        truncated_resultJS = resultJS_str[:800] + "..." if len(resultJS_str) > 500 else resultJS_str
+        logger.debug('get all resultJS:' + truncated_resultJS)
         return create_success_response(request, resultJS)
 
     except Exception as e:
