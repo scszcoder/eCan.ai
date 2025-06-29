@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { v4 as uuidv4 } from 'uuid';
 import ChatList from './components/ChatList';
 import ChatDetail from './components/ChatDetail';
 import { Chat, Message, Attachment, Content } from './types/chat';
@@ -13,7 +12,6 @@ import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
 import { useNotifications } from './hooks/useNotifications';
 import { useMessages } from './hooks/useMessages';
-import { messageManager } from './managers/MessageManager';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();

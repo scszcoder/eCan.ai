@@ -55,6 +55,8 @@ const ChatDetailWrapper = styled.div`
     .custom-attachment:hover {
         background-color: var(--semi-color-fill-1);
         border-color: var(--semi-color-primary);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
 
     .custom-attachment-image {
@@ -69,6 +71,19 @@ const ChatDetailWrapper = styled.div`
         align-items: center;
         gap: 8px;
         color: var(--semi-color-text-1);
+    }
+
+    .custom-attachment-file:hover {
+        background-color: var(--semi-color-primary);
+        color: white;
+    }
+
+    .custom-attachment-file:hover .attachment-icon {
+        color: white !important;
+    }
+
+    .custom-attachment-file:hover .attachment-name {
+        color: white !important;
     }
 
     .attachment-icon {
@@ -157,6 +172,8 @@ const processMessageContent = (message: Message): any => {
 
 // 自定义内容渲染组件
 const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
+    const { t } = useTranslation();
+    
     // 使用系统原生文件保存对话框下载文件
     const downloadFileWithNativeDialog = async (filePath: string, fileName: string, mimeType: string) => {
         try {
@@ -165,7 +182,7 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
             const fileContent = await FileUtils.getFileContent(actualPath);
             
             if (!fileContent || !fileContent.dataUrl) {
-                throw new Error('无法获取文件内容');
+                throw new Error(t('pages.chat.failedToGetFileContent'));
             }
 
             // 从 data URL 创建 Blob
@@ -195,7 +212,7 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
                     return;
                 } catch (e: any) {
                     if (e.name === 'AbortError') {
-                        console.log('用户取消了文件保存');
+                        console.log(t('pages.chat.userCancelledSave'));
                         return;
                     }
                     throw e;
@@ -218,7 +235,7 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
             }, 100);
 
         } catch (error) {
-            console.error('Native download failed:', error);
+            console.error(t('pages.chat.nativeDownloadFailed'), error);
             throw error;
         }
     };
@@ -232,7 +249,7 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
             try {
                 await downloadFileWithNativeDialog(filePath, fileName, mimeType);
             } catch (error) {
-                console.error('Failed to download file:', error);
+                console.error(t('pages.chat.failedToDownloadFile'), error);
                 // 回退到原来的方法
                 protocolHandler.handleFile(filePath, fileName, mimeType);
             }
@@ -293,54 +310,40 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
                     </div>
                 );
             } else {
-                // 文件显示文件信息
+                // 文件显示下载图标
                 parts.push(
                     <div
                         key={`attachment-${match.index}`}
                         className="custom-attachment custom-attachment-file"
                         onClick={() => handleAttachmentClick(filePath, fileName, mimeType, false)}
+                        title={`${fileName} (${mimeType})`}
                     >
                         <div style={{ 
                             display: 'flex', 
                             alignItems: 'center', 
-                            gap: '12px',
-                            padding: '8px 12px',
+                            gap: '8px',
+                            padding: '6px 10px',
                             backgroundColor: 'var(--semi-color-fill-0)',
-                            borderRadius: '8px',
+                            borderRadius: '6px',
                             border: '1px solid var(--semi-color-border)',
-                            minWidth: '200px'
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
                         }}>
-                            <span className="attachment-icon" style={{ fontSize: '20px' }}>
-                                📎
-                            </span>
-                            <div style={{ 
-                                display: 'flex', 
-                                flexDirection: 'column', 
-                                gap: '2px',
-                                flex: 1,
-                                minWidth: 0
+                            <span className="attachment-icon" style={{ 
+                                fontSize: '16px',
+                                color: 'var(--semi-color-primary)'
                             }}>
-                                <span className="attachment-name" style={{ 
-                                    fontSize: '14px', 
-                                    fontWeight: '500',
-                                    wordBreak: 'break-all',
-                                    color: 'var(--semi-color-text-0)'
-                                }}>
-                                    {fileName}
-                                </span>
-                                <span style={{ 
-                                    fontSize: '12px', 
-                                    color: 'var(--semi-color-text-2)'
-                                }}>
-                                    {mimeType}
-                                </span>
-                            </div>
-                            <span style={{ 
-                                fontSize: '12px', 
-                                color: 'var(--semi-color-text-2)',
+                                ⬇️
+                            </span>
+                            <span className="attachment-name" style={{ 
+                                fontSize: '13px',
+                                color: 'var(--semi-color-text-1)',
+                                maxWidth: '120px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap'
                             }}>
-                                选择保存位置
+                                {fileName}
                             </span>
                         </div>
                     </div>
@@ -378,101 +381,13 @@ const CustomContentRenderer: React.FC<{ content: string }> = ({ content }) => {
     );
 };
 
-// 上传组件的配置
-const uploadProps = {
-    action: '', // 禁用 HTTP 上传
-    beforeUpload: () => true, // 必须返回 true，允许 customRequest 执行
-    customRequest: async (options: any) => {
-        const { file, onSuccess, onError } = options;
-        try {
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                const fileData = e.target?.result;
-                if (!fileData) {
-                    console.error('[uploadProps] FileReader failed');
-                    onError(new Error('读取文件失败'), file);
-                    return;
-                }
-                const api = get_ipc_api();
-                const resp = await api.chat.uploadAttachment({
-                    name: fileName,
-                    type: fileType,
-                    size: fileSize,
-                    data: fileData as string, // base64 字符串
-                });
-                logger.debug('[uploadProps] uploadAttachment resp:', resp);
-                if (resp.success) {
-                    logger.debug('[uploadProps] Attachment upload success, data:', resp.data);
-                    const data: any = resp.data;
-                    
-                    // 直接使用返回的 URL，不添加协议前缀
-                    const filePath = data.url || '';
-                    
-                    // 只传递可序列化的 attachment 字段，避免 circular JSON
-                    const safeAttachment = {
-                        name: data.name || file.name || 'unknown',
-                        type: data.type || file.type || 'application/octet-stream',
-                        size: data.size || file.size || 0,
-                        url: filePath, // 直接使用返回的 URL
-                        filePath: filePath, // 保存文件路径
-                        mimeType: data.type || file.type || 'application/octet-stream',
-                        isImage: FileUtils.isImageFile(data.type || file.type || ''),
-                        status: 'complete',
-                        uid: data.uid || file.uid || ('' + Date.now())
-                    };
-                    
-                    onSuccess(safeAttachment, file);
-                } else {
-                    logger.error('[uploadProps] Attachment upload error:', resp.error);
-                    onError(resp.error, file);
-                }
-            };
-            reader.onerror = (e) => {
-                console.error('[uploadProps] FileReader onerror', e);
-                onError(new Error('FileReader error'), file);
-            };
-            // 兼容更多 UI 上传组件的 file 结构，优先用 fileInstance
-            let realFile = null;
-            if (file.fileInstance instanceof Blob) {
-                realFile = file.fileInstance;
-            } else if (file.originFileObj instanceof Blob) {
-                realFile = file.originFileObj;
-            } else if (file instanceof Blob) {
-                realFile = file;
-            } else if (file.raw instanceof Blob) {
-                realFile = file.raw;
-            } else {
-                for (const key in file) {
-                    if (file[key] instanceof Blob) {
-                        realFile = file[key];
-                        break;
-                    }
-                }
-            }
-            if (!realFile) {
-                console.error('[uploadProps] Not a Blob/File:', file);
-                onError(new Error('文件类型错误，无法上传'), file);
-                return;
-            }
-            // 优先从 realFile 获取 type、name、size
-            const fileType = realFile.type || file.type || '';
-            const fileName = realFile.name || file.name || '';
-            const fileSize = realFile.size || file.size || 0;
-            reader.readAsDataURL(realFile);
-        } catch (err) {
-            console.error('[uploadProps] customRequest catch', err);
-            onError(err, file);
-        }
-    },
-    // 其他配置可按需添加
-};
-
 // 图片预览组件
 const ImagePreview: React.FC<{ filePath: string; fileName: string; mimeType: string }> = ({ 
     filePath, 
     fileName, 
     mimeType 
 }) => {
+    const { t } = useTranslation();
     const [imageUrl, setImageUrl] = useState<string>('');
     const [isLoading, setIsLoading] = useState(true);
     const [hasError, setHasError] = useState(false);
@@ -528,7 +443,7 @@ const ImagePreview: React.FC<{ filePath: string; fileName: string; mimeType: str
                 fontSize: '12px',
                 color: 'var(--semi-color-text-2)'
             }}>
-                加载中...
+                {t('pages.chat.loading')}
             </div>
         );
     }
@@ -551,7 +466,7 @@ const ImagePreview: React.FC<{ filePath: string; fileName: string; mimeType: str
                 }}
                 onClick={handleClick}
             >
-                点击查看
+                {t('pages.chat.clickToView')}
             </div>
         );
     }
@@ -577,7 +492,6 @@ const ImagePreview: React.FC<{ filePath: string; fileName: string; mimeType: str
                     height: '100%',
                     objectFit: 'cover'
                 }}
-                onError={() => setHasError(true)}
             />
         </div>
     );
@@ -673,6 +587,98 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
             
             return <CustomContentRenderer content={content} />;
         }
+    };
+
+    // 上传组件的配置 - 移到组件内部以使用 hook
+    const uploadProps = {
+        action: '', // 禁用 HTTP 上传
+        beforeUpload: () => true, // 必须返回 true，允许 customRequest 执行
+        customRequest: async (options: any) => {
+            const { file, onSuccess, onError } = options;
+            try {
+                // 兼容更多 UI 上传组件的 file 结构，优先用 fileInstance
+                let realFile = null;
+                if (file.fileInstance instanceof Blob) {
+                    realFile = file.fileInstance;
+                } else if (file.originFileObj instanceof Blob) {
+                    realFile = file.originFileObj;
+                } else if (file instanceof Blob) {
+                    realFile = file;
+                } else if (file.raw instanceof Blob) {
+                    realFile = file.raw;
+                } else {
+                    for (const key in file) {
+                        if (file[key] instanceof Blob) {
+                            realFile = file[key];
+                            break;
+                        }
+                    }
+                }
+                if (!realFile) {
+                    console.error('[uploadProps] Not a Blob/File:', file);
+                    onError(new Error(t('pages.chat.failedToGetFileContent')), file);
+                    return;
+                }
+                
+                // 优先从 realFile 获取 type、name、size
+                const fileType = realFile.type || file.type || '';
+                const fileName = realFile.name || file.name || '';
+                const fileSize = realFile.size || file.size || 0;
+                
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const fileData = e.target?.result;
+                    if (!fileData) {
+                        console.error('[uploadProps] FileReader failed');
+                        onError(new Error(t('pages.chat.failedToGetFileContent')), file);
+                        return;
+                    }
+                    const api = get_ipc_api();
+                    const resp = await api.chat.uploadAttachment({
+                        name: fileName,
+                        type: fileType,
+                        size: fileSize,
+                        data: fileData as string, // base64 字符串
+                    });
+                    logger.debug('[uploadProps] uploadAttachment resp:', resp);
+                    if (resp.success) {
+                        logger.debug('[uploadProps] Attachment upload success, data:', resp.data);
+                        const data: any = resp.data;
+                        
+                        // 直接使用返回的 URL，不添加协议前缀
+                        const filePath = data.url || '';
+                        
+                        // 只传递可序列化的 attachment 字段，避免 circular JSON
+                        const safeAttachment = {
+                            name: data.name || file.name || 'unknown',
+                            type: data.type || file.type || 'application/octet-stream',
+                            size: data.size || file.size || 0,
+                            url: filePath, // 直接使用返回的 URL
+                            filePath: filePath, // 保存文件路径
+                            mimeType: data.type || file.type || 'application/octet-stream',
+                            isImage: FileUtils.isImageFile(data.type || file.type || ''),
+                            status: 'complete',
+                            uid: data.uid || file.uid || ('' + Date.now())
+                        };
+                        
+                        onSuccess(safeAttachment, file);
+                    } else {
+                        logger.error('[uploadProps] Attachment upload error:', resp.error);
+                        onError(resp.error, file);
+                    }
+                };
+                reader.onerror = (e) => {
+                    console.error('[uploadProps] FileReader onerror', e);
+                    onError(new Error('FileReader error'), file);
+                };
+                
+                reader.readAsDataURL(realFile);
+            } catch (err) {
+                console.error('[uploadProps] customRequest catch', err);
+                onError(err, file);
+            }
+        },
+        // 其他配置可按需添加
     };
 
     return (
