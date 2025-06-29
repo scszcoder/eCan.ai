@@ -137,11 +137,13 @@ class ManagedTask(Task):
             config: Configuration dictionary for the runnable
             **kwargs: Additional arguments to pass to the runnable's astream method
         """
-        if not in_msg:
-            in_args = self.metadata.get("state", {})
-        else:
-            in_args = in_msg
-
+        print("in_msg:", in_msg, "config:", config, "kwargs:", kwargs)
+        # if not in_msg:
+        #     in_args = self.metadata.get("state", {})
+        # else:
+        #     in_args = in_msg
+        print("self.metadata:", self.metadata)
+        in_args = self.metadata.get("state", {})
         print("in_args:", in_args)
 
         if config is None:
@@ -638,7 +640,7 @@ class TaskRunner(Generic[Context]):
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))
         await self.resume_task(task_id)
 
-    def sendChatToGUI(self, chatId, msg):
+    def sendChatToGUI(self, sender_agent, chatId, msg):
         print("sendChatToGUI::", msg)
         try:
             msg_data = {
@@ -647,7 +649,7 @@ class TaskRunner(Generic[Context]):
                 "message": msg,
                 "time": ""
             }
-            resp = self.agent.mainwin.top_gui.receive_new_chat_message(msg_data)
+            resp = self.agent.mainwin.top_gui.receive_new_chat_message(sender_agent, chatId,msg_data)
             # ipc_api.update_chats([msg])
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
@@ -746,7 +748,7 @@ class TaskRunner(Generic[Context]):
                             # response = await task2run.astream_run()
                             response = task2run.stream_run()
 
-                            print("task run response:", response)
+                            print("reacted task run response:", response)
                             if not response.get("success") and 'step' in response:
                                 logger.trace("sending interrupt prompt1")
                                 if '__interrupt__' in response['step']:
@@ -754,7 +756,8 @@ class TaskRunner(Generic[Context]):
                                     interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
-                                    self.sendChatToGUI(prompt)
+                                    chatId = msg.params.metadata['chatId']
+                                    self.sendChatToGUI(chatId, prompt)
 
                             task_id = msg.params.id
                             self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
@@ -803,11 +806,13 @@ class TaskRunner(Generic[Context]):
                                 print("chatter task2run skill name", task2run.skill.name)
                                 task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
 
-                                print("task2run init state", task2run.metadata["state"])
+                                print("interacted task2run init state", task2run.metadata["state"])
                                 print("ready to run the right task", task2run.name, type(msg), msg)
+
+
                                 # response = await task2run.astream_run()
                                 response = task2run.stream_run()
-                                print("task run response:", response)
+                                print("ineracted task run response:", response)
 
                                 # print("msg is now becoming:", type(msg), msg)
                                 # if isinstance(msg, dict):
@@ -821,27 +826,62 @@ class TaskRunner(Generic[Context]):
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
                                     print("prompt to human:", prompt)
-                                    self.sendChatToGUI(msg.params.chatId, prompt)
+                                    chatId = msg.params.metadata['chatId']
+                                    task_id = msg.params.metadata['msgId']
+                                    print("chatId in the message", chatId)
+                                    self.sendChatToGUI(self.agent, chatId, prompt)
                                     print("prompt sent to GUI<<<<<<<<<<<")
 
                                 if not isinstance(msg, dict):
                                     task_id = msg.params.id
                                 else:
-                                    task_id = msg['params']['id']
+                                    if "id" in msg['params']:
+                                        task_id = msg['params']['id']
+                                    elif "id" in msg:
+                                        task_id = msg['id']
+                                    else:
+                                        print("ERROR: lost track of task id....", msg)
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                                 justStarted = False
                             else:
-                                print("resuming after getting human response")
-                                # task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+                                print("no longer initial run", msg)
+                                task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
 
-                                # print("task2run init state", task2run.metadata["state"])
+                                print("interactedtask2run current state", task2run.metadata["state"])
                                 # print("ready to run the right task", task2run.name, msg)
 
-                                # response = await task2run.astream_run(Command(resume=True), stream_mode="updates",)
-                                response = task2run.stream_run(Command(resume=True), stream_mode="updates",)
+                                print("interacted task2run current response", response)
 
-                                print("task resume response:", response)
-                                task_id = msg.params.id
+                                if '__interrupt__' in response['step']:
+                                    response = task2run.stream_run(Command(resume=True), stream_mode="updates",)
+                                    print("interacted  task resume response:", response)
+                                else:
+                                    response = task2run.stream_run()
+                                    print("interacted task re-run response:", response)
+
+                                if '__interrupt__' in response['step']:
+                                    print("sending interrupt prompt2")
+                                    interrupt_obj = response["step"]["__interrupt__"][
+                                        0]  # [0] because it's a tuple with one item
+                                    prompt = interrupt_obj.value["prompt_to_human"]
+                                    # now return this prompt to GUI to display
+                                    print("prompt to human:", prompt)
+                                    chatId = msg.params.metadata['chatId']
+                                    task_id = msg.params.metadata['msgId']
+                                    print("chatId in the message", chatId)
+                                    self.sendChatToGUI(self.agent, chatId, prompt)
+                                    print("prompt sent to GUI<<<<<<<<<<<")
+
+                                if not isinstance(msg, dict):
+                                    task_id = msg.params.id
+                                else:
+                                    if "id" in msg['params']:
+                                        task_id = msg['params']['id']
+                                    elif "id" in msg:
+                                        task_id = msg['id']
+                                    else:
+                                        print("ERROR: lost track of task id....", msg)
+
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                                 justStarted = False
 

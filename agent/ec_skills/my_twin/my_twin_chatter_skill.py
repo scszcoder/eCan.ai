@@ -20,7 +20,7 @@ def parrot(state: NodeState) -> NodeState:
     # this function simply routes the incoming chat message, if the chat message is for
     # human, then sends it to the GUI section, (update message DB)
     # if the chat message is for agent, then sends it to the recipient agent using A2A protocol (update message DB)
-    print("my twin parrot chatting...")
+    print("my twin parrot chatting...", state)
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
