@@ -1,9 +1,7 @@
 import React, { useEffect, useCallback } from 'react';
 import VirtualPlatform from './VirtualPlatform';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { Spin, message, App } from 'antd';
-import { useAgents } from './hooks/useAgents';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { useUserStore } from '../../stores/userStore';
 import { Agent } from './types';
@@ -13,9 +11,7 @@ import { get_ipc_api } from '@/services/ipc_api';
 
 const Agents: React.FC = () => {
   const { t } = useTranslation();
-    const navigate = useNavigate();
     const { message: messageApi } = App.useApp();
-    // const { selectedAgent, selectItem, isSelected } = useAgents();
     
     const agents = useAppDataStore((state) => state.agents);
     const isLoading = useAppDataStore((state) => state.isLoading);

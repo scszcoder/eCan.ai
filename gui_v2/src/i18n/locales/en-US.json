@@ -671,5 +671,16 @@
     "ariaHistory": "View search history",
     "ariaFilter": "Open filter options",
     "colon": ":"
+  },
+  "department": {
+    "hr": "HR Department",
+    "it": "IT Department",
+    "finance": "Finance Department",
+    "sales": "Sales Department",
+    "marketing": "Marketing Department",
+    "operations": "Operations Department",
+    "customer_service": "Customer Service",
+    "research": "R&D Department",
+    "legal": "Legal Department"
   }
 } 

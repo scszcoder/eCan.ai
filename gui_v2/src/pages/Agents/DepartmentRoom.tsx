@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAppDataStore } from '../../stores/appDataStore';
 import AgentAvatar from './components/AgentAvatar';
 import './DepartmentRoom.css';
-import { Button } from 'antd';
 import { Agent } from './types';
 
 const DepartmentRoom: React.FC = () => {
@@ -22,11 +21,11 @@ const DepartmentRoom: React.FC = () => {
   return (
     <div className="department-room">
       <div className="agents-list">
-        {deptAgents.map((agent: any) => (
+        {deptAgents.map((agent: Agent) => (
           <AgentAvatar
-            key={agent.card?.id || agent.id}
-            agent={agent.card || agent}
-            onChat={() => navigate(`/chat/${agent.card?.id || agent.id}`)}
+            key={agent.card.id}
+            agent={agent}
+            onChat={() => navigate(`/chat?agentId=${agent.card.id}`)}
           />
         ))}
       </div>
