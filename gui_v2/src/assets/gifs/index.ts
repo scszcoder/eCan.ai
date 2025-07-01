@@ -1,6 +1,4 @@
-// 自动导入 src/assets/gifs 下所有 gif/mp4 文件
-const modules = import.meta.glob('./*.{gif,mp4}', { eager: true, query: '?url', import: 'default' });
-
+// 只导出 public/assets/gifs 下的 webm 文件路径
 const agentGifs = [
   '/assets/gifs/agent0.webm',
   '/assets/gifs/agent1.webm',
@@ -10,7 +8,7 @@ const agentGifs = [
   '/assets/gifs/agent5.webm',
 ];
 
-export default agentGifs; 
+export default agentGifs;
 
 function logVideoSupport() {
   const video = document.createElement('video');
