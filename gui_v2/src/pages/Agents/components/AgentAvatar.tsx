@@ -2,7 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import agentGifs from '@/assets/gifs'; // 需实现导入所有 gif
 import { Agent, AgentCard } from '../types';
 import './AgentAvatar.css';
-import { Button, Tooltip } from 'antd';
+import { Button } from 'antd';
 import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAppDataStore } from '@/stores/appDataStore';
