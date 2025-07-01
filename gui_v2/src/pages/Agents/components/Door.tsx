@@ -32,16 +32,7 @@ const Door: React.FC<DoorProps> = ({ name }) => {
       onMouseLeave={() => setHovered(false)}
     >
       <div className="door-img-container">
-        {/* 门内内容 */}
-        <video
-          src={gifUrl}
-          className="door-inside-gif"
-          autoPlay
-          loop
-          muted
-          playsInline
-          style={{ opacity: hovered ? 0.92 : 0, pointerEvents: 'none' }}
-        />
+        {/* 只显示门图片，不播放动画视频 */}
         <img
           src={hovered ? doorOpenImg : doorClosedImg}
           alt="door"

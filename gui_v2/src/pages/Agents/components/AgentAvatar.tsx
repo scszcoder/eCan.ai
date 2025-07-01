@@ -27,14 +27,15 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   const name = (agent as any).name || (agent as any).card?.name;
   const desc = (agent as any).description || (agent as any).card?.description;
   const gif = useMemo(() => getRandomGif(), []);
-  const isVideo = gif.endsWith('.mp4');
+  const isVideo = gif.endsWith('.webm') || gif.endsWith('.mp4');
 
   // render 次数日志
   const renderCount = useRef(0);
   renderCount.current++;
-  console.log('AgentAvatar render', id, 'count:', renderCount.current, agent);
+  // console.log('AgentAvatar render', id, 'count:', renderCount.current, agent);
 
   console.log('gif url:', gif);
+  // console.log('agentGifs:', agentGifs);
 
   return (
     <div className="agent-avatar" key={id}>
@@ -46,6 +47,11 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
           loop
           muted
           playsInline
+          width={220}
+          height={220}
+          style={{ borderRadius: 28, objectFit: 'cover', marginBottom: 26, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)' }}
+          poster="/default-agent-poster.png"
+          onError={e => { console.error('video load error', gif, e); }}
         />
       ) : (
         <img src={gif} alt="agent working" className="agent-gif" />
