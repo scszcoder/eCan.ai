@@ -14,21 +14,19 @@ const PageBackBreadcrumb: React.FC = () => {
     if (segments.length < 2) return null;
     // 只在二级及以上页面显示
     const parentPath = '/' + segments.slice(0, -1).join('/');
-    const breadcrumbItems = segments.map((seg, idx) => {
+    const items = segments.map((seg, idx) => {
         const segPath = '/' + segments.slice(0, idx + 1).join('/');
         const isLast = idx === segments.length - 1;
-        // 国际化优先 t('breadcrumb.xxx')，否则用原始
         let label = t(`breadcrumb.${seg}`);
         if (label === `breadcrumb.${seg}`) label = decodeURIComponent(seg);
-        return (
-            <Breadcrumb.Item key={segPath}>
-                {isLast ? (
-                    <span>{label}</span>
-                ) : (
-                    <span style={{ cursor: 'pointer', color: 'var(--ant-primary-color)' }} onClick={() => navigate(segPath)}>{label}</span>
-                )}
-            </Breadcrumb.Item>
-        );
+        return {
+            key: segPath,
+            title: isLast ? (
+                <span>{label}</span>
+            ) : (
+                <span style={{ cursor: 'pointer', color: 'var(--ant-primary-color)' }} onClick={() => navigate(segPath)}>{label}</span>
+            )
+        };
     });
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'absolute', top: 0, left: 0, zIndex: 10, padding: '8px 16px' }}>
@@ -40,9 +38,7 @@ const PageBackBreadcrumb: React.FC = () => {
             >
                 {t('common.back', '返回')}
             </Button>
-            <Breadcrumb>
-                {breadcrumbItems}
-            </Breadcrumb>
+            <Breadcrumb items={items} />
         </div>
     );
 };

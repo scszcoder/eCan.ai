@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import departments from './data/departments';
 import Door from './components/Door';
 import './VirtualPlatform.css';
+import { useTranslation } from 'react-i18next';
 
 function getGridTemplate(deptCount: number) {
   // 2~4个门：2列，5~6个：3列，7~9个：3列，10+：4列
@@ -23,6 +24,7 @@ const VirtualPlatform: React.FC = () => {
   const deptCount = departments.length;
   const gridTemplate = getGridTemplate(deptCount);
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   return (
     <div className="virtual-platform">
@@ -70,7 +72,7 @@ const VirtualPlatform: React.FC = () => {
       <div className="doors-grid" style={{gridTemplateColumns: gridTemplate}}>
         {departments.map((dept) => (
           <div key={dept.id} onClick={() => navigate(`/agents/room/${dept.id}`)} style={{cursor: 'pointer'}}>
-            <Door name={dept.name} />
+            <Door name={t(dept.name)} />
           </div>
         ))}
       </div>
