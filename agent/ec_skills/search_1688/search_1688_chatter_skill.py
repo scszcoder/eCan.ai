@@ -91,15 +91,7 @@ def any_unknown_part_numbers(state: NodeState) -> NodeState:
     return state
 
 
-# def gen_prompt_node(state: NodeState) -> Command[Literal["call_llm", "run_tool"]]:
-#     # This is the value we'll be providing via Command(resume=<human_review>)
-#
-async def any_attachment(state: NodeState) -> str:
-    print("any_attachment input:", state)
-    state_output = state.messages[-1]
-    if state_output.get("job_related", False):
-        return "do_work"
-    return "chat_back"
+
 
 def chat_or_work(state: NodeState) -> str:
     print("chat_or_work input:", state)

@@ -196,6 +196,8 @@ class NodeState(TypedDict):
     messages: List[Any]
     attributes: dict
     result: dict
+    tool_input: dict
+    tool_result: dict
     error: str
     retries: int
     condition: bool
