@@ -13,6 +13,7 @@
   -webkit-backface-visibility: hidden;
   perspective: 1000;
   -webkit-perspective: 1000;
+  will-change: transform, opacity, background-position;
 }
 
 /* 登录页面装饰 */
@@ -26,6 +27,11 @@
   z-index: 1;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000;
+  -webkit-perspective: 1000;
+  will-change: opacity, transform;
 }
 
 /* 背景动画元素 */
@@ -36,10 +42,15 @@
   background: linear-gradient(45deg, transparent 45%, rgba(24, 144, 255, 0.1) 50%, transparent 55%);
   background-size: 200% 200%;
   animation: gradientMove 15s ease infinite;
+  animation-delay: 0.15s;
   z-index: 1;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
-  will-change: background-position;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000;
+  -webkit-perspective: 1000;
+  will-change: background-position, opacity, transform;
 }
 
 /* 语言选择器容器 */
@@ -86,7 +97,11 @@
   animation: float 6s ease-in-out infinite;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
-  will-change: transform;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000;
+  -webkit-perspective: 1000;
 }
 
 /* Logo 图片 */
@@ -110,7 +125,11 @@
   animation: rotate 10s linear infinite;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
-  will-change: transform;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000;
+  -webkit-perspective: 1000;
 }
 
 /* 表单输入框 */
