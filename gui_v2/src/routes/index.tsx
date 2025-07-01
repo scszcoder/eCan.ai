@@ -17,6 +17,8 @@ import Settings from '../pages/Settings/Settings';
 import Console from '../pages/Console/Console';
 import Knowledge from '../pages/Knowledge/Knowledge';
 import Tests from '../pages/Tests/Tests';
+import VirtualPlatform from '../pages/Agents/VirtualPlatform';
+import DepartmentRoom from '../pages/Agents/DepartmentRoom';
 
 // 路由配置类型
 export interface RouteConfig {
@@ -84,6 +86,14 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'agents',
                 element: <Agents />,
+            },
+            {
+                path: 'agents/virtual',
+                element: <VirtualPlatform />,
+            },
+            {
+                path: 'agents/room/:departmentId',
+                element: <DepartmentRoom />,
             },
             {
                 path: 'analytics',
