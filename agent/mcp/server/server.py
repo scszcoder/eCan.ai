@@ -23,7 +23,12 @@ from agent.runner.models import (
 )
 import shutil
 from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
+from gui.LoginoutGUI import Login
 from utils.logger_helper import login
+from bot.seleniumSkill import *
+from agent.ec_skill import *
+from app_context import AppContext
+from utils.logger_helper import logger_helper as logger
 
 server_main_win = None
 logger = logging.getLogger(__name__)
@@ -66,9 +71,12 @@ async def list_tools() -> list[types.Tool]:
 
 @meca_mcp_server.call_tool()
 async def unified_tool_handler(tool_name, args):
+    ctx = AppContext()
+    login: Login = ctx.login
+    # 获取用户名和密码
     if tool_name in tool_function_mapping:
         try:
-            result = await tool_function_mapping[tool_name](args)
+            result = await tool_function_mapping[tool_name](login.main_win, args)
             print("unified_tool_handler after call", type(result), result)
         except Exception as e:
             # Get the traceback information
@@ -98,36 +106,36 @@ def ads_rpa_help_prompt(step_description: str, failure:str) -> list[base.Message
     ]
 
 
-async def say_hello(params):
+async def say_hello(mainwin, args):
     msg = f'Hi There!'
     logger.info(msg)
     return CallToolResult(content=[TextContent(type="text", text=msg)], meta={"# bots": len(login.main_win.bots)}, include_in_memory=False)
 
 
-async def wait(params):
-    msg = f'🕒  Waiting for {params["seconds"]} seconds'
+async def os_wait(mainwin, args):
+    msg = f'🕒  Waiting for {args["seconds"]} seconds'
     logger.info(msg)
-    await asyncio.sleep(params["seconds"])
+    await asyncio.sleep(args["seconds"])
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def in_browser_wait_for_element(params):
+async def in_browser_wait_for_element(mainwin, args):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
-        browser_context = login.main_win.getBrowserContextById(params["context_id"])
-        browser = browser_context.browser
-        await browser.wait_for_element(params.selector, params.timeout)
-        msg = f'👀  Element with selector "{params.selector}" became visible within {params.timeout}ms.'
-        logger.info(msg)
+        web_driver = mainwin.web_driver
+        wait = WebDriverWait(web_driver, args.timeout)
+
+        args.tool_result = wait.until(EC.element_to_be_clickable((args.tool_input["element_type"], args.tool_input["element_name"])))
+
         return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
-        err_msg = f'❌  Failed to wait for element "{params.selector}" within {params.timeout}ms: {str(e)}'
+        err_msg = f'❌  Failed to wait for element "{args.selector}" within {args.timeout}ms: {str(e)}'
         logger.error(err_msg)
         raise Exception(err_msg)
 
 
 # Element Interaction Actions
-async def in_browser_click_element_by_index(params):
+async def in_browser_click_element_by_index(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     session = await browser.get_session()
@@ -166,7 +174,7 @@ async def in_browser_click_element_by_index(params):
         return CallToolResult(error=str(e))
 
 
-async def in_browser_click_element_by_selector(params):
+async def in_browser_click_element_by_selector(mainwin, params):
     try:
         browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
@@ -189,7 +197,7 @@ async def in_browser_click_element_by_selector(params):
         return CallToolResult(error=str(e))
 
 
-async def in_browser_click_element_by_xpath(params):
+async def in_browser_click_element_by_xpath(mainwin, params):
     try:
         browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
@@ -212,7 +220,7 @@ async def in_browser_click_element_by_xpath(params):
         return CallToolResult(error=str(e))
 
 
-async def in_browser_click_element_by_text(params):
+async def in_browser_click_element_by_text(mainwin, params):
     try:
         browser_context = login.main_win.getBrowserContextById(params["context_id"])
         browser = browser_context.browser
@@ -240,7 +248,7 @@ async def in_browser_click_element_by_text(params):
         return CallToolResult(error=str(e))
 
 
-async def in_browser_input_text(params):
+async def in_browser_input_text(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -258,7 +266,7 @@ async def in_browser_input_text(params):
 
 
 # Save PDF
-async def in_browser_save_pdf(params):
+async def in_browser_save_pdf(mainwin, params):
     page = await browser.get_current_page()
     short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
     slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
@@ -272,7 +280,7 @@ async def in_browser_save_pdf(params):
 
 
 # Tab Management Actions
-async def in_browser_switch_tab(params):
+async def in_browser_switch_tab(mainwin, params):
     await browser.switch_to_tab(params.page_id)
     # Wait for tab to be ready
     page = await browser.get_current_page()
@@ -282,8 +290,8 @@ async def in_browser_switch_tab(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def in_browser_open_tab(params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+async def in_browser_open_tab(mainwin, params):
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     await browser.create_new_tab(params.url)
     msg = f'🔗  Opened new tab with {params.url}'
@@ -291,8 +299,8 @@ async def in_browser_open_tab(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def in_browser_close_tab(params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+async def in_browser_close_tab(mainwin, params):
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     await browser.switch_to_tab(params.page_id)
     page = await browser.get_current_page()
@@ -304,14 +312,31 @@ async def in_browser_close_tab(params):
 
 
 # Content Actions
-async def in_browser_scrape_content(params):
+async def in_browser_scrape_content(mainwin, params):
     try:
-        global server_main_win
-        web_driver = server_main_win.web_driver
-        dom_service = server_main_win.dom_service
+        web_driver = mainwin.web_driver
+        dom_service = mainwin.dom_service
         dom_service.get_clickable_elements()
 
     except Exception as e:
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallToolScrapeContents:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallToolScrapeContents: traceback information not available:" + str(e)
+        print("ex_stat:", ex_stat)
+        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
+        return CallToolResult(content=err_text_content, isError=True)
+
+
+async def in_browser_execute_javascript(mainwin, state: NodeState) -> NodeState:
+    try:
+        web_driver = mainwin.web_driver
+        result = execute_js_script(web_driver, state.tool_input["script"], state.tool_input["target"])
+
+    except Exception as e:
+        traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
             ex_stat = "ErrorCallToolScrapeContents:" + traceback.format_exc() + " " + str(e)
@@ -323,8 +348,29 @@ async def in_browser_scrape_content(params):
 
 
 
+async def in_browser_build_dom_tree(mainwin, params):
+    try:
+        global server_main_win
+        web_driver = server_main_win.web_driver
+        dom_service = server_main_win.dom_service
+        dom_service.get_clickable_elements()
+
+    except Exception as e:
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallToolScrapeContents:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallToolScrapeContents: traceback information not available:" + str(e)
+        print("ex_stat:", ex_stat)
+        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
+        return CallToolResult(content=err_text_content, isError=True)
+
+
+
+
 # HTML Download
-async def in_browser_save_html_to_file(params) -> CallToolResult:
+async def in_browser_save_html_to_file(mainwin, params) -> CallToolResult:
     """Retrieves and returns the full HTML content of the current page to a file"""
     try:
         browser_context = login.main_win.getBrowserContextById(params["context_id"])
@@ -352,7 +398,7 @@ async def in_browser_save_html_to_file(params) -> CallToolResult:
         return CallToolResult(error=error_msg, content='')
 
 
-async def in_browser_scroll_down(params):
+async def in_browser_scroll_down(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
@@ -371,7 +417,7 @@ async def in_browser_scroll_down(params):
 
 
 # scroll up
-async def in_browser_scroll_up(params):
+async def in_browser_scroll_up(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
@@ -390,7 +436,7 @@ async def in_browser_scroll_up(params):
 
 
 # send keys
-async def in_browser_send_keys(params):
+async def in_browser_send_keys(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
@@ -413,7 +459,7 @@ async def in_browser_send_keys(params):
     return CallToolResult(content=[msg], isError=False)
 
 
-async def in_browser_scroll_to_text(params):  # type: ignore
+async def in_browser_scroll_to_text(mainwin, params):  # type: ignore
     page = await browser.get_current_page()
     try:
         # Try different locator strategies
@@ -446,7 +492,7 @@ async def in_browser_scroll_to_text(params):  # type: ignore
         return CallToolResult(error=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def in_browser_get_dropdown_options(params) -> CallToolResult:
+async def in_browser_get_dropdown_options(mainwin, params) -> CallToolResult:
     """Get all options from a native dropdown"""
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
@@ -516,7 +562,7 @@ async def in_browser_get_dropdown_options(params) -> CallToolResult:
         return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def in_browser_select_dropdown_option(params) -> CallToolResult:
+async def in_browser_select_dropdown_option(mainwin, params) -> CallToolResult:
     """Select dropdown option by the text of the option you want to select"""
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
@@ -609,7 +655,7 @@ async def in_browser_select_dropdown_option(params) -> CallToolResult:
         return CallToolResult(error=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def in_browser_drag_drop(params) -> CallToolResult:
+async def in_browser_drag_drop(mainwin, params) -> CallToolResult:
     """
     Performs a precise drag and drop operation between elements or coordinates.
     """
@@ -824,7 +870,7 @@ async def in_browser_drag_drop(params) -> CallToolResult:
         return CallToolResult(content=[TextContent(type="text", text=error_msg)], isError=True)
 
 
-async def mouse_click(params):
+async def mouse_click(mainwin, params):
     print("INPUT:", params)
     # if tool_name != "rpa_supervisor_scheduling_work":
     #     raise ValueError(f"Unexpected tool name: {tool_name}")
@@ -862,7 +908,7 @@ async def mouse_click(params):
         return CallToolResult(content=err_text_content, isError=True)
 
 
-async def mouse_move(params):
+async def mouse_move(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -875,7 +921,7 @@ async def mouse_move(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def mouse_drag_drop(params):
+async def mouse_drag_drop(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -889,7 +935,7 @@ async def mouse_drag_drop(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def mouse_scroll(params):
+async def mouse_scroll(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -906,7 +952,7 @@ async def mouse_scroll(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def text_input(params):
+async def keyboard_text_input(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -919,7 +965,7 @@ async def text_input(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def keys_input(params):
+async def keyboard_keys_input(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -932,7 +978,7 @@ async def keys_input(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def call_api(params):
+async def http_call_api(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -944,8 +990,7 @@ async def call_api(params):
     msg = ""
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
-
-async def open_app(params):
+async def os_connect_to_adspower(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -961,7 +1006,24 @@ async def open_app(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def close_app(params):
+
+async def os_open_app(mainwin, params):
+    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser = browser_context.browser
+    if params.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+
+    DETACHED_PROCESS = 0x00000008
+    subprocess.Popen(params.app_name, creationflags=DETACHED_PROCESS, shell=True, close_fds=True,
+                     stdout=subprocess.PIPE,
+                     stderr=subprocess.PIPE)
+
+    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    msg = ""
+    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+
+
+async def os_close_app(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -975,7 +1037,7 @@ async def close_app(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def switch_to_app(params):
+async def os_switch_to_app(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -992,7 +1054,7 @@ async def switch_to_app(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def run_extern(params):
+async def python_run_extern(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1005,7 +1067,7 @@ async def run_extern(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def make_dir(params):
+async def os_make_dir(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1020,7 +1082,7 @@ async def make_dir(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def delete_dir(params):
+async def os_delete_dir(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1035,7 +1097,7 @@ async def delete_dir(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def delete_file(params):
+async def os_delete_file(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1050,7 +1112,7 @@ async def delete_file(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def move_file(params):
+async def os_move_file(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1067,7 +1129,7 @@ async def move_file(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def copy_file_dir(params):
+async def os_copy_file_dir(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1080,7 +1142,7 @@ async def copy_file_dir(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def screen_analyze(params):
+async def os_screen_analyze(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1099,7 +1161,7 @@ async def screen_analyze(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def screen_capture(params):
+async def os_screen_capture(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1116,7 +1178,7 @@ async def screen_capture(params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def seven_zip(params):
+async def os_seven_zip(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(context_id)
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1128,7 +1190,7 @@ async def seven_zip(params):
 
 
 
-async def kill_processes(params):
+async def os_kill_processes(mainwin, params):
     browser_context = login.main_win.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
@@ -1140,7 +1202,7 @@ async def kill_processes(params):
 
 
 # Element Interaction Actions
-async def rpa_supervisor_scheduling_work(params) -> CallToolResult:
+async def rpa_supervisor_scheduling_work(mainwin, params) -> CallToolResult:
     print("INPUT:", params)
     # if tool_name != "rpa_supervisor_scheduling_work":
     #     raise ValueError(f"Unexpected tool name: {tool_name}")
@@ -1195,7 +1257,7 @@ async def rpa_supervisor_scheduling_work(params) -> CallToolResult:
 #
 #     content: list[TextContent | ImageContent | EmbeddedResource]
 #     isError: bool = False
-async def rpa_operator_dispatch_works(params):
+async def rpa_operator_dispatch_works(mainwin, params):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
@@ -1209,7 +1271,7 @@ async def rpa_operator_dispatch_works(params):
         return CallToolResult(content=text_content, isError=False)
 
 
-async def rpa_supervisor_process_work_results(params):
+async def rpa_supervisor_process_work_results(mainwin, params):
     # handle RPA work results from a platoon host.
     # mostly bookkeeping.
     try:
@@ -1222,7 +1284,7 @@ async def rpa_supervisor_process_work_results(params):
         return CallToolResult(content=text_content, isError=False)
 
 
-async def rpa_supervisor_run_daily_housekeeping(params):
+async def rpa_supervisor_run_daily_housekeeping(mainwin, params):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
@@ -1235,7 +1297,7 @@ async def rpa_supervisor_run_daily_housekeeping(params):
         text_content = [TextContent(type="text", text=str(e))]
         return CallToolResult(content=text_content, isError=False)
 
-async def rpa_operator_report_work_results(params):
+async def rpa_operator_report_work_results(mainwin, params):
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
@@ -1249,7 +1311,7 @@ async def rpa_operator_report_work_results(params):
         return CallToolResult(content=text_content, isError=True)
 
 
-async def reconnect_wifi(params):
+async def reconnect_wifi(mainwin, params):
     # Disconnect current Wi-Fi
     subprocess.run(["netsh", "wlan", "disconnect"])
     time.sleep(2)
@@ -1262,7 +1324,7 @@ async def reconnect_wifi(params):
 
 tool_function_mapping = {
         "say_hello": say_hello,
-        "wait": wait,
+        "wait": os_wait,
         "in_browser_wait_for_element": in_browser_wait_for_element,
         "in_browser_click_element_by_index": in_browser_click_element_by_index,
         "in_browser_click_element_by_selector": in_browser_click_element_by_selector,
@@ -1275,6 +1337,8 @@ tool_function_mapping = {
         "in_browser_close_tab": in_browser_close_tab,
         "in_browser_extract_content": in_browser_scrape_content,
         "in_browser_save_html_to_file": in_browser_save_html_to_file,
+        "in_browser_execute_javascript": in_browser_execute_javascript,
+        "in_browser_build_dom_tree": in_browser_build_dom_tree,
         "in_browser_scroll_down": in_browser_scroll_down,
         "in_browser_scroll_up": in_browser_scroll_up,
         "in_browser_send_keys": in_browser_send_keys,
@@ -1286,22 +1350,22 @@ tool_function_mapping = {
         "mouse_move": mouse_move,
         "mouse_drag_drop": mouse_drag_drop,
         "mouse_scroll": mouse_scroll,
-        "text_input": text_input,
-        "keys_input": keys_input,
-        "call_api": call_api,
-        "open_app": open_app,
-        "close_app": close_app,
-        "switch_to_app": switch_to_app,
-        "run_extern": run_extern,
-        "make_dir": make_dir,
-        "delete_dir": delete_dir,
-        "delete_file": delete_file,
-        "move_file": move_file,
-        "copy_file_dir": copy_file_dir,
-        "screen_analyze": screen_analyze,
-        "screen_capture": screen_capture,
-        "seven_zip": seven_zip,
-        "kill_processes": kill_processes,
+        "keyboard_text_input": keyboard_text_input,
+        "keyboard_keys_input": keyboard_keys_input,
+        "http_call_api": http_call_api,
+        "os_open_app": os_open_app,
+        "os_close_app": os_close_app,
+        "os_switch_to_app": os_switch_to_app,
+        "python_run_extern": python_run_extern,
+        "os_make_dir": os_make_dir,
+        "os_delete_dir": os_delete_dir,
+        "os_delete_file": os_delete_file,
+        "os_move_file": os_move_file,
+        "os_copy_file_dir": os_copy_file_dir,
+        "os_screen_analyze": os_screen_analyze,
+        "os_screen_capture": os_screen_capture,
+        "os_seven_zip": os_seven_zip,
+        "os_kill_processes": os_kill_processes,
         "rpa_supervisor_scheduling_work": rpa_supervisor_scheduling_work,
         "rpa_operator_dispatch_works": rpa_operator_dispatch_works,
         "rpa_supervisor_process_work_results": rpa_supervisor_process_work_results,
