@@ -25,15 +25,6 @@ export interface Agent {
     organizations: string[];
     job_description: string;
     personalities: string[];
-    // The following fields from the old structure are deprecated
-    // and will be removed from the UI.
-    // status?: 'active' | 'busy' | 'offline';
-    // skills?: string[];
-    // tasksCompleted?: number;
-    // efficiency?: number;
-    // lastActive?: string;
-    // avatar?: string;
-    // currentTask?: string;
 }
 
 // 创建事件总线
