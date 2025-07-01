@@ -28,6 +28,7 @@ import { useUserStore } from '../../stores/userStore';
 import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
+import PageBackBreadcrumb from './PageBackBreadcrumb';
 
 const { Title } = Typography;
 
@@ -115,7 +116,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                     userMenuItems={userMenuItems}
                     onLogout={handleLogout}
                 />
-                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                    <PageBackBreadcrumb />
                     <AppContent>{children}</AppContent>
                 </div>
             </StyledInnerLayout>
