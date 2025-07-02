@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { Field } from '@flowgram.ai/free-layout-editor';
 import { DynamicValueInput } from '@flowgram.ai/form-materials';
 
@@ -31,7 +36,9 @@ export function FormInputs() {
                     onChange={field.onChange}
                     readonly={readonly}
                     hasError={Object.keys(fieldState?.errors || {}).length > 0}
-                    schema={property}
+                    constantProps={{
+                      schema: property,
+                    }}
                   />
                   <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
                 </FormItem>

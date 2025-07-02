@@ -135,6 +135,20 @@ export const initialData: FlowDocumentJSON = {
       },
       data: {
         title: 'Loop_1',
+        batchFor: {
+          type: 'ref',
+          content: ['start_0', 'array_obj'],
+        },
+        batchOutputs: {
+          results: {
+            type: 'ref',
+            content: ['llm_6aSyo', 'result'],
+          },
+          indexList: {
+            type: 'ref',
+            content: ['loop_sGybT_locals', 'index'],
+          },
+        },
       },
       blocks: [
         {

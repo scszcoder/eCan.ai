@@ -20,7 +20,11 @@ import { FlowNodeRegistry, FlowDocumentJSON } from '../typings';
 import { shortcuts } from '../shortcuts';
 import { CustomService } from '../services';
 import { WorkflowRuntimeService } from '../plugins/runtime-plugin/runtime-service';
-import { createRuntimePlugin, createContextMenuPlugin } from '../plugins';
+import {
+  createRuntimePlugin,
+  createContextMenuPlugin,
+  createVariablePanelPlugin,
+} from '../plugins';
 import { defaultFormMeta } from '../nodes/default-form-meta';
 import { WorkflowNodeType } from '../nodes';
 import { SelectorBoxPopover } from '../components/selector-box-popover';
@@ -118,6 +122,20 @@ export function useEditorProps(
        * 判断是否能删除节点, 这个会在默认快捷键 (Backspace or Delete) 触发
        */
       canDeleteNode(ctx, node) {
+        return true;
+      },
+      canDropToNode: (ctx, params) => {
+        const { dragNodeType, dropNodeType } = params;
+        /**
+         * 开始/结束节点无法拖入 loop or group
+         * The start and end nodes cannot be dragged into loop or group
+         */
+        if (
+          (dragNodeType === 'start' || dragNodeType === 'end') &&
+          (dropNodeType === 'loop' || dropNodeType === 'group')
+        ) {
+          return false;
+        }
         return true;
       },
       /**
@@ -292,6 +310,12 @@ export function useEditorProps(
           //   protocol: 'http',
           // },
         }),
+
+        /**
+         * Variable panel plugin
+         * 变量面板插件
+         */
+        createVariablePanelPlugin({}),
       ],
     }),
     []

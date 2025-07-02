@@ -9,7 +9,7 @@ import {
   PositionSchema,
   FlowNodeTransformData,
 } from '@flowgram.ai/free-layout-editor';
-import { provideBatchInputEffect } from '@flowgram.ai/form-materials';
+import { createBatchOutputsFormPlugin, provideBatchInputEffect } from '@flowgram.ai/form-materials';
 
 import { defaultFormMeta } from '../default-form-meta';
 import { FlowNodeRegistry } from '../../typings';
@@ -78,5 +78,6 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
     effect: {
       batchFor: provideBatchInputEffect,
     },
+    plugins: [createBatchOutputsFormPlugin({ outputKey: 'batchOutputs' })],
   },
 };
