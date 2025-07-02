@@ -1,7 +1,8 @@
 import traceback
 from typing import Any, Optional, Dict
 import uuid
-from gui.LoginoutGUI import Login
+from app_context import AppContext
+from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -22,8 +23,10 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get skills handler called with request: {request}, params: {params}")
-        skills = py_login.main_win.agent_skills
+        logger.debug(f"Get skills handler called with request: {request}")
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        skills = main_window.agent_skills
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
@@ -66,7 +69,7 @@ def handle_save_skills(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save skills handler called with request: {request}, params: {params}")
+        logger.debug(f"Save skills handler called with request: {request}")
         logger.debug("save skills:" + str(params))
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
@@ -113,7 +116,7 @@ def handle_save_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save skill handler called with request: {request}, params: {params}")
+        logger.debug(f"Save skill handler called with request: {request}")
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'skill_info'])
         if not is_valid:
@@ -156,7 +159,7 @@ def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Run skill handler called with request: {request}, params: {params}")
+        logger.debug(f"Run skill handler called with request: {request}")
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'skill'])
         if not is_valid:
