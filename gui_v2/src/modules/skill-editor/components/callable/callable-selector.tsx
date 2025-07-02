@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Select, Button, Space, Tooltip, Dropdown, Modal } from '@douyinfe/semi-ui';
 import { IconPlus, IconEdit, IconBox, IconSetting, IconMinusCircle } from '@douyinfe/semi-icons';
