@@ -87,14 +87,12 @@ export interface Member {
  * 使用 Semi Chat 组件时，应将此对象转换为 Message.content 字符串。
  */
 export interface Content {
-    type: 'text' | 'image_url' | 'file_url' | 'code' | 'system' | 'custom';
+    type: 'text' | 'image_url' | 'file_url' | 'code' | 'system' | 'custom' | 'form';
     text?: string;
     code?: { lang: string; value: string };
     image_url?: { url: string }; // 当type为image_url时的内容数据
     file_url?: { url: string; name: string; size: string; type: string }; // 当type为file_url时的内容数据
     key?: string; // 用于React渲染的唯一标识符
-    // 移除 attachments 字段，统一使用 Message.attachment
-    [key: string]: any;
 }
 
 /**
@@ -137,7 +135,7 @@ export type RoleKey = string;
 export const defaultRoleConfig: RoleConfig = {
     user: {
       name: '用户',
-      avatar: '/src/assets/agent02_100.png',
+      avatar: '/src/assets/icons2_100.png',
       color: 'blue'
     },
     assistant: {
