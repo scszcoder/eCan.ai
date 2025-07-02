@@ -22,8 +22,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get agents handler called with request: {request}, params: {params}")
-        logger.debug("get agents:" + str(params))
+        logger.debug(f"Get agents handler called with request: {request}")
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
@@ -74,8 +73,8 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save agents handler called with request: {request}, params: {params}")
-        logger.debug("save agents:" + str(params))
+        logger.debug(f"Save agents handler called with request: {request}")
+
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:

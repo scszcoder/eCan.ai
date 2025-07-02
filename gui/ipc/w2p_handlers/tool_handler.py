@@ -23,7 +23,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get tools handler called with request: {request}, params: {params}")
+        logger.debug(f"Get tools handler called with request: {request}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
