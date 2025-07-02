@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Form, Input, Select, Button, Typography, message, Space, Card } from 'antd';
 import { CodeOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
