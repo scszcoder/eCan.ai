@@ -14,6 +14,11 @@
     --g-workflow-line-color-error: red;
   }
   
+  /* CodeMirror line color for skill-editor nodes */
+  .ͼ2 .cm-line {
+    color: var(--semi-color-text-0) !important;
+  }
+  
   .gedit-selector-bounds-background {
     cursor: move;
     display: none !important;
