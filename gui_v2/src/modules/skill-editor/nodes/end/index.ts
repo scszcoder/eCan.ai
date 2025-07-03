@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { FlowNodeRegistry } from '../../typings';
 import iconEnd from '../../assets/icon-end.jpg';
 import { formMeta } from './form-meta';
@@ -10,6 +15,7 @@ export const EndNodeRegistry: FlowNodeRegistry = {
   meta: {
     deleteDisable: true,
     copyDisable: true,
+    nodePanelVisible: true,
     defaultPorts: [{ type: 'input' }],
     size: {
       width: 360,
