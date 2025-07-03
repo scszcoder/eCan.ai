@@ -54,7 +54,9 @@ export interface FlowNodeJSON extends FlowNodeJSONDefault {
  * 你可以自定义节点的meta
  */
 export interface FlowNodeMeta extends WorkflowNodeMeta {
-  sidebarDisable?: boolean;
+  sidebarDisabled?: boolean;
+  nodePanelHidden?: boolean;
+  wrapperStyle?: React.CSSProperties;
 }
 
 /**

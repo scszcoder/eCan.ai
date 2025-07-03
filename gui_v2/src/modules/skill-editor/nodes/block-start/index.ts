@@ -7,26 +7,30 @@ import { FlowNodeRegistry } from '../../typings';
 import iconStart from '../../assets/icon-start.jpg';
 import { formMeta } from './form-meta';
 import { WorkflowNodeType } from '../constants';
-import { nanoid } from 'nanoid';
-import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
-export const StartNodeRegistry: FlowNodeRegistry = {
-  type: WorkflowNodeType.Start,
+export const BlockStartNodeRegistry: FlowNodeRegistry = {
+  type: WorkflowNodeType.BlockStart,
   meta: {
     isStart: true,
     deleteDisable: true,
     copyDisable: true,
-    nodePanelVisible: true,
+    sidebarDisabled: true,
+    nodePanelVisible: false,
     defaultPorts: [{ type: 'output' }],
     size: {
-      width: 360,
-      height: 211,
+      width: 100,
+      height: 100,
+    },
+    wrapperStyle: {
+      minWidth: 'unset',
+      borderWidth: 2,
+      borderRadius: 12,
+      cursor: 'move',
     },
   },
   info: {
     icon: iconStart,
-    description:
-      'The starting node of the workflow, used to set the information needed to initiate the workflow.',
+    description: 'The starting node of the block.',
   },
   /**
    * Render node via formMeta
@@ -38,14 +42,4 @@ export const StartNodeRegistry: FlowNodeRegistry = {
   canAdd() {
     return false;
   },
-  onAdd() {
-    return {
-      id: `start_${nanoid(5)}`,
-      type: 'start',
-      data: {
-        title: 'Start',
-        outputs: DEFAULT_NODE_OUTPUTS,
-      }
-    };
-  }
 };

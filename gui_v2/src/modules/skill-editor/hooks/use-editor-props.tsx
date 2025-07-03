@@ -125,14 +125,18 @@ export function useEditorProps(
         return true;
       },
       canDropToNode: (ctx, params) => {
-        const { dragNodeType, dropNodeType } = params;
+        const { dragNodeType } = params;
         /**
-         * 开始/结束节点无法拖入 loop or group
-         * The start and end nodes cannot be dragged into loop or group
+         * 开始/结束节点无法更改容器
+         * The start and end nodes cannot change container
          */
         if (
-          (dragNodeType === 'start' || dragNodeType === 'end') &&
-          (dropNodeType === 'loop' || dropNodeType === 'group')
+          [
+            WorkflowNodeType.Start,
+            WorkflowNodeType.End,
+            WorkflowNodeType.BlockStart,
+            WorkflowNodeType.BlockEnd,
+          ].includes(dragNodeType as WorkflowNodeType)
         ) {
           return false;
         }
