@@ -7,7 +7,7 @@ import threading
 import weakref
 import os
 import json
-import logging
+import uuid
 
 
 class SingletonMeta(type):
@@ -221,7 +221,7 @@ class ChatService(metaclass=SingletonMeta):
                 "error": "Missing required fields: chatId, role, content, senderId, createAt"
             }
         # 简化可选参数补全
-        id = f"msg-{createAt}" if id is None else id
+        id = str(uuid.uuid4()) if id is None else id
         status = "complete" if status is None else status
         senderName = "" if senderName is None else senderName
         time = createAt if time is None else time
