@@ -1,8 +1,138 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import ImagePreview from './ImagePreview';
 import { getFileTypeIcon, downloadFileWithNativeDialog } from '../utils/attachmentHandler';
 import { protocolHandler } from '../utils/protocolHandler';
+
+// 定义样式对象，提高重用性和一致性
+const styles = {
+    container: {
+        display: 'flex', 
+        flexDirection: 'column' as const, 
+        gap: '8px',
+        wordBreak: 'break-word' as const,
+        whiteSpace: 'pre-wrap' as const,
+        maxWidth: '100%',
+        overflow: 'hidden',
+        color: '#ffffff'
+    },
+    text: {
+        whiteSpace: 'pre-wrap' as const,
+        color: '#ffffff'
+    },
+    imageContainer: {
+        display: 'flex', 
+        flexDirection: 'column' as const, 
+        alignItems: 'center',
+        gap: '8px',
+        maxWidth: '150px',
+        overflow: 'hidden'
+    },
+    attachmentName: {
+        fontSize: '12px', 
+        textAlign: 'center' as const,
+        maxWidth: '100%',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap' as const,
+        color: '#ffffff'
+    },
+    fileContainer: {
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '8px',
+        padding: '6px 10px',
+        backgroundColor: 'var(--semi-color-fill-0)',
+        borderRadius: '6px',
+        border: '1px solid var(--semi-color-border)',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        maxWidth: '300px',
+        minWidth: '120px',
+        overflow: 'hidden'
+    },
+    fileIcon: {
+        fontSize: '16px',
+        color: 'var(--semi-color-primary)',
+        flexShrink: 0
+    },
+    fileName: {
+        fontSize: '13px',
+        color: '#ffffff',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap' as const,
+        flex: 1,
+        minWidth: 0
+    },
+    downloadIcon: {
+        fontSize: '12px',
+        color: 'var(--semi-color-text-2)',
+        flexShrink: 0
+    }
+};
+
+// 提取可重用组件：文本部分
+const TextContent: React.FC<{ text: string }> = React.memo(({ text }) => {
+    if (!text.trim()) return null;
+    return (
+        <span style={styles.text}>
+            {text}
+        </span>
+    );
+});
+
+// 提取可重用组件：图片附件
+const ImageAttachment: React.FC<{
+    filePath: string;
+    fileName: string;
+    mimeType: string;
+}> = React.memo(({ filePath, fileName, mimeType }) => {
+    return (
+        <div
+            className="custom-attachment custom-attachment-image"
+        >
+            <div style={styles.imageContainer}>
+                <ImagePreview 
+                    filePath={filePath}
+                    fileName={fileName}
+                    mimeType={mimeType}
+                />
+                <span className="attachment-name" style={styles.attachmentName}>
+                    {fileName}
+                </span>
+            </div>
+        </div>
+    );
+});
+
+// 提取可重用组件：文件附件
+const FileAttachment: React.FC<{
+    filePath: string;
+    fileName: string;
+    mimeType: string;
+    onClick: (filePath: string, fileName: string, mimeType: string, isImage: boolean) => void;
+}> = React.memo(({ filePath, fileName, mimeType, onClick }) => {
+    return (
+        <div
+            className="custom-attachment custom-attachment-file"
+            onClick={() => onClick(filePath, fileName, mimeType, false)}
+            title={`${fileName} (${mimeType})`}
+        >
+            <div style={styles.fileContainer}>
+                <span className="attachment-icon" style={styles.fileIcon}>
+                    {getFileTypeIcon(fileName, mimeType)}
+                </span>
+                <span className="attachment-name" style={styles.fileName}>
+                    {fileName}
+                </span>
+                <span style={styles.downloadIcon}>
+                    ⬇️
+                </span>
+            </div>
+        </div>
+    );
+});
 
 interface CustomContentRendererProps {
     content: string;
@@ -11,7 +141,13 @@ interface CustomContentRendererProps {
 const CustomContentRenderer: React.FC<CustomContentRendererProps> = ({ content }) => {
     const { t } = useTranslation();
 
-    const handleAttachmentClick = async (filePath: string, fileName: string, mimeType: string, isImage: boolean) => {
+    // 使用 useCallback 优化事件处理
+    const handleAttachmentClick = useCallback(async (
+        filePath: string, 
+        fileName: string, 
+        mimeType: string, 
+        isImage: boolean
+    ) => {
         if (isImage) {
             // 图片点击时预览
             protocolHandler.handleFile(filePath, fileName, mimeType);
@@ -25,17 +161,16 @@ const CustomContentRenderer: React.FC<CustomContentRendererProps> = ({ content }
                 protocolHandler.handleFile(filePath, fileName, mimeType);
             }
         }
-    };
+    }, [t]);
 
-    // 解析内容中的附件标记
-    const renderContent = () => {
+    // 使用 useMemo 优化内容解析，防止重复渲染时重新计算
+    const renderedContent = useMemo(() => {
         if (!content) return null;
 
-        const parts = [];
+        const parts: JSX.Element[] = [];
         let currentIndex = 0;
         
-        // 使用简单的字符串分割方法来解析附件标记
-        // 格式: [类型|文件路径|文件名|MIME类型]
+        // 使用正则表达式匹配附件标记：[类型|文件路径|文件名|MIME类型]
         const attachmentRegex = /\[(image|file)\|([^|]+)\|([^|]+)\|([^\]]+)\]/g;
         let match;
         
@@ -46,103 +181,33 @@ const CustomContentRenderer: React.FC<CustomContentRendererProps> = ({ content }
             // 添加附件前的文本
             if (match.index > currentIndex) {
                 const textBefore = content.slice(currentIndex, match.index);
-                if (textBefore.trim()) {
-                    parts.push(
-                        <span key={`text-${currentIndex}`} style={{ 
-                            whiteSpace: 'pre-wrap',
-                            color: '#ffffff' // 设置文本为白色
-                        }}>
-                            {textBefore}
-                        </span>
-                    );
-                }
+                parts.push(
+                    <TextContent 
+                        key={`text-${currentIndex}`} 
+                        text={textBefore}
+                    />
+                );
             }
             
             // 添加附件组件
             if (isImage) {
-                // 图片显示预览图
                 parts.push(
-                    <div
+                    <ImageAttachment
                         key={`attachment-${match.index}`}
-                        className="custom-attachment custom-attachment-image"
-                    >
-                        <div style={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            alignItems: 'center',
-                            gap: '8px',
-                            maxWidth: '150px',
-                            overflow: 'hidden'
-                        }}>
-                            <ImagePreview 
-                                filePath={filePath}
-                                fileName={fileName}
-                                mimeType={mimeType}
-                            />
-                            <span className="attachment-name" style={{ 
-                                fontSize: '12px', 
-                                textAlign: 'center',
-                                maxWidth: '100%',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                color: '#ffffff' // 设置附件名称为白色
-                            }}>
-                                {fileName}
-                            </span>
-                        </div>
-                    </div>
+                        filePath={filePath}
+                        fileName={fileName}
+                        mimeType={mimeType}
+                    />
                 );
             } else {
-                // 文件显示下载图标
                 parts.push(
-                    <div
+                    <FileAttachment
                         key={`attachment-${match.index}`}
-                        className="custom-attachment custom-attachment-file"
-                        onClick={() => handleAttachmentClick(filePath, fileName, mimeType, false)}
-                        title={`${fileName} (${mimeType})`}
-                    >
-                        <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '8px',
-                            padding: '6px 10px',
-                            backgroundColor: 'var(--semi-color-fill-0)',
-                            borderRadius: '6px',
-                            border: '1px solid var(--semi-color-border)',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            maxWidth: '300px',
-                            minWidth: '120px',
-                            overflow: 'hidden'
-                        }}>
-                            <span className="attachment-icon" style={{ 
-                                fontSize: '16px',
-                                color: 'var(--semi-color-primary)',
-                                flexShrink: 0
-                            }}>
-                                {getFileTypeIcon(fileName, mimeType)}
-                            </span>
-                            <span className="attachment-name" style={{ 
-                                fontSize: '13px',
-                                color: '#ffffff', // 设置文件附件名称为白色
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                flex: 1,
-                                minWidth: 0
-                            }}>
-                                {fileName}
-                            </span>
-                            <span style={{ 
-                                fontSize: '12px',
-                                color: 'var(--semi-color-text-2)',
-                                flexShrink: 0
-                            }}>
-                                ⬇️
-                            </span>
-                        </div>
-                    </div>
+                        filePath={filePath}
+                        fileName={fileName}
+                        mimeType={mimeType}
+                        onClick={handleAttachmentClick}
+                    />
                 );
             }
             
@@ -152,35 +217,22 @@ const CustomContentRenderer: React.FC<CustomContentRendererProps> = ({ content }
         // 添加剩余的文本
         if (currentIndex < content.length) {
             const remainingText = content.slice(currentIndex);
-            if (remainingText.trim()) {
-                parts.push(
-                    <span key={`text-${currentIndex}`} style={{ 
-                        whiteSpace: 'pre-wrap',
-                        color: '#ffffff' // 设置剩余文本为白色
-                    }}>
-                        {remainingText}
-                    </span>
-                );
-            }
+            parts.push(
+                <TextContent 
+                    key={`text-${currentIndex}`} 
+                    text={remainingText}
+                />
+            );
         }
         
-        return parts.length > 0 ? parts : <span style={{ color: '#ffffff' }}>{content}</span>;
-    };
+        return parts.length > 0 ? parts : <span style={styles.text}>{content}</span>;
+    }, [content, handleAttachmentClick]);
 
     return (
-        <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            gap: '8px',
-            wordBreak: 'break-word',
-            whiteSpace: 'pre-wrap',
-            maxWidth: '100%',
-            overflow: 'hidden',
-            color: '#ffffff' // 设置整体文本颜色为白色
-        }}>
-            {renderContent()}
+        <div style={styles.container}>
+            {renderedContent}
         </div>
     );
 };
 
-export default CustomContentRenderer; 
+export default React.memo(CustomContentRenderer); 

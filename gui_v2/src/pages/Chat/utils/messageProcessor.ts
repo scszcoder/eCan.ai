@@ -1,5 +1,7 @@
 import { Message } from '../types/chat';
 import { FileUtils } from './fileUtils';
+import { isDuplicateMessage, ensureMessageId } from './messageUtils';
+import { sortMessagesByTime } from './messageHandlers';
 
 // Import the Semi UI Message type
 import { Message as SemiMessage } from '@douyinfe/semi-foundation/lib/es/chat/foundation';
@@ -78,44 +80,24 @@ export const processAndDeduplicateMessages = (messages: Message[]): SemiMessage[
         return [];
     }
 
-    // 改进的去重处理，确保没有重复的消息
+    // 改进的去重处理，使用共享的 isDuplicateMessage 函数
     const uniqueMessages = messages.reduce((acc: Message[], message) => {
         // 检查是否已存在相同的消息
-        const exists = acc.find(m => {
-            // 1. 检查 ID 是否相同
-            if (m.id === message.id) return true;
-            
-            // 2. 检查是否是同一时间发送的相同内容（时间窗口：5秒内）
-            const timeDiff = Math.abs((m.createAt || 0) - (message.createAt || 0));
-            const isSameTime = timeDiff < 5000; // 5秒内
-            const isSameContent = JSON.stringify(m.content) === JSON.stringify(message.content);
-            const isSameSender = m.senderId === message.senderId;
-            
-            if (isSameTime && isSameContent && isSameSender) return true;
-            
-            // 3. 检查是否是乐观更新的消息（通过 ID 前缀判断）
-            if (m.id.startsWith('user_msg_') && message.id.startsWith('user_msg_')) {
-                const mTime = parseInt(m.id.split('_')[2]) || 0;
-                const msgTime = parseInt(message.id.split('_')[2]) || 0;
-                const timeDiff = Math.abs(mTime - msgTime);
-                if (timeDiff < 1000 && isSameContent && isSameSender) return true;
-            }
-            
-            return false;
-        });
+        const exists = acc.some(m => isDuplicateMessage(m, message));
         
         if (!exists) {
-            acc.push(message);
+            // 确保每条消息都有唯一的 ID
+            acc.push(ensureMessageId(message));
         }
         return acc;
     }, []);
     
-    // 按时间排序，确保消息顺序稳定
-    uniqueMessages.sort((a, b) => (a.createAt || 0) - (b.createAt || 0));
+    // 按时间排序，使用共享的排序函数
+    const sortedMessages = sortMessagesByTime(uniqueMessages);
     
-    const processedMessages = uniqueMessages.map((message) => {
+    // 处理消息内容并添加唯一键
+    const processedMessages = sortedMessages.map((message) => {
         const processed = processMessageContent(message);
-        // 确保每个消息都有唯一的 key，使用消息 ID 而不是索引
         processed.key = `msg_${processed.id}`;
         return processed;
     });
