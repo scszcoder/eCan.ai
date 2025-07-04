@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FormRenderProps, FormMeta, ValidateTrigger } from '@flowgram.ai/free-layout-editor';
-import { provideJsonSchemaOutputs, syncVariableTitle } from '@flowgram.ai/form-materials';
+import { FormRenderProps, FormMeta } from '@flowgram.ai/free-layout-editor';
 import { Avatar } from '@douyinfe/semi-ui';
 
 import { FlowNodeJSON } from '../../typings';
@@ -38,12 +37,4 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => (
 
 export const formMeta: FormMeta<FlowNodeJSON> = {
   render: renderForm,
-  validateTrigger: ValidateTrigger.onChange,
-  validate: {
-    title: ({ value }: { value: string }) => (value ? undefined : 'Title is required'),
-  },
-  effect: {
-    title: syncVariableTitle,
-    outputs: provideJsonSchemaOutputs,
-  },
 };

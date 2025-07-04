@@ -100,8 +100,15 @@ export function useEditorProps(
        * 判断是否连线
        */
       canAddLine(ctx, fromPort, toPort) {
-        // not the same node
+        // Cannot be a self-loop on the same node / 不能是同一节点自循环
         if (fromPort.node === toPort.node) {
+          return false;
+        }
+        // Cannot be in different loop containers - 不能在不同 Loop 容器
+        if (
+          toPort.node.parent?.flowNodeType === WorkflowNodeType.Loop &&
+          fromPort.node.parent?.id !== toPort.node.parent?.id
+        ) {
           return false;
         }
         /**

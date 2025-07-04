@@ -16,7 +16,6 @@ import { FlowNodeRegistry } from '../../typings';
 import iconLoop from '../../assets/icon-loop.jpg';
 import { LoopFormRender } from './loop-form-render';
 import { WorkflowNodeType } from '../constants';
-import { createBuiltInNodes } from './create-built-in-nodes';
 
 let index = 0;
 export const LoopNodeRegistry: FlowNodeRegistry = {
@@ -74,10 +73,31 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
       data: {
         title: `Loop_${++index}`,
       },
+      blocks: [
+        {
+          id: `block_start_${nanoid(5)}`,
+          type: WorkflowNodeType.BlockStart,
+          meta: {
+            position: {
+              x: -80,
+              y: 0,
+            },
+          },
+          data: {},
+        },
+        {
+          id: `block_end_${nanoid(5)}`,
+          type: WorkflowNodeType.BlockEnd,
+          meta: {
+            position: {
+              x: 80,
+              y: 0,
+            },
+          },
+          data: {},
+        },
+      ],
     };
-  },
-  onCreate(node, json) {
-    createBuiltInNodes(node);
   },
   formMeta: {
     ...defaultFormMeta,
