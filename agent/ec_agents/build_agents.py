@@ -30,6 +30,10 @@ def build_agents(main_win):
                 if "ONLY" not in main_win.machine_role:
                     # self.agents.append(set_up_ec_rpa_operator_agent(self))
                     all_agents.append(set_up_ec_procurement_agent(main_win))
+        
+        # 过滤掉None对象
+        all_agents = [agent for agent in all_agents if agent is not None]
+        print(f"Total agents after filtering None: {len(all_agents)}")
 
         main_win.agents = all_agents
 
