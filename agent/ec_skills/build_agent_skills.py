@@ -47,6 +47,9 @@ async def build_agent_skills(mainwin, skill_path=""):
             else:
                 skills = build_agent_skills_from_files(mainwin, skill_path)
 
+        # 过滤掉None对象
+        skills = [skill for skill in skills if skill is not None]
+        
         print(f"done built agent skills: {len(skills)} {[s.name for s in skills]}")
         return skills
 

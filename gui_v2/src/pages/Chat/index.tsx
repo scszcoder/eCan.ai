@@ -67,6 +67,21 @@ const ChatPage: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeChatId]);
 
+    // 特别添加一个 useEffect 来处理 agentId 参数，确保在聊天列表加载后正确设置 activeChatId
+    useEffect(() => {
+        if (!agentId || !chats.length) return;
+        
+        // 查找包含指定 agentId 的聊天
+        const chatWithAgent = chats.find(chat => 
+            chat.members?.some(member => member.userId === agentId)
+        );
+        
+        // 如果找到了包含该 agentId 的聊天，则设置为活动聊天
+        if (chatWithAgent) {
+            setActiveChatId(chatWithAgent.id);
+        }
+    }, [agentId, chats]);
+
     // 页面每次显示都拉取聊天，拉取完后如有agentId再创建
     useEffect(() => {
         if (!initialized) return;
