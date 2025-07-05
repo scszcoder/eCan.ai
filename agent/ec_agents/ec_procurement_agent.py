@@ -25,7 +25,7 @@ def set_up_ec_procurement_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        worker_skill = next((sk for sk in agent_skills if "search 1688" in sk.name), None)
+        worker_skill = next((sk for sk in agent_skills if "search digi-key" in sk.name), None)
         print("ec_procurement skill:", worker_skill.name)
         chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for meca search 1688 web site"),None)
 
@@ -43,7 +43,7 @@ def set_up_ec_procurement_agent(mainwin):
 
         chatter_task = create_ec_procurement_chat_task(mainwin)
         worker_task = create_ec_procurement_work_task(mainwin)
-        produrement_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[chatter_task])
+        produrement_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task])
 
     except Exception as e:
         # Get the traceback information

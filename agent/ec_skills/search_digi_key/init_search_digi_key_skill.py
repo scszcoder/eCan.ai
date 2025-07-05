@@ -1,19 +1,15 @@
 
-def init_search_digi_key_skill(agent, msg, file_names=[]):
+def init_search_digi_key_skill(agent, msg=None, file_names=[]):
     print("init_search_digi_key_skill", type(msg), msg)  # msg.params.message[0].text
-    # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
-    msg_parts = msg.params.message.parts
+
     attachments = []
     msg_txt = ""
-    for part in msg_parts:
-        if part.type == "text":
-            msg_txt = part.text
-        elif part.type == "file":
-            attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType, "file_data": part.file.bytes})
-
     init_state = {
         "messages": [agent.card.id, msg_txt],
         "input": msg_txt,
-        "attachments": attachments
+        "attachments": attachments,
+        "tool_input": {
+            "url": "https://www.digikey.com/en/products"
+        }
     }
     return init_state
