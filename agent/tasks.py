@@ -705,7 +705,8 @@ class TaskRunner(Generic[Context]):
                     logger.debug("scheduled task2run skill name" + task2run.skill.name)
                     task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
 
-                    logger.trace("scheduled task2run init state" + task2run.metadata["state"])
+                    logger.trace("scheduledtask2run init state" + str(task2run.metadata["state"]))
+                    logger.trace("ready to run the right task" + task2run.name)
                     # response = await task2run.astream_run()
                     response = task2run.stream_run()
                     if response:

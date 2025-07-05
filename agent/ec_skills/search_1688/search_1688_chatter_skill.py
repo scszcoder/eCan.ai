@@ -90,7 +90,9 @@ def any_unknown_part_numbers(state: NodeState) -> NodeState:
         state["retries"] += 1
     return state
 
-
+def any_attachment(state: NodeState) -> NodeState:
+    print("go to digi-key site:", state)
+    return state
 
 
 def chat_or_work(state: NodeState) -> str:
