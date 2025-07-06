@@ -14,11 +14,12 @@ import uuid
 import json
 from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
-from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse
+from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse, handle_streamable_http, lifespan
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
+from contextlib import asynccontextmanager
 
 import sys
 import traceback
@@ -156,8 +157,8 @@ async def save_skill_graph(skill_graph, skg_file):
 routes = [
     Mount("/sse", app=handle_sse),
     Mount("/messages/", app=meca_sse.handle_post_message),
+    Mount("/mcp", app=handle_streamable_http),
     Route("/healthz", health_check),
-
     # Route("/sse", endpoint=handle_sse),
     Route('/api/initialize', initialize, methods=['POST']),
     Route('/api/gen_feedbacks', gen_feedbacks, methods=['GET']),
@@ -178,7 +179,7 @@ routes = [
 ]
 
 
-mecaLocalServer = Starlette(debug=True, routes=routes)
+mecaLocalServer = Starlette(debug=True, routes=routes, lifespan=lifespan,)
 
 # CORS Middleware setup (same as Flask-CORS)
 mecaLocalServer.add_middleware(
@@ -261,11 +262,17 @@ async def create_mcp_client():
     #     tools = await load_mcp_tools(session)
     #     print("mcp client created................")
     # return mcp_client
-
+@asynccontextmanager
 async def create_sse_client():
-    async with sse_client("http://localhost:4668/sse/") as streams:
-        async with ClientSession(streams[0], streams[1]) as session:
+    async with sse_client("http://localhost:4668/sse/") as (read_stream, write_stream):
+        # Add debug prints to check stream types
+        print(f"Read stream type: {type(read_stream).__name__}")  # Should be MemoryObjectReceiveStream
+        print(f"Write stream type: {type(write_stream).__name__}")  # Should be MemoryObjectSendStream
+        print("before ClientSession  ", id(read_stream), id(write_stream))
+
+        async with ClientSession(read_stream, write_stream) as session:
+        # async with ClientSession(streams[0], streams[1]) as session:
             print("SSE client session initing................")
             await session.initialize()
             print("SSE client created................")
-            return sse_client
+            yield session
