@@ -16,7 +16,7 @@ from pynput import keyboard, mouse
 import pyautogui
 import pyscreenshot as ImageGrab
 
-from gui.SkillGUI import SkillGUI
+# from gui.SkillGUI import SkillGUI
 from utils.logger_helper import logger_helper
 
 counter = 0
@@ -140,7 +140,7 @@ class TrainNewWin(QMainWindow):
         self.mainWidget.setLayout(self.bLayout)
         self.setCentralWidget(self.mainWidget)
 
-        self.skillGUI = SkillGUI(self)
+        # self.skillGUI = SkillGUI(self)
 
         self.screen_image_stream = []
         self.record = []
@@ -370,10 +370,11 @@ class TrainNewWin(QMainWindow):
         # direct directly to the github web site.
 
     def start_skill(self):
-        self.skillGUI.set_cloud(self.session, self.cog)
-        self.skillGUI.set_edit_mode("new")
-        self.skillGUI.show()
+        # self.skillGUI.set_cloud(self.session, self.cog)
+        # self.skillGUI.set_edit_mode("new")
+        # self.skillGUI.show()
         # self.skillGUI.skFCDiagram.show()
+        pass
 
     def set_cloud(self, session, cog):
         self.session = session
