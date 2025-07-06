@@ -1,4 +1,8 @@
-import os
+import contextlib
+from collections.abc import AsyncIterator
+from typing import Any, Optional, Dict
+from starlette.types import Receive, Scope, Send
+from starlette.applications import Starlette
 from mcp.server.sse import SseServerTransport
 from selenium import webdriver
 import pyautogui
@@ -13,6 +17,10 @@ from mcp.server.lowlevel import Server
 import traceback
 from mcp.server.fastmcp.prompts import base
 from mcp.types import CallToolResult, TextContent
+
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from pydantic import AnyUrl
+
 from agent.mcp.server.tool_schemas import *
 import json
 from dotenv import load_dotenv
@@ -23,12 +31,14 @@ from agent.runner.models import (
 )
 import shutil
 from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
-from gui.LoginoutGUI import Login
 from utils.logger_helper import login
 from bot.seleniumSkill import *
+from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
+
 from agent.ec_skill import *
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
+from .event_store import InMemoryEventStore
 
 server_main_win = None
 logger = logging.getLogger(__name__)
@@ -72,26 +82,60 @@ async def list_tools() -> list[types.Tool]:
 @meca_mcp_server.call_tool()
 async def unified_tool_handler(tool_name, args):
     ctx = AppContext()
-    login: Login = ctx.login
-    # 获取用户名和密码
-    if tool_name in tool_function_mapping:
-        try:
-            result = await tool_function_mapping[tool_name](login.main_win, args)
-            print("unified_tool_handler after call", type(result), result)
-        except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
-            result  = CallToolResult(content=[TextContent(type="text", text=ex_stat)], isError=True)
-    else:
-        result = CallToolResult(content=[TextContent(type="text", text="ErrorCallTool: tool NOT found!")], isError=False)
+    login = ctx.login
+    try:
+        tool_func = tool_function_mapping[tool_name]
+        result = await tool_func(login.main_win, args)
 
-    print("unified_tool_handler.......", type(result), result)
-    return result
+        if isinstance(result, CallToolResult):
+            print("✅ Tool returned CallToolResult instance")
+            return result
+
+        if isinstance(result, dict):
+            print("⚠️ Tool returned dict; trying to validate as CallToolResult")
+            return CallToolResult.model_validate(result)
+
+        # Otherwise wrap as plain text
+        return CallToolResult(
+            content=[TextContent(type="text", text=str(result))],
+            isError=False
+        )
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
+        print(ex_stat)
+        return CallToolResult(
+                    content=[TextContent(type="text", text=str(ex_stat))],
+                    isError=True
+                )
+
+# async def unified_tool_handler(tool_name, args):
+#     ctx = AppContext()
+#     login = ctx.login
+#     # 获取用户名和密码
+#     if tool_name in tool_function_mapping:
+#         try:
+#             result = await tool_function_mapping[tool_name](login.main_win, args)
+#             print("unified_tool_handler after call", type(result), result)
+#         except Exception as e:
+#             # Get the traceback information
+#             traceback_info = traceback.extract_tb(e.__traceback__)
+#             # Extract the file name and line number from the last entry in the traceback
+#             if traceback_info:
+#                 ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
+#             else:
+#                 ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
+#             result  = CallToolResult(content=[TextContent(type="text", text=ex_stat)], isError=True)
+#     else:
+#         result = CallToolResult(content=[TextContent(type="text", text="ErrorCallTool: tool NOT found!")], isError=False)
+#
+#     print("unified_tool_handler.......", type(result), result)
+#     return result
 
 ######################### Prompts Section ##################################
 
@@ -290,13 +334,39 @@ async def in_browser_switch_tab(mainwin, params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def in_browser_open_tab(mainwin, params):
-    browser_context = mainwin.getBrowserContextById(params["context_id"])
-    browser = browser_context.browser
-    await browser.create_new_tab(params.url)
-    msg = f'🔗  Opened new tab with {params.url}'
-    logger.info(msg)
-    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+async def in_browser_open_tab(mainwin, args):
+
+    try:
+        url = args["url"]
+        webdriver = mainwin.getWebDriver()
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        msg = f'completed'
+        logger.info(msg)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        msg = ex_stat
+        logger.info(msg)
+        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 async def in_browser_close_tab(mainwin, params):
@@ -330,7 +400,7 @@ async def in_browser_scrape_content(mainwin, params):
         return CallToolResult(content=err_text_content, isError=True)
 
 
-async def in_browser_execute_javascript(mainwin, state: NodeState) -> NodeState:
+async def in_browser_execute_javascript(mainwin, args):
     try:
         web_driver = mainwin.web_driver
         result = execute_js_script(web_driver, state.tool_input["script"], state.tool_input["target"])
@@ -348,20 +418,35 @@ async def in_browser_execute_javascript(mainwin, state: NodeState) -> NodeState:
 
 
 
-async def in_browser_build_dom_tree(mainwin, params):
+async def in_browser_build_dom_tree(mainwin, args):
     try:
-        global server_main_win
-        web_driver = server_main_win.web_driver
-        dom_service = server_main_win.dom_service
-        dom_service.get_clickable_elements()
+        webdriver = mainwin.getWebDriver()
+        script = mainwin.load_build_dom_tree_script()
+        # print("dom tree build script to be executed", script)
+        target = None
+        domTree = execute_js_script(webdriver, script, target)
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        print("obtained dom tree:", domTree)
+        with open("domtree.json", 'w', encoding="utf-8") as f:
+            json.dump(domTree, f, ensure_ascii=False, indent=4)
+            # self.rebuildHTML()
+            f.close()
+
+        domTreeJSString = json.dumps(domTree)            # clear error
+        time.sleep(1)
+
+        result_text_content = [TextContent(type="text", text=f"{domTreeJSString}")]
+        result = CallToolResult(content=result_text_content, isError=True)
+        print("call tool build dome tree result:", result)
+        return
 
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorCallToolScrapeContents:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorCallBuildDomTree:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorCallToolScrapeContents: traceback information not available:" + str(e)
+            ex_stat = "ErrorCallBuildDomTree: traceback information not available:" + str(e)
         print("ex_stat:", ex_stat)
         err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
         return CallToolResult(content=err_text_content, isError=True)
@@ -564,7 +649,7 @@ async def in_browser_get_dropdown_options(mainwin, params) -> CallToolResult:
 
 async def in_browser_select_dropdown_option(mainwin, params) -> CallToolResult:
     """Select dropdown option by the text of the option you want to select"""
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     page = await browser.get_current_page()
     selector_map = await browser.get_selector_map()
@@ -909,7 +994,7 @@ async def mouse_click(mainwin, params):
 
 
 async def mouse_move(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -922,7 +1007,7 @@ async def mouse_move(mainwin, params):
 
 
 async def mouse_drag_drop(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -936,7 +1021,7 @@ async def mouse_drag_drop(mainwin, params):
 
 
 async def mouse_scroll(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -953,7 +1038,7 @@ async def mouse_scroll(mainwin, params):
 
 
 async def keyboard_text_input(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -966,7 +1051,7 @@ async def keyboard_text_input(mainwin, params):
 
 
 async def keyboard_keys_input(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -978,37 +1063,145 @@ async def keyboard_keys_input(mainwin, params):
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
-async def http_call_api(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+async def http_call_api(mainwin, args):
+    browser_context = mainwin.getBrowserContextById(args["context_id"])
     browser = browser_context.browser
-    if params.index not in await browser.get_selector_map():
-        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+    if args.index not in await browser.get_selector_map():
+        raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
 
-    pyautogui.moveTo(params.loc.x, params.loc.y)
+    pyautogui.moveTo(args.loc.x, args.loc.y)
 
-    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
+    logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
     msg = ""
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
-async def os_connect_to_adspower(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
-    browser = browser_context.browser
-    if params.index not in await browser.get_selector_map():
-        raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
+async def os_connect_to_adspower(mainwin, args):
+    webdriver_path = mainwin.default_webdriver_path
 
-    DETACHED_PROCESS = 0x00000008
-    subprocess.Popen(params.app_name, creationflags=DETACHED_PROCESS, shell=True, close_fds=True,
-                     stdout=subprocess.PIPE,
-                     stderr=subprocess.PIPE)
+    print("inital state:", args)
+    try:
+        url = args['input']["url"]
+        # global ads_config, local_api_key, local_api_port, sk_work_settings
+        ads_port = mainwin.ads_settings['ads_port']
+        ads_api_key = mainwin.ads_settings['ads_api_key']
+        ads_chrome_version = mainwin.ads_settings['chrome_version']
+        scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
+        web_driver_options = ""
+        print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:',
+              ads_chrome_version)
+        profiles = queryAdspowerProfile(ads_api_key, ads_port)
+        loaded_profiles = {}
+        for profile in profiles:
+            loaded_profiles[profile['username']] = {"uid": profile['user_id'], "remark": profile['remark']}
 
-    logger.debug(f'Element xpath: {params.loc.x},  {params.loc.y}')
-    msg = ""
+        ads_profile_id = loaded_profiles[scraper_email]['uid']
+        ads_profile_remark = loaded_profiles[scraper_email]['remark']
+        print('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)
+
+        webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
+
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        mainwin.setWebDriver(webdriver)
+        # set up output.
+        msg = "completed connect to adspower"
+
+        result = CallToolResult(
+            content=[
+                TextContent(type="text", text="Completed connection to Adspower")
+            ],
+            isError=False
+        )
+        print("tool call connect adspower result is:", type(result), result)
+        dumped = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+        print(f"Returning result: {dumped}")
+
+        return result
+        # return dumped
+        # return {
+        #     "content": [{"type": "text", "text": "Connected to ADSPower"}],
+        #     "isError": False
+        # }
+        # return response
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckADSPowerAndDrivers:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckADSPowerAndDrivers: traceback information not available:" + str(e)
+        log3(ex_stat)
+        return CallToolResult(content=[TextContent(type="text", text=ex_stat)], isError=False)
+
+async def os_connect_to_chrome(mainwin, args):
+    webdriver_path = mainwin.default_webdriver_path
+
+    print("inital state:", args)
+    try:
+        url = args["url"]
+        # global ads_config, local_api_key, local_api_port, sk_work_settings
+        ads_port = mainwin.ads_settings['ads_port']
+        ads_api_key = mainwin.ads_settings['ads_api_key']
+        ads_chrome_version = mainwin.ads_settings['chrome_version']
+        scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
+        web_driver_options = ""
+        print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:',
+              ads_chrome_version)
+        profiles = queryAdspowerProfile(ads_api_key, ads_port)
+        loaded_profiles = {}
+        for profile in profiles:
+            loaded_profiles[profile['username']] = {"uid": profile['user_id'], "remark": profile['remark']}
+
+        ads_profile_id = loaded_profiles[scraper_email]['uid']
+        ads_profile_remark = loaded_profiles[scraper_email]['remark']
+        print('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)
+
+        webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
+
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        mainwin.setWebDriver(webdriver)
+        # set up output.
+        result = "completed"
+        return result
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorCheckChromeAndDrivers:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorCheckChromeAndDrivers: traceback information not available:" + str(e)
+        log3(ex_stat)
     return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
 
 
 async def os_open_app(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1024,7 +1217,7 @@ async def os_open_app(mainwin, params):
 
 
 async def os_close_app(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1038,7 +1231,7 @@ async def os_close_app(mainwin, params):
 
 
 async def os_switch_to_app(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1055,7 +1248,7 @@ async def os_switch_to_app(mainwin, params):
 
 
 async def python_run_extern(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1068,7 +1261,7 @@ async def python_run_extern(mainwin, params):
 
 
 async def os_make_dir(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1083,7 +1276,7 @@ async def os_make_dir(mainwin, params):
 
 
 async def os_delete_dir(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1098,7 +1291,7 @@ async def os_delete_dir(mainwin, params):
 
 
 async def os_delete_file(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1113,7 +1306,7 @@ async def os_delete_file(mainwin, params):
 
 
 async def os_move_file(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1130,7 +1323,7 @@ async def os_move_file(mainwin, params):
 
 
 async def os_copy_file_dir(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1143,7 +1336,7 @@ async def os_copy_file_dir(mainwin, params):
 
 
 async def os_screen_analyze(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1162,7 +1355,7 @@ async def os_screen_analyze(mainwin, params):
 
 
 async def os_screen_capture(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1179,7 +1372,7 @@ async def os_screen_capture(mainwin, params):
 
 
 async def os_seven_zip(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(context_id)
+    browser_context = mainwin.getBrowserContextById(context_id)
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1191,7 +1384,7 @@ async def os_seven_zip(mainwin, params):
 
 
 async def os_kill_processes(mainwin, params):
-    browser_context = login.main_win.getBrowserContextById(params["context_id"])
+    browser_context = mainwin.getBrowserContextById(params["context_id"])
     browser = browser_context.browser
     if params.index not in await browser.get_selector_map():
         raise Exception(f'Element index {params.index} does not exist - retry or use alternative actions')
@@ -1262,7 +1455,7 @@ async def rpa_operator_dispatch_works(mainwin, params):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
-        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         text_content = [TextContent(type="text", text=f"works dispatched")]
         return CallToolResult(content=text_content, isError=False)
     except Exception as e:
@@ -1275,7 +1468,7 @@ async def rpa_supervisor_process_work_results(mainwin, params):
     # handle RPA work results from a platoon host.
     # mostly bookkeeping.
     try:
-        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         text_content = [TextContent(type="text", text=f"works dispatched")]
         return CallToolResult(content=text_content, isError=False)
     except Exception as e:
@@ -1289,7 +1482,7 @@ async def rpa_supervisor_run_daily_housekeeping(mainwin, params):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
-        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         text_content = [TextContent(type="text", text=f"works dispatched")]
         return CallToolResult(content=text_content, isError=False)
     except Exception as e:
@@ -1302,7 +1495,7 @@ async def rpa_operator_report_work_results(mainwin, params):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
-        works_to_be_dispatched = login.main_win.handleCloudScheduledWorks(workable)
+        works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
         text_content = [TextContent(type="text", text=f"works dispatched")]
         return CallToolResult(content=text_content, isError=False)
     except Exception as e:
@@ -1371,7 +1564,9 @@ tool_function_mapping = {
         "rpa_supervisor_process_work_results": rpa_supervisor_process_work_results,
         "rpa_supervisor_run_daily_housekeeping": rpa_supervisor_run_daily_housekeeping,
         "rpa_operator_report_work_results": rpa_operator_report_work_results,
-        "reconnect_wifi": reconnect_wifi
+        "os_connect_to_adspower": os_connect_to_adspower,
+        "os_connect_to_chrome": os_connect_to_chrome,
+        "os_reconnect_wifi": reconnect_wifi
     }
 
 def set_server_main_win(mw):
@@ -1379,13 +1574,59 @@ def set_server_main_win(mw):
     server_main_win = mw
 
 
+# Create event store for resumability
+# The InMemoryEventStore enables resumability support for StreamableHTTP transport.
+# It stores SSE events with unique IDs, allowing clients to:
+#   1. Receive event IDs for each SSE message
+#   2. Resume streams by sending Last-Event-ID in GET requests
+#   3. Replay missed events after reconnection
+# Note: This in-memory implementation is for demonstration ONLY.
+# For production, use a persistent storage solution.
+event_store = InMemoryEventStore()
+
+# Create the session manager with our app and event store
+session_manager = StreamableHTTPSessionManager(
+    app=meca_mcp_server,
+    event_store=None,  # set to event_store to Enable resumability
+    json_response=False,
+)
+
+# ASGI handler for streamable HTTP connections
+async def handle_streamable_http(
+    scope: Scope, receive: Receive, send: Send
+) -> None:
+    await session_manager.handle_request(scope, receive, send)
+
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
+    """Context manager for managing session manager lifecycle."""
+    async with session_manager.run():
+        logger.info("Application started with StreamableHTTP session manager!")
+        try:
+            yield
+        finally:
+            logger.info("Application shutting down...")
+
+# async def handle_sse(scope, receive, send):
+#     print(">>> sse connected")
+#     async with meca_sse.connect_sse(scope, receive, send) as streams:
+#         print("handling meca_mcp_server.run", streams)
+#         await meca_mcp_server.run(streams[0], streams[1], meca_mcp_server.create_initialization_options())
+
 async def handle_sse(scope, receive, send):
     print(">>> sse connected")
-    async with meca_sse.connect_sse(scope, receive, send) as streams:
-        print("handling meca_mcp_server.run", streams)
-        await meca_mcp_server.run(streams[0], streams[1], meca_mcp_server.create_initialization_options())
+    async with meca_sse.connect_sse(scope, receive, send) as (read_stream, write_stream, is_new):
+        # Start MCP server only on the very first GET (= new session)
+        if is_new:
+            print("handling meca_mcp_server.run", read_stream, write_stream)
+            await meca_mcp_server.run(
+                read_stream,
+                write_stream,
+                meca_mcp_server.create_initialization_options(),
+            )
 
 async def sse_handle_messages(scope, receive, send):
     print(">>> sse handle messages connected")
     await meca_sse.handle_post_message(scope, receive, send)
+
 

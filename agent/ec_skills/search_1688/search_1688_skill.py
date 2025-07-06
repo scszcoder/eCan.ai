@@ -15,7 +15,7 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
     print("inital state:", state)
     try:
         url = state["attributes"]["url"]
-        global ads_config, local_api_key, local_api_port, sk_work_settings
+        # global ads_config, local_api_key, local_api_port, sk_work_settings
         ads_port = mainwin.ads_settings['ads_port']
         ads_api_key = mainwin.ads_settings['ads_api_key']
         ads_chrome_version = mainwin.ads_settings['chrome_version']
@@ -233,7 +233,7 @@ def get_next_action(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver_path = mainwin.default_webdriver_path
+    webdriver = mainwin.web_driver
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])

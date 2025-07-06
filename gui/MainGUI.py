@@ -101,7 +101,7 @@ from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
 from agent.ec_agents.build_agents import *
 import concurrent.futures
-
+from agent.mcp.sse_manager import SSEManager
 
 
 
@@ -1087,6 +1087,7 @@ class MainWindow(QMainWindow):
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
+        self._sse_cm = None
         print("Building agent skills.....")
         asyncio.create_task(self.async_agents_init())
 
@@ -1143,8 +1144,13 @@ class MainWindow(QMainWindow):
         print(f"local server ready.........{local_server_port}")
         # result = await self.initialize_mcp()
         # print("initialize_mcp.....result:", result)
-        self.mcp_client = await create_mcp_client()
+        # self.mcp_client = await create_mcp_client()
+        url = "http://localhost:4668/sse/"
+        self.mcp_client = await SSEManager.get(url).session()
+        # self.mcp_client = await create_sse_client()
         print("MCP client created....")
+        tl = await self.mcp_client.list_tools()
+        print("list of tools:", tl)
         # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
 
         # print("MCP client tools listed....", tools)
@@ -1167,6 +1173,10 @@ class MainWindow(QMainWindow):
 
         # self.top_gui.update_all(self)
         # await self.test_a2a()
+
+    async def closeEvent(self, evt):
+        await SSEManager.get("dummy").close()
+        await super().closeEvent(evt)
 
     def wait_for_server(self, agent, timeout: float = 10.0):
         url = agent.get_card().url+'/ping'

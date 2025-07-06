@@ -6,105 +6,69 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import get_agent_by_id
 
-def check_browser_and_drivers(state: NodeState) -> NodeState:
+# async def mcp_call_tool(mcp_client, tool_name, args):
+#     async with mcp_client.session("E-Commerce Agents Service") as session:
+#         print("MCP client call tool................")
+#         tool_result = await session.call_tool(tool_name, args)
+#         print("MCP client call tool returned................", type(tool_result), tool_result)
+#         return tool_result
+
+async def mcp_call_tool(mcp_client, tool_name, args):
+    async with mcp_client.session("E-Commerce Agents Service") as session:
+        print(f"MCP client calling tool: {tool_name} with args: {args}")
+        try:
+            # Call the tool and get the raw response
+            response = await session.call_tool(tool_name, args)
+            print(f"Raw response type: {type(response)}")
+            print(f"Raw response: {response}")
+
+            # If the response is a CallToolResult with an error, return the error
+            if hasattr(response, 'isError') and response.isError:
+                error_text = str(response.content[0].text) if hasattr(response,
+                                                                      'content') and response.content else "Unknown error"
+                return {"error": error_text}
+
+            # If we got a successful CallToolResult with content, extract the text
+            if hasattr(response, 'content') and response.content:
+                content = response.content[0]
+                if hasattr(content, 'text'):
+                    return {"content": [{"type": "text", "text": content.text}], "isError": False}
+                return {"content": [{"type": "text", "text": str(content)}], "isError": False}
+
+            # If it's already a dictionary, return it as is
+            if isinstance(response, dict):
+                return response
+
+            # For any other type, convert to string and return as content
+            return {"content": [{"type": "text", "text": str(response)}], "isError": False}
+
+        except Exception as e:
+            error_msg = f"Error calling {tool_name}: {str(e)}"
+            print(error_msg)
+            return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+
+
+def go_to_site_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver_path = mainwin.default_webdriver_path
-
-    print("inital state:", state)
     try:
-        url = state["attributes"]["url"]
-        global ads_config, local_api_key, local_api_port, sk_work_settings
-        ads_port = mainwin.ads_settings['ads_port']
-        ads_api_key = mainwin.ads_settings['ads_api_key']
-        ads_chrome_version = mainwin.ads_settings['chrome_version']
-        scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
-        web_driver_options = ""
-        print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:', ads_chrome_version)
-        profiles = queryAdspowerProfile(ads_api_key, ads_port)
-        loaded_profiles = {}
-        for profile in profiles:
-            loaded_profiles[profile['username']] = {"uid": profile['user_id'], "remark": profile['remark']}
-
-        ads_profile_id = loaded_profiles[scraper_email]['uid']
-        ads_profile_remark = loaded_profiles[scraper_email]['remark']
-        print('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)
-
-        webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
-
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
-
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
-
-        mainwin.setWebDriver(webdriver)
-        # set up output.
-        result_state =  NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
-
-        return result_state
-
-
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCheckBrowserAndDrivers:" + traceback.format_exc() + " " + str(e)
+        print("about to connect to ads power:", type(state), state)
+        loop = asyncio.get_event_loop()
+    except RuntimeError as e:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"os_connect_to_adspower", args={"input": state["tool_input"]} ))
+        # tool_result = await mainwin.mcp_client.call_tool(
+        #     "os_connect_to_adspower", arguments={"input": state.tool_input}
+        # )
+        print("tool completed:", type(tool_result), tool_result)
+        if "completed" in tool_result["content"][0]["text"]:
+            state.result = tool_result
         else:
-            ex_stat = "ErrorCheckBrowserAndDrivers: traceback information not available:" + str(e)
-        log3(ex_stat)
-
-
-def goto_site(state: NodeState) -> NodeState:
-    agent_id = state["messages"][0]
-    agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
-    try:
-        url = state["attributes"]["url"]
-        webdriver = mainwin.getWebDriver()
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
-
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
-
-        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
-
-        return result_state
-
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
-
-async def tool_node(state: NodeState) -> NodeState:
-    agent_id = state["messages"][0]
-    agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
-    try:
-        result_state = await mainwin.mcp_client.call_tool(
-            state.result["selected_tool"], arguments={"input": state.tool_input}
-        )
-    except Exception as e:
+            state.error = tool_result
+        return state
+    else:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
@@ -188,41 +152,37 @@ async def llm_with_tool_node(state: NodeState) -> NodeState:
         return state
 
 
-async def extract_web_page(state: NodeState) -> NodeState:
+def extract_web_page(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        webdriver = mainwin.getWebDriver()
-        script = mainwin.load_build_dom_tree_script()
-        # print("dom tree build script to be executed", script)
-        target = None
-        domTree = execute_js_script(webdriver, script, target)
-        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        print("obtained dom tree:", domTree)
-        with open("domtree.json", 'w', encoding="utf-8") as f:
-            json.dump(domTree, f, ensure_ascii=False, indent=4)
-            # self.rebuildHTML()
-            f.close()
+        loop = asyncio.get_event_loop()
+        tool_result = loop.run_until_complete(mainwin.mcp_client.call_tool(
+            "in_browser_build_dom_tree", arguments={"input": state.tool_input}
+        ))
 
-        state.result = domTree
-        state.error = ""            # clear error
-        time.sleep(1)
+        # tool_result = await mainwin.mcp_client.call_tool(
+        #     "in_browser_build_dom_tree", arguments={"input": state.tool_input}
+        # )
 
+        print("tool completed:", tool_result)
+        if "completed" in tool_result["content"][0]["text"]:
+            state.result = tool_result
+        else:
+            state.error = tool_result
         return state
-
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
         # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
-            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorToolNode:" + traceback.format_exc() + " " + str(e)
         else:
-            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
+            ex_stat = "ErrorToolNode: traceback information not available:" + str(e)
         log3(ex_stat)
         state.error = ex_stat
         return state
-
 
 
 async def search_product(state: NodeState) -> NodeState:
@@ -323,7 +283,7 @@ def get_next_action(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver_path = mainwin.default_webdriver_path
+    webdriver = mainwin.webdriver
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -411,21 +371,6 @@ async def create_search_digi_key_skill(mainwin):
         planner_node = prompt0 | llm
 
 
-        def initial_state(input_text: str) -> NodeState:
-            return {"input": input_text, "messages": [HumanMessage(content=input_text)], "retries": 0, "resolved": False}
-
-        def make_llm_tool_node(session: ClientSession):
-            async def node(state: NodeState) -> NodeState:
-                result = await session.invoke(
-                    input=state["input"],
-                    messages=state["messages"][-1],
-                    tool_choice="auto"  # let the LLM decide
-                )
-                state["messages"].append(result)
-                return state
-
-            return node
-
         async def planner_with_image(state: NodeState):
             # Call your screenshot tool
             # REMOTE call over SSE → MCP tool
@@ -464,8 +409,8 @@ async def create_search_digi_key_skill(mainwin):
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
         workflow = StateGraph(NodeState)
-        workflow.add_node("check_browser", check_browser_and_drivers)
-        workflow.set_entry_point("check_browser")
+        workflow.add_node("go to digi-key site", go_to_site_node)
+        workflow.set_entry_point("go to digi-key site")
         # workflow.add_node("goto_site", goto_site)
 
         workflow.add_node("extract_web_page", extract_web_page)
@@ -473,14 +418,14 @@ async def create_search_digi_key_skill(mainwin):
         workflow.add_node("get_next_action", get_next_action)
 
 
-        workflow.add_edge("check_browser", "extract_web_page")
+        workflow.add_edge("go to digi-key site", "extract_web_page")
         workflow.add_edge("extract_web_page", "get_next_action")
 
         workflow.add_conditional_edges("get_next_action", route_logic, ["extract_web_page", END])
 
         searcher_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
-        searcher_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
+         # type: ignore[attr-defined]
         print("search1688_skill build is done!")
 
     except Exception as e:
