@@ -17,7 +17,17 @@ from mcp.server.lowlevel import Server
 import traceback
 from mcp.server.fastmcp.prompts import base
 from mcp.types import CallToolResult, TextContent
-
+from mcp.server.streamable_http import (
+    MCP_PROTOCOL_VERSION_HEADER,
+    MCP_SESSION_ID_HEADER,
+    SESSION_ID_PATTERN,
+    EventCallback,
+    EventId,
+    EventMessage,
+    EventStore,
+    StreamableHTTPServerTransport,
+    StreamId,
+)
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from pydantic import AnyUrl
 
@@ -52,6 +62,7 @@ load_dotenv()  # load environment variables from .env
 # meca_mcp_server = FastMCP("E-Commerce Agents Service")
 meca_mcp_server = Server("E-Commerce Agents Service")
 meca_sse = SseServerTransport("/messages/")
+meca_streamable_http = StreamableHTTPServerTransport("/mcp_messages/")
 
 #MCP resource
 # [protocol]://[host]/[path]
@@ -1588,7 +1599,7 @@ event_store = InMemoryEventStore()
 session_manager = StreamableHTTPSessionManager(
     app=meca_mcp_server,
     event_store=None,  # set to event_store to Enable resumability
-    json_response=False,
+    json_response=True,
 )
 
 # ASGI handler for streamable HTTP connections
