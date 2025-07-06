@@ -16,13 +16,13 @@ from config.app_settings import app_settings
 from utils.logger_helper import set_top_web_gui, logger_helper as logger
 from utils.hot_reload import start_watching
 
+import utils
 from gui.LoginoutGUI import Login
-from gui.WaitGui import WaitWindow
+# from gui.WaitGui import WaitWindow
 from gui.WebGUI import WebGUI
 from bot.network import runCommanderLAN, runPlatoonLAN
 
 
-# from tests.unittests import *
 from tests.unittests import *
 
 from app_context import AppContext
