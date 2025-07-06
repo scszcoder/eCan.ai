@@ -16,9 +16,9 @@ def check_browser_and_drivers(state: NodeState) -> NodeState:
     try:
         url = state["attributes"]["url"]
         # global ads_config, local_api_key, local_api_port, sk_work_settings
-        ads_port = mainwin.ads_settings['ads_port']
-        ads_api_key = mainwin.ads_settings['ads_api_key']
-        ads_chrome_version = mainwin.ads_settings['chrome_version']
+        ads_port = mainwin.ads_settings.get('ads_port', '50325')
+        ads_api_key = mainwin.ads_settings.get('ads_api_key', '')
+        ads_chrome_version = mainwin.ads_settings.get('chrome_version', '120')
         scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
         web_driver_options = ""
         print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:', ads_chrome_version)

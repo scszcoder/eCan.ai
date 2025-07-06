@@ -6724,7 +6724,7 @@ class MainWindow(QMainWindow):
                 dep_list = list(dependencies)
             else:
                 dep_list = []
-            self.showMsg("found dependency:"+json.dumps(dep_list))
+            logger.info("found dependency:"+json.dumps(dep_list))
 
             dep_ids = []
             for dep in dep_list:
@@ -6734,11 +6734,11 @@ class MainWindow(QMainWindow):
             existing_skill_ids = []
             for dp in dep_ids:
                 if dp[0] == -1:
-                    self.showMsg("ERROR: missing skill dependent skills file:"+str(dp[1]))
+                    logger.error("ERROR: missing skill dependent skills file:"+str(dp[1]))
                 else:
                     existing_skill_ids.append(dp[0])
             # existing_skill_ids = filter(lambda x: x == -1, dep_ids)
-            self.showMsg("existing_skill_ids:"+json.dumps(existing_skill_ids))
+            logger.info("existing_skill_ids:"+json.dumps(existing_skill_ids))
         else:
             existing_skill_ids = []
 
