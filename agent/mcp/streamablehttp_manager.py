@@ -5,9 +5,20 @@ from contextlib import asynccontextmanager
 from typing import Optional, Tuple
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.session import ClientSession
+from mcp.types import (
+    ErrorData,
+    InitializeResult,
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    RequestId,
+)
 
-class STREAMABLE_HTTP_Manager:
-    _instance: Optional["STREAMABLE_HTTP_Manager"] = None
+
+class Streamable_HTTP_Manager:
+    _instance: Optional["Streamable_HTTP_Manager"] = None
 
     def __init__(self, url: str) -> None:
         self._url = url
@@ -17,7 +28,7 @@ class STREAMABLE_HTTP_Manager:
         self._ready: Optional[anyio.Event] = None
     # -------- singleton accessor ------------------------------------
     @classmethod
-    def get(cls, url: str) -> "STREAMABLE_HTTP_Manager":
+    def get(cls, url: str) -> "Streamable_HTTP_Manager":
         if cls._instance is None:
             cls._instance = cls(url)
         return cls._instance
@@ -45,14 +56,21 @@ class STREAMABLE_HTTP_Manager:
         self._ready = anyio.Event()
 
         async def _runner() -> None:
-            async with streamablehttp_client(self._url) as (r, w):
-                async with ClientSession(r, w) as sess:
-                    print("SSE client session initing................")
+            print("Streamable HTTP client opening................", self._url)
+            async with streamablehttp_client(self._url, terminate_on_close=False) as streams:
+                print("hello...")
+                async with ClientSession(streams[0], streams[1]) as sess:
+                    print("Streamable HTTP client session initing................")
                     await sess.initialize()
-                    print("SSE client created................")
+
+                    print("Streamable HTTP client created................")
                     self._session = sess
                     self._ready.set()
-                    print("SSE client ready................")
+                    print("Streamable HTTP client ready................")
+                    await sess.send_ping()
+                    print("Streamable HTTP client ping sent............")
+                    # tools = await self._session.list_tools()
+                    # print("Streamable HTTP client tools listed....", tools)
                     await anyio.sleep_forever()   # keep everything alive
 
         self._tg.start_soon(_runner)

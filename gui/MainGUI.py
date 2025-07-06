@@ -6,7 +6,9 @@ from agent.chats.chats_db import ECBOT_CHAT_DB
 from common.models import VehicleModel
 from utils.server import HttpServer
 from utils.time_util import TimeUtil
-from gui.LocalServer import start_local_server_in_thread, create_mcp_client, create_sse_client
+from gui.LocalServer import start_local_server_in_thread
+from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client)
+from agent.mcp.server.server import set_server_main_win
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -102,6 +104,7 @@ from agent.mcp.server.server import set_server_main_win
 from agent.ec_agents.build_agents import *
 import concurrent.futures
 from agent.mcp.sse_manager import SSEManager
+from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 
 
 
@@ -1146,11 +1149,14 @@ class MainWindow(QMainWindow):
         # print("initialize_mcp.....result:", result)
         # self.mcp_client = await create_mcp_client()
         url = "http://localhost:4668/sse/"
-        self.mcp_client = await SSEManager.get(url).session()
+        url = "http://localhost:4668/mcp/"
+        self.mcp_client_manager = Streamable_HTTP_Manager(url)
+        self.mcp_client = await self.mcp_client_manager.session()
+        # self.mcp_client = await SSEManager.get(url).session()
         # self.mcp_client = await create_sse_client()
         print("MCP client created....")
-        tl = await self.mcp_client.list_tools()
-        print("list of tools:", tl)
+        # tl = await self.mcp_client.list_tools()
+        # print("list of tools:", tl)
         # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
 
         # print("MCP client tools listed....", tools)
@@ -1175,7 +1181,7 @@ class MainWindow(QMainWindow):
         # await self.test_a2a()
 
     async def closeEvent(self, evt):
-        await SSEManager.get("dummy").close()
+        await self.mcp_client_manager.close()
         await super().closeEvent(evt)
 
     def wait_for_server(self, agent, timeout: float = 10.0):
