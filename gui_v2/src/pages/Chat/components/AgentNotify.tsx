@@ -369,6 +369,7 @@ const ConfigItemRenderer: React.FC<{ field: ConfigField; fieldKey: string }> = (
 
 // 渲染通知数据的组件
 const NotificationRenderer: React.FC<{ notification: any }> = ({ notification }) => {
+  const { t } = useTranslation();
   // 检查是否是新的数据格式
   if (notification.type === 'custom' && notification.code) {
     const configData = parseConfigData(notification.code.value);

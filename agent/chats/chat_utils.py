@@ -1,10 +1,10 @@
-
 import asyncio
 import time
 import json
 import os
 from utils.logger_helper import logger_helper as logger
-from agent.ec_skill import FileAttachment
+from enum import Enum
+from typing import List, Dict, Any, Union
 
 # supposed data structure
 request= {'params': None}
@@ -145,4 +145,153 @@ def a2a_send_chat(mainwin, req):
         result = runner_method(request)
 
     return result
+
+class ContentType(str, Enum):
+    """消息内容类型枚举"""
+    TEXT = "text"
+    IMAGE = "image_url"
+    FILE = "file_url"
+    CODE = "code"
+    SYSTEM = "system"
+    FORM = "form"
+    NOTIFICATION = "notification"
+    CARD = "card"
+    MARKDOWN = "markdown"
+    TABLE = "table"
+
+class ContentSchema:
+    """定义不同内容类型的数据结构"""
+    @staticmethod
+    def create_text(text: str) -> dict:
+        """创建文本内容"""
+        return {"type": ContentType.TEXT.value, "text": text}
+
+    @staticmethod
+    def create_code(code: str, language: str = "python") -> dict:
+        """创建代码内容，支持语法高亮"""
+        return {"type": ContentType.CODE.value, "code": {"lang": language, "value": code}}
+
+    @staticmethod
+    def create_form(form_id: str, title: str, fields: list, submit_text: str = "提交") -> dict:
+        """创建表单内容，用于数据收集"""
+        return {
+            "type": ContentType.FORM.value,
+            "form": {
+                "id": form_id,
+                "title": title,
+                "fields": fields,
+                "submit_text": submit_text
+            }
+        }
+
+    @staticmethod
+    def create_system(text: str, level: str = "info") -> dict:
+        """创建系统消息内容，用于展示系统信息"""
+        return {
+            "type": ContentType.SYSTEM.value,
+            "system": {
+                "text": text,
+                "level": level  # info, warning, error, success
+            }
+        }
+
+    @staticmethod
+    def create_notification(title: str, content: str, level: str = "info") -> dict:
+        """创建通知消息内容，用于显示通知横幅"""
+        return {
+            "type": ContentType.NOTIFICATION.value,
+            "notification": {
+                "title": title,
+                "content": content,
+                "level": level  # info, warning, error, success
+            }
+        }
+
+    @staticmethod
+    def create_card(title: str, content: str, actions: list = None) -> dict:
+        """创建卡片内容，支持标题、内容和操作按钮"""
+        return {
+            "type": ContentType.CARD.value,
+            "card": {
+                "title": title,
+                "content": content,
+                "actions": actions or []
+            }
+        }
+
+    @staticmethod
+    def create_markdown(content: str) -> dict:
+        """创建Markdown内容，支持富文本展示"""
+        return {
+            "type": ContentType.MARKDOWN.value,
+            "markdown": content
+        }
+
+    @staticmethod
+    def create_table(headers: list, rows: list) -> dict:
+        """创建表格内容，用于结构化数据展示"""
+        return {
+            "type": ContentType.TABLE.value,
+            "table": {
+                "headers": headers,
+                "rows": rows
+            }
+        }
+
+# 消息内容格式转换工具
+def content_to_text(content: Union[str, Dict[str, Any], List[Dict[str, Any]]]) -> str:
+    """
+    将各种类型的消息内容转换为纯文本表示，用于显示最后一条消息预览
+    
+    Args:
+        content: 消息内容对象或字符串
+        
+    Returns:
+        str: 纯文本表示
+    """
+    if isinstance(content, str):
+        return content
+        
+    if isinstance(content, list):
+        # 多个内容项，连接为一个字符串
+        return " ".join([content_to_text(item) for item in content])
+        
+    if isinstance(content, dict):
+        content_type = content.get("type")
+        
+        if content_type == ContentType.TEXT:
+            return content.get("text", "")
+            
+        elif content_type == ContentType.CODE:
+            code_obj = content.get("code", {})
+            return f"[代码: {code_obj.get('lang', '')}]"
+            
+        elif content_type == ContentType.FORM:
+            form = content.get("form", {})
+            return f"[表单: {form.get('title', '表单')}]"
+            
+        elif content_type == ContentType.SYSTEM:
+            system = content.get("system", {})
+            return f"[系统: {system.get('text', '')}]"
+            
+        elif content_type == ContentType.NOTIFICATION:
+            notification = content.get("notification", {})
+            return f"[通知: {notification.get('title', '')}]"
+            
+        elif content_type == ContentType.CARD:
+            card = content.get("card", {})
+            return f"[卡片: {card.get('title', '')}]"
+            
+        elif content_type == ContentType.MARKDOWN:
+            return f"[Markdown内容]"
+            
+        elif content_type == ContentType.TABLE:
+            return f"[表格数据]"
+            
+        else:
+            # 未知类型，返回JSON字符串
+            import json
+            return json.dumps(content, ensure_ascii=False)
+    
+    return str(content)
 

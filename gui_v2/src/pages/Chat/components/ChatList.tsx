@@ -235,7 +235,15 @@ const ChatList: React.FC<ChatListProps> = ({
             // 一周内显示星期几，否则显示日期
             const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
             if (diffDays < 7) {
-                const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                const weekdays = [
+                    t('pages.chat.weekday0'), // 周日
+                    t('pages.chat.weekday1'), // 周一
+                    t('pages.chat.weekday2'), // 周二
+                    t('pages.chat.weekday3'), // 周三
+                    t('pages.chat.weekday4'), // 周四
+                    t('pages.chat.weekday5'), // 周五
+                    t('pages.chat.weekday6'), // 周六
+                ];
                 return weekdays[date.getDay()];
             } else {
                 return date.toLocaleDateString([], { month: 'numeric', day: 'numeric' });

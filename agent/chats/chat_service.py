@@ -8,6 +8,8 @@ import weakref
 import os
 import json
 import uuid
+import time
+from .chat_utils import ContentSchema, content_to_text
 
 
 class SingletonMeta(type):
@@ -272,6 +274,110 @@ class ChatService(metaclass=SingletonMeta):
                 "data": message.to_dict(deep=True),
                 "error": None
             }
+
+    # 新增辅助方法，支持各种内容类型
+    def add_text_message(self, chatId: str, role: str, text: str, senderId: str, createAt: int = None, **kwargs):
+        """添加纯文本消息的便捷方法"""
+        content = ContentSchema.create_text(text)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_form_message(self, chatId: str, role: str, form_id: str, title: str, fields: list, 
+                         submit_text: str = "提交", senderId: str = None, createAt: int = None, **kwargs):
+        """添加表单消息的便捷方法"""
+        content = ContentSchema.create_form(form_id, title, fields, submit_text)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_code_message(self, chatId: str, role: str, code: str, language: str = "python", 
+                        senderId: str = None, createAt: int = None, **kwargs):
+        """添加代码消息的便捷方法"""
+        content = ContentSchema.create_code(code, language)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_system_message(self, chatId: str, text: str, level: str = "info", 
+                          senderId: str = "system", createAt: int = None, **kwargs):
+        """添加系统消息的便捷方法"""
+        content = ContentSchema.create_system(text, level)
+        return self.add_message(
+            chatId=chatId, 
+            role="system", 
+            content=content, 
+            senderId=senderId, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+        
+    def add_notification_message(self, chatId: str, title: str, content: str, level: str = "info", 
+                               senderId: str = "system", createAt: int = None, **kwargs):
+        """添加通知消息的便捷方法"""
+        notification_content = ContentSchema.create_notification(title, content, level)
+        return self.add_message(
+            chatId=chatId, 
+            role="system", 
+            content=notification_content, 
+            senderId=senderId, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+    
+    def add_card_message(self, chatId: str, role: str, title: str, content: str, actions: list = None, 
+                        senderId: str = None, createAt: int = None, **kwargs):
+        """添加卡片消息的便捷方法"""
+        card_content = ContentSchema.create_card(title, content, actions)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=card_content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+        
+    def add_markdown_message(self, chatId: str, role: str, markdown: str, 
+                           senderId: str = None, createAt: int = None, **kwargs):
+        """添加Markdown消息的便捷方法"""
+        md_content = ContentSchema.create_markdown(markdown)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=md_content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+        
+    def add_table_message(self, chatId: str, role: str, headers: list, rows: list, 
+                         senderId: str = None, createAt: int = None, **kwargs):
+        """添加表格消息的便捷方法"""
+        table_content = ContentSchema.create_table(headers, rows)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=table_content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
 
     def query_chats_by_user(self, userId: Optional[str] = None, deep: bool = False) -> Dict[str, Any]:
         """
