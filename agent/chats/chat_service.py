@@ -9,7 +9,7 @@ import os
 import json
 import uuid
 import time
-from .chat_utils import ContentSchema, content_to_text
+from .chat_utils import ContentSchema
 
 
 class SingletonMeta(type):
