@@ -196,24 +196,24 @@ const ChatPage: React.FC = () => {
         }
     };
     
-    // 页面每次显示都拉取聊天
+    // 页面每次显示都拉取聊天（无论 agentId 是否存在）
     useEffect(() => {
-        // 如果还没完成初始化效果，跳过
-        if (!effectsCompletedRef.current) return;
-        
-        if (!initialized && fetchOnceRef.current) {
-            logger.debug("Skip fetchChats in main useEffect since we already tried once");
-            return;
-        }
-        
-        logger.debug("Main useEffect executing, initialized:", initialized);
-        if (!initialized) return;
-        
-        // 避免重复调用fetchChats
-        if (!isFetchingRef.current) {
-            fetchChats();
-        }
-    }, [initialized]);
+        logger.debug("Chat page mounted or shown. agentId:", agentId, "initialized:", initialized, "myTwinAgentId:", myTwinAgentId);
+
+        // 只要页面显示就拉取聊天（无论 agentId 是否存在）
+        fetchChats();
+
+        setTimeout(() => {
+            effectsCompletedRef.current = true;
+        }, 100);
+
+        return () => {
+            logger.debug("Chat page unmounted");
+            effectsCompletedRef.current = false;
+            isFetchingRef.current = false;
+            isCreatingChatRef.current = false;
+        };
+    }, []);
 
     // 通用获取聊天数据的函数，使用新的 API，并在获取数据后处理agentId相关逻辑
     const getChatsAndSetState = async (userId?: string) => {
@@ -515,9 +515,9 @@ const ChatPage: React.FC = () => {
             createAt: Date.now(),
             senderId,
             senderName,
-            content: content,
+            content: content, // 只做文本或结构化内容
             status: 'sending',
-            attachments: safeAttachments
+            attachments: safeAttachments // 标准附件数组
         };
 
         // 先乐观地更新 UI - 使用消息管理器
@@ -532,7 +532,7 @@ const ChatPage: React.FC = () => {
                 content: content,
                 createAt: String(Date.now()),
                 senderName,
-                status: 'sending',
+                status: 'complete',
                 attachments: safeAttachments as any
             };
             
@@ -606,7 +606,7 @@ const ChatPage: React.FC = () => {
             listTitle={t('pages.chat.title')}
             detailsTitle={currentChat ? currentChat.name : t('pages.chat.chatDetails')}
             listContent={renderListContent()}
-            detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">请选择一个聊天</div>}
+            detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">{t('pages.chat.selectAChat')}</div>}
             agentNotifyTitle={t('pages.chat.agentNotify')}
             agentNotifyContent={renderRightPanel()}
             hasNewAgentNotifications={hasNew}

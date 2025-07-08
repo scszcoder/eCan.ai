@@ -1,15 +1,14 @@
-import React, { useMemo, useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
-import { Message as SemiMessage } from '@douyinfe/semi-foundation/lib/es/chat/foundation';
-import { defaultRoleConfig } from '../types/chat';
+import { useTranslation } from 'react-i18next';
 import { Chat } from '../types/chat';
+import { defaultRoleConfig } from '../types/chat';
+import { getUploadProps } from '../utils/attachmentHandler';
+import ContentTypeRenderer from './ContentTypeRenderer';
 import { protocolHandler } from '../utils/protocolHandler';
 import { ChatDetailWrapper, commonOuterStyle } from '../styles/ChatDetail.styles';
-import { processAndDeduplicateMessages } from '../utils/messageProcessor';
-import { getUploadProps } from '../utils/attachmentHandler';
-import CustomContentRenderer from './CustomContentRenderer';
 import { logger } from '@/utils/logger';
+import AttachmentList from './AttachmentList';
 
 interface ChatDetailProps {
     chatId?: string | null;
@@ -36,10 +35,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
     }, [chatId, chats]);
 
     // 处理消息，确保content是字符串
-    const messages = useMemo<SemiMessage[]>(() => {
+    const messages = useMemo<any[]>(() => {
         // 如果有当前聊天，使用其消息
         if (currentChat && Array.isArray(currentChat.messages)) {
-            return processAndDeduplicateMessages(currentChat.messages);
+            return currentChat.messages;
         }
         // 否则返回空数组
         return [];
@@ -147,15 +146,55 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
         return `chat_${chatId}_${messages.length}`;
     }, [chatId, messages.length]);
 
+    // 处理表单提交
+    const handleFormSubmit = (formId: string, values: any) => {
+        if (onSend) {
+            // 创建表单提交消息
+            const formSubmitContent = JSON.stringify({
+                type: 'form_submit',
+                formId,
+                values
+            });
+            onSend(formSubmitContent, []);
+        }
+    };
+
+    // 处理卡片动作
+    const handleCardAction = (action: string) => {
+        if (onSend) {
+            // 创建卡片动作消息
+            const actionContent = JSON.stringify({
+                type: 'card_action',
+                action
+            });
+            onSend(actionContent, []);
+        }
+    };
+
     // 自定义渲染配置
     const chatBoxRenderConfig = {
         renderChatBoxContent: (props: any) => {
-            // Semi UI Chat 的 renderChatBoxContent 接收 RenderContentProps 类型
             const { message } = props;
-            // 从 message 中获取 content
             const content = message?.content || '';
-            
-            return <CustomContentRenderer content={content} />;
+            // 只处理 content 字段，不再解析附件标记
+            let parsedContent = content;
+            if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+                try {
+                    parsedContent = JSON.parse(content);
+                } catch (e) {
+                    // 解析失败，按普通文本处理
+                }
+            }
+            return (
+                <div>
+                    <ContentTypeRenderer 
+                        content={parsedContent} 
+                        onFormSubmit={handleFormSubmit}
+                        onCardAction={handleCardAction}
+                    />
+                    <AttachmentList attachments={message.attachments} />
+                </div>
+            );
         }
     };
 
