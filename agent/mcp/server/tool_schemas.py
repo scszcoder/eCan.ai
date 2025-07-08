@@ -757,6 +757,29 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
+    tool_schema = types.Tool(
+        name="os_connect_to_adspower",
+        description="connect to an already opened and logged in ADS Power and open a new tab in URL.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
         name="reconnect_wifi",
@@ -778,4 +801,5 @@ def build_agent_mcp_tools_schemas():
     )
 
     add_tool_schema(tool_schema)
+
     return tool_schemas

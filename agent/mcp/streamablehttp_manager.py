@@ -38,7 +38,7 @@ class Streamable_HTTP_Manager:
         async with self._lock:
             if self._session is None:
                 await self._open()           # first time
-            await self._ready.wait()
+            # await self._ready.wait()
         return self._session                 # type: ignore[arg-type]
 
     async def close(self) -> None:
@@ -50,10 +50,11 @@ class Streamable_HTTP_Manager:
 
     # -------- internal ----------------------------------------------
     async def _open(self) -> None:
-        self._tg = anyio.create_task_group()
-        await self._tg.__aenter__()
-
-        self._ready = anyio.Event()
+        print("about to open....")
+        # self._tg = anyio.create_task_group()
+        # await self._tg.__aenter__()
+        #
+        # self._ready = anyio.Event()
 
         async def _runner() -> None:
             print("Streamable HTTP client opening................", self._url)
@@ -65,12 +66,15 @@ class Streamable_HTTP_Manager:
 
                     print("Streamable HTTP client created................")
                     self._session = sess
-                    self._ready.set()
-                    print("Streamable HTTP client ready................")
+                    # self._ready.set()
+                    # print("Streamable HTTP client ready................")
+                    # await sess.send_ping()
+                    # print("Streamable HTTP client ping1 sent............")
                     await sess.send_ping()
-                    print("Streamable HTTP client ping sent............")
+                    print("Streamable HTTP client ping2 sent............")
                     # tools = await self._session.list_tools()
                     # print("Streamable HTTP client tools listed....", tools)
-                    await anyio.sleep_forever()   # keep everything alive
-
-        self._tg.start_soon(_runner)
+        #             await anyio.sleep_forever()   # keep everything alive
+        #
+        # self._tg.start_soon(_runner)
+        await _runner()
