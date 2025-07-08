@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { logger } from '../../utils/logger';
 import { IPCAPI } from '@/services/ipc/api';
+import type { Settings } from './types';
 import { useUserStore } from '../../stores/userStore';
 
 type Theme = 'light' | 'dark' | 'system';
@@ -45,34 +46,33 @@ const Settings: React.FC = () => {
 
   // 加载设置
   const loadSettings = useCallback(async () => {
+    const lang: string = (typeof i18n.language === 'string' && i18n.language) ? i18n.language : 'en-US';
     try {
       setLoading(true);
-      const response = await IPCAPI.getInstance().getSettings(username);
+      const response = await IPCAPI.getInstance().getSettings<Settings>(username);
       if (response && response.success && response.data) {
         const settings = response.data;
         form.setFieldsValue({
           theme: settings.theme || theme,
-          language: settings.language || localStorage.getItem('language') || 'en-US',
-          notifications: settings.notifications || localStorage.getItem('notifications') === 'true',
-          autoUpdate: settings.autoUpdate || localStorage.getItem('autoUpdate') === 'true'
+          language: lang,
+          notifications: localStorage.getItem('notifications') === 'true',
+          autoUpdate: localStorage.getItem('autoUpdate') === 'true'
         });
       } else {
         // Handle case where response is not successful
         logger.warn('Settings response was not successful:', response);
-        // Set default values from localStorage
         form.setFieldsValue({
           theme: localStorage.getItem('theme') || theme,
-          language: localStorage.getItem('language') || 'en-US',
+          language: lang,
           notifications: localStorage.getItem('notifications') === 'true',
           autoUpdate: localStorage.getItem('autoUpdate') === 'true'
         });
       }
     } catch (error) {
       logger.error('Failed to load settings:', error instanceof Error ? error.message : 'Unknown error');
-      // Set default values from localStorage on error
       form.setFieldsValue({
         theme: localStorage.getItem('theme') || theme,
-        language: localStorage.getItem('language') || 'en-US',
+        language: lang,
         notifications: localStorage.getItem('notifications') === 'true',
         autoUpdate: localStorage.getItem('autoUpdate') === 'true'
       });
@@ -80,7 +80,7 @@ const Settings: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [form, theme, t, message]);
+  }, [form, theme, t, message, i18n.language, username]);
 
   // 初始化加载设置
   useEffect(() => {
@@ -96,12 +96,14 @@ const Settings: React.FC = () => {
   // 语言切换处理
   const handleLanguageChange = async (value: string) => {
     try {
-      localStorage.setItem('i18nextLng', value);
-      await i18n.changeLanguage(value);
-      changeLanguage(value);
+      await i18n.changeLanguage(value); // 只用i18n统一切换
+      changeLanguage(value); // 通知全局context
+      form.setFieldsValue({ language: value || 'en-US' });
       message.success(t('settings.languageChanged'));
-    } catch {
+      console.log('当前语言已切换为:', i18n.language);
+    } catch (e) {
       message.error(t('settings.languageChangeError'));
+      console.error('语言切换失败:', e);
     }
   };
 
@@ -129,18 +131,12 @@ const Settings: React.FC = () => {
   const handleSave = async (values: SettingsFormData) => {
     try {
       setLoading(true);
-      // 保存设置到后端
       const response = await IPCAPI.getInstance().saveSettings(values);
-
       if (response && response.success) {
-        // 更新本地设置
-        localStorage.setItem('language', values.language);
+        // 只保存必要字段
         localStorage.setItem('notifications', String(values.notifications));
         localStorage.setItem('autoUpdate', String(values.autoUpdate));
-
-        // 更新主题
         changeTheme(values.theme as 'light' | 'dark' | 'system');
-
         message.success(t('settings.saved'));
       } else {
         throw new Error(response?.message || 'Failed to save settings');
