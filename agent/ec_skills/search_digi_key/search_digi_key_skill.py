@@ -5,6 +5,7 @@ from bot.seleniumSkill import execute_js_script
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import get_agent_by_id
+from agent.mcp.local_client import local_mcp_call_tool
 
 # async def mcp_call_tool(mcp_client, tool_name, args):
 #     async with mcp_client.session("E-Commerce Agents Service") as session:
@@ -14,38 +15,41 @@ from utils.logger_helper import get_agent_by_id
 #         return tool_result
 
 async def mcp_call_tool(mcp_client, tool_name, args):
-    async with mcp_client.session("E-Commerce Agents Service") as session:
-        print(f"MCP client calling tool: {tool_name} with args: {args}")
-        try:
-            # Call the tool and get the raw response
-            response = await session.call_tool(tool_name, args)
-            print(f"Raw response type: {type(response)}")
-            print(f"Raw response: {response}")
+    # async with mcp_client.session("E-Commerce Agents Service") as session:
+    print(f"MCP client calling tool: {tool_name} with args: {args}")
+    try:
+        # Call the tool and get the raw response
+        # response = await mcp_client.call_tool(tool_name, args)
+        url = "http://localhost:4668/mcp/"
+        response = await local_mcp_call_tool(url,tool_name, args)
+        print(f"Raw response type: {type(response)}")
+        print(f"Raw response: {response}")
+        print("response meta:", response.content[0].meta)
 
-            # If the response is a CallToolResult with an error, return the error
-            if hasattr(response, 'isError') and response.isError:
-                error_text = str(response.content[0].text) if hasattr(response,
-                                                                      'content') and response.content else "Unknown error"
-                return {"error": error_text}
+        # If the response is a CallToolResult with an error, return the error
+        if hasattr(response, 'isError') and response.isError:
+            error_text = str(response.content[0].text) if hasattr(response,
+                                                                  'content') and response.content else "Unknown error"
+            return {"error": error_text}
 
-            # If we got a successful CallToolResult with content, extract the text
-            if hasattr(response, 'content') and response.content:
-                content = response.content[0]
-                if hasattr(content, 'text'):
-                    return {"content": [{"type": "text", "text": content.text}], "isError": False}
-                return {"content": [{"type": "text", "text": str(content)}], "isError": False}
+        # If we got a successful CallToolResult with content, extract the text
+        if hasattr(response, 'content') and response.content:
+            content = response.content[0]
+            if hasattr(content, 'text'):
+                return {"content": [{"type": "text", "text": content.text}], "isError": False}
+            return {"content": [{"type": "text", "text": str(content)}], "isError": False}
 
-            # If it's already a dictionary, return it as is
-            if isinstance(response, dict):
-                return response
+        # If it's already a dictionary, return it as is
+        if isinstance(response, dict):
+            return response
 
-            # For any other type, convert to string and return as content
-            return {"content": [{"type": "text", "text": str(response)}], "isError": False}
+        # For any other type, convert to string and return as content
+        return {"content": [{"type": "text", "text": str(response)}], "isError": False}
 
-        except Exception as e:
-            error_msg = f"Error calling {tool_name}: {str(e)}"
-            print(error_msg)
-            return {"content": [{"type": "text", "text": error_msg}], "isError": True}
+    except Exception as e:
+        error_msg = f"Error calling {tool_name}: {str(e)}"
+        print(error_msg)
+        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
 
 
 def go_to_site_node(state: NodeState) -> NodeState:

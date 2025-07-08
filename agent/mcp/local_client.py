@@ -84,8 +84,9 @@ async def create_sse_client():
 
 
 @asynccontextmanager
-async def create_streamable_http_client():
-    async with streamablehttp_client("http://localhost:4668/sse/") as (read_stream, write_stream):
+async def create_streamable_http_client(url):
+    # "http://localhost:4668/mcp/"
+    async with streamablehttp_client(url) as (read_stream, write_stream):
         # Add debug prints to check stream types
         print(f"Read stream type: {type(read_stream).__name__}")  # Should be MemoryObjectReceiveStream
         print(f"Write stream type: {type(write_stream).__name__}")  # Should be MemoryObjectSendStream
@@ -97,3 +98,24 @@ async def create_streamable_http_client():
             await session.initialize()
             print("SSE client created................")
             yield session
+
+
+async def local_mcp_list_tools(url):
+    # "http://localhost:4668/mcp/"
+    tools = {}
+    async with streamablehttp_client(url) as streams:
+        async with ClientSession(streams[0], streams[1]) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            # await session.complete()
+            return tools
+
+async def local_mcp_call_tool(url, tool_name, arguments):
+    # "http://localhost:4668/mcp/"
+    result = {}
+    async with streamablehttp_client(url) as streams:
+        async with ClientSession(streams[0], streams[1]) as session:
+            await session.initialize()
+            result = await session.call_tool(tool_name, arguments)
+            # await session.complete()
+            return result
