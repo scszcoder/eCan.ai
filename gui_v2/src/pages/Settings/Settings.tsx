@@ -47,6 +47,7 @@ const Settings: React.FC = () => {
   // 加载设置
   const loadSettings = useCallback(async () => {
     const lang: string = (typeof i18n.language === 'string' && i18n.language) ? i18n.language : 'en-US';
+    if (!username) return;
     try {
       setLoading(true);
       const response = await IPCAPI.getInstance().getSettings<Settings>(username);
