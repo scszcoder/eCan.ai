@@ -6,13 +6,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import get_agent_by_id
 from agent.mcp.local_client import local_mcp_call_tool
+import re
 
-# async def mcp_call_tool(mcp_client, tool_name, args):
-#     async with mcp_client.session("E-Commerce Agents Service") as session:
-#         print("MCP client call tool................")
-#         tool_result = await session.call_tool(tool_name, args)
-#         print("MCP client call tool returned................", type(tool_result), tool_result)
-#         return tool_result
 
 async def mcp_call_tool(mcp_client, tool_name, args):
     # async with mcp_client.session("E-Commerce Agents Service") as session:
@@ -23,28 +18,11 @@ async def mcp_call_tool(mcp_client, tool_name, args):
         url = "http://localhost:4668/mcp/"
         response = await local_mcp_call_tool(url,tool_name, args)
         print(f"Raw response type: {type(response)}")
-        print(f"Raw response: {response}")
-        print("response meta:", response.content[0].meta)
+        print(f"Raw response Err: {response.isError}   {response.content[0].text}")
+        # print("response meta:", response.content[0].meta)
 
         # If the response is a CallToolResult with an error, return the error
-        if hasattr(response, 'isError') and response.isError:
-            error_text = str(response.content[0].text) if hasattr(response,
-                                                                  'content') and response.content else "Unknown error"
-            return {"error": error_text}
-
-        # If we got a successful CallToolResult with content, extract the text
-        if hasattr(response, 'content') and response.content:
-            content = response.content[0]
-            if hasattr(content, 'text'):
-                return {"content": [{"type": "text", "text": content.text}], "isError": False}
-            return {"content": [{"type": "text", "text": str(content)}], "isError": False}
-
-        # If it's already a dictionary, return it as is
-        if isinstance(response, dict):
-            return response
-
-        # For any other type, convert to string and return as content
-        return {"content": [{"type": "text", "text": str(response)}], "isError": False}
+        return response
 
     except Exception as e:
         error_msg = f"Error calling {tool_name}: {str(e)}"
@@ -60,32 +38,61 @@ def go_to_site_node(state: NodeState) -> NodeState:
         print("about to connect to ads power:", type(state), state)
         loop = asyncio.get_event_loop()
     except RuntimeError as e:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"os_connect_to_adspower", args={"input": state["tool_input"]} ))
-        # tool_result = await mainwin.mcp_client.call_tool(
-        #     "os_connect_to_adspower", arguments={"input": state.tool_input}
-        # )
-        print("tool completed:", type(tool_result), tool_result)
-        if "completed" in tool_result["content"][0]["text"]:
-            state.result = tool_result
-        else:
-            state.error = tool_result
-        return state
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"os_connect_to_adspower", args={"input": state["tool_input"]} ))
+            # tool_result = await mainwin.mcp_client.call_tool(
+            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
+            # )
+            print("new loop go_to_site_node tool completed:", type(tool_result), tool_result)
+            if "completed" in tool_result["content"][0]["text"]:
+                state["result"] = tool_result
+            else:
+                state["error"] = tool_result
+
+            return state
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorGoToSiteNode0:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorGoToSiteNode0: traceback information not available:" + str(e)
+            log3(ex_stat)
+            state.error = ex_stat
+            return state
+        finally:
+            loop.close()
     else:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorToolNode:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorToolNode: traceback information not available:" + str(e)
-        log3(ex_stat)
-        state.error = ex_stat
-        return state
+        try:
+            tool_result = loop.run_until_complete(
+                mcp_call_tool(mainwin.mcp_client, "os_connect_to_adspower", args={"input": state["tool_input"]}))
+            # tool_result = await mainwin.mcp_client.call_tool(
+            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
+            # )
+            print("old loop go_to_site_node tool completed:", type(tool_result), tool_result)
+            if "completed" in tool_result["content"][0]["text"]:
+                state["result"] = tool_result
+            else:
+                state["error"] = tool_result
+
+            return state
+        except Exception as e:
+            # Get the traceback information
+            traceback_info = traceback.extract_tb(e.__traceback__)
+            # Extract the file name and line number from the last entry in the traceback
+            if traceback_info:
+                ex_stat = "ErrorGoToSiteNode1:" + traceback.format_exc() + " " + str(e)
+            else:
+                ex_stat = "ErrorGoToSiteNode1: traceback information not available:" + str(e)
+            log3(ex_stat)
+            state.error = ex_stat
+            return state
 
 
-async def llm_with_tool_node(state: NodeState) -> NodeState:
+async def check_captcha_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
@@ -95,11 +102,41 @@ async def llm_with_tool_node(state: NodeState) -> NodeState:
         )
 
         llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
-
+        user_content = """ 
+                        Given the json formated partial dom tree elements, and I want to extract available top categories that all products
+                        on digi-key are grouped into. please help figure out:
+                        - 1) whether the provided dom elements contain one or more top level product categories, if no, go to step 2; if yes, please identify the selector type and name of the element to search for on the page.
+                        - 2) if no dom element contains any seemingly top level product categories, with your best guess is there any dom element's children elements could contain the top level product categories.
+                        please pack the response to step 1 and 2 into the following json data format:
+                        {
+                            "top_category_identifiers": [
+                                {
+                                    "selector_type": "ID|CLASS_NAME|CSS_SELECTOR|LINK_TEXT|NAME|PARTIAL_LINK_TEXT|TAG_NAME|XPATH",
+                                    "selector_name": "name string",
+                                }],
+                            "top_category_containers": [
+                                {
+                                    "selector_type": "CSS_SELECTOR|XPATH",
+                                    "selector_name": "name string",
+                                }]
+                        }
+                        And here is the json formated partial dom tree elements: {dome_tree}
+                        """
         prompt_messages = [
             {
                 "role": "system",
-                "content": "You are an expert procurement assistant trying to help the user find a component for his project."
+                "content": """
+                        You're an electronics component procurement expert helping sourcing this component on digi-key website.
+                        your task is to help the user navigate the digi-key website and search for a product. The search will
+                        done by first identify the product's category and sub-categories and then search for the product using
+                        digi-key's parametric filter search scheme, I have a set of MCP tools that can excute in browser actions
+                        such as click, hover, scroll, key input, as well as building dom tree and search web elements on a page.
+                        since the page contents will be changing and dynamic and could be very large to present to you in full, 
+                        along the way, user will attempt to provide the following to you:
+                        -  1) partial top dom elements in json fashion
+                        -  2) intentions - either to find out certain structure info on the page or execute certain action on the page.
+                        please return a response to user in the desired format as specified in the user prompt.
+                    """
             },
             {
                 "role": "user",
@@ -156,26 +193,95 @@ async def llm_with_tool_node(state: NodeState) -> NodeState:
         return state
 
 
-def extract_web_page(state: NodeState) -> NodeState:
+
+async def solve_captcha_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        loop = asyncio.get_event_loop()
-        tool_result = loop.run_until_complete(mainwin.mcp_client.call_tool(
-            "in_browser_build_dom_tree", arguments={"input": state.tool_input}
-        ))
+        result_state = await mainwin.mcp_client.call_tool(
+            state.result["selected_tool"], arguments={"input": state.tool_input}
+        )
 
-        # tool_result = await mainwin.mcp_client.call_tool(
-        #     "in_browser_build_dom_tree", arguments={"input": state.tool_input}
-        # )
+        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        user_content = """ 
+                        Given the json formated partial dom tree elements, and I want to extract available top categories that all products
+                        on digi-key are grouped into. please help figure out:
+                        - 1) whether the provided dom elements contain one or more top level product categories, if no, go to step 2; if yes, please identify the selector type and name of the element to search for on the page.
+                        - 2) if no dom element contains any seemingly top level product categories, with your best guess is there any dom element's children elements could contain the top level product categories.
+                        please pack the response to step 1 and 2 into the following json data format:
+                        {
+                            "top_category_identifiers": [
+                                {
+                                    "selector_type": "ID|CLASS_NAME|CSS_SELECTOR|LINK_TEXT|NAME|PARTIAL_LINK_TEXT|TAG_NAME|XPATH",
+                                    "selector_name": "name string",
+                                }],
+                            "top_category_containers": [
+                                {
+                                    "selector_type": "CSS_SELECTOR|XPATH",
+                                    "selector_name": "name string",
+                                }]
+                        }
+                        And here is the json formated partial dom tree elements: {dome_tree}
+                        """
+        prompt_messages = [
+            {
+                "role": "system",
+                "content": """
+                        You're an electronics component procurement expert helping sourcing this component on digi-key website.
+                        your task is to help the user navigate the digi-key website and search for a product. The search will
+                        done by first identify the product's category and sub-categories and then search for the product using
+                        digi-key's parametric filter search scheme, I have a set of MCP tools that can excute in browser actions
+                        such as click, hover, scroll, key input, as well as building dom tree and search web elements on a page.
+                        since the page contents will be changing and dynamic and could be very large to present to you in full, 
+                        along the way, user will attempt to provide the following to you:
+                        -  1) partial top dom elements in json fashion
+                        -  2) intentions - either to find out certain structure info on the page or execute certain action on the page.
+                        please return a response to user in the desired format as specified in the user prompt.
+                    """
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
 
-        print("tool completed:", tool_result)
-        if "completed" in tool_result["content"][0]["text"]:
-            state.result = tool_result
+        print("llm prompt ready:", prompt_messages)
+        response = llm.invoke(prompt_messages)
+        print("LLM response:", response)
+        # Parse the response
+
+        import json
+        import ast  # Add this import at the top of your file
+
+        # Extract content from AIMessage if needed
+        raw_content = response.content if hasattr(response, 'content') else str(response)
+        print("Raw content:", raw_content)  # Debug log
+
+        # Clean up the response
+        if is_json_parsable(raw_content):
+            result = json.loads(raw_content)
         else:
-            state.error = tool_result
-        return state
+            content = raw_content.strip('`').strip()
+            if content.startswith('json'):
+                content = content[4:].strip()
+            # Parse the JSON
+            # Convert to proper JSON string if it's a Python dict string
+            if content.startswith('{') and content.endswith('}'):
+                # Replace single quotes with double quotes for JSON
+                content = content.replace("'", '"')
+                # Convert Python's True/False to JSON's true/false
+                content = content.replace("True", "true").replace("False", "false")
+                if is_json_parsable(content):
+                    # Return the full state with the analysis
+                    result = json.loads(content)
+                else:
+                    result = raw_content
+            else:
+                result = raw_content
+
+        return {**state, "result": result}
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -189,21 +295,54 @@ def extract_web_page(state: NodeState) -> NodeState:
         return state
 
 
-async def search_product(state: NodeState) -> NodeState:
+
+async def check_top_categories_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        webdriver = mainwin.getWebDriver()
-        # assuming driver is already created and points to the page
-        input_box = webdriver.find_element(By.ID, "alisearch-input")
-        input_box.clear()
-        search_phrase = state.attributes["search_phrase"]
-        input_box.send_keys(search_phrase)
-        input_box.send_keys(Keys.RETURN)  # if you want to simulate pressing Enter
-
-        time.sleep(3)
-        state.error = ""
+        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        user_content = """ 
+                                Given the json formated partial dom tree elements, and I want to extract available top categories that all products
+                                on digi-key are grouped into. please help figure out:
+                                - 1) whether the provided dom elements contain one or more top level product categories, if no, go to step 2; if yes, please identify the selector type and name of the element to search for on the page.
+                                - 2) if no dom element contains any seemingly top level product categories, with your best guess is there any dom element's children elements could contain the top level product categories.
+                                please pack the response to step 1 and 2 into the following json data format:
+                                {
+                                    "top_category_identifiers": [
+                                        {
+                                            "selector_type": "ID|CLASS_NAME|CSS_SELECTOR|LINK_TEXT|NAME|PARTIAL_LINK_TEXT|TAG_NAME|XPATH",
+                                            "selector_name": "name string",
+                                        }],
+                                    "top_category_containers": [
+                                        {
+                                            "selector_type": "CSS_SELECTOR|XPATH",
+                                            "selector_name": "name string",
+                                        }]
+                                }
+                                And here is the json formated partial dom tree elements: {dome_tree}
+                                """
+        prompt_messages = [
+            {
+                "role": "system",
+                "content": """
+                                You're an electronics component procurement expert helping sourcing this component on digi-key website.
+                                your task is to help the user navigate the digi-key website and search for a product. The search will
+                                done by first identify the product's category and sub-categories and then search for the product using
+                                digi-key's parametric filter search scheme, I have a set of MCP tools that can excute in browser actions
+                                such as click, hover, scroll, key input, as well as building dom tree and search web elements on a page.
+                                since the page contents will be changing and dynamic and could be very large to present to you in full, 
+                                along the way, user will attempt to provide the following to you:
+                                -  1) partial top dom elements in json fashion
+                                -  2) intentions - either to find out certain structure info on the page or execute certain action on the page.
+                                please return a response to user in the desired format as specified in the user prompt.
+                            """
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
 
         return state
 
@@ -220,21 +359,53 @@ async def search_product(state: NodeState) -> NodeState:
         return state
 
 
-async def review_search_results(state: NodeState) -> NodeState:
+async def check_sub_categories_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        webdriver = mainwin.getWebDriver()
-        # assuming driver is already created and points to the page
-        input_box = webdriver.find_element(By.ID, "alisearch-input")
-        input_box.clear()
-        search_phrase = state.attributes["search_phrase"]
-        input_box.send_keys(search_phrase)
-        input_box.send_keys(Keys.RETURN)  # if you want to simulate pressing Enter
-
-        time.sleep(3)
-        state.error = ""
+        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        user_content = """ 
+                                Given the json formated partial dom tree elements, and I want to extract available top categories that all products
+                                on digi-key are grouped into. please help figure out:
+                                - 1) whether the provided dom elements contain one or more top level product categories, if no, go to step 2; if yes, please identify the selector type and name of the element to search for on the page.
+                                - 2) if no dom element contains any seemingly top level product categories, with your best guess is there any dom element's children elements could contain the top level product categories.
+                                please pack the response to step 1 and 2 into the following json data format:
+                                {
+                                    "top_category_identifiers": [
+                                        {
+                                            "selector_type": "ID|CLASS_NAME|CSS_SELECTOR|LINK_TEXT|NAME|PARTIAL_LINK_TEXT|TAG_NAME|XPATH",
+                                            "selector_name": "name string",
+                                        }],
+                                    "top_category_containers": [
+                                        {
+                                            "selector_type": "CSS_SELECTOR|XPATH",
+                                            "selector_name": "name string",
+                                        }]
+                                }
+                                And here is the json formated partial dom tree elements: {dome_tree}
+                                """
+        prompt_messages = [
+            {
+                "role": "system",
+                "content": """
+                                You're an electronics component procurement expert helping sourcing this component on digi-key website.
+                                your task is to help the user navigate the digi-key website and search for a product. The search will
+                                done by first identify the product's category and sub-categories and then search for the product using
+                                digi-key's parametric filter search scheme, I have a set of MCP tools that can excute in browser actions
+                                such as click, hover, scroll, key input, as well as building dom tree and search web elements on a page.
+                                since the page contents will be changing and dynamic and could be very large to present to you in full, 
+                                along the way, user will attempt to provide the following to you:
+                                -  1) partial top dom elements in json fashion
+                                -  2) intentions - either to find out certain structure info on the page or execute certain action on the page.
+                                please return a response to user in the desired format as specified in the user prompt.
+                            """
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
 
         return state
 
@@ -252,21 +423,53 @@ async def review_search_results(state: NodeState) -> NodeState:
 
 
 
-async def review_product_details(state: NodeState) -> NodeState:
+async def check_is_parametric_filter_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        webdriver = mainwin.getWebDriver()
-        # assuming driver is already created and points to the page
-        input_box = webdriver.find_element(By.ID, "alisearch-input")
-        input_box.clear()
-        search_phrase = state.attributes["search_phrase"]
-        input_box.send_keys(search_phrase)
-        input_box.send_keys(Keys.RETURN)  # if you want to simulate pressing Enter
-
-        time.sleep(3)
-        state.error = ""
+        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        user_content = """ 
+                                        Given the json formated partial dom tree elements, and I want to extract available top categories that all products
+                                        on digi-key are grouped into. please help figure out:
+                                        - 1) whether the provided dom elements contain full or partial parametric filters, if no, go to step 2; if yes, please identify the selector type and name of the selector card element to search for on the page.
+                                        - 2) if no dom element contains any seemingly full or partial parametric filters, with your best guess doesany dom element contains further divided sub-sub-categories information? If Yes, please identify the selector type and name of the element to search for the further divided sub-sub-categories info on the page.
+                                        please pack the response to step 1 and 2 into the following json data format:
+                                        {
+                                            "parametric_filter_identifiers": [
+                                                {
+                                                    "selector_type": "ID|CLASS_NAME|CSS_SELECTOR|LINK_TEXT|NAME|PARTIAL_LINK_TEXT|TAG_NAME|XPATH",
+                                                    "selector_name": "name string",
+                                                }],
+                                            "sub_sub_category_identifiers": [
+                                                {
+                                                    "selector_type": "ID|CLASS_NAME|CSS_SELECTOR|LINK_TEXT|NAME|PARTIAL_LINK_TEXT|TAG_NAME|XPATH",
+                                                    "selector_name": "name string",
+                                                }]
+                                        }
+                                        And here is the json formated partial dom tree elements: {dome_tree}
+                                        """
+        prompt_messages = [
+            {
+                "role": "system",
+                "content": """
+                                        You're an electronics component procurement expert helping sourcing this component on digi-key website.
+                                        your task is to help the user navigate the digi-key website and search for a product. The search will
+                                        done by first identify the product's category and sub-categories and then search for the product using
+                                        digi-key's parametric filter search scheme, I have a set of MCP tools that can excute in browser actions
+                                        such as click, hover, scroll, key input, as well as building dom tree and search web elements on a page.
+                                        since the page contents will be changing and dynamic and could be very large to present to you in full, 
+                                        along the way, user will attempt to provide the following to you:
+                                        -  1) partial top dom elements in json fashion
+                                        -  2) intentions - either to find out certain structure info on the page or execute certain action on the page.
+                                        please return a response to user in the desired format as specified in the user prompt.
+                                    """
+            },
+            {
+                "role": "user",
+                "content": user_content
+            }
+        ]
 
         return state
 
@@ -283,7 +486,237 @@ async def review_product_details(state: NodeState) -> NodeState:
         return state
 
 
-def get_next_action(state: NodeState) -> NodeState:
+def get_user_parametric_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+
+def fill_user_parametric_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+
+def obtain_search_results_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+
+
+def final_select_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+
+def check_goals_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+
+def check_goals_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+def send_results_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
+
+def send_results_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
@@ -316,6 +749,39 @@ def get_next_action(state: NodeState) -> NodeState:
             ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
         log3(ex_stat)
 
+
+def check_done_logic(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    webdriver = mainwin.webdriver
+    try:
+        url = state["messages"][0]
+        webdriver.switch_to.window(webdriver.window_handles[0])
+        time.sleep(3)
+        webdriver.execute_script(f"window.open('{url}', '_blank');")
+
+        # Switch to the new tab
+        webdriver.switch_to.window(webdriver.window_handles[-1])
+        time.sleep(3)
+        # Navigate to the new URL in the new tab
+        if url:
+            webdriver.get(url)  # Replace with the new URL
+            print("open URL: " + url)
+
+        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+
+        return result_state
+
+    except Exception as e:
+        # Get the traceback information
+        traceback_info = traceback.extract_tb(e.__traceback__)
+        # Extract the file name and line number from the last entry in the traceback
+        if traceback_info:
+            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
+        else:
+            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
+        log3(ex_stat)
 
 async def create_search_digi_key_skill(mainwin):
     try:
@@ -417,15 +883,28 @@ async def create_search_digi_key_skill(mainwin):
         workflow.set_entry_point("go to digi-key site")
         # workflow.add_node("goto_site", goto_site)
 
-        workflow.add_node("extract_web_page", extract_web_page)
+        workflow.add_node("check_captcha", check_captcha_node)
+        workflow.add_node("check_captcha", solve_captcha_node)
 
-        workflow.add_node("get_next_action", get_next_action)
+        workflow.add_node("check_top_categories", check_top_categories_node)
 
+        workflow.add_node("check_sub_categories", check_sub_categories_node)
+
+        #now starts the loop.
+
+        workflow.add_node("check_is_parametric_filter", check_is_parametric_filter_node)
+
+        workflow.add_node("get_user_parametric", get_user_parametric_node)
+        workflow.add_node("fill_user_parametric", fill_user_parametric_node)
+        workflow.add_node("check_sub_sub_categories", obtain_search_results_node)
+        workflow.add_node("check_goals", check_goals_node)
+        workflow.add_node("final_select", final_select_node)
+        workflow.add_node("send_results", send_results_node)
 
         workflow.add_edge("go to digi-key site", "extract_web_page")
         workflow.add_edge("extract_web_page", "get_next_action")
 
-        workflow.add_conditional_edges("get_next_action", route_logic, ["extract_web_page", END])
+        workflow.add_conditional_edges("check_goals", check_done_logic, ["check_is_parametric_filter", "final_select"])
 
         searcher_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill

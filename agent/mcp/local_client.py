@@ -116,6 +116,7 @@ async def local_mcp_call_tool(url, tool_name, arguments):
     async with streamablehttp_client(url) as streams:
         async with ClientSession(streams[0], streams[1]) as session:
             await session.initialize()
+            tools = await session.list_tools()
             result = await session.call_tool(tool_name, arguments)
             # await session.complete()
             return result
