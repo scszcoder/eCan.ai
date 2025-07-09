@@ -86,7 +86,23 @@ export const SidebarRenderer = () => {
     ) : null;
 
   return (
-    <SideSheet mask={false} visible={visible} onCancel={handleClose}>
+    <SideSheet
+      mask={false}
+      visible={visible}
+      onCancel={handleClose}
+      closable={false}
+      width={360}
+      headerStyle={{
+        display: 'none',
+      }}
+      bodyStyle={{
+        padding: 0,
+      }}
+      style={{
+        background: 'none',
+        boxShadow: 'none',
+      }}
+    >
       <IsSidebarContext.Provider value={true}>{content}</IsSidebarContext.Provider>
     </SideSheet>
   );
