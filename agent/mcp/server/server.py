@@ -552,19 +552,18 @@ async def in_browser_build_dom_tree(mainwin, args):
         domTree = execute_js_script(webdriver, script, target)
         print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
         print("obtained dom tree:", domTree)
-        with open("domtree.json", 'w', encoding="utf-8") as f:
-            json.dump(domTree, f, ensure_ascii=False, indent=4)
+        with open("domtree.json", 'w', encoding="utf-8") as dtjf:
+            json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
             # self.rebuildHTML()
-            f.close()
+            dtjf.close()
 
         domTreeJSString = json.dumps(domTree)            # clear error
         time.sleep(1)
 
-        result_text_content = [TextContent(type="text", text=f"{domTreeJSString}")]
-        result = CallToolResult(content=result_text_content, isError=True)
-        print("call tool build dome tree result:", result)
-        msg = f"completed loading element by index {args['input']['index']}."
-        tool_result = [TextContent(type="text", text=msg)]
+        result_text_content = "completed building DOM tree."
+
+        tool_result = [TextContent(type="text", text=result_text_content)]
+        tool_result.meta = {"dom_tree": domTree}
         return tool_result
 
     except Exception as e:
@@ -1359,23 +1358,29 @@ async def os_connect_to_adspower(mainwin, args):
         webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
 
         webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
+        time.sleep(2)
         webdriver.execute_script(f"window.open('{url}', '_blank');")
-
+        time.sleep(1)
         # Switch to the new tab
         webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
+        time.sleep(1)
         # Navigate to the new URL in the new tab
+        domTree = {}
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            print("opened URL: " + url)
+            time.sleep(3)
+            script = mainwin.load_build_dom_tree_script()
+            # print("dom tree build script to be executed", script)
+            target = None
+            domTree = execute_js_script(webdriver, script, target)
 
         mainwin.setWebDriver(webdriver)
         # set up output.
         msg = "completed connect to adspower."
 
         result = TextContent(type="text", text=f"{msg}")
-        result.meta = {"page": url}
+        result.meta = {"dome tree": domTree}
 
         return [result]
 
