@@ -3,14 +3,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 
 import { useClientContext, CommandService } from '@flowgram.ai/free-layout-editor';
 import { Button } from '@douyinfe/semi-ui';
-import { IconSmallTriangleDown, IconSmallTriangleLeft } from '@douyinfe/semi-icons';
+import { IconClose, IconSmallTriangleDown, IconSmallTriangleLeft } from '@douyinfe/semi-icons';
 
 import { FlowCommandId } from '../../shortcuts';
 import { useIsSidebar, useNodeRenderContext } from '../../hooks';
+import { SidebarContext } from '../../context';
 import { NodeMenu } from '../../components/node-menu';
 import { getIcon } from './utils';
 import { TitleInput } from './title-input';
@@ -20,6 +21,7 @@ export function FormHeader() {
   const { node, expanded, toggleExpand, readonly } = useNodeRenderContext();
   const [titleEdit, updateTitleEdit] = useState<boolean>(false);
   const ctx = useClientContext();
+  const { setNodeId } = useContext(SidebarContext);
   const isSidebar = useIsSidebar();
   const handleExpand = (e: React.MouseEvent) => {
     toggleExpand();
@@ -27,6 +29,9 @@ export function FormHeader() {
   };
   const handleDelete = () => {
     ctx.get<CommandService>(CommandService).executeCommand(FlowCommandId.DELETE, [node]);
+  };
+  const handleClose = () => {
+    setNodeId(undefined);
   };
 
   return (
@@ -46,6 +51,15 @@ export function FormHeader() {
         <Operators>
           <NodeMenu node={node} deleteNode={handleDelete} updateTitleEdit={updateTitleEdit} />
         </Operators>
+      )}
+      {isSidebar && (
+        <Button
+          type="primary"
+          icon={<IconClose />}
+          size="small"
+          theme="borderless"
+          onClick={handleClose}
+        />
       )}
     </Header>
   );
