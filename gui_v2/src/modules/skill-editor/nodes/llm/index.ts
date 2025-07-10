@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { nanoid } from 'nanoid';
 
 import { WorkflowNodeType } from '../constants';
@@ -16,7 +21,7 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
   meta: {
     size: {
       width: 360,
-      height: 300,
+      height: 390,
     },
   },
   onAdd() {
@@ -44,7 +49,7 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
           },
           systemPrompt: {
             type: 'constant',
-            content: 'You are an AI assistant.',
+            content: '# Role\nYou are an AI assistant.\n',
           },
           prompt: {
             type: 'constant',
@@ -69,9 +74,15 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             },
             systemPrompt: {
               type: 'string',
+              extra: {
+                formComponent: 'prompt-editor',
+              },
             },
             prompt: {
               type: 'string',
+              extra: {
+                formComponent: 'prompt-editor',
+              },
             },
           },
         },

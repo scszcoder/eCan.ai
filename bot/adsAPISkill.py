@@ -221,17 +221,40 @@ def queryAdspowerProfile(api_key, port):
     payload = {"page_size": 50}
     headers = {}
 
-    # response = requests.get(url, headers=headers)
-    response = requests.request("GET", url, headers=headers, params =payload)
-    print("response:", response)
-    rj = response.json()
-    if rj['code'] == 0:
-        print("response:", rj)
-        data = rj['data']
-        print("data:", data)
-        return data["list"]
-    else:
-        raise Exception('Failed to query Adspower profile', rj['msg'])
+    try:
+        # response = requests.get(url, headers=headers)
+        response = requests.request("GET", url, headers=headers, params=payload, timeout=10)
+        print("response:", response)
+        
+        if response.status_code != 200:
+            print(f"HTTP Error: {response.status_code}")
+            return []
+            
+        rj = response.json()
+        if rj['code'] == 0:
+            print("response:", rj)
+            data = rj['data']
+            print("data:", data)
+            return data["list"]
+        else:
+            print(f"API Error: {rj['msg']}")
+            return []
+            
+    except requests.exceptions.ConnectionError as e:
+        print(f"Connection Error: ADS Power service is not running or not accessible at {url}")
+        print(f"Error details: {e}")
+        return []
+    except requests.exceptions.Timeout as e:
+        print(f"Timeout Error: Request to ADS Power service timed out")
+        print(f"Error details: {e}")
+        return []
+    except requests.exceptions.RequestException as e:
+        print(f"Request Error: Failed to connect to ADS Power service")
+        print(f"Error details: {e}")
+        return []
+    except Exception as e:
+        print(f"Unexpected Error: {e}")
+        return []
 
 def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, options):
     # webdriver_info = startAdspowerProfile(API_KEY, PROFI LE_ID)

@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 /* eslint-disable no-console */
 import { useMemo } from 'react';
 
@@ -15,7 +20,11 @@ import { FlowNodeRegistry, FlowDocumentJSON } from '../typings';
 import { shortcuts } from '../shortcuts';
 import { CustomService } from '../services';
 import { WorkflowRuntimeService } from '../plugins/runtime-plugin/runtime-service';
-import { createRuntimePlugin, createContextMenuPlugin } from '../plugins';
+import {
+  createRuntimePlugin,
+  createContextMenuPlugin,
+  createVariablePanelPlugin,
+} from '../plugins';
 import { defaultFormMeta } from '../nodes/default-form-meta';
 import { WorkflowNodeType } from '../nodes';
 import { SelectorBoxPopover } from '../components/selector-box-popover';
@@ -91,8 +100,15 @@ export function useEditorProps(
        * 判断是否连线
        */
       canAddLine(ctx, fromPort, toPort) {
-        // not the same node
+        // Cannot be a self-loop on the same node / 不能是同一节点自循环
         if (fromPort.node === toPort.node) {
+          return false;
+        }
+        // Cannot be in different loop containers - 不能在不同 Loop 容器
+        if (
+          toPort.node.parent?.flowNodeType === WorkflowNodeType.Loop &&
+          fromPort.node.parent?.id !== toPort.node.parent?.id
+        ) {
           return false;
         }
         /**
@@ -113,6 +129,24 @@ export function useEditorProps(
        * 判断是否能删除节点, 这个会在默认快捷键 (Backspace or Delete) 触发
        */
       canDeleteNode(ctx, node) {
+        return true;
+      },
+      canDropToNode: (ctx, params) => {
+        const { dragNodeType } = params;
+        /**
+         * 开始/结束节点无法更改容器
+         * The start and end nodes cannot change container
+         */
+        if (
+          [
+            WorkflowNodeType.Start,
+            WorkflowNodeType.End,
+            WorkflowNodeType.BlockStart,
+            WorkflowNodeType.BlockEnd,
+          ].includes(dragNodeType as WorkflowNodeType)
+        ) {
+          return false;
+        }
         return true;
       },
       /**
@@ -287,6 +321,12 @@ export function useEditorProps(
           //   protocol: 'http',
           // },
         }),
+
+        /**
+         * Variable panel plugin
+         * 变量面板插件
+         */
+        createVariablePanelPlugin({}),
       ],
     }),
     []

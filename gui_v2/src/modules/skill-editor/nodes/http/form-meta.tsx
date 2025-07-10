@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { Collapse, Input, JsonViewer, Select, Switch, Tag } from "@douyinfe/semi-ui";
 import React, { useCallback, useRef } from "react";
 

@@ -23,7 +23,7 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get tasks handler called with request: {request}, params: {params}")
+        logger.debug(f"Get tasks handler called with request: {request}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
@@ -77,8 +77,8 @@ def handle_save_tasks(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save tasks handler called with request: {request}, params: {params}")
-        logger.debug("save tasks:" + str(params))
+        logger.debug(f"Save tasks handler called with request: {request}")
+
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:

@@ -1,0 +1,62 @@
+{
+  "id": "mcu_config_form",
+  "title": "MCU 配置",
+  "fields": [
+    {
+      "id": "core",
+      "type": "select",
+      "label": "MCU Core",
+      "options": [
+        { "label": "ATmega328P", "value": "ATmega328P" },
+        { "label": "ESP32", "value": "ESP32" },
+        { "label": "STM32F103", "value": "STM32F103" },
+        { "label": "PIC16F84A", "value": "PIC16F84A" },
+        { "label": "Arduino Nano", "value": "Arduino Nano" }
+      ],
+      "defaultValue": "ESP32"
+    },
+    {
+      "id": "clock_speed",
+      "type": "checkbox",
+      "label": "Clock Speed",
+      "options": [
+        { "label": "8", "value": "8" },
+        { "label": "16", "value": "16" },
+        { "label": "32", "value": "32" },
+        { "label": "64", "value": "64" },
+        { "label": "128", "value": "128" }
+      ],
+      "defaultValue": ["16", "64"]
+    },
+    {
+      "id": "voltage",
+      "type": "select",
+      "label": "Operating Voltage",
+      "options": [
+        { "label": "3.3V", "value": "3.3V" },
+        { "label": "5V", "value": "5V" },
+        { "label": "12V", "value": "12V" }
+      ],
+      "defaultValue": "3.3V"
+    },
+    {
+      "id": "watchdog_timer",
+      "type": "switch",
+      "label": "Watchdog Timer",
+      "defaultValue": true
+    },
+    {
+      "id": "debug_interface",
+      "type": "radio",
+      "label": "Debug Interface",
+      "options": [
+        { "label": "UART", "value": "UART" },
+        { "label": "SPI", "value": "SPI" },
+        { "label": "I2C", "value": "I2C" },
+        { "label": "USB", "value": "USB" }
+      ],
+      "defaultValue": "UART"
+    }
+  ],
+  "submit_text": "保存"
+} 

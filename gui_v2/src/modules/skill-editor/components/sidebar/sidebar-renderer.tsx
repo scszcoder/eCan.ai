@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { useCallback, useContext, useEffect, useMemo } from 'react';
 
 import {
@@ -63,8 +68,8 @@ export const SidebarRenderer = () => {
     if (!node) {
       return false;
     }
-    const { sidebarDisable = false } = node.getNodeMeta<FlowNodeMeta>();
-    return !sidebarDisable;
+    const { sidebarDisabled = false } = node.getNodeMeta<FlowNodeMeta>();
+    return !sidebarDisabled;
   }, [node]);
 
   if (playground.config.readonly) {
@@ -81,7 +86,23 @@ export const SidebarRenderer = () => {
     ) : null;
 
   return (
-    <SideSheet mask={false} visible={visible} onCancel={handleClose}>
+    <SideSheet
+      mask={false}
+      visible={visible}
+      onCancel={handleClose}
+      closable={false}
+      width={360}
+      headerStyle={{
+        display: 'none',
+      }}
+      bodyStyle={{
+        padding: 0,
+      }}
+      style={{
+        background: 'none',
+        boxShadow: 'none',
+      }}
+    >
       <IsSidebarContext.Provider value={true}>{content}</IsSidebarContext.Provider>
     </SideSheet>
   );

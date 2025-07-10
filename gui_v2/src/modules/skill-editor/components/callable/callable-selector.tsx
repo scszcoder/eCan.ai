@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Select, Button, Space, Tooltip, Dropdown, Modal } from '@douyinfe/semi-ui';
 import { IconPlus, IconEdit, IconBox, IconSetting, IconMinusCircle } from '@douyinfe/semi-icons';
@@ -5,7 +10,7 @@ import { CallableFunction } from '../../typings/callable';
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
 import { CallableSelectorWrapper } from './styles';
-import { createIPCAPI } from '../../../../services/ipc/api';
+import { get_ipc_api } from '@/services/ipc_api';
 
 // 配置是否使用远程搜索
 const USE_REMOTE_SEARCH = true;
@@ -34,15 +39,13 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [functionToDelete, setFunctionToDelete] = useState<CallableFunction | null>(null);
 
-  const ipcAPI = createIPCAPI();
-
   // 添加刷新函数列表的函数
   const refreshFunctions = async () => {
     if (!USE_REMOTE_SEARCH) return;
     
     setIsLoading(true);
     try {
-      const response = await ipcAPI.getCallables<{ data: CallableFunction[] }>({
+      const response = await get_ipc_api().getCallables<{ data: CallableFunction[] }>({
         text: searchText || undefined
       });
       
@@ -170,7 +173,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     if (!functionToDelete) return;
 
     try {
-      const response = await ipcAPI.manageCallable({
+      const response = await get_ipc_api().manageCallable({
         action: 'delete',
         data: functionToDelete
       });
@@ -200,21 +203,27 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
         alignItems: 'center', 
         gap: '8px',
         padding: '4px 0',
-        width: '100%'
+        width: '100%',
+        minWidth: 0
       }}>
         <span style={{ 
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'center',
-          width: '16px',
-          height: '16px',
-          color: 'var(--semi-color-text-2)'
+          width: 16,
+          height: 16,
+          color: 'var(--semi-color-text-2)',
+          flex: '0 0 auto'
         }}>
           {func.type === 'system' ? <IconBox /> : <IconEdit />}
         </span>
         <span style={{ 
           color: 'var(--semi-color-text-0)',
-          flex: 1
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
         }}>{func.name}</span>
         {func.type === 'custom' && (
           <Button
@@ -222,13 +231,14 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
             theme="borderless"
             icon={<IconMinusCircle size="small" />}
             size="small"
-            onClick={(e) => {
+            onClick={e => {
               e.stopPropagation();
               handleDelete(func);
             }}
             style={{ 
-              padding: '2px',
-              color: 'var(--semi-color-text-2)'
+              padding: 2,
+              color: 'var(--semi-color-text-2)',
+              flex: '0 0 auto'
             }}
           />
         )}
@@ -258,7 +268,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
 
   return (
     <CallableSelectorWrapper>
-      <div className="selector-container">
+      <div className="selector-container" style={{ width: 210 }}>
         <Select
           style={{ width: '100%' }}
           value={value?.name || selectedValue}

@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import styled from 'styled-components';
 
 export const NodeStatusHeaderStyle = styled.div`
@@ -10,6 +15,7 @@ export const NodeStatusHeaderStyle = styled.div`
   left: 0;
 
   width: 100%;
+  min-width: 360px;
 `;
 
 export const NodeStatusHeaderContentStyle = styled.div`

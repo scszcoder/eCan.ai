@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import React, { useState, useLayoutEffect } from 'react';
 
 import { VariableSelector, TypeSelector, DynamicValueInput } from '@flowgram.ai/form-materials';
@@ -59,7 +64,9 @@ export const PropertyEdit: React.FC<PropertyEditProps> = (props) => {
         <DynamicValueInput
           value={value.default}
           onChange={(val) => updateProperty('default', val)}
-          schema={value}
+          constantProps={{
+            schema: value,
+          }}
           style={{ flexGrow: 1 }}
         />
       }

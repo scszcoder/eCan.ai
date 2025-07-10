@@ -7,7 +7,9 @@ import threading
 import weakref
 import os
 import json
-import logging
+import uuid
+import time
+from .chat_utils import ContentSchema
 
 
 class SingletonMeta(type):
@@ -221,7 +223,7 @@ class ChatService(metaclass=SingletonMeta):
                 "error": "Missing required fields: chatId, role, content, senderId, createAt"
             }
         # 简化可选参数补全
-        id = f"msg-{createAt}" if id is None else id
+        id = str(uuid.uuid4()) if id is None else id
         status = "complete" if status is None else status
         senderName = "" if senderName is None else senderName
         time = createAt if time is None else time
@@ -272,6 +274,110 @@ class ChatService(metaclass=SingletonMeta):
                 "data": message.to_dict(deep=True),
                 "error": None
             }
+
+    # 新增辅助方法，支持各种内容类型
+    def add_text_message(self, chatId: str, role: str, text: str, senderId: str, createAt: int = None, **kwargs):
+        """添加纯文本消息的便捷方法"""
+        content = ContentSchema.create_text(text)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_form_message(self, chatId: str, role: str, form_id: str, title: str, fields: list, 
+                         submit_text: str = "提交", senderId: str = None, createAt: int = None, **kwargs):
+        """添加表单消息的便捷方法"""
+        content = ContentSchema.create_form(form_id, title, fields, submit_text)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_code_message(self, chatId: str, role: str, code: str, language: str = "python", 
+                        senderId: str = None, createAt: int = None, **kwargs):
+        """添加代码消息的便捷方法"""
+        content = ContentSchema.create_code(code, language)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+
+    def add_system_message(self, chatId: str, text: str, level: str = "info", 
+                          senderId: str = "system", createAt: int = None, **kwargs):
+        """添加系统消息的便捷方法"""
+        content = ContentSchema.create_system(text, level)
+        return self.add_message(
+            chatId=chatId, 
+            role="system", 
+            content=content, 
+            senderId=senderId, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+        
+    def add_notification_message(self, chatId: str, title: str, content: str, level: str = "info", 
+                               senderId: str = "system", createAt: int = None, **kwargs):
+        """添加通知消息的便捷方法"""
+        notification_content = ContentSchema.create_notification(title, content, level)
+        return self.add_message(
+            chatId=chatId, 
+            role="system", 
+            content=notification_content, 
+            senderId=senderId, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+    
+    def add_card_message(self, chatId: str, role: str, title: str, content: str, actions: list = None, 
+                        senderId: str = None, createAt: int = None, **kwargs):
+        """添加卡片消息的便捷方法"""
+        card_content = ContentSchema.create_card(title, content, actions)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=card_content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+        
+    def add_markdown_message(self, chatId: str, role: str, markdown: str, 
+                           senderId: str = None, createAt: int = None, **kwargs):
+        """添加Markdown消息的便捷方法"""
+        md_content = ContentSchema.create_markdown(markdown)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=md_content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
+        
+    def add_table_message(self, chatId: str, role: str, headers: list, rows: list, 
+                         senderId: str = None, createAt: int = None, **kwargs):
+        """添加表格消息的便捷方法"""
+        table_content = ContentSchema.create_table(headers, rows)
+        return self.add_message(
+            chatId=chatId, 
+            role=role, 
+            content=table_content, 
+            senderId=senderId or role, 
+            createAt=createAt or int(time.time()*1000), 
+            **kwargs
+        )
 
     def query_chats_by_user(self, userId: Optional[str] = None, deep: bool = False) -> Dict[str, Any]:
         """
@@ -489,3 +595,72 @@ class ChatService(metaclass=SingletonMeta):
                     "data": None,
                     "error": str(e)
                 }
+
+    def submit_form(self, chatId: str, messageId: str, formId: str, formData: dict) -> Dict[str, Any]:
+        """
+        处理表单提交：将 formData 更新到指定消息的 content['form'] 字段（整体替换），其余内容保持不变
+        """
+        if not chatId or not messageId or not formId or formData is None:
+            return {
+                "success": False,
+                "error": "chatId, messageId, formId, formData 必填",
+                "data": None
+            }
+        with self.session_scope() as session:
+            message = session.get(Message, messageId)
+            if not message or message.chatId != chatId:
+                return {
+                    "success": False,
+                    "error": f"Message {messageId} not found in chat {chatId}",
+                    "data": None
+                }
+            # 只处理 type=form 的消息
+            import copy
+            content = copy.deepcopy(message.content) if message.content else {}
+            if not isinstance(content, dict) or content.get('type') != 'form':
+                return {
+                    "success": False,
+                    "error": "消息类型不是表单(form)",
+                    "data": None
+                }
+            # 替换 content['form']
+            content['form'] = formData
+            message.content = copy.deepcopy(content)  # 关键：赋值新对象，确保 SQLAlchemy 检测到变更
+            session.flush()
+            return {
+                "success": True,
+                "data": message.to_dict(deep=True),
+                "error": None
+            }
+
+    def delete_message(self, chatId: str, messageId: str) -> Dict[str, Any]:
+        """
+        删除指定 chatId 下的 messageId 消息及其附件。
+        参数：chatId, messageId（均必需）
+        返回：标准结构
+        """
+        if not chatId or not messageId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId and messageId are required"
+            }
+        with self.session_scope() as session:
+            message = session.get(Message, messageId)
+            if not message or message.chatId != chatId:
+                return {
+                    "success": False,
+                    "id": messageId,
+                    "data": None,
+                    "error": f"Message {messageId} not found in chat {chatId}"
+                }
+            # 删除消息（附件自动级联删除）
+            session.delete(message)
+            session.flush()
+            return {
+                "success": True,
+                "id": messageId,
+                "data": None,
+                "error": None
+            }

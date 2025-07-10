@@ -104,7 +104,7 @@ class SkillTableModel(QAbstractTableModel):
                 font.setBold(True)
                 return font
 
-        if role == Qt.TextColorRole:
+        if role == Qt.ForegroundRole:
             # Check the row number for customization (e.g., row 2 and row 4)
             if index.row() == 2 or index.row() == 4:
                 return QColor(0, 0, 255)  # Blue color
@@ -308,7 +308,7 @@ class CustomItemModel(QStandardItemModel):
         self.sks = sks
 
     def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.FontRole or role == Qt.TextColorRole:
+        if role == Qt.FontRole or role == Qt.ForegroundRole:
             row = index.row()
             item = self.item(row, 0)  # Get the item from column 0
 

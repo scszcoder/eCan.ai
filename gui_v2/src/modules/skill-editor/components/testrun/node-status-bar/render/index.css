@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 .node-status-succeed {
     background-color: rgba(105, 209, 140, 0.3);
     color: rgba(0, 178, 60, 1);
