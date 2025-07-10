@@ -114,7 +114,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
-        name="screen_capture",
+        name="os_screen_capture",
         description="Do a screen shot, save to a png file and stores into a cv2 image data structure",
         inputSchema={
             "type": "object",
@@ -122,11 +122,19 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {
                     "type": "object",
-                    "required": ["file_name"],
+                    "required": ["win_title_kw", "sub_area", "file"],
                     "properties": {
-                        "file_name": {
+                        "win_title_kw": {
                             "type": "string",
-                            "description": "screen shot file name",
+                            "description": "the window title keyword for the window to be screen captured, (default is \"\" which means top window)",
+                        },
+                        "sub_area": {
+                            "type": "[int]",
+                            "description": "sub area of screen shot with relative offset [left, top, right, bottom]",
+                        },
+                        "file": {
+                            "type": "string",
+                            "description": "full path of screen shot file name",
                         }
                     },
                 }
@@ -137,7 +145,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
-        name="screen_analyze",
+        name="os_screen_analyze",
         description="do OCR and icon match on an image and result in structured text in the image",
         inputSchema={
             "type": "object",
@@ -826,12 +834,11 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["tab_title"],  # url is required *inside* input
                     "properties": {
-                        "url": {
+                        "tab_title": {
                             "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "description": "title of the web page to open",
                         }
                     },
                 }
@@ -957,6 +964,175 @@ def build_agent_mcp_tools_schemas():
                         "post_wait": {
                             "type": "int",
                             "description": "wait number of seconds after attempting to open the url site",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_switch_to_app",
+        description="in OS, switch an app to foreground.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["win_title"],
+                    "properties": {
+                        "win_title": {
+                            "type": "string",
+                            "description": "the title of the app window.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="python_run_extern",
+        description="run a python script",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["code"],
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": "syntax free python script's source code in string format, ready to be called by exec()",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_make_dir",
+        description="in OS, make a directory",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["dir_path"],
+                    "properties": {
+                        "dir_path": {
+                            "type": "string",
+                            "description": "the dir path to be created",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_delete_dir",
+        description="in OS, delete a directory recursively",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["dir_path"],
+                    "properties": {
+                        "dir_path": {
+                            "type": "string",
+                            "description": "the dir path to be deleted",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_delete_file",
+        description="in OS, delete a file",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "description": "the full path of the file to be deleted",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_move_file",
+        description="in OS, move a file from one location to anther",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["src", "dest"],
+                    "properties": {
+                        "src": {
+                            "type": "string",
+                            "description": "the full path of the file to be moved",
+                        },
+                        "dest": {
+                            "type": "string",
+                            "description": "the full path of the dir the file will be moved to",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_copy_file_dir",
+        description="in OS, copy a file or directory from one location to anther",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["src", "dest"],
+                    "properties": {
+                        "src": {
+                            "type": "string",
+                            "description": "the full path of the file or dirto be copied",
+                        },
+                        "dest": {
+                            "type": "string",
+                            "description": "the full path of the file or dir will be copied to",
                         }
                     },
                 }
