@@ -54,7 +54,8 @@
     "searchTime": "Search time {{time}}ms",
     "never": "Never",
     "run": "Run",
-    "stop": "Stop"
+    "stop": "Stop",
+    "unknown": "Unknown"
   },
   "menu": {
     "dashboard": "Dashboard",
@@ -312,17 +313,20 @@
       "title": "Skills",
       "details": "Skill Details",
       "selectSkill": "Select a skill to view details",
-      "status": "Status",
-      "status.active": "Active",
-      "status.learning": "Learning",
-      "status.planned": "Planned",
+      "statusLabel": "Status",
+      "status": {
+        "active": "Active",
+        "learning": "Learning",
+        "planned": "Planned",
+        "unknown": "Unknown"
+      },
       "category": "Category",
       "lastUsed": "Last Used",
       "usageCount": "Usage Count",
       "skillLevel": "Skill Level",
       "level": "Level {{level}}",
       "mastered": "Mastered",
-      "complete": "Complete {{level}}%",
+      "entryPercent": "Mastered {{percent}}%",
       "levelUp": "Level Up",
       "editSkill": "Edit Skill",
       "viewHistory": "View History",
@@ -361,7 +365,8 @@
         "Map Navigation": "Map Navigation",
         "System Diagnostics": "System Diagnostics",
         "Performance Optimization": "Performance Optimization",
-        "Error Handling": "Error Handling"
+        "Error Handling": "Error Handling",
+        "unknown": "Unknown"
       }
     },
     "agents": {

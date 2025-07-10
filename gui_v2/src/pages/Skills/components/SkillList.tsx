@@ -74,8 +74,8 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill })
                             <Text strong>{skill.name}</Text>
                         </Space>
                         <Space>
-                            <Tag color={getStatusColor(skill.status)}>{t(`pages.skills.status.${skill.status}`)}</Tag>
-                            <Tag color="blue">{skill.category}</Tag>
+                            <Tag color={getStatusColor(skill.status)}>{t(`pages.skills.status.${skill.status || 'unknown'}`, skill.status || t('common.unknown', '未知'))}</Tag>
+                            <Tag color="blue">{t(`pages.skills.categories.${skill.category || 'unknown'}`, skill.category || t('common.unknown', '未知'))}</Tag>
                         </Space>
                         <SkillProgress>
                             <Tooltip title={t('pages.skills.level', { level: skill.level })}>
