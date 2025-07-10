@@ -51,7 +51,10 @@
     "resetFilter": "Reset Filter",
     "totalItems": "Total {{count}} items",
     "filteredItems": "Filtered {{filtered}} / {{total}} items",
-    "searchTime": "Search time {{time}}ms"
+    "searchTime": "Search time {{time}}ms",
+    "never": "Never",
+    "run": "Run",
+    "stop": "Stop"
   },
   "menu": {
     "dashboard": "Dashboard",
@@ -227,7 +230,12 @@
       "refreshSchedule": "Refresh Schedule",
       "exportSchedule": "Export Schedule",
       "importSchedule": "Import Schedule",
-      "scheduleSettings": "Schedule Settings"
+      "scheduleSettings": "Schedule Settings",
+      "scheduleRepeatTypeLabel": "Repeat Type",
+      "scheduleRepeatUnitLabel": "Repeat Unit",
+      "scheduleStartTimeLabel": "Start Time",
+      "scheduleEndTimeLabel": "End Time",
+      "scheduleTimeoutLabel": "Timeout"
     },
     "chat": {
       "title": "Chats",
@@ -513,11 +521,43 @@
       "selectTask": "Select a task to view details",
       "refresh": "Refresh Tasks",
       "status": "Status",
-      "trigger": "Trigger: {{trigger}}",
-      "priority": "Priority: {{priority}}",
+      "lastRun": "Last Run",
+      "id": "ID: {{id}}",
+      "skill": {},
+      "scheduleDetails": "Schedule Details",
+      "triggerLabel": "Trigger",
+      "priorityLabel": "Priority",
       "states": {
         "ready": "Ready",
-        "running": "Running"
+        "running": "Running",
+        "stopped": "Stopped",
+        "error": "Error"
+      },
+      "trigger": {
+        "auto": "Auto",
+        "manual": "Manual"
+      },
+      "priority": {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low"
+      },
+      "scheduleRepeatTypeLabel": "Repeat Type",
+      "scheduleRepeatUnitLabel": "Repeat Unit",
+      "scheduleStartTimeLabel": "Start Time",
+      "scheduleEndTimeLabel": "End Time",
+      "scheduleTimeoutLabel": "Timeout",
+      "schedule": {
+        "repeatType": {
+          "daily": "Daily",
+          "weekly": "Weekly",
+          "monthly": "Monthly"
+        },
+        "repeatUnit": {
+          "day": "Day",
+          "week": "Week",
+          "month": "Month"
+        }
       }
     },
     "skill_editor": {

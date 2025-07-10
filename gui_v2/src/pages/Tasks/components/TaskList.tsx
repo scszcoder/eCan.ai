@@ -53,15 +53,15 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, onSelectItem, isSelec
           <Space direction="vertical" style={{ width: '100%' }}>
             <Space>
               <Avatar icon={<OrderedListOutlined />} />
-              <Text strong>{task.skill}</Text>
+              <Text strong>{t('pages.tasks.skill.' + task.skill, task.skill)}</Text>
             </Space>
             <Space>
               <Tag color={getStatusColor(task.state.top)}>{t('pages.tasks.states.' + task.state.top, task.state.top)}</Tag>
               <Tag icon={<CodeOutlined />}>
-                {t('pages.tasks.trigger', { trigger: task.trigger })}
+                {t('pages.tasks.trigger.' + task.trigger, task.trigger)}
               </Tag>
               <Tag>
-                {t('pages.tasks.priority', { priority: task.priority })}
+                {t('pages.tasks.priority.' + task.priority, task.priority)}
               </Tag>
             </Space>
           </Space>
