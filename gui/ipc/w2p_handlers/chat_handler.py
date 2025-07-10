@@ -322,7 +322,12 @@ def echo_and_push_message_async(chatId, message):
         # 推送到前端
         app_ctx = AppContext()
         web_gui = app_ctx.web_gui
-        web_gui.get_ipc_api().push_chat_message(chatId, msg)
+        # 推送写入数据库后的真实数据
+        if db_result and isinstance(db_result, dict) and 'data' in db_result:
+            web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
+        else:
+            logger.error(f"message insert db failed{chatId}, {msg.id}")
+            # web_gui.get_ipc_api().push_chat_message(chatId, msg)
 
     def do_push():
         """线程内执行推送逻辑"""
@@ -635,4 +640,44 @@ def handle_get_file_info(request: IPCRequest, params: Optional[dict]) -> IPCResp
     except Exception as e:
         logger.error(f"Error in get_file_info handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_FILE_INFO_ERROR', str(e))
+
+@IPCHandlerRegistry.handler('chat_form_submit')
+def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    处理聊天表单提交请求，参数包括 chatId, messageId, formId, formData。
+    """
+    try:
+        logger.info(f"handle_chat_form_submit called with params: {params}")
+        chatId = params.get('chatId')
+        messageId = params.get('messageId')
+        formId = params.get('formId')
+        formData = params.get('formData')
+        if not chatId or not messageId or not formId or formData is None:
+            logger.error("chat form submit invalid params")
+            return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId, formId, formData 必填')
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        chat_service: ChatService = main_window.chat_service
+        # 假设 chat_service 有 submit_form 方法，否则可自定义处理
+        if hasattr(chat_service, 'submit_form'):
+            result = chat_service.submit_form(chatId=chatId, messageId=messageId, formId=formId, formData=formData)
+            logger.debug("chat submit form result: %s", result)
+            if not result.get('success'):
+                return create_error_response(request, 'CHAT_FORM_SUBMIT_ERROR', result.get('error', 'Unknown error'))
+            # TODO add call agent
+            return create_success_response(request, result.get('data'))
+        else:
+            # 如果没有 submit_form 方法，简单记录表单数据，可自定义扩展
+            result = {
+                'chatId': chatId,
+                'messageId': messageId,
+                'formId': formId,
+                'formData': formData,
+                'status': 'received'
+            }
+            logger.error("no submit form function in chat service")
+            return create_error_response(request, 'CHAT_FORM_SUBMIT_ERROR', "no submit form function")
+    except Exception as e:
+        logger.error(f"Error in handle_chat_form_submit: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'CHAT_FORM_SUBMIT_ERROR', str(e))
 

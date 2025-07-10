@@ -9,6 +9,8 @@ import { protocolHandler } from '../utils/protocolHandler';
 import { ChatDetailWrapper, commonOuterStyle } from '../styles/ChatDetail.styles';
 import { logger } from '@/utils/logger';
 import AttachmentList from './AttachmentList';
+import { get_ipc_api } from '@/services/ipc_api';
+import { Toast } from '@douyinfe/semi-ui';
 
 interface ChatDetailProps {
     chatId?: string | null;
@@ -147,15 +149,13 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
     }, [chatId, messages.length]);
 
     // 处理表单提交
-    const handleFormSubmit = (formId: string, values: any) => {
-        if (onSend) {
-            // 创建表单提交消息
-            const formSubmitContent = JSON.stringify({
-                type: 'form_submit',
-                formId,
-                values
-            });
-            onSend(formSubmitContent, []);
+    const handleFormSubmit = async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
+        const response = await get_ipc_api().chat.chatFormSubmit(chatId, messageId, formId, processedForm)
+        logger.debug(JSON.stringify(response))
+        if (response.success) {
+            Toast.success(t('pages.chat.formSubmitSuccess'));
+        } else {
+            Toast.error(t('pages.chat.formSubmitFail'));
         }
     };
 
@@ -189,7 +189,19 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
                 <div>
                     <ContentTypeRenderer 
                         content={parsedContent} 
-                        onFormSubmit={handleFormSubmit}
+                        chatId={message?.chatId}
+                        messageId={message?.id}
+                        onFormSubmit={(
+                            formId: string, 
+                            values: any, 
+                            chatId?: string, 
+                            messageId?: string, 
+                            processedForm?: any) => handleFormSubmit(
+                                formId, 
+                                values, 
+                                chatId || '', 
+                                messageId || '', 
+                                processedForm)}
                         onCardAction={handleCardAction}
                     />
                     <AttachmentList attachments={message.attachments} />
