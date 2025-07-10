@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import {
   IReport,
   NodeReport,
@@ -18,6 +23,7 @@ import {
 } from '@flowgram.ai/free-layout-editor';
 
 import { WorkflowRuntimeClient } from '../browser-client';
+import { WorkflowNodeType } from '../../../nodes';
 
 const SYNC_TASK_REPORT_INTERVAL = 500;
 
@@ -142,31 +148,39 @@ export class WorkflowRuntimeService {
   private updateReport(report: IReport): void {
     const { reports } = report;
     this.runningNodes = [];
-    this.document.getAllNodes().forEach((node) => {
-      const nodeID = node.id;
-      const nodeReport = reports[nodeID];
-      if (!nodeReport) {
-        return;
-      }
-      if (nodeReport.status === WorkflowStatus.Processing) {
-        this.runningNodes.push(node);
-      }
-      const runningStatus = this.nodeRunningStatus.get(nodeID);
-      if (
-        !runningStatus ||
-        nodeReport.status !== runningStatus.status ||
-        nodeReport.snapshots.length !== runningStatus.nodeResultLength
-      ) {
-        this.nodeRunningStatus.set(nodeID, {
-          nodeID,
-          status: nodeReport.status,
-          nodeResultLength: nodeReport.snapshots.length,
-        });
-        this.reportEmitter.fire(nodeReport);
-        this.document.linesManager.forceUpdate();
-      } else if (nodeReport.status === WorkflowStatus.Processing) {
-        this.reportEmitter.fire(nodeReport);
-      }
-    });
+    this.document
+      .getAllNodes()
+      .filter(
+        (node) =>
+          ![WorkflowNodeType.BlockStart, WorkflowNodeType.BlockEnd].includes(
+            node.flowNodeType as WorkflowNodeType
+          )
+      )
+      .forEach((node) => {
+        const nodeID = node.id;
+        const nodeReport = reports[nodeID];
+        if (!nodeReport) {
+          return;
+        }
+        if (nodeReport.status === WorkflowStatus.Processing) {
+          this.runningNodes.push(node);
+        }
+        const runningStatus = this.nodeRunningStatus.get(nodeID);
+        if (
+          !runningStatus ||
+          nodeReport.status !== runningStatus.status ||
+          nodeReport.snapshots.length !== runningStatus.nodeResultLength
+        ) {
+          this.nodeRunningStatus.set(nodeID, {
+            nodeID,
+            status: nodeReport.status,
+            nodeResultLength: nodeReport.snapshots.length,
+          });
+          this.reportEmitter.fire(nodeReport);
+          this.document.linesManager.forceUpdate();
+        } else if (nodeReport.status === WorkflowStatus.Processing) {
+          this.reportEmitter.fire(nodeReport);
+        }
+      });
   }
 }

@@ -23,6 +23,7 @@ export const BlockStartNodeRegistry: FlowNodeRegistry = {
     },
     wrapperStyle: {
       minWidth: 'unset',
+      width: '100%',
       borderWidth: 2,
       borderRadius: 12,
       cursor: 'move',

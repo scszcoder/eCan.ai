@@ -266,7 +266,6 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   const functions = USE_REMOTE_SEARCH ? remoteFunctions : localFilteredFunctions;
   const optionList = Array.isArray(functions) ? functions : [];
 
-  console.log(optionList)
   return (
     <CallableSelectorWrapper>
       <div className="selector-container" style={{ width: 210 }}>

@@ -15,6 +15,7 @@ export const NodeStatusHeaderStyle = styled.div`
   left: 0;
 
   width: 100%;
+  min-width: 360px;
 `;
 
 export const NodeStatusHeaderContentStyle = styled.div`

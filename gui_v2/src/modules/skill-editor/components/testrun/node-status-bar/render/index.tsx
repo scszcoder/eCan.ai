@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { FC, useMemo, useState } from 'react';
 
 import { NodeReport, WorkflowStatus } from '@flowgram.ai/runtime-interface';
@@ -178,7 +183,7 @@ export const NodeStatusRender: FC<NodeStatusRenderProps> = ({ report }) => {
             value={currentSnapshotIndex >= displayCount ? currentSnapshotIndex : undefined}
             onChange={(value) => setCurrentSnapshotIndex(value as number)}
             style={{
-              width: '100px',
+              width: '90px',
               height: '32px',
               border: '1px solid',
               borderColor:
