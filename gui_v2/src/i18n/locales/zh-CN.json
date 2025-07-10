@@ -54,7 +54,8 @@
     "searchTime": "耗时 {{time}}ms",
     "never": "从未",
     "run": "运行",
-    "stop": "停止"
+    "stop": "停止",
+    "unknown": "未知"
   },
   "menu": {
     "dashboard": "仪表盘",
@@ -328,17 +329,20 @@
       "title": "技能",
       "details": "技能详情",
       "selectSkill": "选择一个技能查看详情",
-      "status": "状态",
-      "status.active": "活跃",
-      "status.learning": "学习中",
-      "status.planned": "计划中",
+      "statusLabel": "状态",
+      "status": {
+        "active": "活跃",
+        "learning": "学习中",
+        "planned": "计划中",
+        "unknown": "未知"
+      },
       "category": "类别",
       "lastUsed": "最后使用",
       "usageCount": "使用次数",
       "skillLevel": "技能等级",
       "level": "等级 {{level}}",
       "mastered": "已掌握",
-      "complete": "完成度 {{level}}%",
+      "entryPercent": "已掌握 {{percent}}%",
       "levelUp": "提升等级",
       "editSkill": "编辑技能",
       "viewHistory": "查看历史",
@@ -377,7 +381,8 @@
         "Map Navigation": "地图导航",
         "System Diagnostics": "系统诊断",
         "Performance Optimization": "性能优化",
-        "Error Handling": "错误处理"
+        "Error Handling": "错误处理",
+        "unknown": "未知"
       }
     },
     "agents": {

@@ -186,7 +186,7 @@ async def in_browser_wait_for_element(mainwin, args):
         wait = WebDriverWait(web_driver, args["input"]["timeout"])
         sel = get_selector(args['input']["element_type"])
         args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
-        msg=f"completed loading element{args['input']["element_name"]}."
+        msg=f"completed loading element{args['input']['element_name']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -252,10 +252,10 @@ async def in_browser_click_element_by_selector(mainwin, args):
                         # Handle with js evaluate if fails to click using playwright
                         await element_node.evaluate('el => el.click()')
                     except Exception as e:
-                        logger.warning(f"Element not clickable with css selector '{args['input']["css_selector"]}' - {e}")
+                        logger.warning(f"Element not clickable with css selector '{args['input']['css_selector']}' - {e}")
                         return CallToolResult(error=str(e))
 
-        msg = f"completed loading element by index {args['input']["css_selector"]}."
+        msg = f"completed loading element by index {args['input']['css_selector']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -336,7 +336,7 @@ async def in_browser_input_text(mainwin, args):
             time.sleep(args['input']["post_wait"])
 
 
-        msg = f"completed loading element by index {args['input']["index"]}."
+        msg = f"completed loading element by index {args['input']['index']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -351,7 +351,7 @@ async def in_browser_switch_tab(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
         webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
-        msg = f"completed in-browser switch tab {args['input']["tab_title_txt"]}."
+        msg = f"completed in-browser switch tab {args['input']['tab_title_txt']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -398,7 +398,7 @@ async def in_browser_close_tab(mainwin, args):
                     break
         web_driver.close()
 
-        msg = f"completed loading element by index {args['input']["index"]}."
+        msg = f"completed loading element by index {args['input']['index']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -427,7 +427,7 @@ async def in_browser_execute_javascript(mainwin, args):
         web_driver = mainwin.getWebDriver()
         result = execute_js_script(web_driver, args['input']["script"], args['input']["target"])
 
-        msg = f"completed in browser execute javascript {args['input']["script"]}."
+        msg = f"completed in browser execute javascript {args['input']['script']}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -489,14 +489,14 @@ async def in_browser_scroll(mainwin, args):
         web_driver = mainwin.getWebDriver()
 
         if args["input"]["direction"].lower() == "down":
-            web_driver.execute_script(f"window.scrollBy(0, {args["input"]["amount"]});")
+            web_driver.execute_script(f"window.scrollBy(0, {args['input']['amount']});")
         else:
-            web_driver.execute_script(f"window.scrollBy(0, -{args["input"]["amount"]});")
+            web_driver.execute_script(f"window.scrollBy(0, -{args['input']['amount']});")
 
         if args["input"]["post_wait"]:
             time.sleep(args["input"]["post_wait"])
 
-        msg = f"completed in browser scroll {args['input']['direction']} {args['input']["amount"]}."
+        msg = f"completed in browser scroll {args['input']['direction']} {args['input']['amount']}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -536,7 +536,7 @@ async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
         web_driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
 
 
-        msg = f"completed in browser scroll to text {args['input']["text"]}."
+        msg = f"completed in browser scroll to text {args['input']['text']}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -1441,7 +1441,7 @@ async def rpa_supervisor_scheduling_work(mainwin, args) -> CallToolResult:
     try:
         # mainwin = params["agent"].mainwin
         print(f"[MCP] Running supervisor scheduler tool... ")
-        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
+        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)})")
         schedule = server_main_win.fetchSchedule("", server_main_win.get_vehicle_settings())
         print("MCP fetched schedule.......", schedule)
         # workable = server_main_win.runTeamPrepHook(schedule)
