@@ -48,10 +48,11 @@ from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 from agent.ec_skill import *
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_agent_by_id, get_traceback
 from .event_store import InMemoryEventStore
 
 server_main_win = None
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 Context = TypeVar('Context')
 
@@ -182,31 +183,21 @@ async def in_browser_wait_for_element(mainwin, args):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
         web_driver = mainwin.getWebDriver()
-        wait = WebDriverWait(web_driver, args.timeout)
-
-        args.tool_result = wait.until(EC.element_to_be_clickable((args['input']["element_type"], args['input']["element_name"])))
+        wait = WebDriverWait(web_driver, args["input"]["timeout"])
+        sel = get_selector(args['input']["element_type"])
+        args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
         msg=f"completed loading element{args['input']["element_name"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserWaitForElement:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserWaitForElement: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserWaitForElement")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 # Element Interaction Actions
 async def in_browser_click_element_by_index(mainwin, args):
     web_driver = mainwin.getWebDriver()
-    browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
-    browser = browser_context.browser
-    session = await browser.get_session()
 
     if args['input']['index'] not in await browser.get_selector_map():
         raise Exception(f'Element with index {args['input']['index']} does not exist - retry or use alternative actions')
@@ -240,49 +231,37 @@ async def in_browser_click_element_by_index(mainwin, args):
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserClickElementByIndex:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserClickElementByIndex: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserClickElementByIndex")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_click_element_by_selector(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
-        browser = browser_context.browser
-        element_node = await browser.get_locate_element_by_css_selector(args['input']["css_selector"])
-        if element_node:
-            try:
-                await element_node.scroll_into_view_if_needed()
-                await element_node.click(timeout=1500, force=True)
-            except Exception:
+        if web_driver:
+            browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
+            browser = browser_context.browser
+            element_node = await browser.get_locate_element_by_css_selector(args['input']["css_selector"])
+            if element_node:
                 try:
-                    # Handle with js evaluate if fails to click using playwright
-                    await element_node.evaluate('el => el.click()')
-                except Exception as e:
-                    logger.warning(f"Element not clickable with css selector '{args['input']["css_selector"]}' - {e}")
-                    return CallToolResult(error=str(e))
-            msg = f"completed loading element by index {args['input']["css_selector"]}."
-            result = [TextContent(type="text", text=msg)]
-            return result
+                    await element_node.scroll_into_view_if_needed()
+                    await element_node.click(timeout=1500, force=True)
+                except Exception:
+                    try:
+                        # Handle with js evaluate if fails to click using playwright
+                        await element_node.evaluate('el => el.click()')
+                    except Exception as e:
+                        logger.warning(f"Element not clickable with css selector '{args['input']["css_selector"]}' - {e}")
+                        return CallToolResult(error=str(e))
+
+        msg = f"completed loading element by index {args['input']["css_selector"]}."
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserClickElementBySelector:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserClickElementBySelector: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserClickElementBySelector")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_click_element_by_xpath(mainwin, args):
@@ -306,155 +285,96 @@ async def in_browser_click_element_by_xpath(mainwin, args):
             result = [TextContent(type="text", text=msg)]
             return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserClickElementByXpath:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserClickElementByXpath: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserClickElementByXpath")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_click_element_by_text(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
-        browser = browser_context.browser
-        element_node = await browser.get_locate_element_by_text(
-            text=args.text, nth=args.nth, element_type=args.element_type
-        )
+        web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
+        # find element
+        targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
+        if targets and args['input']["nth"] < len(targets):
+            target = targets[args['input']["nth"]]
+        else:
+            target = None
 
-        if element_node:
-            try:
-                await element_node.scroll_into_view_if_needed()
-                await element_node.click(timeout=1500, force=True)
-            except Exception:
-                try:
-                    # Handle with js evaluate if fails to click using playwright
-                    await element_node.evaluate('el => el.click()')
-                except Exception as e:
-                    logger.warning(f"Element not clickable with text '{args.text}' - {e}")
-                    return CallToolResult(error=str(e))
-            msg = f'🖱️  Clicked on element with text "{args.text}"'
-            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
-        else:
-            return CallToolResult(error=f"No element found for text '{args.text}'")
+        if target:
+            target.click()
+
+        if args['input']["post_wait"]:
+            time.sleep(args['input']["post_wait"])
+
+        msg = f"completed in-browser click."
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserClickElementByText:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserClickElementByText: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserClickElementByText")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_input_text(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
 
-        element_node = await browser.get_dom_element_by_index(args.index)
-        await browser._input_text_element_node(element_node, args.text)
-        if not has_sensitive_data:
-            msg = f'⌨️  Input {args.text} into index {args.index}'
+        web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
+        # find element
+        targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
+        if targets and args['input']["nth"] < len(targets):
+            target = targets[args['input']["nth"]]
         else:
-            msg = f'⌨️  Input sensitive data into index {args.index}'
-        logger.info(msg)
-        logger.debug(f'Element xpath: {element_node.xpath}')
+            target = None
+
+        webDriverKeyIn(web_driver, target, args['input']["text"])
+        if args['input']["post_enter"]:
+            target.send_keys(Keys.ENTER)
+
+        if args['input']["post_wait"]:
+            time.sleep(args['input']["post_wait"])
+
+
         msg = f"completed loading element by index {args['input']["index"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserInputText:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserInputText: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserInputText")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 # Save PDF
-async def in_browser_save_pdf(mainwin, args):
-    try:
-        web_driver = mainwin.getWebDriver()
-        page = await browser.get_current_page()
-        short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
-        slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()
-        sanitized_filename = f'{slug}.pdf'
-
-        await page.emulate_media('screen')
-        await page.pdf(path=sanitized_filename, format='A4', print_background=False)
-        msg = f'Saving page with URL {page.url} as PDF to ./{sanitized_filename}'
-        logger.info(msg)
-        msg = f"completed loading element by index {args['input']["index"]}."
-        result = [TextContent(type="text", text=msg)]
-        return result
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserSavePDF:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserSavePDF: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
 
 # Tab Management Actions
 async def in_browser_switch_tab(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
-        await browser.switch_to_tab(args.page_id)
-        # Wait for tab to be ready
-        page = await browser.get_current_page()
-        await page.wait_for_load_state()
-        msg = f'🔄  Switched to tab {args.page_id}'
-        logger.info(msg)
-        msg = f"completed loading element by index {args['input']["index"]}."
+        webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
+        msg = f"completed in-browser switch tab {args['input']["tab_title_txt"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserSwitchTab:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserSwitchTab: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserSwitchTab")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
 
 async def in_browser_open_tab(mainwin, args):
 
     try:
         web_driver = mainwin.getWebDriver()
-        url = args["url"]
-        webdriver = mainwin.getWebDriver()
-        webdriver.switch_to.window(webdriver.window_handles[0])
+        url = args['input']["url"]
+        web_driver.switch_to.window(web_driver.window_handles[0])
         time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
+        web_driver.execute_script(f"window.open('{url}', '_blank');")
 
         # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
+        web_driver.switch_to.window(web_driver.window_handles[-1])
         time.sleep(3)
         # Navigate to the new URL in the new tab
         if url:
-            webdriver.get(url)  # Replace with the new URL
+            web_driver.get(url)  # Replace with the new URL
             print("open URL: " + url)
 
         msg = f'completed'
@@ -463,47 +383,32 @@ async def in_browser_open_tab(mainwin, args):
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserOpenTab:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserOpenTab: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserOpenTab")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_close_tab(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
-        browser_context = mainwin.getBrowserContextById(args['input']["context_id"])
-        browser = browser_context.browser
-        await browser.switch_to_tab(args.page_id)
-        page = await browser.get_current_page()
-        url = page.url
-        await page.close()
-        msg = f'❌  Closed tab #{args.page_id} with url {url}'
-        logger.info(msg)
+        if args['input']["tab_title"]:
+            for handle in web_driver.window_handles:
+                web_driver.switch_to.window(handle)
+                if args['input']["tab_title"] in web_driver.current_url:
+                    break
+        web_driver.close()
+
         msg = f"completed loading element by index {args['input']["index"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserCloseTab:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserCloseTab: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserCloseTab")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 # Content Actions
 async def in_browser_scrape_content(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
         web_driver = mainwin.web_driver
         dom_service = mainwin.dom_service
         dom_service.get_clickable_elements()
@@ -512,34 +417,23 @@ async def in_browser_scrape_content(mainwin, args):
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCallToolScrapeContents:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCallToolScrapeContents: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserScrapeContents")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_execute_javascript(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
         result = execute_js_script(web_driver, args['input']["script"], args['input']["target"])
-        msg = f"completed loading element by index {args['input']["index"]}."
+
+        msg = f"completed in browser execute javascript {args['input']["script"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCallToolScrapeContents:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCallToolScrapeContents: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserExecuteJavascript")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 
@@ -567,114 +461,48 @@ async def in_browser_build_dom_tree(mainwin, args):
         return tool_result
 
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCallBuildDomTree:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCallBuildDomTree: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        err_text_content = [TextContent(type="text", text=f"Error in scheduler: {ex_stat}")]
-        return [TextContent(type="text", text=ex_stat)]
-
+        err_trace = get_traceback(e, "ErrorInBrowserBuildDomTree")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 
 # HTML Download
-async def in_browser_save_html_to_file(mainwin, args) -> CallToolResult:
+async def in_browser_save_href_to_file(mainwin, args) -> CallToolResult:
     """Retrieves and returns the full HTML content of the current page to a file"""
     try:
         web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        page = await browser.get_current_page()
-        html_content = await page.content()
 
-        # Create a filename based on the page URL
-        short_url = re.sub(r'^https?://(?:www\.)?|/$', '', page.url)
-        slug = re.sub(r'[^a-zA-Z0-9]+', '-', short_url).strip('-').lower()[:64]
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        sanitized_filename = f'{slug}_{timestamp}.html'
+        saved = webDriverDownloadFile(web_driver, args["input"]["ele_type"], args["input"]["ele_text"], args["input"]["dl_dir"], args["input"]["dl_file"])
 
-        # Save HTML to file
-        with open(sanitized_filename, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-
-        msg = f'Saved HTML content of page with URL {page.url} to ./{sanitized_filename}'
-
-        logger.info(msg)
-        msg = f"completed loading element by index {args['input']["index"]}."
+        msg = f"completed loading {saved}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extractthe file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserSaveHtmlToFile:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserSaveHtmlToFile: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserSaveHtmlToFile")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
-async def in_browser_scroll_down(mainwin, args):
+async def in_browser_scroll(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        page = await browser.get_current_page()
-        if args.amount is not None:
-            await page.evaluate(f'window.scrollBy(0, {args.amount});')
+
+        if args["input"]["direction"].lower() == "down":
+            web_driver.execute_script(f"window.scrollBy(0, {args["input"]["amount"]});")
         else:
-            await page.evaluate('window.scrollBy(0, window.innerHeight);')
+            web_driver.execute_script(f"window.scrollBy(0, -{args["input"]["amount"]});")
 
-        amount = f'{args.amount} pixels' if args.amount is not None else 'one page'
-        msg = f'🔍  Scrolled down the page by {amount}'
-        logger.info(msg)
+        if args["input"]["post_wait"]:
+            time.sleep(args["input"]["post_wait"])
 
-        msg = f"completed loading element by index {args['input']["index"]}."
+        msg = f"completed in browser scroll {args['input']['direction']} {args['input']["amount"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extractthe file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserScrollUp:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserScrollUp: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
-
-# scroll up
-async def in_browser_scroll_up(mainwin, args):
-    try:
-        web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        page = await browser.get_current_page()
-        if args.amount is not None:
-            await page.evaluate(f'window.scrollBy(0, -{args.amount});')
-        else:
-            await page.evaluate('window.scrollBy(0, -window.innerHeight);')
-
-        amount = f'{args.amount} pixels' if args.amount is not None else 'one page'
-        msg = f'🔍  Scrolled up the page by {amount}'
-        logger.info(msg)
-        msg = f"completed loading element by index {args['input']["index"]}."
-        tool_result = [TextContent(type="text", text=msg)]
-        return tool_result
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extractthe file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserScrollUp:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserScrollUp: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserScrollDown")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 # send keys
 async def in_browser_send_keys(mainwin, args):
@@ -693,55 +521,28 @@ async def in_browser_send_keys(mainwin, args):
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extractthe file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserScrollToText:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserScrollToText: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserSendKeys")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
 
 async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
     try:
         web_driver = mainwin.getWebDriver()
-        page = await browser.get_current_page()
-        # Try different locator strategies
-        locators = [
-            page.get_by_text(text, exact=False),
-            page.locator(f'text={text}'),
-            page.locator(f"//*[contains(text(), '{text}')]"),
-        ]
 
-        for locator in locators:
-            try:
-                # First check if element exists and is visible
-                if await locator.count() > 0 and await locator.first.is_visible():
-                    await locator.first.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.5)  # Wait for scroll to complete
-                    msg = f'🔍  Scrolled to text: {text}'
-                    logger.info(msg)
-                    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
-            except Exception as e:
-                logger.debug(f'Locator attempt failed: {str(e)}')
-                continue
+        element = web_driver.find_element("xpath", "//*[contains(text(), args['input']['text'])]")
 
-        msg = f"Text '{text}' not found or not visible on page"
-        logger.info(msg)
-        msg = f"completed loading element by index {args['input']["index"]}."
+        # Scroll to the element
+        web_driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
+
+
+        msg = f"completed in browser scroll to text {args['input']["text"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extractthe file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserScrollToText:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserScrollToText: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserScrollToText")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
@@ -815,15 +616,9 @@ async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
 
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extractthe file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserGetDropdownOption:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserGetDropdownOption: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserGetDropdownOptions")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
@@ -916,15 +711,9 @@ async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorInBrowserSelectDropdownOption:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorInBrowserSelectDropdownOption: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserSelectDropdownOption")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
@@ -1139,198 +928,203 @@ async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
 
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorHTTPCallAPI:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorHTTPCallAPI: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorInBrowserDragDrop")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
+async def in_browser_multi_actions(mainwin, args):
+    try:
+        def fill_parametric_cards(driver, filled_json):
+            # Get all cards again
+            cards = driver.find_elements(By.CSS_SELECTOR, 'div.div-card')
+
+            for card in cards:
+                # Get card title
+                try:
+                    title = card.find_element(By.CSS_SELECTOR, '.tss-css-oy50zv-cardHeader').text.strip()
+                except Exception:
+                    continue
+                if title not in filled_json:
+                    continue
+                card_data = filled_json[title]
+
+                # --- Range input handling ---
+                min_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="min"]')
+                max_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="max"]')
+                select_units = card.find_elements(By.CSS_SELECTOR, 'select[data-filter-type="unit"]')
+
+                if min_inputs or max_inputs:
+                    # Fill min/max values
+                    if min_inputs and "min_value" in card_data:
+                        min_input = min_inputs[0]
+                        min_input.clear()
+                        min_input.send_keys(str(card_data["min_value"]))
+                    if max_inputs and "max_value" in card_data:
+                        max_input = max_inputs[0]
+                        max_input.clear()
+                        max_input.send_keys(str(card_data["max_value"]))
+                    # Select unit
+                    if select_units and "unit_value" in card_data:
+                        select = Select(select_units[0])
+                        select.select_by_visible_text(card_data["unit_value"])
+                    continue
+
+                # --- Options handling (checkboxes, radio) ---
+                # options can be a single value or a list
+                selected_options = card_data.get("options", [])
+                if isinstance(selected_options, str):
+                    selected_options = [selected_options]
+
+                # Check all <label> with matching text or data-testid
+                for option in selected_options:
+                    # Look for option by label's text or inner <span>
+                    found = False
+                    for label in card.find_elements(By.CSS_SELECTOR, "label"):
+                        label_text = label.text.strip()
+                        # Try direct match or in nested span with data-testid
+                        if option == label_text:
+                            # Click the checkbox/radio
+                            try:
+                                # The clickable part is often the first <span> inside the label
+                                span_checkbox = label.find_element(By.CSS_SELECTOR,
+                                                                   "span[role=checkbox],span.MuiButtonBase-root")
+                                driver.execute_script("arguments[0].scrollIntoView();", span_checkbox)
+                                if not span_checkbox.is_selected():
+                                    span_checkbox.click()
+                                found = True
+                                break
+                            except Exception:
+                                # fallback: click the whole label
+                                label.click()
+                                found = True
+                                break
+                        # Sometimes the label has a <span> with data-testid containing the option text
+                        try:
+                            inner_spans = label.find_elements(By.CSS_SELECTOR, 'span[data-testid]')
+                            for span in inner_spans:
+                                if option == span.text.strip():
+                                    driver.execute_script("arguments[0].scrollIntoView();", span)
+                                    span.click()
+                                    found = True
+                                    break
+                            if found:
+                                break
+                        except Exception:
+                            continue
+                    if not found:
+                        print(f"[WARN] Could not find and select option '{option}' for '{title}'")
+
+            print("All filters filled!")
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorInBrowserMultiCardAction")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def mouse_click(mainwin, args):
     try:
-        print("INPUT:", args)
-        # if tool_name != "rpa_supervisor_scheduling_work":
-        #     raise ValueError(f"Unexpected tool name: {tool_name}")
+        print("MOUSE CLICKINPUT:", args)
 
-        web_driver = mainwin.getWebDriver()
-        # mainwin = params["agent"].mainwin
-        print(f"[MCP] Running supervisor scheduler tool... ")
-        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
-        schedule = server_main_win.fetchSchedule("", server_main_win.get_vehicle_settings())
-        print("MCP fetched schedule.......", schedule)
-        # workable = server_main_win.runTeamPrepHook(schedule)
-        # works_to_be_dispatched = server_main_win.handleCloudScheduledWorks(workable)
-        pyautogui.moveTo(args.loc.x, args.loc.y)
-        # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
-        ctr = CallToolResult(content=[TextContent(type="text", text=msg)])
-        print("ABOUT TO return call tool result", type(ctr), ctr)
-        print("ABOUT CTR Type", ctr.model_dump(by_alias=True, exclude_none=True, mode="json"))
-        tool_result = {
-            "content": [{"type": "text", "text": msg}],
-            # "meta": workable,
-            "isError": False
-        }
-        print("[DEBUG] Returning result:", json.dumps(tool_result, indent=2))
-        # return ctr.model_dump(by_alias=True, exclude_none=True, mode="json", round_trip=False)
-        return [TextContent(type="text", text=msg), TextContent(type="text", text=json.dumps(workable))]
+        pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+        time.sleep(args["input"]["post_move_delay"])
+        pyautogui.click(clicks=2, interval=0.3)
+        time.sleep(args["input"]["post_click_delay"])
+
+        msg = "completed mouse click"
+        result = [TextContent(type="text", text=msg)]
+
+        return [result]
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCallToolMouseClick:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCallToolMouseClick: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        err_text_content = [TextContent(type="text", text=f"Error in mouse click: {ex_stat}")]
-        return CallToolResult(content=err_text_content, isError=True)
+        err_trace = get_traceback(e, "ErrorMouseClick")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def mouse_move(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if params.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        print("MOUSE HOVER INPUT:", args)
+        pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+        # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
+        time.sleep(args["input"]["post_delay"])
 
-        pyautogui.moveTo(args.loc.x, args.loc.y)
+        msg = "completed mouse move"
+        result = [TextContent(type="text", text=msg)]
+        return [result]
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorHTTPCallAPI:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorHTTPCallAPI: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorMouseMove")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def mouse_drag_drop(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        pyautogui.moveTo(args["input"]["pick_loc"][0], args["input"]["pick_loc"][1])
+        pyautogui.dragTo(args["input"]["drop_loc"][0], args["input"]["drop_loc"][1], duration=args["input"]["duration"])
 
-        pyautogui.moveTo(args.pick_loc.x, args.pick_loc.y)
-        pyautogui.dragTo(args.drop_loc.x, args.drop_loc.y, duration=args.duration)
-
-        logger.debug(f'dragNdrop: {args.pick_loc.x}, {args.pick_loc.y} to {args.drop_loc.x}, {args.drop_loc.y}')
-        msg = ""
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        logger.debug(f'dragNdrop: {args["input"]["pick_loc"][0]}, {args["input"]["pick_loc"][1]} to {args["input"]["drop_loc"][0]}, {args["input"]["drop_loc"][1]}')
+        msg = "completed mouse drag and drop"
+        result = [TextContent(type="text", text=msg)]
+        return [result]
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorHTTPCallAPI:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorHTTPCallAPI: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorMouseDragDrop")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def mouse_scroll(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
-        if args.direction == "down":
-            scroll_amount = 0 - args.amount
+        if args["input"]["direction"] == "down":
+            scroll_amount = 0 - args["input"]["amount"]
         else:
-            scroll_amount = args.amount
+            scroll_amount = args["input"]["amount"]
         mouse.scroll(0, scroll_amount)
 
-        logger.debug(f'Element xpath: {scroll_amount}')
-        msg = ""
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        msg = "completed mouse scroll"
+        result = [TextContent(type="text", text=msg)]
+        return [result]
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorHTTPCallAPI:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorHTTPCallAPI: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorMouseScroll")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def keyboard_text_input(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        pyautogui.write(args["input"]["text"], interval=args["input"]["interval"])
 
-        pyautogui.write(args.text, interval=args.interval)
+        if args['input']["post_wait"]:
+            time.sleep(args['input']["post_wait"])
 
-        logger.debug(f'Element xpath: {args.text},  {args.interval}')
-        msg = ""
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        msg = "completed text input"
+        result = [TextContent(type="text", text=msg)]
+        return [result]
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorHTTPCallAPI:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorHTTPCallAPI: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorKeyboardTextInput")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def keyboard_keys_input(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        pyautogui.hotkey(*args["input"]["keys"])
 
-        pyautogui.hotkey(*args.combo)
+        if args['input']["post_wait"]:
+            time.sleep(args['input']["post_wait"])
 
-        logger.debug(f'hot keys: {args.combo[0]}')
-        msg = ""
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        msg = "completed keys press"
+        result = [TextContent(type="text", text=msg)]
+        return [result]
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorHTTPCallAPI:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorHTTPCallAPI: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorKeyboardKeysInput")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def http_call_api(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
 
-        pyautogui.moveTo(args.loc.x, args.loc.y)
-
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        msg = "completed calling API"
+        result = [TextContent(type="text", text=msg)]
+        return [result]
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorHTTPCallAPI:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorHTTPCallAPI: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorHttpCallApi")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def os_connect_to_adspower(mainwin, args):
     webdriver_path = mainwin.default_webdriver_path
@@ -1385,15 +1179,9 @@ async def os_connect_to_adspower(mainwin, args):
         return [result]
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCheckADSPowerAndDrivers:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCheckADSPowerAndDrivers: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSConnectToAdspower")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_connect_to_chrome(mainwin, args):
@@ -1401,30 +1189,12 @@ async def os_connect_to_chrome(mainwin, args):
 
     print("inital state:", args)
     try:
-        url = args["url"]
-        # global ads_config, local_api_key, local_api_port, sk_work_settings
-        ads_port = mainwin.ads_settings['ads_port']
-        ads_api_key = mainwin.ads_settings['ads_api_key']
-        ads_chrome_version = mainwin.ads_settings['chrome_version']
-        scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
-        web_driver_options = ""
-        print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:',
-              ads_chrome_version)
-        profiles = queryAdspowerProfile(ads_api_key, ads_port)
-        loaded_profiles = {}
-        for profile in profiles:
-            loaded_profiles[profile['username']] = {"uid": profile['user_id'], "remark": profile['remark']}
+        url = args["input"]["url"]
 
-        ads_profile_id = loaded_profiles[scraper_email]['uid']
-        ads_profile_remark = loaded_profiles[scraper_email]['remark']
-        print('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)
-
-        webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
-
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
+        webdriver = webDriverStartExistingChrome(args["input"]["driver_path"], args["input"]["ads_port"])
+        time.sleep(1)
         webdriver.execute_script(f"window.open('{url}', '_blank');")
-
+        time.sleep(1)
         # Switch to the new tab
         webdriver.switch_to.window(webdriver.window_handles[-1])
         time.sleep(3)
@@ -1435,262 +1205,146 @@ async def os_connect_to_chrome(mainwin, args):
 
         mainwin.setWebDriver(webdriver)
         # set up output.
-        msg = "completed"
+        msg = "completed connect to chrome."
         result = [TextContent(type="text", text=msg)]
         return result
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCheckChromeAndDrivers:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCheckChromeAndDrivers: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSConnectToChrome")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 
 async def os_open_app(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
         DETACHED_PROCESS = 0x00000008
-        subprocess.Popen(args.app_name, creationflags=DETACHED_PROCESS, shell=True, close_fds=True,
+        subprocess.Popen(args["input"]["app_name"], creationflags=DETACHED_PROCESS, shell=True, close_fds=True,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed opening app"
         result = [TextContent(type="text", text=msg)]
         return result
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOpenApp:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOpenApp: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSOpenApp")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_close_app(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
-        app_window = gw.getWindowsWithTitle(args.win_title)[0]
+        app_window = gw.getWindowsWithTitle(args["input"]["win_title"])[0]
         app_window.close()
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed closing app"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCloseApp:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCloseApp: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSCloseApp")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def os_switch_to_app(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
-        # Find the window by its title
-        target_window = gw.getWindowsWithTitle(args.win_title)[0]
+        target_window = gw.getWindowsWithTitle(args["input"]["win_title"])[0]
 
         # Activate the window (bring it to front)
         target_window.activate()
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed switching to app"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorSwitchToApp:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorSwitchToApp: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSSwitchToApp")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
 
 async def python_run_extern(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
 
-        time.sleep(args.time)
-
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed python run extern"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorRunExternPython:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorRunExternPython: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorPythonRunExtern")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def os_make_dir(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
-        if not os.path.exists(args.dir_path):
+        if not os.path.exists(args["input"]["dir_path"]):
             # create only if the dir doesn't exist
-            os.makedirs(args.dir_path)
+            os.makedirs(args["input"]["dir_path"])
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed making dir"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSMakeDir:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSMakeDir: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSMakeDir")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_delete_dir(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
-        if os.path.exists(args.dir_path):
+        if os.path.exists(args["input"]["dir_path"]):
             # create only if the dir doesn't exist
-            os.remove(args.dir_path)
+            os.remove(args["input"]["dir_path"])
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed deleting dir"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSDeleteDir:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSDeleteDir: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSDeleteDir")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_delete_file(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
-        if os.path.exists(args.file):
+        if os.path.exists(args["input"]["file"]):
             # create only if the dir doesn't exist
-            os.remove(args.file)
+            os.remove(args["input"]["file"])
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed deleting file"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSDeleteFile:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSDeleteFile: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSDeleteFile")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_move_file(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
-
         # default_download_dir = getDefaultDownloadDirectory()
         # new_file = getMostRecentFile(default_download_dir, prefix=step["prefix"], extension=step["extension"])
 
-        shutil.move(args.src, args.dest)
+        shutil.move(args["input"]["src"], args["input"]["dest"])
 
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-
-        msg = ""
+        msg = "completed moving file"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSMoveFile:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSMoveFile: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSMoveFile")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_copy_file_dir(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        shutil.copy(args["input"]["src"], args["input"]["dest"])
 
-        shutil.copy(args.src, args.dest)
-
-        logger.debug(f'Element xpath: {args.loc.x},  {args.loc.y}')
-        msg = ""
+        msg = "completed copying file dir"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSCopyFileDir:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSCopyFileDir: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSCopyFileDir")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_screen_analyze(mainwin, args):
@@ -1710,19 +1364,15 @@ async def os_screen_analyze(mainwin, args):
             msg = f'⌨️  Input sensitive data into index {args.index}'
         logger.info(msg)
         logger.debug(f'Element xpath: {element_node.xpath}')
+        msg = "completed screen analysis"
         result = [TextContent(type="text", text=msg)]
+        result.meta = screen_content
         return result
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSScreenAnalyze:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSScreenAnalyze: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSScreenAnalyze")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_screen_capture(mainwin, args):
@@ -1739,19 +1389,13 @@ async def os_screen_capture(mainwin, args):
         saveImageToFile(img_section, args.file, "png")
 
         logger.debug(f'Element xpath: {args.win_title_kw}')
-        msg = ""
+        msg = "completed screen capture"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSScreenCapture:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSScreenCapture: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSScreenCapture")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_seven_zip(mainwin, args):
@@ -1763,19 +1407,13 @@ async def os_seven_zip(mainwin, args):
             raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
 
         logger.debug(f'Element xpath: {args.file}')
-        msg = ""
+        msg = "completed seven zip"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSSevenZip:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSSevenZip: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSSevenZip")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_kill_processes(mainwin, args):
@@ -1786,19 +1424,13 @@ async def os_kill_processes(mainwin, args):
             raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
 
         logger.debug(f'Kill Processes: {args.pids[0]}')
-        msg = ""
+        msg = "completed kill processes"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSKillProcesses:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSKillProcesses: traceback information not available:" + str(e)
-        log3(ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSKillProcesses")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 # Element Interaction Actions
 async def rpa_supervisor_scheduling_work(mainwin, args) -> CallToolResult:
@@ -1828,16 +1460,13 @@ async def rpa_supervisor_scheduling_work(mainwin, args) -> CallToolResult:
         }
         print("[DEBUG] Returning result:", json.dumps(tool_result, indent=2))
         # return ctr.model_dump(by_alias=True, exclude_none=True, mode="json", round_trip=False)
-        return [TextContent(type="text", text=msg), TextContent(type="text", text=json.dumps(workable))]
+        msg = "completed rpa supervisor scheduling work"
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorRPASupervisorSchedulingWork:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorRPASupervisorSchedulingWork: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorRPASupervisorSchedulingWork")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 # class Result(BaseModel):
 #     """Base class for JSON-RPC results."""
@@ -1860,17 +1489,13 @@ async def rpa_operator_dispatch_works(mainwin, args):
     # including put reactive work into it.
     try:
         works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
-        text_content = [TextContent(type="text", text=f"works dispatched")]
-        return text_content
+        msg = "completed rpa operator dispatch works"
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorRPAOperatorDispatchWorks:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorRPAOperatorDispatchWorks: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorRPAOperatorDispatchWorks")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def rpa_supervisor_process_work_results(mainwin, args):
@@ -1878,17 +1503,13 @@ async def rpa_supervisor_process_work_results(mainwin, args):
     # mostly bookkeeping.
     try:
         works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
-        text_content = [TextContent(type="text", text=f"works dispatched")]
-        return text_content
+        msg = "completed rpa supervisor process work results"
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorRPASupervisorProcessWorkResults:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorRPASupervisorProcessWorkResults: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorRPASupervisorProcessWorkResults")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def rpa_supervisor_run_daily_housekeeping(mainwin, args):
@@ -1900,14 +1521,9 @@ async def rpa_supervisor_run_daily_housekeeping(mainwin, args):
         text_content = [TextContent(type="text", text=f"works dispatched")]
         return text_content
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorRPASupervisorRunDailyHousekeeping:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorRPASupervisorRunDailyHousekeeping: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorRPASupervisorRunDailyHousekeeping")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def rpa_operator_report_work_results(mainwin, args):
     # call put work received from A2A channel, put into today's work data structure
@@ -1915,17 +1531,13 @@ async def rpa_operator_report_work_results(mainwin, args):
     # including put reactive work into it.
     try:
         works_to_be_dispatched = mainwin.handleCloudScheduledWorks(workable)
-        text_content = [TextContent(type="text", text=f"works dispatched")]
-        return text_content
+        msg = "completed rpa operator report work results"
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorRPAOperatorReportWorkResults:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorRPAOperatorReportWorkResults: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorRPAOperatorReportWorkResults")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 async def os_reconnect_wifi(mainwin, args):
@@ -1933,47 +1545,41 @@ async def os_reconnect_wifi(mainwin, args):
         # Disconnect current Wi-Fi
         subprocess.run(["netsh", "wlan", "disconnect"])
         time.sleep(2)
-
         # Reconnect to a specific network
-        cmd = ["netsh", "wlan", "connect", f"name={args['network_name']}"]
+        cmd = ["netsh", "wlan", "connect", f"name={args['input']['network_name']}"]
         result = subprocess.run(cmd, capture_output=True, text=True)
-        print(result.stdout)
-        return [TextContent(type="text", text=result.stdout)]
+        msg = f"completed reconnecting wifi ({result.stdout})."
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSReconnectWifi:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSReconnectWifi: traceback information not available:" + str(e)
-        print("ex_stat:", ex_stat)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSReconnectWifi")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 
 tool_function_mapping = {
         "say_hello": say_hello,
-        "wait": os_wait,
+        "os_wait": os_wait,
         "in_browser_wait_for_element": in_browser_wait_for_element,
         "in_browser_click_element_by_index": in_browser_click_element_by_index,
         "in_browser_click_element_by_selector": in_browser_click_element_by_selector,
         "in_browser_click_element_by_xpath": in_browser_click_element_by_xpath,
         "in_browser_click_element_by_text": in_browser_click_element_by_text,
         "in_browser_input_text": in_browser_input_text,
-        "in_browser_save_pdf": in_browser_save_pdf,
         "in_browser_switch_tab": in_browser_switch_tab,
         "in_browser_open_tab": in_browser_open_tab,
         "in_browser_close_tab": in_browser_close_tab,
         "in_browser_extract_content": in_browser_scrape_content,
-        "in_browser_save_html_to_file": in_browser_save_html_to_file,
+        "in_browser_save_href_to_file": in_browser_save_href_to_file,
         "in_browser_execute_javascript": in_browser_execute_javascript,
         "in_browser_build_dom_tree": in_browser_build_dom_tree,
-        "in_browser_scroll_down": in_browser_scroll_down,
-        "in_browser_scroll_up": in_browser_scroll_up,
+        "in_browser_scroll": in_browser_scroll,
         "in_browser_send_keys": in_browser_send_keys,
         "in_browser_scroll_to_text": in_browser_scroll_to_text,
         "in_browser_get_dropdown_options": in_browser_get_dropdown_options,
         "in_browser_select_dropdown_option": in_browser_select_dropdown_option,
         "in_browser_drag_drop": in_browser_drag_drop,
+        "in_browser_multi_actions": in_browser_multi_actions,
         "mouse_click": mouse_click,
         "mouse_move": mouse_move,
         "mouse_drag_drop": mouse_drag_drop,
