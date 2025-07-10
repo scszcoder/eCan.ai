@@ -11,19 +11,23 @@ import { logger } from '@/utils/logger';
 import AttachmentList from './AttachmentList';
 import { get_ipc_api } from '@/services/ipc_api';
 import { Toast } from '@douyinfe/semi-ui';
+import { removeMessageFromList } from '../utils/messageHandlers';
+import { useMessages } from '../hooks/useMessages';
 
 interface ChatDetailProps {
     chatId?: string | null;
     chats?: Chat[];
     onSend?: (content: string, attachments: any[]) => void;
+    onMessageDelete?: (messageId: string) => void;
 }
 
-const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) => {
+const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend, onMessageDelete }) => {
     const { t } = useTranslation();
     const wrapperRef = useRef<HTMLDivElement>(null);
     const chatRef = useRef<any>(null);
     const lastMessageLengthRef = useRef<number>(0);
     const justSentMessageRef = useRef<boolean>(false);
+    const { updateMessages } = useMessages(chatId);
 
     // 初始化协议处理器
     useEffect(() => {
@@ -171,6 +175,27 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
         }
     };
 
+    // 删除消息处理函数
+    const handleMessageDelete = async (message?: any) => {
+        const messageId = message?.id;
+        const chatId: string = message?.chatId ?? '';
+        if (!messageId || !chatId) return;
+        if (onMessageDelete) {
+            onMessageDelete(messageId);
+            return;
+        }
+        // 默认行为：调用 ipc_api 删除消息
+        const response = await get_ipc_api().chat.deleteMessage(chatId, messageId);
+        logger.debug(JSON.stringify(response))
+        if (response.success) {
+            Toast.success(t('pages.chat.deleteMessageSuccess'));
+            // 本地移除消息
+            updateMessages(chatId, removeMessageFromList(messages, messageId));
+        } else {
+            Toast.error(t('pages.chat.deleteMessageFail'));
+        }
+    };
+
     // 自定义渲染配置
     const chatBoxRenderConfig = {
         renderChatBoxContent: (props: any) => {
@@ -231,6 +256,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend }) =
                 mode="bubble"
                 placeholder={t('pages.chat.typeMessage')}
                 onMessageSend={handleMessageSend}
+                onMessageDelete={handleMessageDelete}
                 roleConfig={defaultRoleConfig}
                 uploadProps={uploadProps}
                 title={chatTitle}

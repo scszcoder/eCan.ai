@@ -681,3 +681,23 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
         logger.error(f"Error in handle_chat_form_submit: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'CHAT_FORM_SUBMIT_ERROR', str(e))
 
+@IPCHandlerRegistry.handler('delete_message')
+def handle_delete_message(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    处理删除消息请求，调用 chat_service.delete_message。
+    """
+    try:
+        chatId = params.get('chatId')
+        messageId = params.get('messageId')
+        if not chatId or not messageId:
+            return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId 必填')
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        chat_service = main_window.chat_service
+        result = chat_service.delete_message(chatId=chatId, messageId=messageId)
+        logger.debug("chat delete message  result: %s", result)
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in delete_message handler: {e}")
+        return create_error_response(request, 'DELETE_MESSAGE_ERROR', str(e))
+
