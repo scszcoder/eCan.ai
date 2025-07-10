@@ -26,13 +26,19 @@ def build_agent_mcp_tools_schemas():
         description="As a RPA operator, it dispatches the RPA works to be performed by a platoon of bots on this host computer.",
         inputSchema={
             "type": "object",
-            "required": ["works"],
+            "required": ["input"],
             "properties": {
-                "works": {
-                    "type": "dict",
-                    "description": "work to be dones",
+                "input": {
+                    "type": "object",
+                    "required": ["works"],
+                    "properties": {
+                        "works": {
+                            "type": "dict",
+                            "description": "work to be dones",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -43,13 +49,19 @@ def build_agent_mcp_tools_schemas():
         description="As an RPA supervisor, update overall result with received operator work report.",
         inputSchema={
             "type": "object",
-            "required": ["url"],
+            "required": ["input"],
             "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "URL to fetch",
+                "input": {
+                    "type": "object",
+                    "required": ["url"],
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "URL to fetch",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -60,13 +72,19 @@ def build_agent_mcp_tools_schemas():
         description="As an RPA supervisor, after all work reports collected, do necessary housekeeping work such as accounting, book keeping etc.",
         inputSchema={
             "type": "object",
-            "required": ["url"],
+            "required": ["input"],
             "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "URL to fetch",
+                "input": {
+                    "type": "object",
+                    "required": ["url"],
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "URL to fetch",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -77,13 +95,19 @@ def build_agent_mcp_tools_schemas():
         description="As an RPA operator, report work results to supervisor",
         inputSchema={
             "type": "object",
-            "required": ["url"],
+            "required": ["input"],
             "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "URL to fetch",
+                "input": {
+                    "type": "object",
+                    "required": ["url"],
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "URL to fetch",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -94,13 +118,19 @@ def build_agent_mcp_tools_schemas():
         description="Do a screen shot, save to a png file and stores into a cv2 image data structure",
         inputSchema={
             "type": "object",
-            "required": ["file_name"],
+            "required": ["input"],
             "properties": {
-                "file_name": {
-                    "type": "string",
-                    "description": "screen shot file name",
+                "input": {
+                    "type": "object",
+                    "required": ["file_name"],
+                    "properties": {
+                        "file_name": {
+                            "type": "string",
+                            "description": "screen shot file name",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -111,25 +141,31 @@ def build_agent_mcp_tools_schemas():
         description="do OCR and icon match on an image and result in structured text in the image",
         inputSchema={
             "type": "object",
-            "required": ["image", "icons", "options", "end_point"],
+            "required": ["input"],
             "properties": {
-                "image": {
-                    "type": "string",
-                    "description": "image file name.",
-                },
-                "icons": {
-                    "type": "[string]",
-                    "description": "a list of icon file names",
-                },
-                "options": {
-                    "type": "dict",
-                    "description": "various run options",
-                },
-                "end_point": {
-                    "type": "string",
-                    "description": "a choice of local/lan/wan",
-                },
-            },
+                "input": {
+                    "type": "object",
+                    "required": ["image", "icons", "options", "end_point"],
+                    "properties": {
+                        "image": {
+                            "type": "string",
+                            "description": "image file name.",
+                        },
+                        "icons": {
+                            "type": "[string]",
+                            "description": "a list of icon file names",
+                        },
+                        "options": {
+                            "type": "dict",
+                            "description": "various run options",
+                        },
+                        "end_point": {
+                            "type": "string",
+                            "description": "a choice of local/lan/wan",
+                        },
+                    },
+                }
+            }
         },
     )
 
@@ -140,33 +176,27 @@ def build_agent_mcp_tools_schemas():
         description="a mouse click function using pyautogui.",
         inputSchema={
             "type": "object",
-            "required": ["location", "button", "type", "speed", "post_move", "post_wait"],
+            "required": ["input"],
             "properties": {
-                "location": {
-                    "type": "[int]",
-                    "description": "coordinates of [x, y]",
-                },
-                "button": {
-                    "type": "string",
-                    "description": "could be left, right, or wheel",
-                },
-                "type": {
-                    "type": "string",
-                    "description": "either single or double",
-                },
-                "speed": {
-                    "type": "float",
-                    "description": "time delay interval in seconds (could be fractional) between the two clicks",
-                },
-                "post_move": {
-                    "type": "[int]",
-                    "description": "mouse move after click action [delta_x, delta_y]",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post click movement",
+                "input": {
+                    "type": "object",
+                    "required": ["loc", "post_move_delay", "post_click_delay"],
+                    "properties": {
+                        "loc": {
+                            "type": "[int]",
+                            "description": "coordinates of [x, y]",
+                        },
+                        "post_move_delay": {
+                            "type": "int",
+                            "description": "wait some seconds after mouse move to the location",
+                        },
+                        "post_click_delay": {
+                            "type": "int",
+                            "description": "wait some seconds after mouse click",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -177,17 +207,23 @@ def build_agent_mcp_tools_schemas():
         description="a mouse move/hover function using pyautogui.",
         inputSchema={
             "type": "object",
-            "required": ["location", "post_wait"],
+            "required": ["input"],
             "properties": {
-                "location": {
-                    "type": "[int]",
-                    "description": "coordinates of [x, y]",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post movement",
+                "input": {
+                    "type": "object",
+                    "required": ["location", "post_wait"],
+                    "properties": {
+                        "location": {
+                            "type": "[int]",
+                            "description": "coordinates of [x, y]",
+                        },
+                        "post_wait": {
+                            "type": "int",
+                            "description": "wait number of seconds after movement",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -198,21 +234,31 @@ def build_agent_mcp_tools_schemas():
         description="a mouse drag and drop function using pyautogui.",
         inputSchema={
             "type": "object",
-            "required": ["drop_location", "duration", "post_wait"],
+            "required": ["input"],
             "properties": {
-                "location": {
-                    "type": "[int]",
-                    "description": "coordinates of [x, y]",
-                },
-                "duration": {
-                    "type": "float",
-                    "description": "time interval in seconds (could be fractional) between pick up and drop off",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post movement",
+                "input": {
+                    "type": "object",
+                    "required": ["pick_loc","drop_loc", "duration", "post_wait"],
+                    "properties": {
+                        "pick_loc": {
+                            "type": "[int]",
+                            "description": "coordinates mouse pick up locationof [x, y]",
+                        },
+                        "drop_loc": {
+                            "type": "[int]",
+                            "description": "coordinates mouse drop locationof [x, y]",
+                        },
+                        "duration": {
+                            "type": "float",
+                            "description": "time interval in seconds (could be fractional) between pick up and drop off",
+                        },
+                        "post_wait": {
+                            "type": "int",
+                            "description": "wait number of seconds after post movement",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
@@ -220,68 +266,86 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="mouse_scroll",
-        description="a mouse drag and drop function using pyautogui.",
+        description="a mouse scroll function using pyautogui.",
         inputSchema={
             "type": "object",
-            "required": ["direction", "amount", "post_wait"],
+            "required": ["input"],
             "properties": {
-                "direction": {
-                    "type": "string",
-                    "description": "either up or down",
-                },
-                "duration": {
-                    "type": "int",
-                    "description": "amount of mouse wheel scroll units",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post movement",
+                "input": {
+                    "type": "object",
+                    "required": ["direction", "amount", "post_wait"],
+                    "properties": {
+                        "direction": {
+                            "type": "string",
+                            "description": "either up or down",
+                        },
+                        "duration": {
+                            "type": "int",
+                            "description": "amount of mouse wheel scroll units",
+                        },
+                        "post_wait": {
+                            "type": "int",
+                            "description": "wait number of seconds after post movement",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
-        name="text_input",
+        name="keyboard_text_input",
         description="keyboard type in text string.",
         inputSchema={
             "type": "object",
-            "required": ["text", "speed", "post_wait"],
+            "required": ["input"],
             "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "text string to be typed in",
-                },
-                "speed": {
-                    "type": "float",
-                    "description": "amount of time interval in seconds(can be fractional number) between key strokes",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post movement",
+                "input": {
+                    "type": "object",
+                    "required": ["text", "interval", "post_wait"],
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "text string to be typed in",
+                        },
+                        "interval": {
+                            "type": "float",
+                            "description": "amount of time interval in seconds(can be fractional number) between key strokes",
+                        },
+                        "post_wait": {
+                            "type": "int",
+                            "description": "wait number of seconds after post movement",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
-        name="keys_input",
+        name="keyboard_keys_input",
         description="keyboard type combo hot keys.",
         inputSchema={
             "type": "object",
-            "required": ["keys", "post_wait"],
+            "required": ["input"],
             "properties": {
-                "keys": {
-                    "type": "[string]",
-                    "description": "list of keys to be keyed in, for example ['ctrl', 'x']",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post movement",
+                "input": {
+                    "type": "object",
+                    "required": ["keys", "post_wait"],
+                    "properties": {
+                        "keys": {
+                            "type": "[string]",
+                            "description": "list of keys to be keyed in, for example ['ctrl', 'x']",
+                        },
+                        "post_wait": {
+                            "type": "int",
+                            "description": "wait number of seconds after post movement",
+                        }
+                    }
                 }
             },
         },
@@ -290,15 +354,21 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
-        name="wait",
+        name="os_wait",
         description="wait a few seconds.",
         inputSchema={
             "type": "object",
-            "required": ["time"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "time": {
-                    "type": "int",
-                    "description": "number of seconds to wait",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["seconds"],  # url is required *inside* input
+                    "properties": {
+                        "seconds": {
+                            "type": "int",
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -325,19 +395,25 @@ def build_agent_mcp_tools_schemas():
         description="use python web tool to wait for web elements.",
         inputSchema={
             "type": "object",
-            "required": ["locator", "text", "timeout"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "locator": {
-                    "type": "string",
-                    "description": "type of the web element, could be ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, and XPath",
-                },
-                "text": {
-                    "type": "string",
-                    "description": "name of the web element",
-                },
-                "timeout": {
-                    "type": "int",
-                    "description": "number of seconds to wait before timeout",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "properties": {
+                        "element_type": {
+                            "type": "string",
+                            "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
+                        },
+                        "element_name": {
+                            "type": "string",
+                            "description": "name of the element",
+                        },
+                        "timeout": {
+                            "type": "int",
+                            "description": "max wait time(seconds) to find element on the page",
+                        }
+                    },
                 }
             },
         },
@@ -350,15 +426,25 @@ def build_agent_mcp_tools_schemas():
         description="use selenium to click on a web element based on index in the selector map.",
         inputSchema={
             "type": "object",
-            "required": ["index", "map"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "locator": {
-                    "type": "string",
-                    "description": "type of the web element, could be ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, and XPath",
-                },
-                "map": {
-                    "type": "dict",
-                    "description": "selector map from web page extraction.",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "properties": {
+                        "element_type": {
+                            "type": "string",
+                            "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
+                        },
+                        "element_name": {
+                            "type": "string",
+                            "description": "name of the element",
+                        },
+                        "timeout": {
+                            "type": "int",
+                            "description": "max wait time(seconds) to find element on the page",
+                        }
+                    },
                 }
             },
         },
@@ -372,15 +458,25 @@ def build_agent_mcp_tools_schemas():
         description="use selenium to click on an web element based on selector.",
         inputSchema={
             "type": "object",
-            "required": ["selector", "map"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "selector": {
-                    "type": "string",
-                    "description": "css selector name associated with the target web element",
-                },
-                "map": {
-                    "type": "dict",
-                    "description": "selector map from web page extraction.",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "properties": {
+                        "element_type": {
+                            "type": "string",
+                            "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
+                        },
+                        "element_name": {
+                            "type": "string",
+                            "description": "name of the element",
+                        },
+                        "timeout": {
+                            "type": "int",
+                            "description": "max wait time(seconds) to find element on the page",
+                        }
+                    },
                 }
             },
         },
@@ -394,15 +490,25 @@ def build_agent_mcp_tools_schemas():
         description="use selenium to click on an web element based on xpath.",
         inputSchema={
             "type": "object",
-            "required": ["xpath", "map"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "xpath": {
-                    "type": "string",
-                    "description": "xpath associated with the target web element",
-                },
-                "map": {
-                    "type": "dict",
-                    "description": "selector map from web page extraction.",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "properties": {
+                        "element_type": {
+                            "type": "string",
+                            "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
+                        },
+                        "element_name": {
+                            "type": "string",
+                            "description": "name of the element",
+                        },
+                        "timeout": {
+                            "type": "int",
+                            "description": "max wait time(seconds) to find element on the page",
+                        }
+                    },
                 }
             },
         },
@@ -416,15 +522,25 @@ def build_agent_mcp_tools_schemas():
         description="use selenium to click on an web element based on text",
         inputSchema={
             "type": "object",
-            "required": ["text", "map"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "text associated with the target web element",
-                },
-                "map": {
-                    "type": "dict",
-                    "description": "selector map from web page extraction.",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "properties": {
+                        "element_type": {
+                            "type": "string",
+                            "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
+                        },
+                        "element_name": {
+                            "type": "string",
+                            "description": "name of the element",
+                        },
+                        "timeout": {
+                            "type": "int",
+                            "description": "max wait time(seconds) to find element on the page",
+                        }
+                    },
                 }
             },
         },
@@ -438,15 +554,33 @@ def build_agent_mcp_tools_schemas():
         description="key in text on a web page's input field.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "text to be keyed in",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post movement",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["element_type", "element_name", "element_text", "nth", "timeout"],  # url is required *inside* input
+                    "properties": {
+                        "element_type": {
+                            "type": "string",
+                            "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
+                        },
+                        "element_name": {
+                            "type": "string",
+                            "description": "name of the element",
+                        },
+                        "element_text": {
+                            "type": "string",
+                            "description": "text of the web element",
+                        },
+                        "nth": {
+                            "type": "int",
+                            "description": "nth element of the list of elements of same type and same name",
+                        },
+                        "timeout": {
+                            "type": "int",
+                            "description": "max wait time(seconds) to find element on the page",
+                        }
+                    },
                 }
             },
         },
@@ -456,19 +590,29 @@ def build_agent_mcp_tools_schemas():
 
 
     tool_schema = types.Tool(
-        name="in_browser_scroll_down",
-        description="use browser driver like selenium or playwright to scroll down within the browser.",
+        name="in_browser_scroll",
+        description="use browser driver like selenium or playwright to scroll within the browser.",
         inputSchema={
             "type": "object",
-            "required": ["amount", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "amount": {
-                    "type": "int",
-                    "description": "amount to scroll down on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["direction", "amount", "post_wait"],  # url is required *inside* input
+                    "properties": {
+                        "direction": {
+                            "type": "string",
+                            "description": "scroll direction of either up or down",
+                        },
+                        "amount": {
+                            "type": "int",
+                            "description": "number of scroll units",
+                        },
+                        "post_wait": {
+                            "type": "int",
+                            "description": "max wait time(seconds) to find element on the page",
+                        }
+                    },
                 }
             },
         },
@@ -476,27 +620,6 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-
-    tool_schema = types.Tool(
-        name="in_browser_scroll_up",
-        description="use browser driver like selenium or playwright to scroll up within the browser.",
-        inputSchema={
-            "type": "object",
-            "required": ["amount", "post_wait"],
-            "properties": {
-                "amount": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
-                }
-            },
-        },
-    )
-
-    add_tool_schema(tool_schema)
 
 
     tool_schema = types.Tool(
@@ -504,15 +627,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to send hot keys to the web page.",
         inputSchema={
             "type": "object",
-            "required": ["amount", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "amount": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -526,15 +652,17 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to scroll to the specified text location.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["text"],  # url is required *inside* input
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -547,15 +675,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to obtains the list of selection options on the drop down list.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -568,15 +699,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to select an item on the drop down selection list.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -589,15 +723,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -610,15 +747,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["text", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "text": {
-                    "type": "int",
-                    "description": "amount to scroll up on the web page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -632,15 +772,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["tab_title", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "tab_title": {
-                    "type": "string",
-                    "description": "title text of the tab to switch to.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -654,15 +797,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["url", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "the url of the new tab page.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -676,15 +822,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["tab_title", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "tab_title": {
-                    "type": "string",
-                    "description": "title text of the tab to close.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -698,15 +847,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
-            "required": ["link", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "link": {
-                    "type": "string",
-                    "description": "url to be downloaded.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after post scroll",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -720,15 +872,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to open a new url site.",
         inputSchema={
             "type": "object",
-            "required": ["url", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "url of the web site.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after attempting to open the url site",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -741,15 +896,18 @@ def build_agent_mcp_tools_schemas():
         description="use browser driver like selenium or playwright to inject js script into the page.",
         inputSchema={
             "type": "object",
-            "required": ["file", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "file": {
-                    "type": "string",
-                    "description": "path of the file that contains the js code.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after attempting to open the url site",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
                 }
             },
         },
@@ -782,21 +940,27 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
-        name="reconnect_wifi",
+        name="os_reconnect_wifi",
         description="use shell command to reconnect wifi (assume wifi access point porfiles exist).",
         inputSchema={
             "type": "object",
-            "required": ["wifi_name", "post_wait"],
+            "required": ["input"],  # the root requires *input*
             "properties": {
-                "wifi_name": {
-                    "type": "string",
-                    "description": "name of the wifi access point.",
-                },
-                "post_wait": {
-                    "type": "int",
-                    "description": "wait number of seconds after attempting to open the url site",
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["network_name", "post_wait"],
+                    "properties": {
+                        "network_name": {
+                            "type": "string",
+                            "description": "name of the wifi access point.",
+                        },
+                        "post_wait": {
+                            "type": "int",
+                            "description": "wait number of seconds after attempting to open the url site",
+                        }
+                    },
                 }
-            },
+            }
         },
     )
 

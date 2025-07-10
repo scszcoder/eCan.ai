@@ -8,6 +8,7 @@ from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from twocaptcha import TwoCaptcha
+from selenium.webdriver.common.action_chains import ActionChains
 
 from selenium.webdriver.common.by import By
 import requests
@@ -513,21 +514,9 @@ def processWebdriverStartExistingChrome(step, i):
         else:
             port = symTab[step['debug_port']]
         # Set Chrome options if needed
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        # chrome_options.add_argument('--no-sandbox --disable-gpu')
-        chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
-        chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:"+str(port))
-        # chrome_options.add_experimental_option('prefs', {
-        #     'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
-        #     'savefile.default_directory': os.getcwd()  # Set your download directory here
-        # })
-        # chrome_options.add_argument('--kiosk-printing')
 
-        # Initialize the WebDriver
-        service = ChromeService(executable_path=driver_path)
-        print("ready to drive.......")
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver = webDriverStartExistingChrome(driver_path, port)
+
         print("still alive?????.......")
         symTab[step["result"]] = driver
 
@@ -542,6 +531,24 @@ def processWebdriverStartExistingChrome(step, i):
         print(ex_stat)
 
     return (i + 1), ex_stat
+
+def webDriverStartExistingChrome(driver_path, port):
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    # chrome_options.add_argument('--no-sandbox --disable-gpu')
+    chrome_options.add_argument("--disable-features=SharedStorage,InterestCohort")
+    chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:" + str(port))
+    # chrome_options.add_experimental_option('prefs', {
+    #     'printing.print_preview_sticky_settings.appState': '{"version":2,"recentDestinations":[{"id":"Save as PDF","origin":"local","account":"","capabilities":{"printer":{"version":2,"display_name":"Save as PDF","printer":{"device_name":"Save as PDF","type":"PDF","supports_scaling":true}}}}],"selectedDestinationId":"Save as PDF","selectedDestinationOrigin":"local","selectedDestinationAccount":"","isCssBackgroundEnabled":true}',
+    #     'savefile.default_directory': os.getcwd()  # Set your download directory here
+    # })
+    # chrome_options.add_argument('--kiosk-printing')
+
+    # Initialize the WebDriver
+    service = ChromeService(executable_path=driver_path)
+    print("ready to drive.......")
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
 
 
 def processWebdriverStartNewChrome(step, i):
@@ -690,60 +697,7 @@ def processWebdriverScrollTo(step, i, mission):
         increment = step["increment_var"]
         loc = step["loc_var"]
         print("waiting for pagination to load")
-        time.sleep(5)
-        # Wait until the pagination element is present
-        # target_element = WebDriverWait(driver, wait).until(
-        #     # EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-cel-widget='MAIN-PAGINATION-72']"))
-        #     EC.presence_of_element_located((element_type, element_name))
-        # )
-        print("pagination LOADED")
-
-        # Smoothly scroll to the pagination element
-        # smoothScrollToElement(driver, target_element, increment)
-
-        # Smoothly scroll to the target element
-        # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
-
-        window_height = driver.execute_script("return window.innerHeight")
-        print("window height:", window_height)
-
-        # Calculate the offset to position the element 25% down from the top
-        offset = window_height * loc
-        print("offset:", offset)
-
-        current_scroll_position = driver.execute_script("return window.pageYOffset;")
-        print("current_scroll_position:", current_scroll_position)
-
-        # Smoothly scroll to the element with the desired offset
-        # driver.execute_script("""
-        #     arguments[0].scrollIntoView({
-        #         behavior: 'smooth',
-        #         block: 'center'
-        #     });
-        #     window.scrollBy(0, arguments[1]);
-        # """, target_element, offset)
-        if target_element:
-            target_position = target_element.location['y']
-            print("target_position:", target_position, offset)
-            # if not target_element.is_displayed():
-            if not isDisplayed(driver, target_element):
-                # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
-                scroll_amount = random.randint(30, 80)
-                smoothScrollToElement(driver, target_element, offset, scroll_amount)
-                # Wait a bit to ensure the scrolling action is complete
-                time.sleep(1)  # Short wait to ensure the scroll action is complete
-
-                # Wait a bit to ensure the scrolling action is complete
-                WebDriverWait(driver, 2).until(
-                    EC.visibility_of(target_element)
-                )
-                log6("WebdriverScrollTo:[" + step["target_var"] + "]", "wan_log", mainwin, mission, i)
-            else:
-                log6("Warning No Action - WebdriverScrollTo:[" + step["target_var"] + "] already visible!",
-                     "wan_log", mainwin, mission, i)
-
-        else:
-            log6("WARNING: WebdriverScrollTo:[" + step["target_var"] + "] NOT FOUND ON PAGE!", "wan_log", mainwin, mission, i)
+        webDriverScrollTo(driver, target_element, loc, increment)
 
     except Exception as e:
         # Get the traceback information
@@ -757,6 +711,57 @@ def processWebdriverScrollTo(step, i, mission):
 
     return (i + 1), ex_stat
 
+
+def webDriverScrollTo(driver, target, loc, wait=10):
+    time.sleep(wait)
+    # Wait until the pagination element is present
+    # target_element = WebDriverWait(driver, wait).until(
+    #     # EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-cel-widget='MAIN-PAGINATION-72']"))
+    #     EC.presence_of_element_located((element_type, element_name))
+    # )
+    print("pagination LOADED")
+
+    # Smoothly scroll to the pagination element
+    # smoothScrollToElement(driver, target_element, increment)
+
+    # Smoothly scroll to the target element
+    # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+
+    window_height = driver.execute_script("return window.innerHeight")
+    print("window height:", window_height)
+
+    # Calculate the offset to position the element 25% down from the top
+    offset = window_height * loc
+    print("offset:", offset)
+
+    current_scroll_position = driver.execute_script("return window.pageYOffset;")
+    print("current_scroll_position:", current_scroll_position)
+
+    # Smoothly scroll to the element with the desired offset
+    # driver.execute_script("""
+    #     arguments[0].scrollIntoView({
+    #         behavior: 'smooth',
+    #         block: 'center'
+    #     });
+    #     window.scrollBy(0, arguments[1]);
+    # """, target_element, offset)
+    if target:
+        target_position = target.location['y']
+        print("target_position:", target_position, offset)
+        # if not target_element.is_displayed():
+        if not isDisplayed(driver, target):
+            # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+            scroll_amount = random.randint(30, 80)
+            smoothScrollToElement(driver, target, offset, scroll_amount)
+            # Wait a bit to ensure the scrolling action is complete
+            time.sleep(1)  # Short wait to ensure the scroll action is complete
+
+            # Wait a bit to ensure the scrolling action is complete
+            WebDriverWait(driver, 2).until(
+                EC.visibility_of(target)
+            )
+
+
 async def processWebdriverScrollTo8(step, i, mission):
     try:
         ex_stat = DEFAULT_RUN_STATUS
@@ -769,45 +774,9 @@ async def processWebdriverScrollTo8(step, i, mission):
         increment = step["increment_var"]
         loc = step["loc_var"]
         print("async waiting for pagination to load")
-        time.sleep(5)
-        # Wait until the pagination element is present
-        # target_element = WebDriverWait(driver, wait).until(
-        #     # EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-cel-widget='MAIN-PAGINATION-72']"))
-        #     EC.presence_of_element_located((element_type, element_name))
-        # )
-        print("pagination LOADED")
 
-        # Smoothly scroll to the pagination element
-        # smoothScrollToElement(driver, target_element, increment)
+        webDriverScrollTo8(driver, target_element, loc, increment)
 
-        # Smoothly scroll to the target element
-        # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
-
-        window_height = driver.execute_script("return window.innerHeight")
-        print("window height:", window_height)
-
-        # Calculate the offset to position the element 25% down from the top
-        offset = window_height * loc
-        print("offset:", offset)
-
-        # Smoothly scroll to the element with the desired offset
-        # driver.execute_script("""
-        #     arguments[0].scrollIntoView({
-        #         behavior: 'smooth',
-        #         block: 'center'
-        #     });
-        #     window.scrollBy(0, arguments[1]);
-        # """, target_element, offset)
-        driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
-
-
-        # Wait a bit to ensure the scrolling action is complete
-        time.sleep(1)  # Short wait to ensure the scroll action is complete
-
-        # Wait a bit to ensure the scrolling action is complete
-        WebDriverWait(driver, 2).until(
-            EC.visibility_of(target_element)
-        )
         await log6("WebdriverScrollTo:[" + step["target_var"] + "]", "wan_log", mainwin, mission, i)
     except Exception as e:
         # Get the traceback information
@@ -821,6 +790,47 @@ async def processWebdriverScrollTo8(step, i, mission):
 
     return (i + 1), ex_stat
 
+def webDriverScrollTo8(driver, target, loc, wait=5):
+    time.sleep(wait)
+    # Wait until the pagination element is present
+    # target_element = WebDriverWait(driver, wait).until(
+    #     # EC.presence_of_element_located((By.CSS_SELECTOR, "div[data-cel-widget='MAIN-PAGINATION-72']"))
+    #     EC.presence_of_element_located((element_type, element_name))
+    # )
+    print("pagination LOADED")
+
+    # Smoothly scroll to the pagination element
+    # smoothScrollToElement(driver, target_element, increment)
+
+    # Smoothly scroll to the target element
+    # driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+
+    window_height = driver.execute_script("return window.innerHeight")
+    print("window height:", window_height)
+
+    # Calculate the offset to position the element 25% down from the top
+    offset = window_height * loc
+    print("offset:", offset)
+
+    # Smoothly scroll to the element with the desired offset
+    # driver.execute_script("""
+    #     arguments[0].scrollIntoView({
+    #         behavior: 'smooth',
+    #         block: 'center'
+    #     });
+    #     window.scrollBy(0, arguments[1]);
+    # """, target_element, offset)
+    driver.execute_script("arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });", target_element)
+
+    # Wait a bit to ensure the scrolling action is complete
+    time.sleep(1)  # Short wait to ensure the scroll action is complete
+
+    # Wait a bit to ensure the scrolling action is complete
+    WebDriverWait(driver, 2).until(
+        EC.visibility_of(target)
+    )
+
+
 
 def processWebdriverKeyIn(step, i, mission):
     try:
@@ -829,24 +839,8 @@ def processWebdriverKeyIn(step, i, mission):
         driver = symTab[step["driver_var"]]
         target = symTab[step["target_var"]]
         text = symTab[step["text_var"]]
-        wait = WebDriverWait(driver, 10)
-        print("TEXT::", text)
-        # wait.until(EC.presence_of_element_located(target))
-        if target:
-            target.clear()
 
-        if isinstance(text, list):
-            if text[0]:
-                text_tbki = " ".join(text)
-            else:
-                text_tbki = ""
-        else:
-            text_tbki = text
-
-        if target:
-            target.send_keys(text_tbki)
-        else:
-            raise Exception("Text Input Element Is NULL!")
+        webDriverKeyIn(driver, target, text, wait=10)
 
         log6("WebdriverKeyIn:["+step["target_var"]+"]'"+text_tbki+"'", "wan_log", mainwin, mission, i)
 
@@ -862,6 +856,23 @@ def processWebdriverKeyIn(step, i, mission):
 
     return (i + 1), ex_stat
 
+def webDriverKeyIn(driver, target, text, wait=10):
+    wait = WebDriverWait(driver, 10)
+    print("TEXT::", text)
+    # wait.until(EC.presence_of_element_located(target))
+    if target:
+        target.clear()
+
+    if isinstance(text, list):
+        if text[0]:
+            text_tbki = " ".join(text)
+        else:
+            text_tbki = ""
+    else:
+        text_tbki = text
+
+    if target:
+        target.send_keys(text_tbki)
 
 
 def processWebdriverComboKeys(step, i, mission):
@@ -872,17 +883,8 @@ def processWebdriverComboKeys(step, i, mission):
         target = symTab[step["target_var"]]
         keys_list = symTab[step["kl_var"]]
         log6("WebdriverComboKeys:["+step["target_var"]+"]"+",".join(keys_list), "wan_log", mainwin, mission, i)
-        wait = WebDriverWait(driver, 10)
 
-        wait.until(EC.presence_of_element_located(target))
-
-        # Create ActionChains object
-        actions = ActionChains(driver)
-        for key in keys_list:
-            actions.key_down(key)
-        for key in reversed(keys_list):
-            actions.key_up(key)
-        actions.perform()
+        webDriverComboKeys(driver, target, keys_list)
 
     except Exception as e:
         # Get the traceback information
@@ -896,6 +898,18 @@ def processWebdriverComboKeys(step, i, mission):
 
     return (i + 1), ex_stat
 
+def webDriverComboKeys(driver, target, keys, wait=10):
+    wait = WebDriverWait(driver, wait)
+
+    wait.until(EC.presence_of_element_located(target))
+
+    # Create ActionChains object
+    actions = ActionChains(driver)
+    for key in keys:
+        actions.key_down(key)
+    for key in reversed(keys):
+        actions.key_up(key)
+    actions.perform()
 
 
 def processWebdriverSelectDropDown(step, i, mission):
@@ -907,14 +921,9 @@ def processWebdriverSelectDropDown(step, i, mission):
         dropdown = symTab[step["target_var"]]
         text = symTab[step["text_var"]]
         log3("wait for target to load")
-        wait = WebDriverWait(driver, 10)
 
-        # dropdown = wait.until(EC.presence_of_element_located((target_type, target)))
-        select_menu = Select(dropdown)
-        selected = select_menu.first_selected_option.text
-        log6("WebdriverSelectDropDown:[" + step["target_var"] + "]<"+text+">", "wan_log", mainwin, mission, i)
-        if selected != text:
-            select_menu.select_by_visible_text(text)
+        webDriverSelDropDown(driver, dropdown, text, wait=10)
+
 
     except Exception as e:
         # Get the traceback information
@@ -928,7 +937,14 @@ def processWebdriverSelectDropDown(step, i, mission):
 
     return (i + 1), ex_stat
 
+def webDriverSelDropDown(driver, target, item_name, wait=10):
+    wait = WebDriverWait(driver, 10)
 
+    # dropdown = wait.until(EC.presence_of_element_located((target_type, target)))
+    select_menu = Select(target)
+    selected = select_menu.first_selected_option.text
+    if selected != item_name:
+        select_menu.select_by_visible_text(item_name)
 
 
 def processWebdriverNewTab(step, i):
@@ -1031,40 +1047,7 @@ def processWebdriverGoToTab(step, i):
             url = symTab[step["site_var"]]
 
         log3("swtich to tab")
-        found = False
-
-        if not tab_title_txt.isdigit():
-            # tab_title_txt = symTab[step["text_var"]]
-            print('tab_title_txt:', tab_title_txt)
-            for handle in driver.window_handles:
-                driver.switch_to.window(handle)
-                print("title, url:", driver.title, driver.current_url)
-                if tab_title_txt in driver.current_url or tab_title_txt in driver.title:
-                    found = True
-                    break
-
-            if not found:
-                driver.execute_script("window.open('');")
-
-                # Switch to the new tab
-                driver.switch_to.window(driver.window_handles[-1])
-
-                # Navigate to the new URL in the new tab
-                if url:
-                    driver.get(url)  # Replace with the new URL
-            else:
-                if url:
-                    print("URL:", url)
-                    driver.get(url)
-
-        else:
-            for handle in driver.window_handles:
-                driver.switch_to.window(handle)
-                print("win title:", driver.title)
-
-            if int(tab_title_txt) < len(driver.window_handles):
-                print("switching to nth tab:", int(tab_title_txt))
-                driver.switch_to.window(driver.window_handles[int(tab_title_txt)])
+        webDriverSwitchTab(driver, tab_title_txt, url)
 
     except Exception as e:
         # Get the traceback information
@@ -1077,6 +1060,44 @@ def processWebdriverGoToTab(step, i):
         log3(ex_stat)
 
     return (i + 1), ex_stat
+
+
+def webDriverSwitchTab(driver, tab_title_txt, url):
+    found = False
+    if not tab_title_txt.isdigit():
+        # tab_title_txt = symTab[step["text_var"]]
+        print('tab_title_txt:', tab_title_txt)
+        for handle in driver.window_handles:
+            driver.switch_to.window(handle)
+            print("title, url:", driver.title, driver.current_url)
+            if tab_title_txt in driver.current_url or tab_title_txt in driver.title:
+                found = True
+                break
+
+        if not found:
+            driver.execute_script("window.open('');")
+
+            # Switch to the new tab
+            driver.switch_to.window(driver.window_handles[-1])
+
+            # Navigate to the new URL in the new tab
+            if url:
+                driver.get(url)  # Replace with the new URL
+        else:
+            if url:
+                print("URL:", url)
+                driver.get(url)
+
+    else:
+        for handle in driver.window_handles:
+            driver.switch_to.window(handle)
+            print("win title:", driver.title)
+
+        if int(tab_title_txt) < len(driver.window_handles):
+            print("switching to nth tab:", int(tab_title_txt))
+            driver.switch_to.window(driver.window_handles[int(tab_title_txt)])
+
+
 
 def processWebdriverGoToURL(step, i):
     try:
@@ -2017,3 +2038,111 @@ def solveGmailCaptcha(driver, api_key):
 
     # Wait to observe results
     time.sleep(10)
+
+
+def webdriverPressAndRelease(driver, sel, target, time):
+    # Find the button element
+    # button = driver.find_element(By.ID, 'your-button-id')
+    button = driver.find_element(sel, target)
+
+    # Create action chain
+    actions = ActionChains(driver)
+    actions.click_and_hold(button).pause(time).release().perform()  # Hold for 3 seconds
+
+    # alternative algorithm
+    # actions.click_and_hold(button).perform()
+    # time.sleep(3)
+    # actions.release(button).perform()
+
+
+def human_like_drag_and_drop(driver, source_selector,source_elem, target_selector, target_elem, steps=30, zigzag_amplitude=10, min_delay=0.01,
+                             max_delay=0.04):
+
+    # source = driver.find_element(By.ID, 'drag')
+    # target = driver.find_element(By.ID, 'drop')
+    source = driver.find_element(source_selector, source_elem)
+    target = driver.find_element(target_selector, target_elem)
+
+    # Get positions of source and target
+    source_rect = source_elem.rect
+    target_rect = target_elem.rect
+
+    # Centers
+    start_x = source_rect['x'] + source_rect['width'] // 2
+    start_y = source_rect['y'] + source_rect['height'] // 2
+    end_x = target_rect['x'] + target_rect['width'] // 2
+    end_y = target_rect['y'] + target_rect['height'] // 2
+
+    # Calculate total distance
+    dx = end_x - start_x
+    dy = end_y - start_y
+
+    # Generate points along the path
+    action = ActionChains(driver)
+    action.move_to_element_with_offset(source_elem, source_rect['width'] // 2, source_rect['height'] // 2)
+    action.click_and_hold()
+    action.perform()
+
+    last_x, last_y = start_x, start_y
+    for i in range(1, steps):
+        # Linear step towards target
+        frac = i / steps
+        cur_x = start_x + frac * dx
+        cur_y = start_y + frac * dy
+
+        # Add zigzag
+        offset_x = cur_x - last_x + random.randint(-zigzag_amplitude, zigzag_amplitude)
+        offset_y = cur_y - last_y + random.randint(-zigzag_amplitude, zigzag_amplitude)
+
+        action = ActionChains(driver)
+        action.move_by_offset(offset_x, offset_y)
+        action.perform()
+
+        last_x += offset_x
+        last_y += offset_y
+        time.sleep(random.uniform(min_delay, max_delay))
+
+    # Final move to end position
+    action = ActionChains(driver)
+    action.move_to_element_with_offset(target_elem, target_rect['width'] // 2, target_rect['height'] // 2)
+    action.release()
+    action.perform()
+
+def get_selector(typeString):
+    if typeString.lower() == "id":
+        return By.ID
+    elif typeString.lower() == "class":
+        return By.CLASS_NAME
+    elif typeString.lower() == "css_selector":
+        return By.CSS_SELECTOR
+    elif typeString.lower() == "link_text":
+        return By.LINK_TEXT
+    elif typeString.lower() == "name":
+        return By.NAME
+    elif typeString.lower() == "partial_link_text":
+        return By.PARTIAL_LINK_TEXT
+    elif typeString.lower() == "tag_name":
+        return By.TAG_NAME
+    elif typeString.lower() == "xpath":
+        return By.XPATH
+
+def webDriverDownloadFile(driver, ele_type, ele_text, downloaded_file_dir, downloaded_file_name):
+    # Find the link (customize your selector)
+    links = driver.find_elements(ele_type, '//a[@href]')
+    link = next((link for link in links if link.text == ele_text), None)
+    if link:
+        file_url = link.get_attribute('href')
+
+        # Use requests to download the file
+        import requests
+        response = requests.get(file_url)
+        filename = file_url.split('/')[-1]
+        if downloaded_file_name:
+            filename = downloaded_file_name
+        downloaded_file_path = os.path.join(downloaded_file_dir, filename)
+
+        with open(downloaded_file_path, 'wb') as f:
+            f.write(response.content)
+        return downloaded_file_path
+    else:
+        return ""
