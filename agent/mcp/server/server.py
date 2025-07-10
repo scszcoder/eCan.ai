@@ -1264,6 +1264,9 @@ async def os_switch_to_app(mainwin, args):
 
 async def python_run_extern(mainwin, args):
     try:
+        if args["input"]["code"]:
+            ext_py_code = args["input"]["code"]
+            exec(ext_py_code)
 
         msg = "completed python run extern"
         result = [TextContent(type="text", text=msg)]
@@ -1377,18 +1380,13 @@ async def os_screen_analyze(mainwin, args):
 
 async def os_screen_capture(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        screen_img, window_rect = await takeScreenShot(args["input"]["win_title_kw"])
+        img_section = carveOutImage(screen_img, args["input"]["sub_area"], "")
+        maskOutImage(img_section, args["input"]["sub_area"], "")
 
-        screen_img, window_rect = await takeScreenShot(args.win_title_kw)
-        img_section = carveOutImage(screen_img, args.sub_area, "")
-        maskOutImage(img_section, args.sub_area, "")
+        saveImageToFile(img_section, args["input"]["file"], "png")
 
-        saveImageToFile(img_section, args.file, "png")
-
-        logger.debug(f'Element xpath: {args.win_title_kw}')
+        logger.debug(f'Element xpath: {args["input"]["win_title_kw"]}')
         msg = "completed screen capture"
         result = [TextContent(type="text", text=msg)]
         return result
