@@ -296,7 +296,9 @@
       "weekday6": "Sat",
       "selectAChat": "Please select a chat",
       "formSubmitSuccess": "Submitted successfully",
-      "formSubmitFail": "Submission failed, please try again"
+      "formSubmitFail": "Submission failed, please try again",
+      "deleteMessageSuccess": "Message deleted successfully",
+      "deleteMessageFail": "Failed to delete message, please try again"
     },
     "skills": {
       "title": "Skills",

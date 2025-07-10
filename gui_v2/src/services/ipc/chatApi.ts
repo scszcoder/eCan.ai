@@ -88,5 +88,11 @@ export function createChatApi(apiInstance: IPCAPI) {
         chatFormSubmit(chatId: string, messageId: string, formId: string, formData: any): Promise<APIResponse<FileContent>> {
             return apiInstance['executeRequest']('chat_form_submit', { chatId, messageId,  formId, formData });
         },
+        /**
+         * 删除消息
+         */
+        deleteMessage<T>(chatId: string, messageId: string): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('delete_message', { chatId, messageId });
+        },
     };
 } 

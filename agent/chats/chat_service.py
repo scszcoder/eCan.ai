@@ -632,3 +632,35 @@ class ChatService(metaclass=SingletonMeta):
                 "data": message.to_dict(deep=True),
                 "error": None
             }
+
+    def delete_message(self, chatId: str, messageId: str) -> Dict[str, Any]:
+        """
+        删除指定 chatId 下的 messageId 消息及其附件。
+        参数：chatId, messageId（均必需）
+        返回：标准结构
+        """
+        if not chatId or not messageId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId and messageId are required"
+            }
+        with self.session_scope() as session:
+            message = session.get(Message, messageId)
+            if not message or message.chatId != chatId:
+                return {
+                    "success": False,
+                    "id": messageId,
+                    "data": None,
+                    "error": f"Message {messageId} not found in chat {chatId}"
+                }
+            # 删除消息（附件自动级联删除）
+            session.delete(message)
+            session.flush()
+            return {
+                "success": True,
+                "id": messageId,
+                "data": None,
+                "error": None
+            }
