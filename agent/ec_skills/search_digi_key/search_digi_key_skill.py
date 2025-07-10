@@ -1,10 +1,12 @@
+from langgraph.constants import START, END
 from bot.Logger import *
 from agent.ec_skill import *
 from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 from bot.seleniumSkill import execute_js_script
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from utils.logger_helper import get_agent_by_id
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_agent_by_id, get_traceback
 from agent.mcp.local_client import local_mcp_call_tool
 import re
 
@@ -53,15 +55,8 @@ def go_to_site_node(state: NodeState) -> NodeState:
 
             return state
         except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorGoToSiteNode0:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorGoToSiteNode0: traceback information not available:" + str(e)
-            log3(ex_stat)
-            state.error = ex_stat
+            state.error = get_traceback(e, "ErrorGoToSiteNode0")
+            logger.debug(state.error)
             return state
         finally:
             loop.close()
@@ -80,15 +75,8 @@ def go_to_site_node(state: NodeState) -> NodeState:
 
             return state
         except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorGoToSiteNode1:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorGoToSiteNode1: traceback information not available:" + str(e)
-            log3(ex_stat)
-            state.error = ex_stat
+            state.error = get_traceback(e, "ErrorGoToSiteNode1")
+            logger.debug(state.error)
             return state
 
 
@@ -181,15 +169,8 @@ async def check_captcha_node(state: NodeState) -> NodeState:
         return {**state, "result": result}
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorToolNode:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorToolNode: traceback information not available:" + str(e)
-        log3(ex_stat)
-        state.error = ex_stat
+        state.error = get_traceback(e, "ErrorCheckCaptchaNode")
+        logger.debug(state.error)
         return state
 
 
@@ -283,15 +264,8 @@ async def solve_captcha_node(state: NodeState) -> NodeState:
         return {**state, "result": result}
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorToolNode:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorToolNode: traceback information not available:" + str(e)
-        log3(ex_stat)
-        state.error = ex_stat
+        state.error = get_traceback(e, "ErrorSolveCaptchaNode")
+        logger.debug(state.error)
         return state
 
 
@@ -347,15 +321,8 @@ async def check_top_categories_node(state: NodeState) -> NodeState:
         return state
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
-        log3(ex_stat)
-        state.error = ex_stat
+        state.error = get_traceback(e, "ErrorCheckTopCategoriesNode")
+        logger.debug(state.error)
         return state
 
 
@@ -410,15 +377,8 @@ async def check_sub_categories_node(state: NodeState) -> NodeState:
         return state
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
-        log3(ex_stat)
-        state.error = ex_stat
+        state.error = get_traceback(e, "ErrorCheckSubCategoriesNode")
+        logger.debug(state.error)
         return state
 
 
@@ -474,15 +434,8 @@ async def check_is_parametric_filter_node(state: NodeState) -> NodeState:
         return state
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorExtractWebPage:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorExtractWebPage: traceback information not available:" + str(e)
-        log3(ex_stat)
-        state.error = ex_stat
+        state.error = get_traceback(e, "ErrorCheckIsParametricFilterNode")
+        logger.debug(state.error)
         return state
 
 
@@ -509,14 +462,9 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorGetUserParametricNode")
+        logger.debug(state.error)
+        return state
 
 
 def fill_user_parametric_node(state: NodeState) -> NodeState:
@@ -542,14 +490,9 @@ def fill_user_parametric_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorFillUserParametricNode")
+        logger.debug(state.error)
+        return state
 
 
 def obtain_search_results_node(state: NodeState) -> NodeState:
@@ -575,14 +518,9 @@ def obtain_search_results_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorObtainSearchResultsNode")
+        logger.debug(state.error)
+        return state
 
 
 
@@ -609,14 +547,9 @@ def final_select_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorFinalSelectNode")
+        logger.debug(state.error)
+        return state
 
 
 def check_goals_node(state: NodeState) -> NodeState:
@@ -626,63 +559,22 @@ def check_goals_node(state: NodeState) -> NodeState:
     webdriver = mainwin.webdriver
     try:
         url = state["messages"][0]
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
+        # do final round of filtering and ranking based on original goals and user preferences
+        # first do ranking select top N
 
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+        # put together summary and score card
+
+        # create a final result greeting message
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorCheckGoalsNode")
+        logger.debug(state.error)
+        return state
 
 
-def check_goals_node(state: NodeState) -> NodeState:
-    agent_id = state["messages"][0]
-    agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
-    try:
-        url = state["messages"][0]
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
-
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
-
-        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
-
-        return result_state
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
 
 def send_results_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
@@ -691,97 +583,36 @@ def send_results_node(state: NodeState) -> NodeState:
     webdriver = mainwin.webdriver
     try:
         url = state["messages"][0]
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
+        # adapt results to GUI notification format.
 
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
-
-        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
+        # send result notification to GUI
 
         return result_state
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorSendResultsNode")
+        logger.debug(state.error)
+        return state
 
-def send_results_node(state: NodeState) -> NodeState:
-    agent_id = state["messages"][0]
-    agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+
+
+def check_done_logic(state: NodeState) -> str:
     try:
-        url = state["messages"][0]
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
-
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
-
-        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
-
-        return result_state
+        return "final_select" if state.condition else "check_is_parametric_filter"
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorCheckDoneLogic")
+        logger.debug(state.error)
+        return "Error"
 
 
-def check_done_logic(state: NodeState) -> NodeState:
-    agent_id = state["messages"][0]
-    agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+def check_captcha_logic(state: NodeState) -> str:
     try:
-        url = state["messages"][0]
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
-
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
-
-        result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
-
-        return result_state
+        return "solve_captcha" if state.condition else "check_sub_categories"
 
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorGoToSite:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorGoToSite: traceback information not available:" + str(e)
-        log3(ex_stat)
+        state.error = get_traceback(e, "ErrorCheckCaptchaLogic")
+        logger.debug(state.error)
+        return "error"
 
 async def create_search_digi_key_skill(mainwin):
     try:
@@ -884,7 +715,9 @@ async def create_search_digi_key_skill(mainwin):
         # workflow.add_node("goto_site", goto_site)
 
         workflow.add_node("check_captcha", check_captcha_node)
-        workflow.add_node("check_captcha", solve_captcha_node)
+        workflow.add_conditional_edges("check_captcha", check_captcha_logic, ["solve_captcha", "check_sub_categories"])
+
+        workflow.add_node("solve_captcha", solve_captcha_node)
 
         workflow.add_node("check_top_categories", check_top_categories_node)
 
@@ -896,10 +729,11 @@ async def create_search_digi_key_skill(mainwin):
 
         workflow.add_node("get_user_parametric", get_user_parametric_node)
         workflow.add_node("fill_user_parametric", fill_user_parametric_node)
-        workflow.add_node("check_sub_sub_categories", obtain_search_results_node)
+        workflow.add_node("obtain_search_results", obtain_search_results_node)
         workflow.add_node("check_goals", check_goals_node)
         workflow.add_node("final_select", final_select_node)
         workflow.add_node("send_results", send_results_node)
+        workflow.add_edge("send_results", END)
 
         workflow.add_edge("go to digi-key site", "extract_web_page")
         workflow.add_edge("extract_web_page", "get_next_action")
@@ -910,21 +744,11 @@ async def create_search_digi_key_skill(mainwin):
         # Store manager so caller can close it after using the skill
          # type: ignore[attr-defined]
         print("search1688_skill build is done!")
-
+        return searcher_skill
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCreateSearch1688Skill:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCreateSearch1688Skill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        err_trace = get_traceback(e, "ErrorCreateSearchDigiKeySkill")
+        logger.debug(err_trace)
         return None
-
-    return searcher_skill
-
-
 
 #
 

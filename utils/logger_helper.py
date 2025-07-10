@@ -4,7 +4,7 @@ from logging.handlers import RotatingFileHandler
 import os
 from config.constants import APP_NAME
 from config.app_info import app_info
-
+import traceback
 # ====== 集成 TRACE 日志等级 ======
 TRACE_LEVEL_NUM = 5
 logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
@@ -110,3 +110,12 @@ def get_agent_by_id(agent_id):
     agent = next((ag for ag in top_web_gui.py_login.main_win.agents if ag.card.id == agent_id), None)
     print("by id foundagent: ", agent_id, agent.card)
     return agent
+
+def get_traceback(e, eType="Error"):
+    traceback_info = traceback.extract_tb(e.__traceback__)
+    # Extract the file name and line number from the last entry in the traceback
+    if traceback_info:
+        ex_stat = f"{eType}:" + traceback.format_exc() + " " + str(e)
+    else:
+        ex_stat = f"{eType}: traceback information not available:" + str(e)
+    return ex_stat
