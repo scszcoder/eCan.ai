@@ -12,7 +12,7 @@ import { FormHeader, FormContent, FormOutputs, FormItem, Feedback } from '../../
 
 interface LoopNodeJSON extends FlowNodeJSON {
   data: {
-    batchFor: IFlowRefValue;
+    loopFor: IFlowRefValue;
   };
 }
 
@@ -21,10 +21,10 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
   const { readonly } = useNodeRenderContext();
   const formHeight = 85;
 
-  const batchFor = (
-    <Field<IFlowRefValue> name={`batchFor`}>
+  const loopFor = (
+    <Field<IFlowRefValue> name={`loopFor`}>
       {({ field, fieldState }) => (
-        <FormItem name={'batchFor'} type={'array'} required>
+        <FormItem name={'loopFor'} type={'array'} required>
           <BatchVariableSelector
             style={{ width: '100%' }}
             value={field.value?.content}
@@ -38,10 +38,10 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
     </Field>
   );
 
-  const batchOutputs = (
-    <Field<Record<string, IFlowRefValue | undefined> | undefined> name={`batchOutputs`}>
+  const loopOutputs = (
+    <Field<Record<string, IFlowRefValue | undefined> | undefined> name={`loopOutputs`}>
       {({ field, fieldState }) => (
-        <FormItem name="batchOutputs" type="object" vertical>
+        <FormItem name="loopOutputs" type="object" vertical>
           <BatchOutputs
             style={{ width: '100%' }}
             value={field.value}
@@ -60,8 +60,8 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
       <>
         <FormHeader />
         <FormContent>
-          {batchFor}
-          {batchOutputs}
+          {loopFor}
+          {loopOutputs}
           <FormOutputs />
         </FormContent>
       </>
@@ -71,7 +71,7 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
     <>
       <FormHeader />
       <FormContent>
-        {batchFor}
+        {loopFor}
         <SubCanvasRender offsetY={-formHeight} />
         <FormOutputs />
       </FormContent>

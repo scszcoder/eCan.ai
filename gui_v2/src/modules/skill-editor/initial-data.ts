@@ -317,7 +317,7 @@ export const initialData: FlowDocumentJSON = {
       },
       data: {
         title: 'Loop_1',
-        batchFor: {
+        loopFor: {
           type: 'ref',
           content: ['start_0', 'array_obj'],
         },

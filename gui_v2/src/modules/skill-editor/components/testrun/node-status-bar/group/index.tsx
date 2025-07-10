@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { FC, useState } from 'react';
 
 import { IconSmallTriangleDown } from '@douyinfe/semi-icons';
@@ -31,7 +36,10 @@ export const NodeStatusGroup: FC<NodeStatusGroupProps> = ({
 
   return (
     <>
-      <div className="node-status-group" onClick={() => hasContent && setIsExpanded(!isExpanded)}>
+      <div
+        className="node-status-group"
+        onClick={() => hasContent && !disableCollapse && setIsExpanded(!isExpanded)}
+      >
         {!disableCollapse && (
           <IconSmallTriangleDown
             style={{
