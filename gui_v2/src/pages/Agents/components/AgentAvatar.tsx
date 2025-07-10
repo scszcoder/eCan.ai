@@ -57,7 +57,7 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
             height={300 * 9 / 16}
             style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 28, background: 'transparent' }}
             poster="/default-agent-poster.png"
-            onError={e => { console.error('video load error', mediaUrl, e); setError(true); }}
+            // onError={e => { console.error('video load error', mediaUrl, e); setError(true); }}
           />
         </div>
       ) : (

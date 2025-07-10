@@ -1,6 +1,8 @@
 import { eventBus } from '@/utils/eventBus';
 import { logger } from '@/utils/logger';
 import { Message } from '../types/chat';
+import { logMessageProcessing } from '../utils/messageUtils';
+import { addMessageToList, updateMessageInList } from '../utils/messageHandlers';
 
 class MessageManager {
   private listeners: Set<(messages: Map<string, Message[]>) => void> = new Set();
@@ -13,8 +15,6 @@ class MessageManager {
 
   private initEventListeners() {
     eventBus.on('chat:newMessage', (params: any) => {
-      // logger.info('MessageManager received chat:newMessage event:', params);
-      
       const { chatId, message } = params;
       const realChatId = chatId || message.chatId;
       
@@ -23,56 +23,38 @@ class MessageManager {
         return;
       }
 
-      this.addMessage(realChatId, message);
+      // 从事件接收的消息需要自动更新未读数
+      this.addMessageInternal(realChatId, message, true);
     });
   }
 
-  private addMessage(chatId: string, message: Message) {
+  /**
+   * 内部通用的添加消息方法
+   * @param chatId 聊天ID
+   * @param message 消息对象
+   * @param updateUnread 是否更新未读计数
+   */
+  private addMessageInternal(chatId: string, message: Message, updateUnread: boolean = false) {
     const chatMessages = this.messages.get(chatId) || [];
     
-    // 改进的去重检查：基于多个字段进行更精确的匹配
-    const isDuplicate = chatMessages.some((m: Message) => {
-      // 1. 检查 ID 是否相同
-      if (m.id === message.id) return true;
-      
-      // 2. 检查是否是同一时间发送的相同内容（时间窗口：5秒内）
-      const timeDiff = Math.abs((m.createAt || 0) - (message.createAt || 0));
-      const isSameTime = timeDiff < 5000; // 5秒内
-      const isSameContent = JSON.stringify(m.content) === JSON.stringify(message.content);
-      const isSameSender = m.senderId === message.senderId;
-      
-      if (isSameTime && isSameContent && isSameSender) return true;
-      
-      // 3. 检查是否是乐观更新的消息（通过 ID 前缀判断）
-      if (m.id.startsWith('user_msg_') && message.id.startsWith('user_msg_')) {
-        const mTime = parseInt(m.id.split('_')[2]) || 0;
-        const msgTime = parseInt(message.id.split('_')[2]) || 0;
-        const timeDiff = Math.abs(mTime - msgTime);
-        if (timeDiff < 1000 && isSameContent && isSameSender) return true;
-      }
-      
-      return false;
-    });
+    // 使用共享的处理函数添加消息
+    const result = addMessageToList(chatMessages, message);
     
-    if (isDuplicate) {
-      logger.debug('MessageManager: message already exists, skip:', message.id);
+    // 如果是重复消息，则不做处理
+    if (result.isDuplicate) {
       return;
     }
     
-    // 确保新消息有唯一的 id
-    const newMessage = {
-      ...message,
-      id: message.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    };
+    // 更新消息列表
+    this.messages.set(chatId, result.messages);
     
-    // 添加到消息列表
-    chatMessages.push(newMessage);
-    this.messages.set(chatId, chatMessages);
-    
-    // 更新未读计数（如果不是当前活跃聊天）
-    this.updateUnreadCount(chatId);
+    // 更新未读计数（如果需要）
+    if (updateUnread) {
+      this.updateUnreadCount(chatId);
+    }
     
     this.notifyListeners();
+    return result.newMessage;
   }
 
   private updateUnreadCount(chatId: string) {
@@ -136,57 +118,18 @@ class MessageManager {
 
   // 添加消息到聊天（用于发送新消息时）
   addMessageToChat(chatId: string, message: Message): void {
-    const chatMessages = this.messages.get(chatId) || [];
-    
-    // 改进的去重检查：基于多个字段进行更精确的匹配
-    const isDuplicate = chatMessages.some((m: Message) => {
-      // 1. 检查 ID 是否相同
-      if (m.id === message.id) return true;
-      
-      // 2. 检查是否是同一时间发送的相同内容（时间窗口：5秒内）
-      const timeDiff = Math.abs((m.createAt || 0) - (message.createAt || 0));
-      const isSameTime = timeDiff < 5000; // 5秒内
-      const isSameContent = JSON.stringify(m.content) === JSON.stringify(message.content);
-      const isSameSender = m.senderId === message.senderId;
-      
-      if (isSameTime && isSameContent && isSameSender) return true;
-      
-      // 3. 检查是否是乐观更新的消息（通过 ID 前缀判断）
-      if (m.id.startsWith('user_msg_') && message.id.startsWith('user_msg_')) {
-        const mTime = parseInt(m.id.split('_')[2]) || 0;
-        const msgTime = parseInt(message.id.split('_')[2]) || 0;
-        const timeDiff = Math.abs(mTime - msgTime);
-        if (timeDiff < 1000 && isSameContent && isSameSender) return true;
-      }
-      
-      return false;
-    });
-    
-    if (isDuplicate) {
-      logger.debug('MessageManager: message already exists, skip:', message.id);
-      return;
-    }
-    
-    // 确保新消息有唯一的 id
-    const newMessage = {
-      ...message,
-      id: message.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    };
-    
-    // 添加到消息列表
-    chatMessages.push(newMessage);
-    this.messages.set(chatId, chatMessages);
-    
-    this.notifyListeners();
+    // 调用通用的添加消息方法，但不更新未读计数（因为是自己发送的）
+    this.addMessageInternal(chatId, message, false);
   }
 
   // 更新消息（用于更新现有消息的状态）
   updateMessage(chatId: string, messageId: string, updates: Partial<Message>): void {
     const chatMessages = this.messages.get(chatId) || [];
-    const updatedMessages = chatMessages.map(message => 
-      message.id === messageId ? { ...message, ...updates } : message
-    );
+    
+    // 使用共享的处理函数更新消息
+    const updatedMessages = updateMessageInList(chatMessages, messageId, updates);
     this.messages.set(chatId, updatedMessages);
+    
     this.notifyListeners();
   }
 

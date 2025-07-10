@@ -23,7 +23,7 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"get settings handler called with request: {request}, params: {params}")
+        logger.debug(f"get settings handler called with request: {request}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
@@ -74,8 +74,8 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save settings handler called with request: {request}, params: {params}")
-        logger.debug("save settings:" + str(params))
+        logger.debug(f"Save settings handler called with request: {request}")
+
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:

@@ -99,6 +99,16 @@ class ManagedTask(Task):
             self.checkpoint_nodes = []
 
     def to_dict(self):
+        # Convert datetime to ISO format string for JSON serialization
+        last_run_datetime_str = None
+        if self.last_run_datetime:
+            last_run_datetime_str = self.last_run_datetime.isoformat()
+        
+        # Convert schedule to dict with proper enum handling
+        schedule_dict = None
+        if self.schedule:
+            schedule_dict = self.schedule.model_dump(mode='json')
+        
         taskJS = {
             "id": self.id,
             "sessionId": self.sessionId,
@@ -108,10 +118,10 @@ class ManagedTask(Task):
             "resume_from": self.resume_from,
             "trigger": self.trigger,
             # "pause_event": self.pause_event,
-            "schedule": self.schedule.model_dump(),
+            "schedule": schedule_dict,
             "checkpoint_nodes": self.checkpoint_nodes,
-            "priority": self.priority,
-            "last_run_datetime": self.last_run_datetime,
+            "priority": self.priority.value if self.priority else None,
+            "last_run_datetime": last_run_datetime_str,
             "already_run_flag": self.already_run_flag,
         }
         return taskJS

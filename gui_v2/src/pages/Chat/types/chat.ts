@@ -32,7 +32,7 @@ export interface Message {
     role: 'user' | 'assistant' | 'system' | 'agent';
     id: string;
     createAt: number;
-    content: string | Content[];  // 只支持字符串或Content数组
+    content: string | Content | Content[];  // 支持字符串、单个Content对象或Content数组
     status: MessageStatus;      // 使用枚举类型
     attachments?: Attachment[]; // 统一使用 attachments 字段，匹配后端数据结构
 
@@ -82,19 +82,65 @@ export interface Member {
 }
 
 /**
+ * 表单字段接口
+ */
+export interface FormField {
+    id: string;
+    type: 'text' | 'number' | 'select' | 'checkbox' | 'radio' | 'textarea' | 'date' | 'password' | 'switch';
+    label: string;
+    placeholder?: string;
+    required?: boolean;
+    options?: { label: string; value: string | number }[];
+    defaultValue?: any;
+    validator?: string; // 前端无法直接传递函数，可以使用预定义的验证器名称
+    selectedValue?: any; // 新增，允许表单渲染时优先使用
+}
+
+/**
+ * 卡片操作按钮接口
+ */
+export interface CardAction {
+    text: string;
+    type: 'primary' | 'secondary' | 'tertiary' | 'warning' | 'danger';
+    action: string;
+}
+
+/**
  * Represents a message content.
- * 注意：此接口用于应用内部消息处理，不直接用于 Semi Chat 组件。
- * 使用 Semi Chat 组件时，应将此对象转换为 Message.content 字符串。
+ * 支持多种内容类型，丰富聊天体验
  */
 export interface Content {
-    type: 'text' | 'image_url' | 'file_url' | 'code' | 'system' | 'custom';
+    type: 'text' | 'image_url' | 'file_url' | 'code' | 'system' | 'custom' | 'form' | 'notification' | 'card' | 'markdown' | 'table';
     text?: string;
     code?: { lang: string; value: string };
-    image_url?: { url: string }; // 当type为image_url时的内容数据
-    file_url?: { url: string; name: string; size: string; type: string }; // 当type为file_url时的内容数据
-    key?: string; // 用于React渲染的唯一标识符
-    // 移除 attachments 字段，统一使用 Message.attachment
-    [key: string]: any;
+    image_url?: { url: string };
+    file_url?: { url: string; name: string; size: string; type: string };
+    form?: {
+        id: string;
+        title: string;
+        fields: FormField[];
+        submit_text: string;
+    };
+    system?: {
+        text: string;
+        level: 'info' | 'warning' | 'error' | 'success';
+    };
+    notification?: {
+        title: string;
+        content: string;
+        level: 'info' | 'warning' | 'error' | 'success';
+    };
+    card?: {
+        title: string;
+        content: string;
+        actions: CardAction[];
+    };
+    markdown?: string;
+    table?: {
+        headers: string[];
+        rows: (string | number | boolean)[][];
+    };
+    key?: string;
 }
 
 /**
@@ -137,7 +183,7 @@ export type RoleKey = string;
 export const defaultRoleConfig: RoleConfig = {
     user: {
       name: '用户',
-      avatar: '/src/assets/agent02_100.png',
+      avatar: '/src/assets/icons2_100.png',
       color: 'blue'
     },
     assistant: {
@@ -155,7 +201,7 @@ export const defaultRoleConfig: RoleConfig = {
       avatar: '/src/assets/icons4.png', // 客服代理图标 - 表现专业服务和支持，友好亲切
       color: 'purple'
     }
-  };
+};
 
 /**
  * 文件信息接口

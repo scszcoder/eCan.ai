@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import {
   FreeLayoutPluginContext,
   Rectangle,
@@ -53,6 +58,22 @@ export class CopyShortcut implements ShortcutsHandler {
   }
 
   /**
+   * create clipboard data - 转换为剪贴板数据
+   */
+  public toClipboardData(nodes?: WorkflowNodeEntity[]): WorkflowClipboardData {
+    const validNodes = this.getValidNodes(nodes ? nodes : this.selectedNodes);
+    const source = this.toSource();
+    const json = this.toJSON(validNodes);
+    const bounds = this.getEntireBounds(validNodes);
+    return {
+      type: WorkflowClipboardDataID,
+      source,
+      json,
+      bounds,
+    };
+  }
+
+  /**
    *  has selected text - 是否有文字被选中
    */
   private async hasSelectedText(): Promise<boolean> {
@@ -86,22 +107,6 @@ export class CopyShortcut implements ShortcutsHandler {
       return false;
     }
     return true;
-  }
-
-  /**
-   * create clipboard data - 转换为剪贴板数据
-   */
-  toClipboardData(nodes?: WorkflowNodeEntity[]): WorkflowClipboardData {
-    const validNodes = this.getValidNodes(nodes ? nodes : this.selectedNodes);
-    const source = this.toSource();
-    const json = this.toJSON(validNodes);
-    const bounds = this.getEntireBounds(validNodes);
-    return {
-      type: WorkflowClipboardDataID,
-      source,
-      json,
-      bounds,
-    };
   }
 
   /**

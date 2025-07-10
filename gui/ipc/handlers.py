@@ -48,7 +48,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get all called with request: {request}, params: {params}")
+        logger.debug(f"Get all called with request: {request}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
@@ -121,7 +121,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get vehicles handler called with request: {request}, params: {params}")
+        logger.debug(f"Get vehicles handler called with request: {request}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
@@ -206,8 +206,8 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save all handler called with request: {request}, params: {params}")
-        logger.debug("save all:" + str(params))
+        logger.debug(f"Save all handler called with request: {request}")
+
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
@@ -250,7 +250,7 @@ def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IP
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get available tests handler called with request: {request}, params: {params}")
+        logger.debug(f"Get available tests handler called with request: {request}")
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
@@ -424,7 +424,7 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Stop tests handler called with request: {request}, params: {params}")
+        logger.debug(f"Stop tests handler called with request: {request}")
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')

@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import {
   WorkflowNodeJSON as FlowNodeJSONDefault,
   WorkflowNodeRegistry as FlowNodeRegistryDefault,
@@ -49,7 +54,9 @@ export interface FlowNodeJSON extends FlowNodeJSONDefault {
  * 你可以自定义节点的meta
  */
 export interface FlowNodeMeta extends WorkflowNodeMeta {
-  sidebarDisable?: boolean;
+  sidebarDisabled?: boolean;
+  nodePanelHidden?: boolean;
+  wrapperStyle?: React.CSSProperties;
 }
 
 /**

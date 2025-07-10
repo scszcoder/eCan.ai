@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import styled from 'styled-components';
 
 export const CallableSelectorWrapper = styled.div`
@@ -9,12 +14,15 @@ export const CallableSelectorWrapper = styled.div`
 
   .settings-button {
     padding: 4px;
+    flex: 0 0 auto;
+    margin-left: 0;
   }
 
   /* 修复 semi-ui Select 输入时变窄的问题 */
   .selector-container .semi-select {
-    flex-grow: 1;
+    flex: 1 1 0%;
     min-width: 150px; /* 保证最小宽度 */
+    max-width: 100%;
   }
 `;
 

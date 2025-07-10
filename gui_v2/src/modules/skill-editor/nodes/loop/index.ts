@@ -1,10 +1,15 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { nanoid } from 'nanoid';
 import {
   WorkflowNodeEntity,
   PositionSchema,
   FlowNodeTransformData,
 } from '@flowgram.ai/free-layout-editor';
-import { provideBatchInputEffect } from '@flowgram.ai/form-materials';
+import { createBatchOutputsFormPlugin, provideBatchInputEffect } from '@flowgram.ai/form-materials';
 
 import { defaultFormMeta } from '../default-form-meta';
 import { FlowNodeRegistry } from '../../typings';
@@ -31,8 +36,8 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
      * 子画布默认大小设置
      */
     size: {
-      width: 560,
-      height: 400,
+      width: 424,
+      height: 244,
     },
     /**
      * The subcanvas padding setting
@@ -57,21 +62,50 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
       return !transform.bounds.contains(mousePos.x, mousePos.y);
     },
     expandable: false, // disable expanded
+    wrapperStyle: {
+      minWidth: 'unset',
+      width: '100%',
+    },
   },
   onAdd() {
     return {
       id: `loop_${nanoid(5)}`,
-      type: 'loop',
+      type: WorkflowNodeType.Loop,
       data: {
         title: `Loop_${++index}`,
       },
+      blocks: [
+        {
+          id: `block_start_${nanoid(5)}`,
+          type: WorkflowNodeType.BlockStart,
+          meta: {
+            position: {
+              x: -80,
+              y: 120,
+            },
+          },
+          data: {},
+        },
+        {
+          id: `block_end_${nanoid(5)}`,
+          type: WorkflowNodeType.BlockEnd,
+          meta: {
+            position: {
+              x: 80,
+              y: 120,
+            },
+          },
+          data: {},
+        },
+      ],
     };
   },
   formMeta: {
     ...defaultFormMeta,
     render: LoopFormRender,
     effect: {
-      batchFor: provideBatchInputEffect,
+      loopFor: provideBatchInputEffect,
     },
+    plugins: [createBatchOutputsFormPlugin({ outputKey: 'loopOutputs' })],
   },
 };
