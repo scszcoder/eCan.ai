@@ -595,3 +595,40 @@ class ChatService(metaclass=SingletonMeta):
                     "data": None,
                     "error": str(e)
                 }
+
+    def submit_form(self, chatId: str, messageId: str, formId: str, formData: dict) -> Dict[str, Any]:
+        """
+        处理表单提交：将 formData 更新到指定消息的 content['form'] 字段（整体替换），其余内容保持不变
+        """
+        if not chatId or not messageId or not formId or formData is None:
+            return {
+                "success": False,
+                "error": "chatId, messageId, formId, formData 必填",
+                "data": None
+            }
+        with self.session_scope() as session:
+            message = session.get(Message, messageId)
+            if not message or message.chatId != chatId:
+                return {
+                    "success": False,
+                    "error": f"Message {messageId} not found in chat {chatId}",
+                    "data": None
+                }
+            # 只处理 type=form 的消息
+            import copy
+            content = copy.deepcopy(message.content) if message.content else {}
+            if not isinstance(content, dict) or content.get('type') != 'form':
+                return {
+                    "success": False,
+                    "error": "消息类型不是表单(form)",
+                    "data": None
+                }
+            # 替换 content['form']
+            content['form'] = formData
+            message.content = copy.deepcopy(content)  # 关键：赋值新对象，确保 SQLAlchemy 检测到变更
+            session.flush()
+            return {
+                "success": True,
+                "data": message.to_dict(deep=True),
+                "error": None
+            }

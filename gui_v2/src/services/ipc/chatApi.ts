@@ -82,5 +82,11 @@ export function createChatApi(apiInstance: IPCAPI) {
         getFileContent(filePath: string): Promise<APIResponse<FileContent>> {
             return apiInstance['executeRequest']('get_file_content', { filePath });
         },
+        /**
+         * 提交chat form 内容
+         */
+        chatFormSubmit(chatId: string, messageId: string, formId: string, formData: any): Promise<APIResponse<FileContent>> {
+            return apiInstance['executeRequest']('chat_form_submit', { chatId, messageId,  formId, formData });
+        },
     };
 } 

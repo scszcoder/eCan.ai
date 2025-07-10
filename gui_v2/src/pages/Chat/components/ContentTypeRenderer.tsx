@@ -9,7 +9,6 @@ import { DynamicForm } from './FormField';
 import { processStringContent } from '../utils/contentUtils';
 import { useTranslation } from 'react-i18next';
 
-// 移除 parseAttachment、AttachmentRenderer、AttachmentsContent 相关逻辑
 
 // 基础的文本内容渲染
 const TextContent: React.FC<{ text?: string }> = ({ text }) => {
@@ -245,11 +244,19 @@ const FileUrlContent: React.FC<{ file_url?: { url: string; name: string; size: s
 // 主内容类型渲染器组件
 interface ContentTypeRendererProps {
   content: Content | string;
-  onFormSubmit?: (formId: string, values: any) => void;
+  chatId?: string;
+  messageId?: string;
+  onFormSubmit?: (
+    formId: string,
+    values: any,
+    chatId?: string,
+    messageId?: string,
+    processedForm?: any
+  ) => void;
   onCardAction?: (action: string) => void;
 }
 
-const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, onFormSubmit, onCardAction }) => {
+const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chatId, messageId, onFormSubmit, onCardAction }) => {
   const { t } = useTranslation();
   // 1. 预处理字符串内容，支持富内容解析
   let parsedContent = content;
@@ -319,7 +326,10 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, onFo
       case 'form': {
         const formData = (parsedContent as any).form || parsedContent;
         if (formData && typeof formData === 'object' && Array.isArray((formData as any).fields)) {
-          return <DynamicForm form={formData} onFormSubmit={onFormSubmit} />;
+          // 优先用 chatId/messageId 变量
+          const chatIdToUse = chatId || (parsedContent as any).chatId || (parsedContent as any).chat_id;
+          const messageIdToUse = messageId || (parsedContent as any).messageId || (parsedContent as any).message_id || (parsedContent as any).id;
+          return <DynamicForm form={formData} chatId={chatIdToUse} messageId={messageIdToUse} onFormSubmit={onFormSubmit} />;
         }
         return <div>{t('pages.chat.noFormContent')}</div>;
       }

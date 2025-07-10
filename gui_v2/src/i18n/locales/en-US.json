@@ -294,7 +294,9 @@
       "weekday4": "Thu",
       "weekday5": "Fri",
       "weekday6": "Sat",
-      "selectAChat": "Please select a chat"
+      "selectAChat": "Please select a chat",
+      "formSubmitSuccess": "Submitted successfully",
+      "formSubmitFail": "Submission failed, please try again"
     },
     "skills": {
       "title": "Skills",

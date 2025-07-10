@@ -86,13 +86,14 @@ export interface Member {
  */
 export interface FormField {
     id: string;
-    type: 'text' | 'number' | 'select' | 'checkbox' | 'radio' | 'textarea' | 'date';
+    type: 'text' | 'number' | 'select' | 'checkbox' | 'radio' | 'textarea' | 'date' | 'password' | 'switch';
     label: string;
     placeholder?: string;
     required?: boolean;
     options?: { label: string; value: string | number }[];
     defaultValue?: any;
     validator?: string; // 前端无法直接传递函数，可以使用预定义的验证器名称
+    selectedValue?: any; // 新增，允许表单渲染时优先使用
 }
 
 /**
