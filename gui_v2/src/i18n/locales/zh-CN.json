@@ -51,7 +51,10 @@
     "resetFilter": "重置筛选",
     "totalItems": "共 {{count}} 项",
     "filteredItems": "筛选出 {{filtered}} / {{total}} 项",
-    "searchTime": "耗时 {{time}}ms"
+    "searchTime": "耗时 {{time}}ms",
+    "never": "从未",
+    "run": "运行",
+    "stop": "停止"
   },
   "menu": {
     "dashboard": "仪表盘",
@@ -227,7 +230,22 @@
       "refreshSchedule": "刷新日程",
       "exportSchedule": "导出日程",
       "importSchedule": "导入日程",
-      "scheduleSettings": "日程设置"
+      "scheduleSettings": "日程设置",
+      "scheduleRepeatTypeLabel": "重复类型",
+      "scheduleRepeatUnitLabel": "重复单位",
+      "scheduleStartTimeLabel": "开始时间",
+      "scheduleEndTimeLabel": "结束时间",
+      "scheduleTimeoutLabel": "超时时间",
+      "repeatType": {
+        "daily": "每天",
+        "weekly": "每周",
+        "monthly": "每月"
+      },
+      "repeatUnit": {
+        "day": "天",
+        "week": "周",
+        "month": "月"
+      }
     },
     "chat": {
       "title": "我的聊天",
@@ -520,11 +538,43 @@
       "selectTask": "请选择一个任务查看详情",
       "refresh": "刷新任务",
       "status": "状态",
-      "trigger": "触发器: {{trigger}}",
-      "priority": "优先级: {{priority}}",
+      "lastRun": "最后运行",
+      "id": "ID: {{id}}",
+      "skill": {},
+      "scheduleDetails": "任务计划详情",
+      "triggerLabel": "触发器",
+      "priorityLabel": "优先级",
       "states": {
         "ready": "就绪",
-        "running": "运行中"
+        "running": "运行中",
+        "stopped": "已停止",
+        "error": "错误"
+      },
+      "trigger": {
+        "auto": "自动",
+        "manual": "手动"
+      },
+      "priority": {
+        "high": "高",
+        "medium": "中",
+        "low": "低"
+      },
+      "scheduleRepeatTypeLabel": "重复类型",
+      "scheduleRepeatUnitLabel": "重复单位",
+      "scheduleStartTimeLabel": "开始时间",
+      "scheduleEndTimeLabel": "结束时间",
+      "scheduleTimeoutLabel": "超时时间",
+      "schedule": {
+        "repeatType": {
+          "daily": "每天",
+          "weekly": "每周",
+          "monthly": "每月"
+        },
+        "repeatUnit": {
+          "day": "天",
+          "week": "周",
+          "month": "月"
+        }
       }
     },
     "tools": {
