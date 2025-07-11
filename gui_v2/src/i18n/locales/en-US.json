@@ -753,5 +753,24 @@
     "customer_service": "Customer Service",
     "research": "R&D Department",
     "legal": "Legal Department"
+  },
+  "agentnotify": {
+    "result": "Search Results",
+    "highlights": "Highlights",
+    "app_specific": "Application",
+    "needed_criterias": "Criteria Comparison",
+    "object": "Object",
+    "detail": "Detail",
+    "comments": "Comments",
+    "behind_the_scene": "Behind the Scene",
+    "feedback": "Feedback Options Here",
+    "main_image": "Image",
+    "product_name": "Name",
+    "brand": "Brand",
+    "model": "Model",
+    "score": "Score",
+    "url": "Link",
+    "product_id": "Product ID",
+    "rank": "Rank"
   }
 } 

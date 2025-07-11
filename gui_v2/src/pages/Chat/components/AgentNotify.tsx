@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Tag, Typography, Space, Divider, Empty, Table, Tooltip, Collapse } from 'antd';
 import styled from '@emotion/styled';
 import { useNotifications } from '../hooks/useNotifications';
+import { useTranslation } from 'react-i18next';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -77,9 +78,9 @@ const SummaryTable: React.FC<{ summary: any }> = ({ summary }) => {
   );
 };
 
-const renderHighlights = (highlights: any[]) => (
+const renderHighlights = (highlights: any[], t: (s: string) => string) => (
   <div style={{ minWidth: 120, background: 'rgba(0, 123, 255, 0.06)', borderRadius: 6, padding: 6 }}>
-    <div style={{ fontWeight: 600, color: '#1677ff', marginBottom: 2 }}>亮点</div>
+    <div style={{ fontWeight: 600, color: '#1677ff', marginBottom: 2 }}>{t('agentnotify.highlights')}</div>
     <Space wrap>
       {highlights?.map((h, idx) => (
         <Tag key={idx} color="blue" style={{ marginBottom: 2 }}>
@@ -90,13 +91,13 @@ const renderHighlights = (highlights: any[]) => (
   </div>
 );
 
-const renderNeededCriterias = (criterias: any[]) => (
+const renderNeededCriterias = (criterias: any[], t: (s: string) => string) => (
   <ol style={{ margin: 0, paddingLeft: 18, background: 'rgba(255, 193, 7, 0.06)', borderRadius: 6 }}>
     {criterias?.map((c, idx) => (
       <li key={idx} style={{ marginBottom: 2 }}>
         <Space size={4}>
           {Object.entries(c).map(([k, v]) => (
-            <span key={k}><b>{k}:</b> {v}</span>
+            <span key={k}><b>{getI18nLabel(t, k)}:</b> {String(v)}</span>
           ))}
         </Space>
       </li>
@@ -104,22 +105,22 @@ const renderNeededCriterias = (criterias: any[]) => (
   </ol>
 );
 
-const renderAppSpecific = (apps: any[]) => (
+const renderAppSpecific = (apps: any[], t: (s: string) => string) => (
   <div style={{ minWidth: 120 }}>
     {apps?.map((app, idx) => (
       <div key={idx} style={{ background: 'rgba(120,120,255,0.08)', borderRadius: 6, padding: 6, marginBottom: 4 }}>
         <div style={{ fontWeight: 600, color: '#6f42c1', marginBottom: 2 }}>
           <Tag color="purple" style={{ fontWeight: 600 }}>{app.app}</Tag>
         </div>
-        {app.needed_criterias && renderNeededCriterias(app.needed_criterias)}
+        {app.needed_criterias && renderNeededCriterias(app.needed_criterias, t)}
       </div>
     ))}
   </div>
 );
 
-const renderCell = (value: any, key: string) => {
-  if (key === 'highlights' && Array.isArray(value)) return renderHighlights(value);
-  if (key === 'app_specific' && Array.isArray(value)) return renderAppSpecific(value);
+const renderCell = (value: any, key: string, t: (s: string) => string) => {
+  if (key === 'highlights' && Array.isArray(value)) return renderHighlights(value, t);
+  if (key === 'app_specific' && Array.isArray(value)) return renderAppSpecific(value, t);
   if (Array.isArray(value)) {
     return (
       <Space wrap>
@@ -132,10 +133,10 @@ const renderCell = (value: any, key: string) => {
     );
   }
   if (typeof value === 'object' && value !== null) {
-    return <Tooltip title={JSON.stringify(value)}><Tag color="orange">对象</Tag></Tooltip>;
+    return <Tooltip title={JSON.stringify(value)}><Tag color="orange">{t('agentnotify.object')}</Tag></Tooltip>;
   }
   if (typeof value === 'string' && value.startsWith('http')) {
-    return <a href={value} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>详情</a>;
+    return <a href={value} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>{t('agentnotify.detail')}</a>;
   }
   return String(value ?? '');
 };
@@ -152,12 +153,13 @@ const getAllKeys = (items: any[]) => {
 };
 
 const ProductTable: React.FC<{ items: any[] }> = ({ items }) => {
+  const { t } = useTranslation();
   const keys = getAllKeys(items);
   const columns = keys.map(key => ({
-    title: String(key),
+    title: getI18nLabel(t, key),
     dataIndex: key,
     key,
-    render: (value: any) => renderCell(value, key),
+    render: (value: any) => renderCell(value, key, t),
     width: key === 'main_image' ? 60 : undefined,
     align: key === 'main_image' ? ('center' as const) : undefined,
   }));
@@ -176,6 +178,7 @@ const ProductTable: React.FC<{ items: any[] }> = ({ items }) => {
 };
 
 const NotificationRenderer: React.FC<{ notification: any }> = ({ notification }) => {
+  const { t } = useTranslation();
   if (!notification) return null;
   const {
     title,
@@ -187,7 +190,7 @@ const NotificationRenderer: React.FC<{ notification: any }> = ({ notification })
     show_feedback_options
   } = notification;
 
-  const safeTitle = typeof title === 'string' ? title : (title ? String(title) : '查询结果');
+  const safeTitle = typeof title === 'string' ? title : (title ? String(title) : t('agentnotify.result'));
   const safeStatistics = statistics && typeof statistics === 'object' && !Array.isArray(statistics) ? statistics : undefined;
   const safeComments = Array.isArray(comments) ? comments : [];
   const safeBehindTheScene = typeof behind_the_scene === 'string' ? behind_the_scene : '';
@@ -201,7 +204,7 @@ const NotificationRenderer: React.FC<{ notification: any }> = ({ notification })
         {safeStatistics && (
           <Space wrap>
             {Object.entries(safeStatistics).map(([k, v]) => (
-              <Tag key={k} color="blue" style={{ fontSize: 12 }}>{k}: {String(v)}</Tag>
+              <Tag key={k} color="blue" style={{ fontSize: 12 }}>{getI18nLabel(t, k)}: {String(v)}</Tag>
             ))}
           </Space>
         )}
@@ -211,7 +214,7 @@ const NotificationRenderer: React.FC<{ notification: any }> = ({ notification })
       {/* 产品表格分区 */}
       {Array.isArray(Items) && Items.length > 0 && (
         <>
-          <SectionTitle>查询结果</SectionTitle>
+          <SectionTitle>{t('agentnotify.result')}</SectionTitle>
           <ProductTable items={Items} />
         </>
       )}
@@ -227,7 +230,7 @@ const NotificationRenderer: React.FC<{ notification: any }> = ({ notification })
       {safeComments.length > 0 && (
         <div style={{ margin: '24px 0 0 0' }}>
           <Card size="small" style={{ borderRadius: 12, background: 'rgba(255,255,255,0.08)' }}>
-            <SectionTitle>评论</SectionTitle>
+            <SectionTitle>{t('agentnotify.comments')}</SectionTitle>
             <ul style={{ margin: 0, padding: '8px 0 0 18px', color: '#fff' }}>
               {safeComments.map((c: any, idx: number) => (
                 <li key={idx}>{typeof c === 'string' ? c : JSON.stringify(c)}</li>
@@ -240,8 +243,8 @@ const NotificationRenderer: React.FC<{ notification: any }> = ({ notification })
       {/* Behind the Scene/Feedback */}
       {(safeBehindTheScene || safeShowFeedback) && (
         <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.10)', paddingTop: 16 }}>
-          {safeBehindTheScene && <a href={safeBehindTheScene} target="_blank" rel="noopener noreferrer" style={{ color: '#aaa', fontSize: 13 }}>Behind the Scene</a>}
-          {safeShowFeedback && <Tag color="red">Feedback Options Here</Tag>}
+          {safeBehindTheScene && <a href={safeBehindTheScene} target="_blank" rel="noopener noreferrer" style={{ color: '#aaa', fontSize: 13 }}>{t('agentnotify.behind_the_scene')}</a>}
+          {safeShowFeedback && <Tag color="red">{t('agentnotify.feedback')}</Tag>}
         </div>
       )}
     </NotificationCard>
@@ -274,3 +277,9 @@ const AgentNotify: React.FC<AgentNotifyProps> = ({ chatId }) => {
 };
 
 export default AgentNotify;
+
+// helper for i18n fallback
+const getI18nLabel = (t: (s: string) => string, key: string) => {
+  const label = t(`agentnotify.${key}`);
+  return label === `agentnotify.${key}` ? key : label;
+};
