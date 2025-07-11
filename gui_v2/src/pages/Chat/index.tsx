@@ -38,7 +38,7 @@ const ChatPage: React.FC = () => {
     const effectsCompletedRef = useRef(false);
 
     // 使用全局通知管理器和消息管理器
-    const { hasNew, markAsRead } = useNotifications();
+    const { hasNew, markAsRead } = useNotifications(activeChatId || '');
     const { allMessages, unreadCounts, markAsRead: markMessageAsRead, updateMessages, addMessageToChat, updateMessage } = useMessages();
 
     // 添加日志，记录组件挂载和关键状态变化
@@ -592,7 +592,7 @@ const ChatPage: React.FC = () => {
     );
 
     const renderRightPanel = () => (
-        <AgentNotify />
+        <AgentNotify chatId={activeChatId || ''} />
     );
 
     // 显示加载状态或错误信息

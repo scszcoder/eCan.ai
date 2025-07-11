@@ -1,32 +1,32 @@
 import { useState, useEffect } from 'react';
 import { notificationManager, Notification } from '../managers/NotificationManager';
 
-export const useNotifications = () => {
+export const useNotifications = (chatId: string) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [hasNew, setHasNew] = useState(false);
 
   useEffect(() => {
-    // 订阅通知更新
-    const unsubscribe = notificationManager.subscribe((newNotifications) => {
+    if (!chatId) return;
+    // 订阅指定 chatId 的通知更新
+    const unsubscribe = notificationManager.subscribe(chatId, (newNotifications) => {
       setNotifications(newNotifications);
-      setHasNew(notificationManager.hasNew());
+      setHasNew(notificationManager.hasNew(chatId));
     });
-
     // 清理订阅
     return unsubscribe;
-  }, []);
+  }, [chatId]);
 
   const markAsRead = () => {
-    notificationManager.markAsRead();
+    notificationManager.markAsRead(chatId);
     setHasNew(false);
   };
 
   const clearAll = () => {
-    notificationManager.clear();
+    notificationManager.clear(chatId);
   };
 
   const removeNotification = (id: string) => {
-    notificationManager.removeNotification(id);
+    notificationManager.removeNotification(chatId, id);
   };
 
   return {

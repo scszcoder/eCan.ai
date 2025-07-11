@@ -1,41 +1,18 @@
 import React from 'react';
-import { Empty, Card, Tag, Typography, Space, Divider } from 'antd';
-import { 
-  SettingOutlined, 
-  CodeOutlined, 
-  CheckCircleOutlined,
-  InfoCircleOutlined,
-  WarningOutlined,
-  ClockCircleOutlined
-} from '@ant-design/icons';
+import { Card, Tag, Typography, Space, Divider, Empty, Table, Tooltip, Collapse } from 'antd';
 import styled from '@emotion/styled';
-import { useTranslation } from 'react-i18next';
 import { useNotifications } from '../hooks/useNotifications';
-import { getRandomNotificationData, getNotificationTestData } from '../data/notificationTestData';
 
-const { Text, Title } = Typography;
+const { Title, Text } = Typography;
+const { Panel } = Collapse;
 
 const NotifyContainer = styled.div`
-  padding: 20px;
+  padding: 32px 40px;
   overflow-y: auto;
   height: 100%;
   width: 100%;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   position: relative;
-  
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: 
-      radial-gradient(circle at 20% 80%, rgba(102, 126, 234, 0.15) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, rgba(240, 147, 251, 0.15) 0%, transparent 50%),
-      radial-gradient(circle at 40% 40%, rgba(0, 184, 148, 0.1) 0%, transparent 50%);
-    pointer-events: none;
-  }
 `;
 
 const EmptyContainer = styled.div`
@@ -49,427 +26,246 @@ const EmptyContainer = styled.div`
 `;
 
 const NotificationCard = styled(Card)`
-  margin-bottom: 20px;
-  border-radius: 16px;
-  border: none;
-  background: rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(20px);
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.3),
-    0 4px 16px rgba(0, 0, 0, 0.2);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-  
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #667eea, #764ba2, #f093fb, #00b894);
-    border-radius: 16px 16px 0 0;
-  }
-  
-  &:hover {
-    transform: translateY(-4px);
-    background: rgba(255, 255, 255, 0.12);
-    box-shadow: 
-      0 12px 40px rgba(0, 0, 0, 0.4),
-      0 8px 24px rgba(0, 0, 0, 0.3);
-  }
-  
-  .ant-card-head {
-    padding: 20px 24px 0;
-    min-height: auto;
-    border-bottom: none;
-    background: transparent;
-  }
-  
-  .ant-card-body {
-    padding: 16px 24px 24px;
-  }
-  
-  .ant-card-head-title {
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
-  }
-`;
-
-const ConfigItem = styled.div`
-  margin-bottom: 20px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  position: relative;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-  
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 4px;
-    height: 100%;
-    background: linear-gradient(180deg, #667eea, #764ba2);
-    border-radius: 0 2px 2px 0;
-  }
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-`;
-
-const ConfigLabel = styled.div`
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-`;
-
-const ConfigValue = styled.div`
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 13px;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-`;
-
-const ConfigOptions = styled.div`
-  margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-`;
-
-const CodeBlock = styled.pre`
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 16px;
-  margin: 12px 0;
-  overflow-x: auto;
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.9);
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  position: relative;
-  backdrop-filter: blur(10px);
-  
-  &::before {
-    content: 'JSON';
-    position: absolute;
-    top: 8px;
-    right: 12px;
-    font-size: 10px;
-    color: rgba(255, 255, 255, 0.5);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-`;
-
-const NotificationHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-`;
-
-const NotificationTitle = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 12px;
-`;
-
-const NotificationMeta = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
-`;
-
-const StatusBadge = styled.div<{ status: string }>`
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  background: ${props => props.status === 'success' 
-    ? 'linear-gradient(135deg, #00b894, #00cec9)' 
-    : 'linear-gradient(135deg, #e17055, #d63031)'};
-  color: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-`;
-
-const TypeTag = styled(Tag)`
+  margin-bottom: 40px;
   border-radius: 20px;
   border: none;
+  background: rgba(255, 255, 255, 0.13);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 4px 16px rgba(0, 0, 0, 0.10);
+  position: relative;
+  overflow: hidden;
+`;
+
+const SectionTitle = styled.div`
+  font-size: 16px;
   font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
+  color: #a0aec0;
+  margin-bottom: 10px;
+  margin-top: 18px;
   letter-spacing: 0.5px;
-  padding: 4px 12px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: white;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 `;
 
-const EmptyState = styled(Empty)`
-  .ant-empty-description {
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 16px;
-  }
-  
-  .ant-empty-image {
-    opacity: 0.7;
-  }
-`;
-
-interface ConfigField {
-  name: string;
-  unit: string;
-  type: string;
-  options: string[] | string;
-  default: string | string[];
-}
-
-interface ConfigData {
-  [key: string]: ConfigField;
-}
-
-interface AgentNotifyProps {
-  notifications?: Array<any>;
-}
-
-// 测试数据开关 - 修改此变量来控制是否使用测试数据
-const USE_TEST_DATA = false;
-const TEST_DATA_TYPE = 'mcuConfig' as 'random' | 'mcuConfig' | 'sensorConfig' | 'networkConfig' | 'motorConfig' | 'displayConfig' | 'robotConfig' | 'iotConfig' | 'errorData' | 'emptyData' | 'complexConfig';
-
-// 解析配置数据的函数
-const parseConfigData = (jsonString: string): ConfigData | null => {
-  try {
-    return JSON.parse(jsonString);
-  } catch (error) {
-    console.error('Failed to parse config data:', error);
-    return null;
-  }
-};
-
-// 获取字段类型图标
-const getFieldTypeIcon = (type: string) => {
-  const iconMap: Record<string, React.ReactNode> = {
-    selection_list: <SettingOutlined style={{ color: '#667eea' }} />,
-    range_scale: <CodeOutlined style={{ color: '#764ba2' }} />,
-    check_box: <CheckCircleOutlined style={{ color: '#00b894' }} />,
-    radio_button_group: <InfoCircleOutlined style={{ color: '#f093fb' }} />,
-  };
-  return iconMap[type] || <SettingOutlined style={{ color: '#95a5a6' }} />;
-};
-
-// 获取字段类型颜色
-const getFieldTypeColor = (type: string) => {
-  const colorMap: Record<string, string> = {
-    selection_list: '#667eea',
-    range_scale: '#764ba2',
-    check_box: '#00b894',
-    radio_button_group: '#f093fb',
-  };
-  return colorMap[type] || '#95a5a6';
-};
-
-// 渲染配置项的组件
-const ConfigItemRenderer: React.FC<{ field: ConfigField; fieldKey: string }> = ({ field, fieldKey }) => {
-  const renderDefaultValue = (defaultValue: string | string[], type: string) => {
-    if (Array.isArray(defaultValue)) {
-      return defaultValue.join(' - ');
-    }
-    return defaultValue;
-  };
-
-  const renderOptions = (options: string[] | string) => {
-    if (Array.isArray(options)) {
-      return options.map((option, index) => (
-        <Tag 
-          key={index} 
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            color: 'rgba(255, 255, 255, 0.9)',
-            borderRadius: '6px',
-            fontSize: '11px',
-            fontWeight: '500'
-          }}
-        >
-          {option}
-        </Tag>
-      ));
-    }
-    return <Text code style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '12px' }}>{options}</Text>;
-  };
-
+const SummaryTable: React.FC<{ summary: any }> = ({ summary }) => {
+  const firstRow = summary && Object.values(summary)[0] as Record<string, any> | undefined;
+  const columns = firstRow ? Object.keys(firstRow) : [];
   return (
-    <ConfigItem>
-      <ConfigLabel>
-        {getFieldTypeIcon(field.type)}
-        <span>{field.name}</span>
-        <Tag 
-          style={{
-            background: `${getFieldTypeColor(field.type)}20`,
-            border: `1px solid ${getFieldTypeColor(field.type)}40`,
-            color: getFieldTypeColor(field.type),
-            borderRadius: '6px',
-            fontSize: '10px',
-            fontWeight: '600',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px'
-          }}
-        >
-          {field.type}
-        </Tag>
-        {field.unit && (
-          <Text type="secondary" style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
-            ({field.unit})
-          </Text>
-        )}
-      </ConfigLabel>
-      
-      <ConfigValue>
-        <Text style={{ color: 'rgba(255, 255, 255, 0.7)', fontWeight: '500' }}>Default: </Text>
-        <Text code style={{ 
-          color: 'rgba(255, 255, 255, 0.9)', 
-          fontSize: '12px',
-          background: 'rgba(255, 255, 255, 0.1)',
-          padding: '2px 6px',
-          borderRadius: '4px'
-        }}>
-          {renderDefaultValue(field.default, field.type)}
-        </Text>
-      </ConfigValue>
-      
-      {field.options && (
-        <ConfigOptions>
-          <Text type="secondary" style={{ marginRight: 8, fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>Options: </Text>
-          {renderOptions(field.options)}
-        </ConfigOptions>
-      )}
-    </ConfigItem>
+    <Card size="small" style={{ borderRadius: 12, background: 'rgba(255,255,255,0.08)', marginTop: 8 }}>
+      <SectionTitle>对比摘要</SectionTitle>
+      <table style={{ width: '100%', color: '#fff', fontSize: 13, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: 'rgba(255,255,255,0.10)' }}>
+            <th style={{ textAlign: 'left', padding: 8, fontWeight: 600 }}>Product</th>
+            {columns.map((k) => (
+              <th key={k} style={{ textAlign: 'left', padding: 8, fontWeight: 600 }}>{k}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(Object.entries(summary) as [string, Record<string, any>][]).map(([product, criterias], idx) => {
+            const row = (criterias ?? {}) as Record<string, any>;
+            return (
+              <tr key={product} style={{ background: idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'rgba(255,255,255,0.07)' }}>
+                <td style={{ padding: 8 }}>{product}</td>
+                {columns.map((col, i) => (
+                  <td key={i} style={{ padding: 8 }}>{row[col]}</td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Card>
   );
 };
 
-// 渲染通知数据的组件
-const NotificationRenderer: React.FC<{ notification: any }> = ({ notification }) => {
-  const { t } = useTranslation();
-  // 检查是否是新的数据格式
-  if (notification.type === 'custom' && notification.code) {
-    const configData = parseConfigData(notification.code.value);
-    
+const renderHighlights = (highlights: any[]) => (
+  <div style={{ minWidth: 120, background: 'rgba(0, 123, 255, 0.06)', borderRadius: 6, padding: 6 }}>
+    <div style={{ fontWeight: 600, color: '#1677ff', marginBottom: 2 }}>亮点</div>
+    <Space wrap>
+      {highlights?.map((h, idx) => (
+        <Tag key={idx} color="blue" style={{ marginBottom: 2 }}>
+          <b>{h.label}</b>: {h.value} {h.unit}
+        </Tag>
+      ))}
+    </Space>
+  </div>
+);
+
+const renderNeededCriterias = (criterias: any[]) => (
+  <ol style={{ margin: 0, paddingLeft: 18, background: 'rgba(255, 193, 7, 0.06)', borderRadius: 6 }}>
+    {criterias?.map((c, idx) => (
+      <li key={idx} style={{ marginBottom: 2 }}>
+        <Space size={4}>
+          {Object.entries(c).map(([k, v]) => (
+            <span key={k}><b>{k}:</b> {v}</span>
+          ))}
+        </Space>
+      </li>
+    ))}
+  </ol>
+);
+
+const renderAppSpecific = (apps: any[]) => (
+  <div style={{ minWidth: 120 }}>
+    {apps?.map((app, idx) => (
+      <div key={idx} style={{ background: 'rgba(120,120,255,0.08)', borderRadius: 6, padding: 6, marginBottom: 4 }}>
+        <div style={{ fontWeight: 600, color: '#6f42c1', marginBottom: 2 }}>
+          <Tag color="purple" style={{ fontWeight: 600 }}>{app.app}</Tag>
+        </div>
+        {app.needed_criterias && renderNeededCriterias(app.needed_criterias)}
+      </div>
+    ))}
+  </div>
+);
+
+const renderCell = (value: any, key: string) => {
+  if (key === 'highlights' && Array.isArray(value)) return renderHighlights(value);
+  if (key === 'app_specific' && Array.isArray(value)) return renderAppSpecific(value);
+  if (Array.isArray(value)) {
     return (
-      <NotificationCard>
-        <NotificationHeader>
-          <NotificationTitle>
-            <Title level={5} style={{ margin: 0, color: 'rgba(255, 255, 255, 0.9)' }}>
-              {notification.text}
-            </Title>
-            <TypeTag>Q&A</TypeTag>
-          </NotificationTitle>
-          <NotificationMeta>
-            <ClockCircleOutlined />
-            <span>{notification.time || new Date().toLocaleString()}</span>
-          </NotificationMeta>
-        </NotificationHeader>
-        
-        <Divider style={{ margin: '12px 0', borderColor: 'rgba(255, 255, 255, 0.1)' }} />
-        
-        {configData ? (
-          <div>
-            {Object.entries(configData).map(([key, field]) => (
-              <ConfigItemRenderer key={key} fieldKey={key} field={field} />
-            ))}
-          </div>
-        ) : (
-          <CodeBlock>{notification.code.value}</CodeBlock>
+      <Space wrap>
+        {value.map((v, idx) =>
+          typeof v === 'object'
+            ? <Tooltip key={idx} title={JSON.stringify(v)}><Tag color="geekblue">{idx + 1}</Tag></Tooltip>
+            : <Tag key={idx}>{String(v)}</Tag>
         )}
-      </NotificationCard>
+      </Space>
     );
   }
+  if (typeof value === 'object' && value !== null) {
+    return <Tooltip title={JSON.stringify(value)}><Tag color="orange">对象</Tag></Tooltip>;
+  }
+  if (typeof value === 'string' && value.startsWith('http')) {
+    return <a href={value} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>详情</a>;
+  }
+  return String(value ?? '');
+};
 
-  // 原有的通知格式
+const getAllKeys = (items: any[]) => {
+  const keys = new Set<string>();
+  items.forEach(item => {
+    Object.keys(item || {}).forEach(k => keys.add(k));
+  });
+  // 主字段优先
+  const main = ['main_image', 'product_name', 'brand', 'model', 'score', 'url', 'highlights', 'app_specific'];
+  const rest = Array.from(keys).filter(k => !main.includes(k));
+  return [...main.filter(k => keys.has(k)), ...rest];
+};
+
+const ProductTable: React.FC<{ items: any[] }> = ({ items }) => {
+  const keys = getAllKeys(items);
+  const columns = keys.map(key => ({
+    title: String(key),
+    dataIndex: key,
+    key,
+    render: (value: any) => renderCell(value, key),
+    width: key === 'main_image' ? 60 : undefined,
+    align: key === 'main_image' ? ('center' as const) : undefined,
+  }));
+
+  return (
+    <Table
+      columns={columns}
+      dataSource={items.map((item, idx) => ({ ...item, key: idx }))}
+      pagination={false}
+      scroll={{ x: Math.max(900, keys.length * 120) }}
+      bordered
+      size="middle"
+      style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, margin: '16px 0' }}
+    />
+  );
+};
+
+const NotificationRenderer: React.FC<{ notification: any }> = ({ notification }) => {
+  if (!notification) return null;
+  const {
+    title,
+    Items = [],
+    summary,
+    comments,
+    statistics,
+    behind_the_scene,
+    show_feedback_options
+  } = notification;
+
+  const safeTitle = typeof title === 'string' ? title : (title ? String(title) : '查询结果');
+  const safeStatistics = statistics && typeof statistics === 'object' && !Array.isArray(statistics) ? statistics : undefined;
+  const safeComments = Array.isArray(comments) ? comments : [];
+  const safeBehindTheScene = typeof behind_the_scene === 'string' ? behind_the_scene : '';
+  const safeShowFeedback = !!show_feedback_options;
+
   return (
     <NotificationCard>
-      <NotificationHeader>
-        <NotificationTitle>
-          <Title level={5} style={{ margin: 0, color: 'rgba(255, 255, 255, 0.9)' }}>
-            {notification.title || notification.text}
-          </Title>
-          {notification.type && <TypeTag>{notification.type}</TypeTag>}
-        </NotificationTitle>
-        <NotificationMeta>
-          <ClockCircleOutlined />
-          <span>{notification.time || new Date().toLocaleString()}</span>
-          {notification.status && (
-            <StatusBadge status={notification.status}>
-              {notification.status}
-            </StatusBadge>
-          )}
-        </NotificationMeta>
-      </NotificationHeader>
-      
-      <Divider style={{ margin: '12px 0', borderColor: 'rgba(255, 255, 255, 0.1)' }} />
-      
-      <div style={{ color: 'rgba(255, 255, 255, 0.8)', lineHeight: '1.6' }}>
-        {notification.content || notification.text}
+      {/* 标题和统计 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <Title level={4} style={{ color: '#fff', margin: 0 }}>{safeTitle}</Title>
+        {safeStatistics && (
+          <Space wrap>
+            {Object.entries(safeStatistics).map(([k, v]) => (
+              <Tag key={k} color="blue" style={{ fontSize: 12 }}>{k}: {String(v)}</Tag>
+            ))}
+          </Space>
+        )}
       </div>
+      <Divider style={{ margin: '12px 0', borderColor: 'rgba(255,255,255,0.13)' }} />
+
+      {/* 产品表格分区 */}
+      {Array.isArray(Items) && Items.length > 0 && (
+        <>
+          <SectionTitle>查询结果</SectionTitle>
+          <ProductTable items={Items} />
+        </>
+      )}
+
+      {/* Summary 区域 */}
+      {summary && (
+        <div style={{ margin: '24px 0 0 0' }}>
+          <SummaryTable summary={summary} />
+        </div>
+      )}
+
+      {/* Comments 区域 */}
+      {safeComments.length > 0 && (
+        <div style={{ margin: '24px 0 0 0' }}>
+          <Card size="small" style={{ borderRadius: 12, background: 'rgba(255,255,255,0.08)' }}>
+            <SectionTitle>评论</SectionTitle>
+            <ul style={{ margin: 0, padding: '8px 0 0 18px', color: '#fff' }}>
+              {safeComments.map((c: any, idx: number) => (
+                <li key={idx}>{typeof c === 'string' ? c : JSON.stringify(c)}</li>
+              ))}
+            </ul>
+          </Card>
+        </div>
+      )}
+
+      {/* Behind the Scene/Feedback */}
+      {(safeBehindTheScene || safeShowFeedback) && (
+        <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.10)', paddingTop: 16 }}>
+          {safeBehindTheScene && <a href={safeBehindTheScene} target="_blank" rel="noopener noreferrer" style={{ color: '#aaa', fontSize: 13 }}>Behind the Scene</a>}
+          {safeShowFeedback && <Tag color="red">Feedback Options Here</Tag>}
+        </div>
+      )}
     </NotificationCard>
   );
 };
 
-const AgentNotify: React.FC<AgentNotifyProps> = ({ notifications: propNotifications }) => {
-  const { t } = useTranslation();
-  const { notifications } = useNotifications();
-  
-  // 使用全局通知管理器管理的通知，如果有 props 传入则使用 props（向后兼容）
-  let displayNotifications = propNotifications || notifications;
-  
-  // 如果启用测试数据，替换为测试数据
-  if (USE_TEST_DATA) {
-    let testData;
-    if (TEST_DATA_TYPE === 'random') {
-      testData = getRandomNotificationData();
-    } else {
-      testData = getNotificationTestData(TEST_DATA_TYPE);
-    }
+interface AgentNotifyProps {
+  chatId: string;
+}
 
-    const testNotification = {
-      id: `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      ...testData,
-      time: new Date().toLocaleString()
-    };
+const AgentNotify: React.FC<AgentNotifyProps> = ({ chatId }) => {
+  const { notifications } = useNotifications(chatId);
+  const displayNotifications = notifications.filter(n => !!n);
 
-    displayNotifications = [testNotification];
-  }
-  
   if (!displayNotifications || displayNotifications.length === 0) {
     return (
       <EmptyContainer>
-        <EmptyState description={t('pages.chat.noAgentResults')} />
+        <Empty description="No search results" />
       </EmptyContainer>
     );
   }
-  
+
   return (
     <NotifyContainer>
-      {/* 通知列表 */}
       {displayNotifications.map((notification, index) => (
         <NotificationRenderer key={notification.id || index} notification={notification} />
       ))}
