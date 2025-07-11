@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import select
-from .chats_db import Chat, Member, Message, Attachment, get_engine, get_session_factory, Base
+from .chats_db import Chat, Member, Message, Attachment, get_engine, get_session_factory, Base, ChatNotification
 from contextlib import contextmanager
 import threading
 import weakref
@@ -61,6 +61,13 @@ class ChatService(metaclass=SingletonMeta):
             engine = get_engine(db_path)
             self.SessionFactory = get_session_factory(db_path)
             Base.metadata.create_all(engine)
+            # 新增：自动执行数据库升级
+            try:
+                from agent.chats.db_migration import DBMigration
+                migrator = DBMigration(db_path)
+                migrator.upgrade_to_version('2.0.0', description='自动升级到2.0.0，添加chat_notification表')
+            except Exception as e:
+                print(f"[DBMigration] 数据库升级失败: {e}")
         else:
             raise ValueError("Must provide db_path, engine or session")
 
@@ -662,5 +669,67 @@ class ChatService(metaclass=SingletonMeta):
                 "success": True,
                 "id": messageId,
                 "data": None,
+                "error": None
+            }
+
+    def add_chat_notification(self, chatId: str, notification: dict, time: int, isRead: bool = False, uid: str = None) -> dict:
+        """
+        保存一条 chat_notification 记录。
+        """
+        if not chatId or notification is None or time is None:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId, notification, time are required"
+            }
+        uid = uid or str(uuid.uuid4())
+        with self.session_scope() as session:
+            chat = session.get(Chat, chatId)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": None,
+                    "data": None,
+                    "error": f"Chat {chatId} not found"
+                }
+            notif = ChatNotification(
+                uid=uid,
+                chatId=chatId,
+                notification=notification,
+                time=time,
+                isRead=isRead
+            )
+            session.add(notif)
+            session.flush()
+            return {
+                "success": True,
+                "id": notif.uid,
+                "data": notif.to_dict(),
+                "error": None
+            }
+
+    def query_chat_notifications(self, chatId: str, limit: int = 20, offset: int = 0, reverse: bool = False) -> dict:
+        """
+        按 chatId 查询 chat_notification，支持翻页。
+        """
+        if not chatId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId is required"
+            }
+        with self.session_scope() as session:
+            query = session.query(ChatNotification).filter(ChatNotification.chatId == chatId)
+            if reverse:
+                query = query.order_by(ChatNotification.time.desc())
+            else:
+                query = query.order_by(ChatNotification.time.asc())
+            notifications = query.offset(offset).limit(limit).all()
+            return {
+                "success": True,
+                "id": chatId,
+                "data": [n.to_dict() for n in notifications],
                 "error": None
             }

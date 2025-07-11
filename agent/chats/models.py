@@ -13,7 +13,12 @@ class DBVersion(Base):
 
     @classmethod
     def get_current_version(cls, session):
-        return session.query(cls).order_by(cls.upgraded_at.desc()).first()
+        try:
+            # 优先用 upgraded_at 排序
+            return session.query(cls).order_by(cls.upgraded_at.desc()).first()
+        except Exception:
+            # 如果字段不存在，降级用 id 排序
+            return session.query(cls).order_by(cls.id.desc()).first()
 
     @classmethod
     def upgrade_version(cls, session, version: str, description: str = None):
