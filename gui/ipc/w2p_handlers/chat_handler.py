@@ -349,6 +349,16 @@ def echo_and_push_message_async(chatId, message):
             push_message(main_window, chatId, form_msg)
         except Exception as e:
             logger.error(f"Failed to push form template message: {e}")
+        # 3. 构造并推送 agent notification 消息
+        try:
+            search_results_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/search_results.json')
+            search_results_path = os.path.abspath(search_results_path)
+            with open(search_results_path, 'r', encoding='utf-8') as f:
+                notification = f.read()  # 直接读取原始 JSON 文本
+            web_gui = app_ctx.web_gui
+            web_gui.get_ipc_api().push_chat_notification(chatId, notification)
+        except Exception as e:
+            logger.error(f"Failed to push agent notification: {e}")
 
     threading.Thread(target=do_push, daemon=True).start()
 
