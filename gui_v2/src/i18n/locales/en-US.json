@@ -771,6 +771,7 @@
     "score": "Score",
     "url": "Link",
     "product_id": "Product ID",
-    "rank": "Rank"
+    "rank": "Rank",
+    "summary": "Summary"
   }
 } 
