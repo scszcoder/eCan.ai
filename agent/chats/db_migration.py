@@ -1,12 +1,13 @@
 from typing import List, Dict, Any, Optional
-from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, DateTime
+from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, DateTime, JSON, Boolean
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import os
 import logging
 from .models import Base, DBVersion
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 class DBMigration:
     """数据库迁移管理器"""
@@ -25,11 +26,16 @@ class DBMigration:
         self.Session = sessionmaker(bind=self.engine)
         
     def get_current_version(self) -> Optional[str]:
-        """获取当前数据库版本"""
+        """获取当前数据库版本，若无则自动插入1.0.0"""
         session = self.Session()
         try:
+            from agent.chats.models import DBVersion
             version = DBVersion.get_current_version(session)
-            return version.version if version else None
+            if not version:
+                # 自动插入初始版本
+                DBVersion.upgrade_version(session, '1.0.0', description='初始化版本')
+                version = DBVersion.get_current_version(session)
+            return version.version if version else '1.0.0'
         finally:
             session.close()
             
@@ -93,17 +99,28 @@ class DBMigration:
         Returns:
             List[Dict[str, Any]]: 升级脚本列表
         """
-        current_parts = [int(x) for x in current_version.split('.')]
-        target_parts = [int(x) for x in target_version.split('.')]
-        # 检查是否需要升级
-        if current_parts < target_parts:
-            return [{
-                'version': target_version,
-                'description': f'Upgrade from {current_version} to {target_version}',
-                'upgrade_func': self._create_upgrade_function(current_version, target_version)
-            }]
-        # 如果是相同版本或降级，返回空列表
-        return []
+        # 定义所有已知的升级路径
+        upgrade_path = [
+            ("1.0.0", "1.0.1"),
+            ("1.0.1", "2.0.0"),
+        ]
+        # 生成所有需要执行的升级步骤
+        scripts = []
+        version = current_version
+        while version != target_version:
+            for from_v, to_v in upgrade_path:
+                if from_v == version:
+                    scripts.append({
+                        'version': to_v,
+                        'description': f'Upgrade from {from_v} to {to_v}',
+                        'upgrade_func': self._create_upgrade_function(from_v, to_v)
+                    })
+                    version = to_v
+                    break
+            else:
+                # 没有找到下一个升级路径，说明目标版本不可达
+                break
+        return scripts
         
     def _execute_upgrade_script(self, session, script: Dict[str, Any]) -> bool:
         """
@@ -127,34 +144,31 @@ class DBMigration:
     def _create_upgrade_function(self, from_version: str, to_version: str):
         """
         创建升级函数
-        
-        Args:
-            from_version (str): 起始版本
-            to_version (str): 目标版本
-            
-        Returns:
-            function: 升级函数
         """
         def upgrade_func(session):
             # 这里实现具体的数据库结构升级逻辑
             # 例如：添加新表、修改表结构等
-            if from_version == "1.0.0" and to_version == "2.0.0":
-                # 示例：添加新表
+            if from_version == "1.0.0" and to_version == "1.0.1":
+                # 为 db_version 表添加 upgraded_at 字段（如果不存在）
+                with self.engine.connect() as conn:
+                    result = conn.execute(text("PRAGMA table_info(db_version);"))
+                    columns = [row[1] for row in result]
+                    if "upgraded_at" not in columns:
+                        conn.execute(text("ALTER TABLE db_version ADD COLUMN upgraded_at DATETIME;"))
+            if from_version == "1.0.1" and to_version == "2.0.0":
+                # 创建 chat_notification 表
                 metadata = MetaData()
-                new_table = Table(
-                    'new_feature_table',
+                chat_notification = Table(
+                    'chat_notification',
                     metadata,
-                    Column('id', Integer, primary_key=True),
-                    Column('name', String(50)),
-                    Column('created_at', DateTime, default=datetime.utcnow)
+                    Column('uid', String(64), primary_key=True),
+                    Column('chatId', String(64), nullable=False),
+                    Column('notification', JSON, nullable=False),
+                    Column('time', Integer, nullable=False),
+                    Column('isRead', Boolean, default=False)
                 )
-                new_table.create(self.engine)
-                
-            elif from_version == "2.0.0" and to_version == "2.1.0":
-                # 示例：修改表结构
-                # 这里可以添加修改表结构的SQL语句
-                pass
-                
+                metadata.create_all(self.engine, tables=[chat_notification])
+            # 可继续添加更多升级分支
         return upgrade_func
         
     def create_migration_script(self, version: str, description: str) -> str:
@@ -169,7 +183,7 @@ class DBMigration:
             str: 迁移脚本模板
         """
         template = f"""from datetime import datetime
-from sqlalchemy import Table, Column, String, Integer, DateTime, MetaData
+from sqlalchemy import Table, Column, String, Integer, DateTime, MetaData, JSON, Boolean
 
 def upgrade(session, engine):
     \"\"\"

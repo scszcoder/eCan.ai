@@ -4,13 +4,6 @@ from sqlalchemy.orm import relationship, declarative_base, sessionmaker
 ECBOT_CHAT_DB = "ecbot_chat.db"
 Base = declarative_base()
 
-class DBVersion(Base):
-    __tablename__ = 'db_version'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    version = Column(String(32), nullable=False)
-    created_at = Column(DateTime)
-    updated_at = Column(DateTime)
-
 class Chat(Base):
     __tablename__ = 'chats'
     id = Column(String(64), primary_key=True)
@@ -81,6 +74,17 @@ class Attachment(Base):
     type = Column(String(64))
     ext = Column(JSON)
     message = relationship('Message', back_populates='attachments')
+
+    def to_dict(self, deep=False):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
+
+class ChatNotification(Base):
+    __tablename__ = 'chat_notification'
+    uid = Column(String(64), primary_key=True)
+    chatId = Column(String(64), ForeignKey('chats.id'), nullable=False)
+    notification = Column(JSON, nullable=False)
+    time = Column(Integer, nullable=False)
+    isRead = Column(Boolean, default=False)
 
     def to_dict(self, deep=False):
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}

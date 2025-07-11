@@ -355,6 +355,13 @@ def echo_and_push_message_async(chatId, message):
             search_results_path = os.path.abspath(search_results_path)
             with open(search_results_path, 'r', encoding='utf-8') as f:
                 notification = f.read()  # 直接读取原始 JSON 文本
+            # 新增：保存 notification 到数据库
+            try:
+                notification_dict = json.loads(notification)
+            except Exception:
+                notification_dict = {"raw": notification}
+            chat_service = main_window.chat_service
+            chat_service.add_chat_notification(chatId, notification_dict, int(time.time() * 1000), isRead=False)
             web_gui = app_ctx.web_gui
             web_gui.get_ipc_api().push_chat_notification(chatId, notification)
         except Exception as e:
