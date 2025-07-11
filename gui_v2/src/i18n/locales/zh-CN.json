@@ -775,5 +775,24 @@
     "customer_service": "客服部",
     "research": "研发部",
     "legal": "法务部"
+  },
+  "agentnotify": {
+    "result": "查询结果",
+    "highlights": "亮点",
+    "app_specific": "应用场景",
+    "needed_criterias": "需求对比",
+    "object": "对象",
+    "detail": "详情",
+    "comments": "评论",
+    "behind_the_scene": "幕后信息",
+    "feedback": "反馈选项",
+    "main_image": "图片",
+    "product_name": "名称",
+    "brand": "品牌",
+    "model": "型号",
+    "score": "分数",
+    "url": "链接",
+    "product_id": "产品ID",
+    "rank": "排名"
   }
 } 
