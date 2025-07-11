@@ -1,0 +1,88 @@
+{
+  "id": "search_results_form",
+  "title": "MCU Search Results",
+  "Items": [
+    {
+      "product_id": "mcu",
+      "product_name": "product1",
+      "brand": "brand1",
+      "model": "model1",
+      "main_image": "img_url",
+      "url": "web_site_page_url",
+      "rank": 1,
+      "score": 99.01,
+      "highlights": [
+        { "label": "size", "value": "0201", "unit": "size" },
+        { "label": "price", "value": "0.01", "unit": "size" },
+        { "label": "precision", "value": "100", "unit": "ppm" }
+      ],
+      "app_specific": [
+        {
+          "app": "oil_diffuser",
+          "needed_criterias": [
+            {
+              "criteria1": "spec1",
+              "required_value": "100",
+              "matched_value": "120"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "product_id": "mcu",
+      "product_name": "product2",
+      "brand": "brand2",
+      "model": "model2",
+      "main_image": "img_url",
+      "url": "web_site_page_url",
+      "rank": 1,
+      "score": 99.01,
+      "highlights": [
+        { "label": "size", "value": "0201", "unit": "size" },
+        { "label": "price", "value": "0.01", "unit": "size" },
+        { "label": "precision", "value": "100", "unit": "ppm" }
+      ],
+      "app_specific": [
+        {
+          "app": "oil_diffuser",
+          "needed_criterias": [
+            {
+              "criteria1": "spec1",
+              "required_value": "100",
+              "matched_value": "120"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "product1": {
+      "criteria1": "value",
+      "criteria2": "value",
+      "criteria3": "value"
+    },
+    "product2": {
+      "criteria1": "value",
+      "criteria2": "value",
+      "criteria3": "value"
+    },
+    "product3": {
+      "criteria1": "value",
+      "criteria2": "value",
+      "criteria3": "value"
+    }
+  },
+  "comments": [],
+  "statistics": {
+    "sites_visited": 1,
+    "searches": 1,
+    "pages_visited": 1,
+    "input_tokens": 1,
+    "output_tokens": 1,
+    "products_compared": 1
+  },
+  "behind_the_scene": "url",
+  "show_feedback_options": true
+}
