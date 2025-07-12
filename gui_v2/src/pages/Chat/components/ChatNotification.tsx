@@ -56,8 +56,8 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId }) => {
 
   return (
     <NotifyContainer>
-      {displayNotifications.map((notification, index) => (
-        <NotificationTemplateRenderer key={notification.id || index} notification={notification} />
+      {displayNotifications.map((n, i) => (
+        <NotificationTemplateRenderer key={`${n.id || 'notification'}_${i}`} notification={n} />
       ))}
     </NotifyContainer>
   );
