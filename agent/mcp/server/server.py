@@ -42,6 +42,9 @@ from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
 from .event_store import InMemoryEventStore
+from collections import defaultdict
+from agent.ec_skills.dom.dom_utils import *
+
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
@@ -428,7 +431,6 @@ async def in_browser_execute_javascript(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
-
 async def in_browser_build_dom_tree(mainwin, args):
     try:
         webdriver = mainwin.getWebDriver()
@@ -449,6 +451,7 @@ async def in_browser_build_dom_tree(mainwin, args):
         result_text_content = "completed building DOM tree."
 
         tool_result = [TextContent(type="text", text=result_text_content)]
+
         tool_result.meta = {"dom_tree": domTree}
         return tool_result
 
@@ -926,6 +929,9 @@ async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
 
 async def in_browser_multi_actions(mainwin, args):
     try:
+        web_driver = mainwin.getWebDriver()
+        actions = args["input"]["actions"]
+
         def fill_parametric_cards(driver, filled_json):
             # Get all cards again
             cards = driver.find_elements(By.CSS_SELECTOR, 'div.div-card')
@@ -1007,6 +1013,16 @@ async def in_browser_multi_actions(mainwin, args):
                         print(f"[WARN] Could not find and select option '{option}' for '{title}'")
 
             print("All filters filled!")
+            return("completed fill parametric cards")
+
+        msg = "completed filling empty actions."
+        if actions:
+            msg =fill_parametric_cards(web_driver, actions)
+
+        result = [TextContent(type="text", text=msg)]
+
+        return [result]
+
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserMultiCardAction")
         logger.debug(err_trace)
@@ -1160,13 +1176,30 @@ async def os_connect_to_adspower(mainwin, args):
             # print("dom tree build script to be executed", script)
             target = None
             domTree = execute_js_script(webdriver, script, target)
+            with open("domtree.json", 'w', encoding="utf-8") as dtjf:
+                json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
+                # self.rebuildHTML()
+                dtjf.close()
 
+            print("dom tree:", type(domTree), domTree.keys())
+            top_level_nodes = find_top_level_nodes(domTree)
+            print("top level nodes:", type(top_level_nodes), top_level_nodes)
+            top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
+            tls = collect_text_nodes_by_level(domTree)
+            print("level texts:", tls)
+            print("level N texts:", [len(tls[i]) for i in range(len(tls))])
+            for l in tls:
+                if l:
+                    print("level texts:", [domTree["map"][nid]["text"] for nid in l])
+
+            sects = sectionize_dt_with_subsections(domTree)
+            print("sections:", sects)
         mainwin.setWebDriver(webdriver)
         # set up output.
         msg = "completed connect to adspower."
 
         result = TextContent(type="text", text=f"{msg}")
-        result.meta = {"dome tree": domTree}
+        result.meta = {"dome tree": top_level_texts}
 
         return [result]
 
@@ -1344,21 +1377,12 @@ async def os_copy_file_dir(mainwin, args):
 
 async def os_screen_analyze(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        win_title_kw = args["input"]["win_title_kw"]
+        sub_area = args["input"]["sub_area"]
+        site = args["input"]["site"]
+        engine = args["input"]["engine"]
+        screen_content = await read_screen8(mainwin, win_title_kw, sub_area, site,engine)
 
-        element_node = await browser.get_dom_element_by_index(args.index)
-        nClicks = 1
-        interval = 0.1
-        pyautogui.click(clicks=nClicks, interval=interval)
-        if not has_sensitive_data:
-            msg = f'⌨️  Input {args.text} into index {args.index}'
-        else:
-            msg = f'⌨️  Input sensitive data into index {args.index}'
-        logger.info(msg)
-        logger.debug(f'Element xpath: {element_node.xpath}')
         msg = "completed screen analysis"
         result = [TextContent(type="text", text=msg)]
         result.meta = screen_content
@@ -1390,14 +1414,23 @@ async def os_screen_capture(mainwin, args):
 
 async def os_seven_zip(mainwin, args):
     try:
-        context_id = args["context_id"]
-        browser_context = mainwin.getBrowserContextById(context_id)
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
+        exe = 'C:/Program Files/7-Zip/7z.exe'
+        if "zip" in args["input"]["dest"]:
+            # we are zipping a folder or file
+            if args["input"]["dest"] != "":
+                cmd_output = subprocess.call(exe + " a " + args["input"]["src"] + "-o" + args["input"]["dest"])
+            else:
+                cmd_output = subprocess.call(exe + " e " + args["input"]["src"])
+            msg = f"completed seven zip {args["input"]["src"]}"
+        else:
+            # we are unzipping a single file
+            if args["input"]["dest"] != "":
+                cmd = [exe, 'e', args["input"]["src"],  f'-o{args["input"]["dest"]}']
+                cmd_output = subprocess.Popen(cmd)
+            else:
+                cmd_output = subprocess.call(exe + " e " + args["input"]["src"])
+            msg = f"completed seven unzip {args["input"]["src"]}"
 
-        logger.debug(f'Element xpath: {args.file}')
-        msg = "completed seven zip"
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -1408,10 +1441,6 @@ async def os_seven_zip(mainwin, args):
 
 async def os_kill_processes(mainwin, args):
     try:
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        if args.index not in await browser.get_selector_map():
-            raise Exception(f'Element index {args.index} does not exist - retry or use alternative actions')
 
         logger.debug(f'Kill Processes: {args.pids[0]}')
         msg = "completed kill processes"
