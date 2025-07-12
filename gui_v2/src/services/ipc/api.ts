@@ -171,11 +171,9 @@ export class IPCAPI {
         return this.executeRequest<void>('save_skill', {username, skill_info});
     }
 
-
     public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('run_skill', {username, skill});
     }
-
 
     public async saveSettings<T>(value: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('save_settings', value);
@@ -188,8 +186,6 @@ export class IPCAPI {
     public async getAvailableTests<T>(): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_available_tests', {});
     }
-
-
 
     /**
      * 获取可调用函数列表
@@ -211,44 +207,6 @@ export class IPCAPI {
         return this.executeRequest<T>('manage_callable', params);
     }
 
-    /**
-     * 获取设置
-     * @param keys - 要获取的设置键名数组，如果为空则获取所有设置
-     * @returns Promise 对象，解析为设置值
-     */
-    /*
-    public async getSettings<T>(keys: string[] = []): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_settings', { keys });
-    }
-    */
-
-    /**
-     * 保存设置
-     * @param settings - 要保存的设置对象
-     * @returns Promise 对象，解析为操作结果
-     */
-    /*
-    public async saveSettings<T>(settings: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('save_settings', settings);
-    }
-    */
-
-    // public async getChatMessages<T>(params: {
-    //     chatId: string;
-    //     limit?: number;
-    //     offset?: number;
-    //     reverse?: boolean;
-    // }): Promise<APIResponse<T>> {
-    //     return this.executeRequest<T>('get_chat_messages', params);
-    // }
-
-    // public async deleteChat<T>(chatId: string): Promise<APIResponse<T>> {
-    //     return this.executeRequest<T>('delete_chat', { chatId });
-    // }
-
-    public async markMessageAsRead<T>(messageIds: string[], userId: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('mark_message_as_read', { messageIds, userId });
-    }
 }
 
 /**

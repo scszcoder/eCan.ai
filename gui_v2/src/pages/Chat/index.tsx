@@ -12,6 +12,8 @@ import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
 import { useNotifications } from './hooks/useNotifications';
 import { useMessages } from './hooks/useMessages';
+import { notificationManager } from './managers/NotificationManager';
+import { eventBus } from '@/utils/eventBus';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -377,20 +379,25 @@ const ChatPage: React.FC = () => {
         handleChatSelect(chatId);
     };
 
-    // 点击chat时
-    const handleChatSelect = async (chatId: string) => {
-        // 标记为已读
-        markMessageAsRead(chatId);
-        
+    // 设置活动聊天ID
+    const setActiveChat = (chatId: string) => {
         // 如果是通过setActiveChatIdAndFetchMessages调用的，不需要再次设置activeChatId
         if (activeChatId !== chatId) {
             setActiveChatId(chatId);
         }
-        
-        // 获取最新消息
+    };
+
+    // 标记消息为已读
+    const markChatAsRead = (chatId: string) => {
+        markMessageAsRead(chatId);
+    };
+
+    // 获取并处理聊天消息
+    const fetchAndProcessChatMessages = async (chatId: string) => {
         try {
             const response = await get_ipc_api().chat.getChatMessages({ chatId });
             console.log("[chat message] result>>>", response.data);
+            
             if (response.success && response.data) {
                 let messages: Message[] = Array.isArray((response.data as any).data)
                     ? (response.data as any).data
@@ -406,18 +413,76 @@ const ChatPage: React.FC = () => {
                 
                 // 使用消息管理器更新消息
                 updateMessages(chatId, messages);
+                logger.debug(`Loaded ${messages.length} messages for chat ${chatId}`);
             } else {
                 // 失败时清空消息并可选提示
                 updateMessages(chatId, []);
                 if (response.error) {
                     setError(typeof response.error === 'string' ? response.error : response.error.message || 'Failed to load messages');
                 }
+                logger.warn('Failed to load chat messages:', response.error);
             }
         } catch (err) {
             logger.error('Error fetching chat messages:', err);
             updateMessages(chatId, []);
             setError('Error fetching chat messages');
         }
+    };
+
+    // 获取并处理聊天通知
+    const fetchAndProcessChatNotifications = async (chatId: string) => {
+        try {
+            const notificationResponse = await get_ipc_api().chat.getChatNotifications({ chatId });
+            console.log("[chat notifications] result>>>", notificationResponse.data);
+            
+            if (notificationResponse.success && notificationResponse.data) {
+                // notificationResponse.data.data 是一个数组，每个元素都有 notification 字段
+                let notifications: any[] = [];
+                
+                const dataArray = (notificationResponse.data as any).data;
+                if (Array.isArray(dataArray)) {
+                    // 从数组中的每个元素的 notification 字段提取通知数据
+                    notifications = dataArray
+                        .map((item: any) => item.notification)
+                        .filter((notification: any) => notification != null); // 过滤掉空值
+                }
+                
+                // 确保每个通知都有唯一的 ID
+                notifications = notifications.map((notification, index) => ({
+                    ...notification,
+                    id: notification.id || `server_notification_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`
+                }));
+                
+                // 更新通知管理器中的通知
+                // 清空现有通知并添加新的通知
+                notificationManager.clear(chatId);
+                notifications.forEach(notification => {
+                    // 使用事件总线来添加通知，这样会触发通知管理器的监听器
+                    eventBus.emit('chat:newNotification', { chatId, notification });
+                });
+                
+                logger.debug(`Loaded ${notifications.length} notifications for chat ${chatId}`);
+            } else {
+                logger.warn('Failed to load chat notifications:', notificationResponse.error);
+            }
+        } catch (err) {
+            logger.error('Error fetching chat notifications:', err);
+        }
+    };
+
+    // 点击chat时的主处理函数
+    const handleChatSelect = async (chatId: string) => {
+        // 1. 标记为已读
+        markChatAsRead(chatId);
+        
+        // 2. 设置活动聊天
+        setActiveChat(chatId);
+        
+        // 3. 并行获取消息和通知
+        await Promise.all([
+            fetchAndProcessChatMessages(chatId),
+            fetchAndProcessChatNotifications(chatId)
+        ]);
     };
 
     const handleChatDelete = async (chatId: string) => {
