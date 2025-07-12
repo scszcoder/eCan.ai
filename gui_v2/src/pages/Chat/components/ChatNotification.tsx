@@ -33,11 +33,12 @@ const NotificationTemplateRenderer: React.FC<{ notification: any }> = ({ notific
   }
 };
 
-interface AgentNotifyProps {
+interface ChatNotificationProps {
   chatId: string;
 }
 
-const AgentNotify: React.FC<AgentNotifyProps> = ({ chatId }) => {
+const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId }) => {
+  console.log('ChatNotification loaded', chatId);
   const { notifications } = useNotifications(chatId);
   const displayNotifications = notifications.filter(n => !!n);
 
@@ -49,6 +50,10 @@ const AgentNotify: React.FC<AgentNotifyProps> = ({ chatId }) => {
     );
   }
 
+  // displayNotifications.map((notification, index) => (
+  //   console.log("render chatid:", chatId, "notificationid:", notification.id)
+  // ))
+
   return (
     <NotifyContainer>
       {displayNotifications.map((notification, index) => (
@@ -58,4 +63,4 @@ const AgentNotify: React.FC<AgentNotifyProps> = ({ chatId }) => {
   );
 };
 
-export default AgentNotify;
+export default ChatNotification;

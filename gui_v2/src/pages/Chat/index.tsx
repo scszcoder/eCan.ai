@@ -6,7 +6,7 @@ import ChatDetail from './components/ChatDetail';
 import { Chat, Message, Attachment, Content } from './types/chat';
 import { logger } from '@/utils/logger';
 import ChatLayout from './components/ChatLayout';
-import AgentNotify from './components/AgentNotify';
+import ChatNotification from './components/ChatNotification';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
@@ -656,9 +656,9 @@ const ChatPage: React.FC = () => {
         />
     );
 
-    const renderRightPanel = () => (
-        <AgentNotify chatId={activeChatId || ''} />
-    );
+    const renderRightPanel = () => {
+        return <ChatNotification chatId={activeChatId || ''} />;
+    };
 
     // 显示加载状态或错误信息
     if (isLoading && chats.length === 0) {
@@ -672,8 +672,8 @@ const ChatPage: React.FC = () => {
             detailsTitle={currentChat ? currentChat.name : t('pages.chat.chatDetails')}
             listContent={renderListContent()}
             detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">{t('pages.chat.selectAChat')}</div>}
-            agentNotifyTitle={t('pages.chat.agentNotify')}
-            agentNotifyContent={renderRightPanel()}
+            chatNotificationTitle={t('pages.chat.chatNotification')}
+            chatNotificationContent={renderRightPanel()}
             hasNewAgentNotifications={hasNew}
             onRightPanelToggle={(collapsed) => {
                 if (!collapsed) {
