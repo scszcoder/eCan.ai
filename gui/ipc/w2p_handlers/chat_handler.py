@@ -333,6 +333,7 @@ def echo_and_push_message_async(chatId, message):
         """线程内执行推送逻辑"""
         from app_context import AppContext
         app_ctx = AppContext()
+        web_gui = app_ctx.web_gui
         main_window: MainWindow = app_ctx.main_window
         time.sleep(1)
         # 1. 构造并推送 echo 消息
@@ -354,16 +355,23 @@ def echo_and_push_message_async(chatId, message):
             search_results_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/search_results.json')
             search_results_path = os.path.abspath(search_results_path)
             with open(search_results_path, 'r', encoding='utf-8') as f:
-                notification = f.read()  # 直接读取原始 JSON 文本
-            # 新增：保存 notification 到数据库
+                content = f.read()  # 直接读取原始 JSON 文本
+            # 新增：保存 content 到数据库
             try:
-                notification_dict = json.loads(notification)
+                content_dict = json.loads(content)
             except Exception:
-                notification_dict = {"raw": notification}
+                content_dict = {"raw": content}
             chat_service = main_window.chat_service
-            chat_service.add_chat_notification(chatId, notification_dict, int(time.time() * 1000), isRead=False)
-            web_gui = app_ctx.web_gui
-            web_gui.get_ipc_api().push_chat_notification(chatId, notification)
+            result = chat_service.add_chat_notification(chatId, content_dict, int(time.time() * 1000), isRead=False)
+            if result and result.get('success') and result.get('data'):
+                notif_data = result['data']
+                isRead = notif_data.get('isRead', False)
+                content = notif_data.get('content', "")
+                timestamp = notif_data.get('timestamp', int(time.time() * 1000))
+                uid = notif_data.get('uid')
+                web_gui.get_ipc_api().push_chat_notification(chatId, content, isRead=isRead, timestamp=timestamp, uid=uid)
+            else:
+                logger.error(f"Failed to add chat notification to db: {result}")
         except Exception as e:
             logger.error(f"Failed to push agent notification: {e}")
 

@@ -307,17 +307,23 @@ class IPCAPI:
     def push_chat_notification(
         self,
         chatId: str,
-        notification: dict,
+        content: dict,
+        isRead: bool = False,
+        timestamp: int = None,
+        uid: str = None,
         callback: Optional[Callable[[APIResponse[bool]], None]] = None
     ) -> None:
         """
         推送单条聊天消息到指定会话
         Args:
             chatId: 会话ID
-            notification: 消息内容（Message 对象或 dict，需符合后端 schema）
+            content: 通知内容（dict，需符合后端 schema）
+            isRead: 是否已读
+            timestamp: 通知时间戳
+            uid: 通知唯一ID
             callback: 回调函数，接收 APIResponse[bool]
         """
-        params = {'chatId': chatId, 'notification': notification}
+        params = {'chatId': chatId, 'content': content, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
         self._send_request('push_chat_notification', params, callback=callback)
 
 # 使用示例

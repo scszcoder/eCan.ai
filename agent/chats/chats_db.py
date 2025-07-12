@@ -1,8 +1,36 @@
 from sqlalchemy import create_engine, Column, String, Integer, Boolean, ForeignKey, Text, DateTime, JSON
-from sqlalchemy.orm import relationship, declarative_base, sessionmaker
+from sqlalchemy.orm import relationship, sessionmaker, declarative_base
+from datetime import datetime
+
+# 统一 Base，所有表都继承这个 Base
+Base = declarative_base()
 
 ECBOT_CHAT_DB = "ecbot_chat.db"
-Base = declarative_base()
+
+
+class DBVersion(Base):
+    __tablename__ = 'db_version'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version = Column(String(32), nullable=False, unique=True, index=True)
+    description = Column(String(255))
+    upgraded_at = Column(DateTime, default=datetime.utcnow)
+
+    @classmethod
+    def get_current_version(cls, session):
+        try:
+            # 优先用 upgraded_at 排序
+            return session.query(cls).order_by(cls.upgraded_at.desc()).first()
+        except Exception:
+            # 如果字段不存在，降级用 id 排序
+            return session.query(cls).order_by(cls.id.desc()).first()
+
+    @classmethod
+    def upgrade_version(cls, session, version: str, description: str = None):
+        new_version = cls(version=version, description=description)
+        session.add(new_version)
+        session.commit()
+        return new_version
+
 
 class Chat(Base):
     __tablename__ = 'chats'
@@ -82,8 +110,8 @@ class ChatNotification(Base):
     __tablename__ = 'chat_notification'
     uid = Column(String(64), primary_key=True)
     chatId = Column(String(64), ForeignKey('chats.id'), nullable=False)
-    notification = Column(JSON, nullable=False)
-    time = Column(Integer, nullable=False)
+    content = Column(JSON, nullable=False)
+    timestamp = Column(Integer, nullable=False)
     isRead = Column(Boolean, default=False)
 
     def to_dict(self, deep=False):

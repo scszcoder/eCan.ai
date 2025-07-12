@@ -3,17 +3,17 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ChatList from './components/ChatList';
 import ChatDetail from './components/ChatDetail';
-import { Chat, Message, Attachment, Content } from './types/chat';
+import { Chat, Message, Attachment } from './types/chat';
 import { logger } from '@/utils/logger';
 import ChatLayout from './components/ChatLayout';
 import ChatNotification from './components/ChatNotification';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
-import { useNotifications } from './hooks/useNotifications';
+import { useChatNotifications, NOTIF_PAGE_SIZE } from './hooks/useChatNotifications';
 import { useMessages } from './hooks/useMessages';
 import { notificationManager } from './managers/NotificationManager';
-import { eventBus } from '@/utils/eventBus';
+import type { ChatNotificationItem } from './managers/NotificationManager';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -41,8 +41,11 @@ const ChatPage: React.FC = () => {
     const effectsCompletedRef = useRef(false);
 
     // 使用全局通知管理器和消息管理器
-    const { hasNew, markAsRead } = useNotifications(activeChatId || '');
+    const { hasNew, markAsRead } = useChatNotifications(activeChatId || '');
     const { allMessages, unreadCounts, markAsRead: markMessageAsRead, updateMessages, addMessageToChat, updateMessage } = useMessages();
+
+    // 新增独立的 loading 状态
+    const [isInitialLoadingNotifications, setIsInitialLoadingNotifications] = useState(false);
 
     // 添加日志，记录组件挂载和关键状态变化
     useEffect(() => {
@@ -439,44 +442,35 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    // 获取并处理聊天通知
-    const fetchAndProcessChatNotifications = async (chatId: string) => {
+    // 获取并处理聊天通知（仅首次加载，支持分页）
+    const fetchAndProcessChatNotifications = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
-            const notificationResponse = await get_ipc_api().chat.getChatNotifications({ chatId });
+            if (typeof setIsInitialLoading === 'function') setIsInitialLoading(true);
+            const notificationResponse = await get_ipc_api().chat.getChatNotifications({ 
+                chatId, 
+                limit: NOTIF_PAGE_SIZE, 
+                offset: 0, 
+                reverse: true });
             console.log("[chat notifications] result>>>", notificationResponse.data);
             
             if (notificationResponse.success && notificationResponse.data) {
-                // notificationResponse.data.data 是一个数组，每个元素都有 notification 字段
-                let notifications: any[] = [];
-                
+                notificationManager.clear(chatId);
+                let chatNotificationItems: ChatNotificationItem[] = [];
                 const dataArray = (notificationResponse.data as any).data;
                 if (Array.isArray(dataArray)) {
-                    // 从数组中的每个元素的 notification 字段提取通知数据
-                    notifications = dataArray
-                        .map((item: any) => item.notification)
-                        .filter((notification: any) => notification != null); // 过滤掉空值
+                    dataArray.reverse().forEach((item: any, index: number) => {
+                        notificationManager.addNotification(chatId, item);
+                    })
                 }
-                
-                // 确保每个通知都有唯一的 ID
-                notifications = notifications.map((notification, index) => ({
-                    ...notification,
-                    id: notification.id || `server_notification_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`
-                }));
-                
-                // 更新通知管理器中的通知
-                // 清空现有通知并添加新的通知
-                notificationManager.clear(chatId);
-                notifications.forEach(notification => {
-                    // 使用事件总线来添加通知，这样会触发通知管理器的监听器
-                    eventBus.emit('chat:newNotification', { chatId, notification });
-                });
-                
-                logger.debug(`Loaded ${notifications.length} notifications for chat ${chatId}`);
+
+                logger.debug(`Loaded ${chatNotificationItems.length} notifications for chat ${chatId}`);
             } else {
                 logger.warn('Failed to load chat notifications:', notificationResponse.error);
             }
         } catch (err) {
             logger.error('Error fetching chat notifications:', err);
+        } finally {
+            if (typeof setIsInitialLoading === 'function') setIsInitialLoading(false);
         }
     };
 
@@ -488,10 +482,10 @@ const ChatPage: React.FC = () => {
         // 2. 设置活动聊天
         setActiveChat(chatId);
         
-        // 3. 并行获取消息和通知
+        // 3. 并行获取消息和通知（通知只拉第一页，后续分页交给 useChatNotifications）
         await Promise.all([
             fetchAndProcessChatMessages(chatId, setIsInitialLoading),
-            fetchAndProcessChatNotifications(chatId)
+            fetchAndProcessChatNotifications(chatId, setIsInitialLoadingNotifications)
         ]);
     };
 
@@ -668,7 +662,10 @@ const ChatPage: React.FC = () => {
     );
 
     const renderRightPanel = () => {
-        return <ChatNotification chatId={activeChatId || ''} />;
+        return <ChatNotification 
+            chatId={activeChatId || ''} 
+            isInitialLoading={isInitialLoadingNotifications}
+        />;
     };
 
     // 显示加载状态或错误信息

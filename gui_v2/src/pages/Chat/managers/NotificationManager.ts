@@ -4,44 +4,57 @@ import { logger } from '@/utils/logger';
 // 允许存储任意 notification 结构
 export type Notification = any;
 
-type NotificationListener = (notifications: Notification[]) => void;
+export type ChatNotificationItem = {
+  isRead: boolean;
+  timestamp: string;
+  uid: string;
+  content: any;
+};
+
+type NotificationListener = (notifications: ChatNotificationItem[]) => void;
 
 class NotificationManager {
   // chatId -> listeners
   private listeners: Map<string, Set<NotificationListener>> = new Map();
-  // chatId -> notifications
-  private notifications: Map<string, Notification[]> = new Map();
+  // chatId -> chatNotificationItems
+  private chatNotificationItems: Map<string, ChatNotificationItem[]> = new Map();
   // chatId -> has new notifications
-  private hasNewNotifications: Map<string, boolean> = new Map();
+  private hasNewNotificationItems: Map<string, boolean> = new Map();
 
   constructor() {
     this.initEventListeners();
   }
 
   private initEventListeners() {
-    eventBus.on('chat:newNotification', (params: { chatId: string, notification: any }) => {
-      const { chatId, notification } = params;
+    eventBus.on('chat:newNotification', (params: { chatId: string, content: any, isRead: boolean, timestamp: string, uid: string }) => {
+      const { chatId, content, isRead, timestamp, uid } = params;
+
       if (!chatId) {
         logger.warn('NotificationManager: chatId is required for newNotification');
         return;
       }
-      // 直接存原始 notification
-      this.addNotification(chatId, notification);
+      const chatNotificationItem: ChatNotificationItem = {
+        isRead: isRead,
+        timestamp: timestamp,
+        uid: uid,
+        content: content,
+      };
+      this.addNotification(chatId, chatNotificationItem);
     });
   }
 
-  private addNotification(chatId: string, notification: Notification) {
-    const list = this.notifications.get(chatId) || [];
-    list.unshift(notification);
-    this.notifications.set(chatId, list);
-    this.hasNewNotifications.set(chatId, true);
+  public addNotification(chatId: string, chatNotificationItem: ChatNotificationItem) {
+    const list = this.chatNotificationItems.get(chatId) || [];
+    list.unshift(chatNotificationItem);
+    this.chatNotificationItems.set(chatId, list);
+    this.hasNewNotificationItems.set(chatId, true);
     this.notifyListeners(chatId);
   }
 
   private notifyListeners(chatId: string) {
     const listeners = this.listeners.get(chatId);
     if (!listeners) return;
-    const notifications = this.notifications.get(chatId) || [];
+    const notifications = this.chatNotificationItems.get(chatId) || [];
     listeners.forEach(listener => {
       try {
         listener([...notifications]);
@@ -58,7 +71,7 @@ class NotificationManager {
     }
     this.listeners.get(chatId)!.add(listener);
     // 立即通知当前状态
-    listener([... (this.notifications.get(chatId) || [])]);
+    listener([...(this.chatNotificationItems.get(chatId) || [])]);
     // 返回取消订阅函数
     return () => {
       this.listeners.get(chatId)?.delete(listener);
@@ -66,31 +79,37 @@ class NotificationManager {
   }
 
   // 获取指定 chatId 的所有通知
-  getNotifications(chatId: string): Notification[] {
-    return [...(this.notifications.get(chatId) || [])];
+  getNotifications(chatId: string): ChatNotificationItem[] {
+    return [...(this.chatNotificationItems.get(chatId) || [])];
+  }
+
+  // 获取指定 chatId 的分页通知
+  getNotificationsPaged(chatId: string, offset: number, limit: number): ChatNotificationItem[] {
+    const all = this.chatNotificationItems.get(chatId) || [];
+    return all.slice(offset, offset + limit);
   }
 
   // 检查指定 chatId 是否有新通知
   hasNew(chatId: string): boolean {
-    return !!this.hasNewNotifications.get(chatId);
+    return !!this.hasNewNotificationItems.get(chatId);
   }
 
   // 标记指定 chatId 的通知为已读
   markAsRead(chatId: string): void {
-    this.hasNewNotifications.set(chatId, false);
+    this.hasNewNotificationItems.set(chatId, false);
   }
 
   // 清空指定 chatId 的所有通知
   clear(chatId: string): void {
-    this.notifications.set(chatId, []);
-    this.hasNewNotifications.set(chatId, false);
+    this.chatNotificationItems.set(chatId, []);
+    this.hasNewNotificationItems.set(chatId, false);
     this.notifyListeners(chatId);
   }
 
   // 移除指定 chatId 的特定通知
-  removeNotification(chatId: string, id: string): void {
-    const list = this.notifications.get(chatId) || [];
-    this.notifications.set(chatId, list.filter((n: any) => n.id !== id));
+  removeNotification(chatId: string, uid: string): void {
+    const list = this.chatNotificationItems.get(chatId) || [];
+    this.chatNotificationItems.set(chatId, list.filter((n: ChatNotificationItem) => n.uid !== uid));
     this.notifyListeners(chatId);
   }
 }

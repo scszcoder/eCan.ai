@@ -166,9 +166,10 @@ const ProductTable: React.FC<{ items: any[] }> = ({ items }) => {
   );
 };
 
-const ProductSearchNotification: React.FC<{ notification: any }> = ({ notification }) => {
+const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
   const { t } = useTranslation();
-  if (!notification) return null;
+  if (!content) return null;
+  // 只处理业务内容部分，不解构 isRead、time、uid
   const {
     title,
     Items = [],
@@ -177,7 +178,7 @@ const ProductSearchNotification: React.FC<{ notification: any }> = ({ notificati
     statistics,
     behind_the_scene,
     show_feedback_options
-  } = notification;
+  } = content;
 
   const safeTitle = typeof title === 'string' ? title : (title ? String(title) : t('agentnotify.result'));
   const safeStatistics = statistics && typeof statistics === 'object' && !Array.isArray(statistics) ? statistics : undefined;

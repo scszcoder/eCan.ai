@@ -125,19 +125,19 @@ export class IPCHandlers {
     }
 
     async pushChatNotification(request: IPCRequest): Promise<{ success: boolean }> {
-        let { chatId, notification } = request.params as { chatId: string, notification: any };
-        if (!chatId || !notification) {
+        let { chatId, content, isRead, timestamp, uid } = request.params as { chatId: string, content: any, isRead: boolean, timestamp: string, uid: string };
+        if (!chatId || !content) {
             throw new Error('pushChatNotification: chatId and notification are required');
         }
         // 自动解析字符串 JSON
-        if (typeof notification === 'string') {
+        if (typeof content === 'string') {
             try {
-                notification = JSON.parse(notification);
+                content = JSON.parse(content);
             } catch (e) {
-                throw new Error('pushChatNotification: notification is string but not valid JSON');
+                throw new Error('pushChatNotification: content is string but not valid JSON');
             }
         }
-        eventBus.emit('chat:newNotification', { chatId, notification });
+        eventBus.emit('chat:newNotification', { chatId, content, isRead, timestamp, uid });
         return { success: true };
     }
 }
