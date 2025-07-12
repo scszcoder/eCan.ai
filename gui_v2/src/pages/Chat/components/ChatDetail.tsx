@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { Chat } from '../types/chat';
@@ -7,7 +7,6 @@ import { getUploadProps } from '../utils/attachmentHandler';
 import ContentTypeRenderer from './ContentTypeRenderer';
 import { protocolHandler } from '../utils/protocolHandler';
 import { ChatDetailWrapper, commonOuterStyle } from '../styles/ChatDetail.styles';
-import { logger } from '@/utils/logger';
 import AttachmentList from './AttachmentList';
 import { get_ipc_api } from '@/services/ipc_api';
 import { Toast } from '@douyinfe/semi-ui';
@@ -19,15 +18,38 @@ interface ChatDetailProps {
     chats?: Chat[];
     onSend?: (content: string, attachments: any[]) => void;
     onMessageDelete?: (messageId: string) => void;
+    setIsInitialLoading?: (loading: boolean) => void;
 }
 
-const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend, onMessageDelete }) => {
+function mergeAndSortMessages(...msgArrays: any[][]) {
+  const map = new Map();
+  msgArrays.flat().forEach(msg => {
+    if (msg && msg.id) map.set(msg.id, msg);
+  });
+  // 按 createAt 升序（老消息在前，新消息在后）
+  return Array.from(map.values()).sort((a, b) => (a.createAt || 0) - (b.createAt || 0));
+}
+
+const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], onSend, onMessageDelete, setIsInitialLoading }) => {
+    const chatId = rawChatId || '';
     const { t } = useTranslation();
     const wrapperRef = useRef<HTMLDivElement>(null);
-    const chatRef = useRef<any>(null);
     const lastMessageLengthRef = useRef<number>(0);
     const justSentMessageRef = useRef<boolean>(false);
     const { updateMessages } = useMessages(chatId);
+    const [offset, setOffset] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const PAGE_SIZE = 20;
+    const [pageMessages, setPageMessages] = useState<any[]>([]);
+    const { allMessages } = useMessages(chatId);
+    const [isInitialLoadingState, _setIsInitialLoading] = useState(false);
+    const isInitialLoading = typeof setIsInitialLoading === 'function' ? undefined : isInitialLoadingState;
+    const chatBoxRef = useRef<HTMLDivElement | null>(null);
+    const prevMsgCountRef = useRef(pageMessages.length);
+    const prevScrollHeightRef = useRef(0);
+    const prevScrollTopRef = useRef(0);
+    const isLoadingMoreRef = useRef(false);
 
     // 初始化协议处理器
     useEffect(() => {
@@ -96,12 +118,23 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend, onM
     // 自定义消息发送处理函数
     const handleMessageSend = (content: string, attachments: any[]) => {
         justSentMessageRef.current = true;
-        
+        // 构造新消息对象
+        const tempId = `user_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const userMessage = {
+            id: tempId,
+            chatId,
+            role: 'user',
+            createAt: Date.now(),
+            senderId: '', // 可根据实际补充
+            senderName: '', // 可根据实际补充
+            content,
+            status: 'sending',
+            attachments
+        };
+        setPageMessages(prev => mergeAndSortMessages(prev, [userMessage]));
         if (onSend) {
             onSend(content, attachments);
         }
-        
-        // 立即尝试聚焦一次
         focusInputArea();
         
         // 使用多次尝试确保聚焦成功
@@ -155,7 +188,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend, onM
     // 处理表单提交
     const handleFormSubmit = async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
         const response = await get_ipc_api().chat.chatFormSubmit(chatId, messageId, formId, processedForm)
-        logger.debug(JSON.stringify(response))
+        console.log(JSON.stringify(response))
         if (response.success) {
             Toast.success(t('pages.chat.formSubmitSuccess'));
         } else {
@@ -186,7 +219,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend, onM
         }
         // 默认行为：调用 ipc_api 删除消息
         const response = await get_ipc_api().chat.deleteMessage(chatId, messageId);
-        logger.debug(JSON.stringify(response))
+        console.log(JSON.stringify(response))
         if (response.success) {
             Toast.success(t('pages.chat.deleteMessageSuccess'));
             // 本地移除消息
@@ -195,6 +228,95 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend, onM
             Toast.error(t('pages.chat.deleteMessageFail'));
         }
     };
+
+    // 加载更多消息
+    const handleLoadMore = async () => {
+        console.log('handleLoadMore called', { loadingMore, isInitialLoading, hasMore, chatId });
+        if (loadingMore || isInitialLoading || !hasMore || !chatId) {
+            console.log('handleLoadMore exit due to', { loadingMore, isInitialLoading, hasMore, chatId });
+            return;
+        }
+        // Record current scrollHeight and scrollTop
+        const chatBox = chatBoxRef.current;
+        if (chatBox) {
+            prevScrollHeightRef.current = chatBox.scrollHeight;
+            prevScrollTopRef.current = chatBox.scrollTop;
+        }
+        isLoadingMoreRef.current = true;
+        setLoadingMore(true);
+        console.log('Pagination request params', { chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
+        const res = await get_ipc_api().chat.getChatMessages({ chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
+        let newMsgs: any[] = [];
+        if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
+            newMsgs = (res.data as any).data;
+        }
+        console.log('Pagination response message count', newMsgs.length, newMsgs);
+        setPageMessages(prev => mergeAndSortMessages(newMsgs, prev));
+        setOffset(offset + newMsgs.length);
+        setHasMore(newMsgs.length === PAGE_SIZE);
+        setLoadingMore(false);
+    };
+
+    // 平滑分页：pageMessages 增加时，调整 scrollTop 保持视图无感衔接
+    useEffect(() => {
+        if (isLoadingMoreRef.current) {
+            const chatBox = chatBoxRef.current;
+            if (chatBox) {
+                const newScrollHeight = chatBox.scrollHeight;
+                chatBox.scrollTop = newScrollHeight - prevScrollHeightRef.current + prevScrollTopRef.current;
+            }
+            isLoadingMoreRef.current = false;
+        }
+        prevMsgCountRef.current = pageMessages.length;
+    }, [pageMessages]);
+
+    // 监听消息区滚动事件
+    useEffect(() => {
+        if (!wrapperRef.current) {
+            console.log('wrapperRef.current is null');
+            return;
+        }
+        const chatBox = wrapperRef.current.querySelector('.semi-chat-container');
+        if (chatBox) chatBoxRef.current = chatBox as HTMLDivElement;
+        if (!chatBox) return;
+        const onScroll = (e: Event) => {
+            const target = e.target as HTMLElement;
+            // console.log('onScroll', target.scrollTop, target.scrollHeight, target.clientHeight);
+            if (target.scrollTop === 0) {
+                // console.log('Scrolled to top, will load more');
+                handleLoadMore();
+            }
+        };
+        chatBox.addEventListener('scroll', onScroll);
+        return () => chatBox.removeEventListener('scroll', onScroll);
+    }, [pageMessages]);
+
+    // 初始化加载第一页
+    useEffect(() => {
+        setOffset(0);
+        setHasMore(true);
+        setPageMessages([]);
+        if (setIsInitialLoading) setIsInitialLoading(true); else _setIsInitialLoading(true);
+        if (chatId) {
+            // 这里不直接调用 handleLoadMore，而是等 fetchAndProcessChatMessages 完成后再设为 false
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chatId]);
+
+    useEffect(() => {
+        if (!chatId) return;
+        setPageMessages(prev => {
+            const globalMsgs = (allMessages.get(chatId) || []);
+            // 移除本地“sending”且内容和新消息重复的
+            const filteredPrev = prev.filter(
+                m => !(m.status === 'sending' && globalMsgs.some(gm => gm.content === m.content))
+            );
+            // 只合并比当前最新消息 createAt 更晚的新消息
+            const latestTime = filteredPrev.length > 0 ? filteredPrev[filteredPrev.length - 1].createAt : 0;
+            const newMsgs = globalMsgs.filter(m => m.createAt > latestTime);
+            return mergeAndSortMessages(filteredPrev, newMsgs);
+        });
+    }, [allMessages, chatId]);
 
     // 自定义渲染配置
     const chatBoxRenderConfig = {
@@ -247,10 +369,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId, chats = [], onSend, onM
 
     return (
         <ChatDetailWrapper ref={wrapperRef}>
+            {loadingMore && <div style={{textAlign: 'center'}}>加载中...</div>}
+            {!hasMore && <div style={{textAlign: 'center'}}>没有更多消息了</div>}
             <SemiChat
-                ref={chatRef}
                 key={chatKey}
-                chats={messages}
+                chats={pageMessages}
                 style={{ ...commonOuterStyle }}
                 align="leftRight"
                 mode="bubble"
