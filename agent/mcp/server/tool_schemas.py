@@ -153,21 +153,21 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {
                     "type": "object",
-                    "required": ["image", "icons", "options", "end_point"],
+                    "required": ["win_title_kw", "sub_area", "site", "engine"],
                     "properties": {
-                        "image": {
+                        "win_title_kw": {
                             "type": "string",
-                            "description": "image file name.",
+                            "description": "the window title keyword for the window to be screen captured, (default is \"\" which means top window)",
                         },
-                        "icons": {
-                            "type": "[string]",
-                            "description": "a list of icon file names",
+                        "sub_area": {
+                            "type": "[int]",
+                            "description": "sub area of screen shot with relative offset [left, top, right, bottom]",
                         },
-                        "options": {
-                            "type": "dict",
-                            "description": "various run options",
+                        "site": {
+                            "type": "string",
+                            "description": "web site or app info",
                         },
-                        "end_point": {
+                        "engine": {
                             "type": "string",
                             "description": "a choice of local/lan/wan",
                         },
@@ -751,6 +751,30 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
+        name="in_browser_multi_actions",
+        description="use browser driver to execute a series of actions specified by the input json data.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["url"],  # url is required *inside* input
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
         name="in_browser_extract_content",
         description="use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
@@ -848,6 +872,97 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
+    tool_schema = types.Tool(
+        name="in_browser_scrape_content",
+        description="use browser driver like selenium or playwright to drag and drop an item.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["tab_title"],  # url is required *inside* input
+                    "properties": {
+                        "tab_title": {
+                            "type": "string",
+                            "description": "title of the web page to open",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="in_browser_execute_javascript",
+        description="use browser driver to execute a javascript on a web page.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["tab_title"],  # url is required *inside* input
+                    "properties": {
+                        "tab_title": {
+                            "type": "string",
+                            "description": "title of the web page to open",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="in_browser_build_dom_tree",
+        description="build DOM tree of a web page.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["tab_title"],  # url is required *inside* input
+                    "properties": {
+                        "tab_title": {
+                            "type": "string",
+                            "description": "title of the web page to open",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="in_browser_save_href_to_file",
+        description="download a href pointed file on a web page.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["tab_title"],  # url is required *inside* input
+                    "properties": {
+                        "tab_title": {
+                            "type": "string",
+                            "description": "title of the web page to open",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
         name="in_browser_download_file",
@@ -947,6 +1062,34 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
+        name="os_connect_to_chrome",
+        description="connect to an already opened chrome and open a new tab in URL.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["driver_path", "url"],  # url is required *inside* input
+                    "properties": {
+                        "driver_path": {
+                            "type": "string",
+                            "description": "full path to web driver to use",
+                        },
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
         name="os_reconnect_wifi",
         description="use shell command to reconnect wifi (assume wifi access point porfiles exist).",
         inputSchema={
@@ -964,6 +1107,52 @@ def build_agent_mcp_tools_schemas():
                         "post_wait": {
                             "type": "int",
                             "description": "wait number of seconds after attempting to open the url site",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_open_app",
+        description="in OS, open an app.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["app_name"],
+                    "properties": {
+                        "app_name": {
+                            "type": "string",
+                            "description": "the name of the app to open.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_close_app",
+        description="in OS, close an app.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["app_name"],
+                    "properties": {
+                        "app_name": {
+                            "type": "string",
+                            "description": "the name of the app to close.",
                         }
                     },
                 }
@@ -1133,6 +1322,56 @@ def build_agent_mcp_tools_schemas():
                         "dest": {
                             "type": "string",
                             "description": "the full path of the file or dir will be copied to",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_seven_zip",
+        description="zip or unzip using 7z app",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["src", "dest"],
+                    "properties": {
+                        "src": {
+                            "type": "string",
+                            "description": "the full path of the sourcefile or dir to be ziped or unziped",
+                        },
+                        "dest": {
+                            "type": "string",
+                            "description": "the full path of the resulting file or dir to be ziped or unziped",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="os_kill_processes",
+        description="OS kill processes",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["apps"],
+                    "properties": {
+                        "apps": {
+                            "type": "[string]",
+                            "description": "the processes to be killed, all digits meaning process ID, otherwise, process name",
                         }
                     },
                 }

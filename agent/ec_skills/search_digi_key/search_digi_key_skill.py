@@ -80,14 +80,14 @@ def go_to_site_node(state: NodeState) -> NodeState:
             return state
 
 
-async def check_captcha_node(state: NodeState) -> NodeState:
+def check_captcha_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        result_state = await mainwin.mcp_client.call_tool(
-            state.result["selected_tool"], arguments={"input": state.tool_input}
-        )
+        # result_state = await mainwin.mcp_client.call_tool(
+        #     state.result["selected_tool"], arguments={"input": state.tool_input}
+        # )
 
         llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
         user_content = """ 
@@ -175,14 +175,14 @@ async def check_captcha_node(state: NodeState) -> NodeState:
 
 
 
-async def solve_captcha_node(state: NodeState) -> NodeState:
+def solve_captcha_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        result_state = await mainwin.mcp_client.call_tool(
-            state.result["selected_tool"], arguments={"input": state.tool_input}
-        )
+        # result_state = await mainwin.mcp_client.call_tool(
+        #     state.result["selected_tool"], arguments={"input": state.tool_input}
+        # )
 
         llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
         user_content = """ 
@@ -270,7 +270,7 @@ async def solve_captcha_node(state: NodeState) -> NodeState:
 
 
 
-async def check_top_categories_node(state: NodeState) -> NodeState:
+def check_top_categories_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
@@ -326,7 +326,7 @@ async def check_top_categories_node(state: NodeState) -> NodeState:
         return state
 
 
-async def check_sub_categories_node(state: NodeState) -> NodeState:
+def check_sub_categories_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
@@ -383,7 +383,7 @@ async def check_sub_categories_node(state: NodeState) -> NodeState:
 
 
 
-async def check_is_parametric_filter_node(state: NodeState) -> NodeState:
+def check_is_parametric_filter_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
@@ -735,15 +735,14 @@ async def create_search_digi_key_skill(mainwin):
         workflow.add_node("send_results", send_results_node)
         workflow.add_edge("send_results", END)
 
-        workflow.add_edge("go to digi-key site", "extract_web_page")
-        workflow.add_edge("extract_web_page", "get_next_action")
+        workflow.add_edge("go to digi-key site", "check_captcha")
 
         workflow.add_conditional_edges("check_goals", check_done_logic, ["check_is_parametric_filter", "final_select"])
 
         searcher_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
          # type: ignore[attr-defined]
-        print("search1688_skill build is done!")
+        print("search_digi_key_skill build is done!")
         return searcher_skill
     except Exception as e:
         err_trace = get_traceback(e, "ErrorCreateSearchDigiKeySkill")
