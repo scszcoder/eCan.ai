@@ -136,8 +136,8 @@ interface ChatLayoutProps {
   detailsTitle: string;
   listContent: React.ReactNode;
   detailsContent: React.ReactNode;
-  agentNotifyTitle: React.ReactNode;
-  agentNotifyContent: React.ReactNode;
+  chatNotificationTitle: React.ReactNode;
+  chatNotificationContent: React.ReactNode;
   hasNewAgentNotifications?: boolean;
   onRightPanelToggle?: (collapsed: boolean) => void;
 }
@@ -147,8 +147,8 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
   detailsTitle,
   listContent,
   detailsContent,
-  agentNotifyTitle,
-  agentNotifyContent,
+  chatNotificationTitle,
+  chatNotificationContent,
   hasNewAgentNotifications = false,
   onRightPanelToggle,
 }) => {
@@ -240,12 +240,12 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
           <div style={{ height: '100%', width: '100%', display: 'flex', overflow: 'hidden' }}>
             {!rightCollapsed && (
               <Card
-                title={agentNotifyTitle}
+                title={chatNotificationTitle}
                 variant="borderless"
                 style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1 }}
                 styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
               >
-                {agentNotifyContent}
+                {chatNotificationContent}
               </Card>
             )}
           </div>
