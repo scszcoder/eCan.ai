@@ -2,6 +2,8 @@ import React from 'react';
 import { Card, Tag, Typography, Space, Divider, Table, Tooltip } from 'antd';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
+import { TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { Button } from 'antd';
 
 const { Title } = Typography;
 
@@ -166,8 +168,73 @@ const ProductTable: React.FC<{ items: any[] }> = ({ items }) => {
   );
 };
 
+// 新增 ProductList 组件
+const ProductList: React.FC<{ items: any[] }> = ({ items }) => {
+  const { t } = useTranslation();
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const keys = getAllKeys(items);
+  // 主字段
+  const mainFields = ['product_name', 'brand', 'model', 'score'];
+  // 其他字段
+  const otherFields = keys.filter(k => !['main_image', ...mainFields, 'highlights', 'app_specific', 'url'].includes(k));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, margin: '16px 0' }}>
+      {items.map((item, idx) => (
+        <Card
+          key={idx}
+          size="small"
+          style={{ borderRadius: 16, background: 'rgba(255,255,255,0.10)', color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}
+          styles={{ body: { padding: 20 } }}
+        >
+          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+            {/* 左侧主图 */}
+            {item.main_image && (
+              <div style={{ minWidth: 90, maxWidth: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img src={item.main_image} alt={item.product_name || 'product'} style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: 8, background: '#fff' }} />
+              </div>
+            )}
+            {/* 右侧内容 */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* 主字段 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
+                <span style={{ fontWeight: 700, fontSize: 18, color: '#fff' }}>{item.product_name}</span>
+                {item.brand && <Tag color="blue" style={{ fontWeight: 500 }}>{item.brand}</Tag>}
+                {item.model && <Tag color="geekblue" style={{ fontWeight: 500 }}>{item.model}</Tag>}
+                {item.score !== undefined && <Tag color="gold" style={{ fontWeight: 600 }}>{t('agentnotify.score')}: {item.score}</Tag>}
+              </div>
+              {/* 其他字段 */}
+              {otherFields.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+                  {otherFields.map((key) => (
+                    item[key] !== undefined && item[key] !== null && item[key] !== '' && (
+                      <div key={key} style={{ minWidth: 100 }}>
+                        <span style={{ color: '#a0aec0', fontWeight: 500 }}>{getI18nLabel(t, key)}: </span>
+                        {renderCell(item[key], key, t)}
+                      </div>
+                    )
+                  ))}
+                </div>
+              )}
+              {/* 高亮/标签/应用特定/详情链接 */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginTop: 8 }}>
+                {item.highlights && renderHighlights(item.highlights, t)}
+                {item.app_specific && renderAppSpecific(item.app_specific, t)}
+                {item.url && typeof item.url === 'string' && item.url.startsWith('http') && (
+                  <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff', fontWeight: 500, marginLeft: 8 }}>{t('agentnotify.detail')}</a>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+};
+
 const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
   const { t } = useTranslation();
+  const [viewMode, setViewMode] = React.useState<'table' | 'list'>('table');
   if (!content) return null;
   // 只处理业务内容部分，不解构 isRead、time、uid
   const {
@@ -188,24 +255,35 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
 
   return (
     <NotificationCard>
-      {/* 标题和统计 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+      {/* 标题和切换视图按钮 */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
         <Title level={4} style={{ color: '#fff', margin: 0 }}>{safeTitle}</Title>
-        {safeStatistics && (
+        {Array.isArray(Items) && Items.length > 0 && (
+          <Button
+            icon={viewMode === 'table' ? <TableOutlined /> : <UnorderedListOutlined />}
+            onClick={() => setViewMode(viewMode === 'table' ? 'list' : 'table')}
+            size="small"
+            title={viewMode === 'table' ? t('agentnotify.table_view') : t('agentnotify.list_view')}
+          />
+        )}
+      </div>
+      {/* 统计信息独立一行 */}
+      {safeStatistics && (
+        <div style={{ marginBottom: 8 }}>
           <Space wrap>
             {Object.entries(safeStatistics).map(([k, v]) => (
               <Tag key={k} color="blue" style={{ fontSize: 12 }}>{getI18nLabel(t, k)}: {String(v)}</Tag>
             ))}
           </Space>
-        )}
-      </div>
+        </div>
+      )}
       <Divider style={{ margin: '12px 0', borderColor: 'rgba(255,255,255,0.13)' }} />
 
-      {/* 产品表格分区 */}
+      {/* 产品表格/列表分区 */}
       {Array.isArray(Items) && Items.length > 0 && (
         <>
           <SectionTitle>{t('agentnotify.result')}</SectionTitle>
-          <ProductTable items={Items} />
+          {viewMode === 'table' ? <ProductTable items={Items} /> : <ProductList items={Items} />}
         </>
       )}
 
