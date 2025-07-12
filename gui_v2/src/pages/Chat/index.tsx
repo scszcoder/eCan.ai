@@ -29,6 +29,7 @@ const ChatPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [hasFetched, setHasFetched] = useState(false);
+    const [isInitialLoading, setIsInitialLoading] = useState(false);
     
     // 引用型状态，用于跟踪和控制
     const lastFetchedAgentId = useRef<string | undefined>();
@@ -392,10 +393,17 @@ const ChatPage: React.FC = () => {
         markMessageAsRead(chatId);
     };
 
+    // 假设 PAGE_SIZE 已定义（如 20），否则加上 const PAGE_SIZE = 20;
+    const PAGE_SIZE = 20;
     // 获取并处理聊天消息
-    const fetchAndProcessChatMessages = async (chatId: string) => {
+    const fetchAndProcessChatMessages = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
-            const response = await get_ipc_api().chat.getChatMessages({ chatId });
+            const response = await get_ipc_api().chat.getChatMessages({
+                chatId,
+                limit: PAGE_SIZE,
+                offset: 0,
+                reverse: true
+            });
             console.log("[chat message] result>>>", response.data);
             
             if (response.success && response.data) {
@@ -426,6 +434,8 @@ const ChatPage: React.FC = () => {
             logger.error('Error fetching chat messages:', err);
             updateMessages(chatId, []);
             setError('Error fetching chat messages');
+        } finally {
+            if (typeof setIsInitialLoading === 'function') setIsInitialLoading(false);
         }
     };
 
@@ -480,7 +490,7 @@ const ChatPage: React.FC = () => {
         
         // 3. 并行获取消息和通知
         await Promise.all([
-            fetchAndProcessChatMessages(chatId),
+            fetchAndProcessChatMessages(chatId, setIsInitialLoading),
             fetchAndProcessChatNotifications(chatId)
         ]);
     };
@@ -652,7 +662,8 @@ const ChatPage: React.FC = () => {
         <ChatDetail 
             chatId={activeChatId} 
             chats={chats}
-            onSend={handleMessageSend} 
+            onSend={handleMessageSend}
+            setIsInitialLoading={setIsInitialLoading}
         />
     );
 
