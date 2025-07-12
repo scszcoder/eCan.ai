@@ -718,3 +718,32 @@ def handle_delete_message(request: IPCRequest, params: Optional[dict]) -> IPCRes
         logger.error(f"Error in delete_message handler: {e}")
         return create_error_response(request, 'DELETE_MESSAGE_ERROR', str(e))
 
+@IPCHandlerRegistry.handler('get_chat_notifications')
+def handle_get_chat_notifications(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    处理获取指定会话通知列表请求，调用 chat_service.query_chat_notifications。
+    """
+    try:
+        logger.debug(f"get_chat_notifications handler called with request: {request}")
+        chatId = params.get('chatId')
+        limit = params.get('limit', 20)
+        offset = params.get('offset', 0)
+        reverse = params.get('reverse', False)
+        
+        if not chatId:
+            return create_error_response(request, 'INVALID_PARAMS', 'chatId 必填')
+            
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        chat_service = main_window.chat_service
+        result = chat_service.query_chat_notifications(
+            chatId=chatId, 
+            limit=limit, 
+            offset=offset, 
+            reverse=reverse
+        )
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in get_chat_notifications handler: {e}")
+        return create_error_response(request, 'GET_CHAT_NOTIFICATIONS_ERROR', str(e))
+

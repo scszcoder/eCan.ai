@@ -48,6 +48,17 @@ export function createChatApi(apiInstance: IPCAPI) {
             return apiInstance['executeRequest']('get_chat_messages', params);
         },
         /**
+         * 获取指定会话通知列表
+         */
+        getChatNotifications<T>(params: {
+            chatId: string;
+            limit?: number;
+            offset?: number;
+            reverse?: boolean;
+        }): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('get_chat_notifications', params);
+        },
+        /**
          * 删除会话
          */
         deleteChat<T>(chatId: string): Promise<APIResponse<T>> {
