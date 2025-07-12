@@ -61,10 +61,12 @@ class ChatService(metaclass=SingletonMeta):
             engine = get_engine(db_path)
             self.SessionFactory = get_session_factory(db_path)
             Base.metadata.create_all(engine)
-            # 新增：自动执行数据库升级
+            # 新增：自动插入初始 db_version 记录并执行数据库升级
             try:
                 from agent.chats.db_migration import DBMigration
                 migrator = DBMigration(db_path)
+                # 确保有 db_version 表和初始记录
+                migrator.get_current_version()
                 migrator.upgrade_to_version('2.0.0', description='自动升级到2.0.0，添加chat_notification表')
             except Exception as e:
                 print(f"[DBMigration] 数据库升级失败: {e}")
@@ -672,16 +674,16 @@ class ChatService(metaclass=SingletonMeta):
                 "error": None
             }
 
-    def add_chat_notification(self, chatId: str, notification: dict, time: int, isRead: bool = False, uid: str = None) -> dict:
+    def add_chat_notification(self, chatId: str, content: dict, timestamp: int, isRead: bool = False, uid: str = None) -> dict:
         """
         保存一条 chat_notification 记录。
         """
-        if not chatId or notification is None or time is None:
+        if not chatId or content is None or timestamp is None:
             return {
                 "success": False,
                 "id": None,
                 "data": None,
-                "error": "chatId, notification, time are required"
+                "error": "chatId, content, timestamp are required"
             }
         uid = uid or str(uuid.uuid4())
         with self.session_scope() as session:
@@ -696,8 +698,8 @@ class ChatService(metaclass=SingletonMeta):
             notif = ChatNotification(
                 uid=uid,
                 chatId=chatId,
-                notification=notification,
-                time=time,
+                content=content,
+                timestamp=timestamp,
                 isRead=isRead
             )
             session.add(notif)
@@ -723,13 +725,13 @@ class ChatService(metaclass=SingletonMeta):
         with self.session_scope() as session:
             query = session.query(ChatNotification).filter(ChatNotification.chatId == chatId)
             if reverse:
-                query = query.order_by(ChatNotification.time.desc())
+                query = query.order_by(ChatNotification.timestamp.desc())
             else:
-                query = query.order_by(ChatNotification.time.asc())
-            notifications = query.offset(offset).limit(limit).all()
+                query = query.order_by(ChatNotification.timestamp.asc())
+            chat_notifications = query.offset(offset).limit(limit).all()
             return {
                 "success": True,
                 "id": chatId,
-                "data": [n.to_dict() for n in notifications],
+                "data": [n.to_dict() for n in chat_notifications],
                 "error": None
             }

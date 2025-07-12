@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import os
 import logging
-from .models import Base, DBVersion
+from agent.chats.chats_db import Base, DBVersion
 
 from utils.logger_helper import logger_helper as logger
 
@@ -29,7 +29,6 @@ class DBMigration:
         """获取当前数据库版本，若无则自动插入1.0.0"""
         session = self.Session()
         try:
-            from agent.chats.models import DBVersion
             version = DBVersion.get_current_version(session)
             if not version:
                 # 自动插入初始版本
@@ -163,8 +162,8 @@ class DBMigration:
                     metadata,
                     Column('uid', String(64), primary_key=True),
                     Column('chatId', String(64), nullable=False),
-                    Column('notification', JSON, nullable=False),
-                    Column('time', Integer, nullable=False),
+                    Column('content', JSON, nullable=False),
+                    Column('timestamp', Integer, nullable=False),
                     Column('isRead', Boolean, default=False)
                 )
                 metadata.create_all(self.engine, tables=[chat_notification])
