@@ -680,7 +680,7 @@ const ChatPage: React.FC = () => {
             detailsTitle={currentChat ? currentChat.name : t('pages.chat.chatDetails')}
             listContent={renderListContent()}
             detailsContent={currentChat ? renderDetailsContent() : <div className="empty-chat-placeholder">{t('pages.chat.selectAChat')}</div>}
-            chatNotificationTitle={t('pages.chat.chatNotification')}
+            chatNotificationTitle={t('pages.chat.chatNotificationTitle')}
             chatNotificationContent={renderRightPanel()}
             hasNewAgentNotifications={hasNew}
             onRightPanelToggle={(collapsed) => {

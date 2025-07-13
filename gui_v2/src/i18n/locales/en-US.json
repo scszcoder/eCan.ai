@@ -307,7 +307,17 @@
       "formSubmitSuccess": "Submitted successfully",
       "formSubmitFail": "Submission failed, please try again",
       "deleteMessageSuccess": "Message deleted successfully",
-      "deleteMessageFail": "Failed to delete message, please try again"
+      "deleteMessageFail": "Failed to delete message, please try again",
+      "chatNotificationTitle": "Chat Notifications",
+      "chatNotification": {
+        "loading": "Loading notifications...",
+        "noResults": "No search results",
+        "noMore": "No more notifications",
+        "dateFormat": "MM/DD/YYYY, h:mm A",
+        "templates": {
+          "product_search": "product_search"
+        }
+      }
     },
     "skills": {
       "title": "Skills",

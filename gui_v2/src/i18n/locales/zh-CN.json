@@ -323,7 +323,17 @@
       "formSubmitSuccess": "提交成功",
       "formSubmitFail": "提交失败，请重试",
       "deleteMessageSuccess": "消息删除成功",
-      "deleteMessageFail": "消息删除失败，请重试"
+      "deleteMessageFail": "消息删除失败，请重试",
+      "chatNotificationTitle": "聊天通知",
+      "chatNotification": {
+        "loading": "正在加载通知...",
+        "noResults": "暂无搜索结果",
+        "noMore": "没有更多通知",
+        "dateFormat": "YYYY年MM月DD日 HH:mm",
+        "templates": {
+          "product_search": "product_search"
+        }
+      }
     },
     "skills": {
       "title": "技能",
