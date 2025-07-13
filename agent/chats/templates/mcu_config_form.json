@@ -56,6 +56,27 @@
         { "label": "USB", "value": "USB" }
       ],
       "defaultValue": "UART"
+    },
+    {
+      "id": "temperature",
+      "type": "slider",
+      "label": "温度设置",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "°C",
+      "defaultValue": 25,
+      "required": true
+    },
+    {
+      "id": "volume",
+      "type": "slider",
+      "label": "音量控制",
+      "min": 0,
+      "max": 10,
+      "step": 0.5,
+      "unit": "",
+      "defaultValue": 5
     }
   ],
   "submit_text": "保存"

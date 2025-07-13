@@ -1,5 +1,5 @@
 import React from 'react';
-import { Form, Button, Card } from '@douyinfe/semi-ui';
+import { Form, Button, Card, Slider } from '@douyinfe/semi-ui';
 import styles from './FormField.module.css';
 import { useTranslation } from 'react-i18next';
 import { getValidators, validateField } from '../hooks/useChatForm';
@@ -26,7 +26,7 @@ interface DynamicFormProps {
 
 /**
  * 动态表单组件，根据传入的 form 配置渲染不同类型的表单项。
- * 支持 text、textarea、number、select、checkbox、radio、date、password、switch 等类型。
+ * 支持 text、textarea、number、select、checkbox、radio、date、password、switch、slider 等类型。
  * @param {object} props
  * @param {object} props.form - 表单配置对象，包含 fields 数组
  * @param {string} [props.chatId] - 聊天ID
@@ -35,6 +35,7 @@ interface DynamicFormProps {
  */
 export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageId, onFormSubmit }) => {
   const { t } = useTranslation();
+  const [sliderValues, setSliderValues] = React.useState<Record<string, number>>({});
 
   // 构造初始表单值
   const initialValues: Record<string, any> = {};
@@ -42,6 +43,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
     let v = field.selectedValue !== undefined ? field.selectedValue : field.defaultValue;
     if (field.type === 'checkbox') {
       initialValues[field.id] = Array.isArray(v) ? v : v !== undefined && v !== null && v !== '' ? [v] : [];
+    } else if (field.type === 'slider') {
+      // 滑动组件的默认值处理
+      if (v !== undefined && v !== null && v !== '') {
+        initialValues[field.id] = Number(v);
+      } else {
+        // 如果没有默认值，使用最小值或0
+        initialValues[field.id] = field.min !== undefined ? field.min : 0;
+      }
     } else {
       initialValues[field.id] = v !== undefined ? v : '';
     }
@@ -71,7 +80,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
   };
 
   // 表单提交处理
-  const handleSubmit = (values: Record<string, any>) => {
+  const handleSubmit: (values: Record<string, any>) => void = (values) => {
     const processedForm = {
       ...form,
       fields: form.fields.map(field => ({
@@ -162,6 +171,59 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                       key={field.id}
                       field={field.id} 
                       label={label} />;
+            case 'slider':
+              const currentValue = sliderValues[field.id] !== undefined ? sliderValues[field.id] : initialValues[field.id];
+              const min = field.min !== undefined ? field.min : 0;
+              const max = field.max !== undefined ? field.max : 100;
+              const step = field.step !== undefined ? field.step : 1;
+              const unit = field.unit || '';
+              
+              // 计算当前值在滑块上的位置百分比
+              const percentage = ((currentValue - min) / (max - min)) * 100;
+              
+              return (
+                <div key={field.id} style={{ width: '100%', position: 'relative' }}>
+                  <Form.Slider
+                    field={field.id}
+                    label={label}
+                    min={min}
+                    max={max}
+                    step={step}
+                    marks={{
+                      [min]: `${min}${unit}`,
+                      [max]: `${max}${unit}`
+                    }}
+                    tipFormatter={(value) => `${value}${unit}`}
+                    style={{ width: '100%' }}
+                    onChange={(value) => {
+                      if (typeof value === 'number') {
+                        setSliderValues(prev => ({
+                          ...prev,
+                          [field.id]: value
+                        }));
+                      }
+                    }}
+                  />
+                  {/* 在滑块中间显示当前值 */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '35%',
+                    left: `${Math.max(10, Math.min(90, percentage))}%`,
+                    transform: 'translate(-50%, -50%)',
+                    backgroundColor: '#1890ff',
+                    color: 'white',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                    zIndex: 10,
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }}>
+                    {currentValue}{unit}
+                  </div>
+                </div>
+              );
             default:
               logger.warn("unkown form field type: ", field.type)
               return <Form.Input 
