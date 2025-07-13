@@ -1,10 +1,35 @@
 import React, { useRef, useEffect } from 'react';
 import { Empty, Divider } from 'antd';
 import styled from '@emotion/styled';
+import { useTranslation } from 'react-i18next';
 import { useChatNotifications, NOTIF_PAGE_SIZE } from '../hooks/useChatNotifications';
 import ProductSearchNotification from './ProductSearchNotification';
+import i18n from '../../../i18n';
 
-
+// 日期格式化函数
+const formatDate = (timestamp: string | number, t: (key: string) => string) => {
+  if (!timestamp) return '';
+  
+  const date = new Date(timestamp);
+  const format = t('pages.chat.chatNotification.dateFormat');
+  
+  // 简单的日期格式化实现
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  
+  // 根据语言返回不同格式
+  const currentLang = i18n.language;
+  if (currentLang === 'zh-CN') {
+    return `${year}年${month}月${day}日 ${hours}:${minutes}`;
+  } else {
+    const ampm = date.getHours() >= 12 ? 'PM' : 'AM';
+    const displayHours = date.getHours() % 12 || 12;
+    return `${month}/${day}/${year}, ${displayHours}:${minutes} ${ampm}`;
+  }
+};
 
 const NotifyContainer = styled.div`
   padding: 32px 40px;
@@ -26,9 +51,11 @@ const EmptyContainer = styled.div`
 `;
 
 const NotificationTemplateRenderer: React.FC<{ content: any }> = ({ content }) => {
-  const template = content?.render_template || 'product_search';
+  const { t } = useTranslation();
+  const defaultTemplate = t('pages.chat.chatNotification.templates.product_search');
+  const template = content?.render_template || defaultTemplate;
   switch (template) {
-    case 'product_search':
+    case defaultTemplate:
     default:
       return <ProductSearchNotification content={content} />;
   }
@@ -40,6 +67,7 @@ interface ChatNotificationProps {
 }
 
 const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLoading }) => {
+  const { t } = useTranslation();
   const { chatNotificationItems, hasMore, loadMore, loadingMore } = useChatNotifications(chatId, NOTIF_PAGE_SIZE, true);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef(0);
@@ -135,7 +163,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   if (isInitialLoading) {
     return (
       <EmptyContainer>
-        <Empty description="Loading notifications..." />
+        <Empty description={t('pages.chat.chatNotification.loading')} />
       </EmptyContainer>
     );
   }
@@ -143,7 +171,7 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   if (!displayChatNotifications || displayChatNotifications.length === 0) {
     return (
       <EmptyContainer>
-        <Empty description="No search results" />
+        <Empty description={t('pages.chat.chatNotification.noResults')} />
       </EmptyContainer>
     );
   }
@@ -157,13 +185,13 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
           </div>
           {i < displayChatNotifications.length - 1 && (
             <Divider orientation="center" style={{ color: '#aaa', fontSize: 12 }}>
-              {n.timestamp ? new Date(n.timestamp).toLocaleString() : ''}
+              {n.timestamp ? formatDate(n.timestamp, t) : ''}
             </Divider>
           )}
         </React.Fragment>
       ))}
       <div ref={bottomRef} style={{ height: 20 }} />
-      {!hasMore && <div style={{textAlign: 'center'}}>No more notifications</div>}
+      {!hasMore && <div style={{textAlign: 'center'}}>{t('pages.chat.chatNotification.noMore')}</div>}
     </NotifyContainer>
   );
 };
