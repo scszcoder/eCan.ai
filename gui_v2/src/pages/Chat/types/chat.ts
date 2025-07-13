@@ -86,7 +86,7 @@ export interface Member {
  */
 export interface FormField {
     id: string;
-    type: 'text' | 'number' | 'select' | 'checkbox' | 'radio' | 'textarea' | 'date' | 'password' | 'switch';
+    type: 'text' | 'number' | 'select' | 'checkbox' | 'radio' | 'textarea' | 'date' | 'password' | 'switch' | 'slider';
     label: string;
     placeholder?: string;
     required?: boolean;
@@ -94,6 +94,11 @@ export interface FormField {
     defaultValue?: any;
     validator?: string; // 前端无法直接传递函数，可以使用预定义的验证器名称
     selectedValue?: any; // 新增，允许表单渲染时优先使用
+    // 滑动组件专用属性
+    min?: number; // 最小值
+    max?: number; // 最大值
+    step?: number; // 步长
+    unit?: string; // 单位（如：px、%、°C等）
 }
 
 /**
