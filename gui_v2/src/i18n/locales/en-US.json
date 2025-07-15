@@ -288,6 +288,8 @@
       "reset": "Reset",
       "fullscreen": "Fullscreen",
       "submit": "Submit",
+      "customInputPlaceholder": "Please enter a custom value",
+      "doubleClickToEdit": "Double click to edit",
       "inputPlaceholder": "Please enter {{label}}",
       "selectPlaceholder": "Please select {{label}}",
       "formErrorTip": "Please fix form errors before submitting",
