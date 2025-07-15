@@ -79,7 +79,7 @@ export function TestRunButton(props: { disabled: boolean }) {
   return (
     <>
       {button}
-      <TestRunSidePanel visible={visible} onCancel={() => setVisible((v) => !v)} />
+      <TestRunSidePanel visible={visible} onCancel={() => setVisible(false)} />
     </>
   );
 }

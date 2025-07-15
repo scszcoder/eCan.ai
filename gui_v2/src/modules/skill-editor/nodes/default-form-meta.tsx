@@ -65,6 +65,20 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
       return undefined;
     },
   },
+  /**
+   * Initialize (fromJSON) data transformation
+   * 初始化(fromJSON) 数据转换
+   * @param value
+   * @param ctx
+   */
+  formatOnInit: (value, ctx) => value,
+  /**
+   * Save (toJSON) data transformation
+   * 保存(toJSON) 数据转换
+   * @param value
+   * @param ctx
+   */
+  formatOnSubmit: (value, ctx) => value,
   effect: {
     title: syncVariableTitle,
     outputs: provideJsonSchemaOutputs,
