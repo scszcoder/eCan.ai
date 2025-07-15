@@ -1168,7 +1168,7 @@ async def os_connect_to_adspower(mainwin, args):
         time.sleep(1)
         # Switch to the new tab
         webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(1)
+        time.sleep(2)
         # Navigate to the new URL in the new tab
         domTree = {}
         if url:
