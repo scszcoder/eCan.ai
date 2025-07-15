@@ -99,6 +99,7 @@ export interface FormField {
     max?: number; // 最大值
     step?: number; // 步长
     unit?: string; // 单位（如：px、%、°C等）
+    custom?: boolean; // 新增，支持自定义 select
 }
 
 /**
