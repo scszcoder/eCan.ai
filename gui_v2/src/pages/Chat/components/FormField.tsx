@@ -167,7 +167,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
       ...form,
       fields: form.fields.map(field => ({
         ...field,
-        selectedValue: values[field.id]
+        selectedValue: values[field.id],
+        options: field.type === 'select' && field.custom === true
+          ? (localOptions[field.id] || [])
+          : field.options
       }))
     };
     onFormSubmit?.(form.id, values, chatId, messageId, processedForm);
@@ -271,10 +274,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                                     ...prev,
                                     [field.id]: [...(prev[field.id] || []), { label: v, value: v }]
                                   };
-                                  setSelectValue(sv => ({ ...sv, [field.id]: v }));
-                                  if (formRef.current?.setValue) {
-                                    formRef.current.setValue(field.id, v);
-                                  }
+                                  // 延迟同步 value，确保 option 已加入
+                                  setTimeout(() => {
+                                    setSelectValue(sv => ({ ...sv, [field.id]: v }));
+                                    if (formRef.current?.setValue) {
+                                      formRef.current.setValue(field.id, v);
+                                    }
+                                  }, 0);
                                   return updated;
                                 });
                               } else {
@@ -297,10 +303,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                                       ...prev,
                                       [field.id]: [...(prev[field.id] || []), { label: v, value: v }]
                                     };
-                                    setSelectValue(sv => ({ ...sv, [field.id]: v }));
-                                    if (formRef.current?.setValue) {
-                                      formRef.current.setValue(field.id, v);
-                                    }
+                                    // 延迟同步 value，确保 option 已加入
+                                    setTimeout(() => {
+                                      setSelectValue(sv => ({ ...sv, [field.id]: v }));
+                                      if (formRef.current?.setValue) {
+                                        formRef.current.setValue(field.id, v);
+                                      }
+                                    }, 0);
                                     return updated;
                                   });
                                 } else {
@@ -338,10 +347,13 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                         <Select
                           value={selectValue[field.id]}
                           onChange={v => {
-                            setSelectValue(sv => ({ ...sv, [field.id]: v }));
-                            if (formRef.current?.setValue) {
-                              formRef.current.setValue(field.id, v);
-                            }
+                            setSelectValue(sv => {
+                              // 保证 setValue 一定和 selectValue 同步
+                              if (formRef.current?.setValue) {
+                                formRef.current.setValue(field.id, v);
+                              }
+                              return { ...sv, [field.id]: v };
+                            });
                           }}
                           optionList={options}
                           placeholder={placeholder}
