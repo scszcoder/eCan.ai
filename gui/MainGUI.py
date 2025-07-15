@@ -1472,6 +1472,7 @@ class MainWindow(QMainWindow):
     def load_build_dom_tree_script(self):
         script = ""
         try:
+            print("Loading build dom tree script...", self.build_dom_tree_script_path)
             with open(self.build_dom_tree_script_path, 'r', encoding='utf-8') as file:
                 script = file.read()
             return script
@@ -8633,6 +8634,9 @@ class MainWindow(QMainWindow):
         self.missions.append(trMission)
 
         return trMission
+
+    def getTrialRunMission(self):
+        return self.trMission
 
     def addSkillToTrialRunMission(self, skid):
         found = False

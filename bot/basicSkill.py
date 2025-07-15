@@ -2624,7 +2624,7 @@ def group_1D(int_list, threshold=25):
 def find_clickable_object(sd, target, template, target_type, nth):
     log3("LOOKING FOR:"+json.dumps(target)+"   "+json.dumps(template)+"   "+json.dumps(target_type)+"   "+json.dumps(nth))
     found = {"loc": None}
-    if target != "paragraph":
+    if target != "paragraph":           # for anchors and info.
         # reg = re.compile(target+"[0-9]+")
         reg = re.compile(rf"^{target}([0-9]*)$")
         targets = [x for x in sd if (x["name"] == target or reg.match(x["name"].split("!")[0])) and x["type"] == target_type]
@@ -6931,4 +6931,29 @@ async def processLogCrossNetwork8(step, i, mission):
 
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
+
+
+def mousePressAndHold(loc, duration):
+    # Move to the position
+    pyautogui.moveTo(loc[0], loc[1])
+
+    # Press and hold left mouse button down
+    pyautogui.mouseDown()
+
+    # Wait
+    time.sleep(duration)
+
+    # Release the mouse button
+    pyautogui.mouseUp()
+
+# sd is the screen data, word is the word to be press and hold on.
+def mousePressAndHoldOnScreenWord(sd, word, duration= 12, nth=0):
+    # find the word,
+    obj_box = find_clickable_object(sd, "paragraph", word, "info", 0)
+    if obj_box:
+        loc = get_clickable_loc(obj_box, "center", [0, 0], "box")
+        mousePressAndHold(loc, duration)
+
+
+
 

@@ -48,10 +48,11 @@ def go_to_site_node(state: NodeState) -> NodeState:
             #     "os_connect_to_adspower", arguments={"input": state.tool_input}
             # )
             print("new loop go_to_site_node tool completed:", type(tool_result), tool_result)
-            if "completed" in tool_result["content"][0]["text"]:
-                state["result"] = tool_result
+            if "completed" in tool_result.content[0]["text"]:
+                state.result = tool_result.content[0]["text"]
+                state.tool_result = tool_result.meta
             else:
-                state["error"] = tool_result
+                state["error"] = tool_result.content[0]["text"]
 
             return state
         except Exception as e:
@@ -68,10 +69,11 @@ def go_to_site_node(state: NodeState) -> NodeState:
             #     "os_connect_to_adspower", arguments={"input": state.tool_input}
             # )
             print("old loop go_to_site_node tool completed:", type(tool_result), tool_result)
-            if "completed" in tool_result["content"][0]["text"]:
-                state["result"] = tool_result
+            if "completed" in tool_result.content[0]["text"]:
+                state.result = tool_result.content[0]["text"]
+                state.tool_result = tool_result.meta
             else:
-                state["error"] = tool_result
+                state["error"] = tool_result.content[0]["text"]
 
             return state
         except Exception as e:

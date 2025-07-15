@@ -158,19 +158,7 @@ def build_agent_mcp_tools_schemas():
                         "win_title_kw": {
                             "type": "string",
                             "description": "the window title keyword for the window to be screen captured, (default is \"\" which means top window)",
-                        },
-                        "sub_area": {
-                            "type": "[int]",
-                            "description": "sub area of screen shot with relative offset [left, top, right, bottom]",
-                        },
-                        "site": {
-                            "type": "string",
-                            "description": "web site or app info",
-                        },
-                        "engine": {
-                            "type": "string",
-                            "description": "a choice of local/lan/wan",
-                        },
+                        }
                     },
                 }
             }
@@ -352,6 +340,33 @@ def build_agent_mcp_tools_schemas():
                         "post_wait": {
                             "type": "int",
                             "description": "wait number of seconds after post movement",
+                        }
+                    }
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="solve_px_captcha",
+        description="solve px captcha, PerimeterX Captcha, by read screen, and emulate pressing and holding button for certin amount of time.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["keyword", "duration"],
+                    "properties": {
+                        "keyword": {
+                            "type": "[string]",
+                            "description": "the text on the button to where the mouse will be pressed and held down",
+                        },
+                        "duration": {
+                            "type": "int",
+                            "description": "press and hold for this number of seconds before releasing",
                         }
                     }
                 }
