@@ -1,28 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { Form, Button, Card, Slider, Input, Select, Tooltip } from '@douyinfe/semi-ui';
+import { IconInfoCircle } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { getValidators, validateField } from '../hooks/useChatForm';
 import { FormField as IFormField } from '../types/chat';
 import { logger } from '@/utils/logger';
-
-// 自定义样式
-const customSelectStyles = `
-.custom-select-wrapper {
-  position: relative;
-  cursor: pointer;
-}
-.custom-select-wrapper:hover::after {
-  content: "双击添加自定义选项";
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: var(--semi-color-tertiary);
-  opacity: 0.7;
-  pointer-events: none;
-}
-`;
 
 interface DynamicFormProps {
   form: {
@@ -54,8 +36,6 @@ interface DynamicFormProps {
 export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageId, onFormSubmit }) => {
   const { t } = useTranslation();
   const [sliderValues, setSliderValues] = React.useState<Record<string, number>>({});
-  const [selectRefs] = useState<Record<string, any>>({});
-  const [allowCreateFields, setAllowCreateFields] = useState<Record<string, boolean>>({});
   const [customInputMode, setCustomInputMode] = useState<Record<string, boolean>>({});
   const [customInputValue, setCustomInputValue] = useState<Record<string, string>>({});
   const customInputRefs = useRef<Record<string, any>>({});
@@ -162,16 +142,11 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
     // 只有当字段配置为允许自定义时才处理
     const field = form.fields.find(f => f.id === fieldId);
     if (field && field.custom === true) {
-      setAllowCreateFields(prev => ({
-        ...prev,
-        [fieldId]: true
-      }));
       setCustomInputMode(prev => ({ ...prev, [fieldId]: true }));
       setCustomInputValue(prev => ({ ...prev, [field.id]: currentValue || '' }));
       // 延迟一点，确保状态更新后再聚焦
       setTimeout(() => {
         if (customInputRefs.current[fieldId]) {
-          // 只调用 focus，不再调用 setDropdownVisible
           customInputRefs.current[fieldId].focus();
         }
       }, 50);
@@ -208,7 +183,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
       >
         {form.fields.map((field: any) => {
           const label = t(field.label) || field.label;
-          const placeholder = field.placeholder;
+          const placeholder = field.placeholder ? t(field.placeholder) : '';
           const required = field.required;
           const rules = getFieldRules(field);
           const value = formRef.current?.getValue ? formRef.current.getValue(field.id) : initialValues[field.id];
@@ -219,22 +194,24 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
             : (Array.isArray(field.options)
                 ? field.options.map((opt: { label: string; value: string | number }) => ({ label: t(opt.label) || String(opt.label), value: opt.value }))
                 : []);
-          // 获取原始 options 的 value 类型
-          const originType = Array.isArray(field.options) && field.options.length > 0 ? typeof field.options[0].value : 'string';
-          // 转换自定义输入为原始类型
-          const parseCustomValue = (v: string) => {
-            if (originType === 'number') {
-              const n = Number(v);
-              return isNaN(n) ? v : n;
-            }
-            return v;
-          };
+          // labelNode 统一处理所有类型
+          const labelNode = (
+            <label className="semi-form-field-label">
+              {required && <span className="semi-form-field-label-asterisk">*</span>}
+              {label}
+              {field.tooltip && (
+                <Tooltip content={t(field.tooltip)}>
+                  <IconInfoCircle style={{ marginLeft: 4, color: 'var(--semi-color-primary)', verticalAlign: 'middle', cursor: 'pointer' }} />
+                </Tooltip>
+              )}
+            </label>
+          );
           switch (field.type) {
             case 'text':
               return <Form.Input 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       placeholder={placeholder} 
                       required={required} 
                       rules={rules} />;
@@ -242,7 +219,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
               return <Form.TextArea 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       placeholder={placeholder} 
                       required={required} 
                       rules={rules} />;
@@ -250,7 +227,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
               return <Form.Input 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       type="number" 
                       placeholder={placeholder} 
                       required={required} 
@@ -272,12 +249,17 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                       <label className="semi-form-field-label">
                         {required && <span className="semi-form-field-label-asterisk">*</span>}
                         {label}
+                        {field.tooltip && (
+                          <Tooltip content={t(field.tooltip)}>
+                            <IconInfoCircle style={{ marginLeft: 4, color: 'var(--semi-color-primary)', verticalAlign: 'middle', cursor: 'pointer' }} />
+                          </Tooltip>
+                        )}
                       </label>
                       <div className="semi-form-field-control">
                         <Input
                           ref={el => customInputRefs.current[field.id] = el}
                           value={customInputValue[field.id] || ''}
-                          placeholder={placeholder || '请输入自定义值'}
+                          placeholder={placeholder || t('pages.chat.customInputPlaceholder')}
                           onChange={v => setCustomInputValue(prev => ({ ...prev, [field.id]: v }))}
                           onBlur={() => {
                             const v = customInputValue[field.id]?.trim();
@@ -345,9 +327,14 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                     <label className="semi-form-field-label">
                       {required && <span className="semi-form-field-label-asterisk">*</span>}
                       {label}
+                      {field.tooltip && (
+                        <Tooltip content={t(field.tooltip)}>
+                          <IconInfoCircle style={{ marginLeft: 4, color: 'var(--semi-color-primary)', verticalAlign: 'middle', cursor: 'pointer' }} />
+                        </Tooltip>
+                      )}
                     </label>
                     <div className="semi-form-field-control">
-                      <Tooltip content="双击进行编辑" position="right">
+                      <Tooltip content={t('pages.chat.doubleClickToEdit')} position="right">
                         <Select
                           value={selectValue[field.id]}
                           onChange={v => {
@@ -393,7 +380,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                   <Form.Select
                     key={field.id}
                     field={field.id}
-                    label={label}
+                    label={labelNode}
                     optionList={options}
                     placeholder={placeholder}
                     rules={rules}
@@ -406,25 +393,25 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
               return <Form.CheckboxGroup 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       options={options.map((opt: { label: string; value: string | number }) => opt as { label: string; value: string | number })} />;
             case 'radio':
               return <Form.RadioGroup 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       options={options.map((opt: { label: string; value: string | number }) => opt as { label: string; value: string | number })} />;
             case 'date':
               return <Form.DatePicker 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       placeholder={placeholder} />;
             case 'password':
               return <Form.Input 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       type="password" 
                       placeholder={placeholder} 
                       required={required} 
@@ -433,7 +420,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
               return <Form.Switch 
                       key={field.id}
                       field={field.id} 
-                      label={label} />;
+                      label={labelNode} />;
             case 'slider':
               const currentValue = sliderValues[field.id] !== undefined ? sliderValues[field.id] : initialValues[field.id];
               const min = field.min !== undefined ? field.min : 0;
@@ -448,7 +435,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
                 <div key={field.id} style={{ width: '100%', position: 'relative' }}>
                   <Form.Slider
                     field={field.id}
-                    label={label}
+                    label={labelNode}
                     min={min}
                     max={max}
                     step={step}
@@ -492,7 +479,7 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
               return <Form.Input 
                       key={field.id} 
                       field={field.id} 
-                      label={label} 
+                      label={labelNode} 
                       placeholder={placeholder} 
                       required={required} />;
           }
@@ -511,11 +498,10 @@ export const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageI
               textShadow: '0 1px 2px rgba(0,0,0,0.15)'
             }}
           >
-            {form.submit_text || t('pages.chat.submit')}
+            {form.submit_text ? t(form.submit_text) : t('pages.chat.submit')}
           </Button>
         </div>
       </Form>
-      <style>{customSelectStyles}</style>
     </Card>
   );
 };
