@@ -5,12 +5,12 @@
 
 import { FC, useState } from 'react';
 
+import { Tag } from '@douyinfe/semi-ui';
 import { IconSmallTriangleDown } from '@douyinfe/semi-icons';
 
 import { DataStructureViewer } from '../viewer';
 
 import './index.css';
-import { Tag } from '@douyinfe/semi-ui';
 
 interface NodeStatusGroupProps {
   title: string;
@@ -19,7 +19,7 @@ interface NodeStatusGroupProps {
   disableCollapse?: boolean;
 }
 
-const isObjectHasContent = (obj: any = {}): boolean => Object.keys(obj).length > 0;
+const isObjectHasContent = (obj: any = {}): boolean => obj && Object.keys(obj).length > 0;
 
 export const NodeStatusGroup: FC<NodeStatusGroupProps> = ({
   title,

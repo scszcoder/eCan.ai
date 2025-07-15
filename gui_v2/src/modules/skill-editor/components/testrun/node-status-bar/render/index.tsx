@@ -227,6 +227,16 @@ export const NodeStatusRender: FC<NodeStatusRenderProps> = ({ report }) => {
           padding: '0px 2px 10px 2px',
         }}
       >
+        {isNodeFailed && currentSnapshot?.error && (
+          <div
+            style={{
+              padding: 12,
+              color: 'red',
+            }}
+          >
+            {currentSnapshot.error}
+          </div>
+        )}
         {renderSnapshotNavigation()}
         <NodeStatusGroup title="Inputs" data={currentSnapshot?.inputs} />
         <NodeStatusGroup title="Outputs" data={currentSnapshot?.outputs} />
