@@ -16,12 +16,20 @@ import subprocess
 from mcp.server.lowlevel import Server
 import traceback
 from mcp.server.fastmcp.prompts import base
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult, TextContent, ContentBlock
 from mcp.server.streamable_http import (
+    MCP_PROTOCOL_VERSION_HEADER,
+    MCP_SESSION_ID_HEADER,
+    SESSION_ID_PATTERN,
+    EventCallback,
+    EventId,
+    EventMessage,
+    EventStore,
     StreamableHTTPServerTransport,
+    StreamId,
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from pydantic import AnyUrl
+from agent.mcp.server.scrapers.px_captcha.px_captcha_solver import px_captcha_solve
 
 from agent.mcp.server.tool_schemas import *
 import json
@@ -157,7 +165,7 @@ async def say_hello(mainwin, args):
 
 async def os_wait(mainwin, args):
     try:
-        msg = f'🕒  Waited for {args["input"]["seconds"]} seconds'
+        msg = f'🕒  Waited for {args['input']["seconds"]} seconds'
         logger.info(msg)
         await asyncio.sleep(args['input']["seconds"])
         result = [TextContent(type="text", text=msg)]
@@ -181,7 +189,7 @@ async def in_browser_wait_for_element(mainwin, args):
         wait = WebDriverWait(web_driver, args["input"]["timeout"])
         sel = get_selector(args['input']["element_type"])
         args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
-        msg=f"completed loading element{args['input']['element_name']}."
+        msg=f"completed loading element{args['input']["element_name"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -195,14 +203,14 @@ async def in_browser_click_element_by_index(mainwin, args):
     web_driver = mainwin.getWebDriver()
 
     if args['input']['index'] not in await browser.get_selector_map():
-        raise Exception(f"Element with index {args['input']['index']} does not exist - retry or use alternative actions")
+        raise Exception(f'Element with index {args['input']['index']} does not exist - retry or use alternative actions')
 
     element_node = await browser.get_dom_element_by_index(args['input']['index'])
     initial_pages = len(session.pages)
 
     # if element has file uploader then dont click
     if await browser.is_file_uploader(element_node):
-        msg = f"Index {args['input']['index']} - has an element which opens file upload dialog. To upload files please use a specific function to upload files "
+        msg = f'Index {args['input']['index']} - has an element which opens file upload dialog. To upload files please use a specific function to upload files '
         logger.info(msg)
         return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
@@ -213,7 +221,7 @@ async def in_browser_click_element_by_index(mainwin, args):
         if download_path:
             msg = f'💾  Downloaded file to {download_path}'
         else:
-            msg = f'🖱️  Clicked button with index {args["input"]["index"]}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
+            msg = f'🖱️  Clicked button with index {args['input']['index']}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}'
 
         logger.info(msg)
         logger.debug(f'Element xpath: {element_node.xpath}')
@@ -222,7 +230,7 @@ async def in_browser_click_element_by_index(mainwin, args):
             msg += f' - {new_tab_msg}'
             logger.info(new_tab_msg)
             await browser.switch_to_tab(-1)
-        msg = f'completed loading element by index {args["input"]["index"]}.'
+        msg = f"completed loading element by index {args['input']["index"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -247,10 +255,10 @@ async def in_browser_click_element_by_selector(mainwin, args):
                         # Handle with js evaluate if fails to click using playwright
                         await element_node.evaluate('el => el.click()')
                     except Exception as e:
-                        logger.warning(f"Element not clickable with css selector '{args['input']['css_selector']}' - {e}")
+                        logger.warning(f"Element not clickable with css selector '{args['input']["css_selector"]}' - {e}")
                         return CallToolResult(error=str(e))
 
-        msg = f"completed loading element by index {args['input']['css_selector']}."
+        msg = f"completed loading element by index {args['input']["css_selector"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -274,9 +282,9 @@ async def in_browser_click_element_by_xpath(mainwin, args):
                     # Handle with js evaluate if fails to click using playwright
                     await element_node.evaluate('el => el.click()')
                 except Exception as e:
-                    logger.warning(f"Element not clickable with xpath {args['input']['xpath']} - {e}")
+                    logger.warning(f"Element not clickable with xpath '{args['input']["xpath"]}' - {e}")
                     return CallToolResult(error=str(e))
-            msg = f"completed loading element by index {args['input']['xpath']}."
+            msg = f"completed loading element by index {args['input']["xpath"]}."
             result = [TextContent(type="text", text=msg)]
             return result
     except Exception as e:
@@ -331,7 +339,7 @@ async def in_browser_input_text(mainwin, args):
             time.sleep(args['input']["post_wait"])
 
 
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed loading element by index {args['input']["index"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -346,7 +354,7 @@ async def in_browser_switch_tab(mainwin, args):
     try:
         web_driver = mainwin.getWebDriver()
         webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
-        msg = f"completed in-browser switch tab {args['input']['tab_title_txt']}."
+        msg = f"completed in-browser switch tab {args['input']["tab_title_txt"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -374,7 +382,7 @@ async def in_browser_open_tab(mainwin, args):
 
         msg = f'completed'
         logger.info(msg)
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed loading element by index {args['input']["index"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -393,7 +401,7 @@ async def in_browser_close_tab(mainwin, args):
                     break
         web_driver.close()
 
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed loading element by index {args['input']["index"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -408,7 +416,7 @@ async def in_browser_scrape_content(mainwin, args):
         dom_service = mainwin.dom_service
         dom_service.get_clickable_elements()
 
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed loading element by index {args['input']["index"]}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -422,7 +430,7 @@ async def in_browser_execute_javascript(mainwin, args):
         web_driver = mainwin.getWebDriver()
         result = execute_js_script(web_driver, args['input']["script"], args['input']["target"])
 
-        msg = f"completed in browser execute javascript {args['input']['script']}."
+        msg = f"completed in browser execute javascript {args['input']["script"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -484,14 +492,14 @@ async def in_browser_scroll(mainwin, args):
         web_driver = mainwin.getWebDriver()
 
         if args["input"]["direction"].lower() == "down":
-            web_driver.execute_script(f"window.scrollBy(0, {args['input']['amount']});")
+            web_driver.execute_script(f"window.scrollBy(0, {args["input"]["amount"]});")
         else:
-            web_driver.execute_script(f"window.scrollBy(0, -{args['input']['amount']});")
+            web_driver.execute_script(f"window.scrollBy(0, -{args["input"]["amount"]});")
 
         if args["input"]["post_wait"]:
             time.sleep(args["input"]["post_wait"])
 
-        msg = f"completed in browser scroll {args['input']['direction']} {args['input']['amount']}."
+        msg = f"completed in browser scroll {args['input']['direction']} {args['input']["amount"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -512,7 +520,7 @@ async def in_browser_send_keys(mainwin, args):
 
         msg = f'⌨️  Sent keys: {args.keys}'
         logger.info(msg)
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed loading element by index {args['input']["index"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -531,7 +539,7 @@ async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
         web_driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
 
 
-        msg = f"completed in browser scroll to text {args['input']['text']}."
+        msg = f"completed in browser scroll to text {args['input']["text"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -590,8 +598,8 @@ async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
 
                     all_options.extend(formatted_options)
 
-            except Exception as frame_e:
-                logger.debug(f'Frame {frame_index} evaluation failed: {str(frame_e)}')
+            except Exception as e:
+                logger.debug(f'Frame {frame_index} evaluation failed: {str(e)}')
 
             frame_index += 1
 
@@ -599,13 +607,13 @@ async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
             msg = '\n'.join(all_options)
             msg += '\nUse the exact text string in select_dropdown_option'
             logger.info(msg)
-            msg = f"completed loading element by index {args['input']['index']}."
+            msg = f"completed loading element by index {args['input']["index"]}."
             tool_result = [TextContent(type="text", text=msg)]
             return tool_result
         else:
             msg = 'No options found in any frame for dropdown'
             logger.info(msg)
-            msg = f"completed loading element by index {args['input']['index']}."
+            msg = f"completed loading element by index {args['input']["index"]}."
             tool_result = [TextContent(type="text", text=msg)]
             return tool_result
 
@@ -651,12 +659,7 @@ async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
 							const select = document.evaluate(xpath, document, null,
 								XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
 							if (!select) return null;
-							if (select.tagName.toLowerCase() !== 'select') {
-								return {
-									error: `Found element but it's a ${select.tagName}, not a SELECT`,
-									found: false
-								};
-							}
+
 							return {
 								id: select.id,
 								name: select.name,
@@ -702,7 +705,7 @@ async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
 
         msg = f"Could not select option '{text}' in any frame"
         logger.info(msg)
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed loading element by index {args['input']["index"]}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -1421,7 +1424,7 @@ async def os_seven_zip(mainwin, args):
                 cmd_output = subprocess.call(exe + " a " + args["input"]["src"] + "-o" + args["input"]["dest"])
             else:
                 cmd_output = subprocess.call(exe + " e " + args["input"]["src"])
-            msg = f'completed seven zip {args["input"]["src"]}'
+            msg = f"completed seven zip {args["input"]["src"]}"
         else:
             # we are unzipping a single file
             if args["input"]["dest"] != "":
@@ -1429,7 +1432,7 @@ async def os_seven_zip(mainwin, args):
                 cmd_output = subprocess.Popen(cmd)
             else:
                 cmd_output = subprocess.call(exe + " e " + args["input"]["src"])
-            msg = f'completed seven unzip {args["input"]["src"]}'
+            msg = f"completed seven unzip {args["input"]["src"]}"
 
         result = [TextContent(type="text", text=msg)]
         return result
@@ -1460,7 +1463,7 @@ async def rpa_supervisor_scheduling_work(mainwin, args) -> CallToolResult:
     try:
         # mainwin = params["agent"].mainwin
         print(f"[MCP] Running supervisor scheduler tool... ")
-        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)})")
+        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
         schedule = server_main_win.fetchSchedule("", server_main_win.get_vehicle_settings())
         print("MCP fetched schedule.......", schedule)
         # workable = server_main_win.runTeamPrepHook(schedule)

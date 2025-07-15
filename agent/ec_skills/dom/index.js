@@ -1,5 +1,7 @@
-// Initially adopted from open source browser-use project.
-const buildTree = (
+// source:https://github.com/browser-use/browser-use/blob/main/browser_use/dom/dom_tree/index.js
+// this file will never be modified from the original, only serve as a ref.
+// last updated: 2025-07-12
+(
   args = {
     doHighlightElements: true,
     focusHighlightIndex: -1,
@@ -9,12 +11,6 @@ const buildTree = (
 ) => {
   const { doHighlightElements, focusHighlightIndex, viewportExpansion, debugMode } = args;
   let highlightIndex = 0; // Reset highlight index
-
-  const logs = [];
-  const log = (message) => logs.push(`[LOG] ${message}`);
-  const logError = (message) => logs.push(`[ERROR] ${message}`);
-
-  log(`[DOM_DEBUG] buildTree initiated. Performing sanity checks...`);
 
   // Add caching mechanisms at the top level
   const DOM_CACHE = {
@@ -27,8 +23,7 @@ const buildTree = (
       DOM_CACHE.computedStyles = new WeakMap();
     }
   };
-  // *** FIX: Clear the cache at the start of the run for a clean state. ***
-  DOM_CACHE.clearCache();
+
   /**
    * Gets the cached bounding rect for an element.
    *
@@ -425,11 +420,6 @@ const buildTree = (
    */
   function isTextNodeVisible(textNode) {
     try {
-      // Always include text under <option> / <optgroup> since they are not rendered in layout but are semantically important
-      const pe = textNode.parentElement;
-      if (pe && ['option','optgroup'].includes(pe.tagName.toLowerCase())) {
-        return true;
-      }
       // Special case: when viewportExpansion is -1, consider all text nodes as visible
       if (viewportExpansion === -1) {
         // Still check parent visibility for basic filtering
@@ -512,20 +502,15 @@ const buildTree = (
    * @returns {boolean} Whether the element is accepted.
    */
   function isElementAccepted(element) {
-//    if (!element || !element.tagName) return false;
+    if (!element || !element.tagName) return false;
 
     // Always accept body and common container elements
     const alwaysAccept = new Set([
-        "body", "div", "main", "article", "section", "nav", "header", "footer",
-        "form", "fieldset", "legend", // <-- container/semantic
-        "label", "select", "option", "input", "textarea", "button", // <-- all form controls
-        "span", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", // common UI structure
-        "a", // in case filters use anchor links
-        // If you want: "svg", "g", "path" for icon buttons, etc.
+      "body", "div", "main", "article", "section", "nav", "header", "footer"
     ]);
     const tagName = element.tagName.toLowerCase();
 
-//    if (alwaysAccept.has(tagName)) return true;
+    if (alwaysAccept.has(tagName)) return true;
 
     const leafElementDenyList = new Set([
       "svg",
@@ -537,8 +522,7 @@ const buildTree = (
       "template",
     ]);
 
-//    return !leafElementDenyList.has(tagName);
-    return true;
+    return !leafElementDenyList.has(tagName);
   }
 
   /**
@@ -547,83 +531,15 @@ const buildTree = (
    * @param {HTMLElement} element - The element to check.
    * @returns {boolean} Whether the element is visible.
    */
-//  function isElementVisible(element) {
-//    const style = getCachedComputedStyle(element);
-//    return (
-//      element.offsetWidth > 0 &&
-//      element.offsetHeight > 0 &&
-//      style?.visibility !== "hidden" &&
-//      style?.display !== "none"
-//    );
-//  }
-    function isElementVisible(element) {
-     if (!element) return false;
-//     log(`isElementVisible called on: ${element.tagName || '[not element]'} id=${element.id || ''} class=${element.className || ''}`);
-
-      if (!element || element.nodeType !== Node.ELEMENT_NODE) {
-//        log(`A isElementVisible(${element.tagName} id=${element.id} class=${element.className}): style.display=${style.display}, style.visibility=${style.visibility}, offsetWidth=${element.offsetWidth}, offsetHeight=${element.offsetHeight}`);
-        return false;
-      }
-
-      const tagName = element.tagName.toLowerCase();
-
-      // 1. Always treat form controls as visible (they can be styled strangely)
-      if (["select", "option", "optgroup", "input", "textarea", "button", "label"].includes(tagName)) {
-        // Additional check: must be attached to DOM
-        if (element.offsetParent === null && !["option"].includes(tagName)) {
-          // Not visible if detached, except for <option> (option doesn't have offsetParent)
-//          log(`B isElementVisible(${element.tagName} id=${element.id} class=${element.className}): style.display=${style.display}, style.visibility=${style.visibility}, offsetWidth=${element.offsetWidth}, offsetHeight=${element.offsetHeight}`);
-
-          return false;
-        }
-        return true;
-      }
-
-      // 2. Prefer the browser's native checkVisibility (very accurate if supported)
-      if (typeof element.checkVisibility === 'function') {
-        try {
-          return element.checkVisibility({
-            checkOpacity: true,
-            checkVisibilityCSS: true
-          });
-        } catch (e) {
-          // Fallback below
-        }
-      }
-
-      // 3. Standard style checks
-      const style = window.getComputedStyle(element);
-      if (!style || style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') {
-//        log(`C isElementVisible(${element.tagName} id=${element.id} class=${element.className}): style.display=${style.display}, style.visibility=${style.visibility}, offsetWidth=${element.offsetWidth}, offsetHeight=${element.offsetHeight}`);
-        return false;
-      }
-
-      // 4. Geometric visibility: has some area on screen
-      const rect = element.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        // Still check if offscreen entirely
-        if (
-          rect.bottom < 0 ||
-          rect.top > (window.innerHeight || document.documentElement.clientHeight) ||
-          rect.right < 0 ||
-          rect.left > (window.innerWidth || document.documentElement.clientWidth)
-        ) {
-          // Offscreen, but sometimes needed (could be in a scrollable area)
-          // Optional: return false; // Uncomment if you want stricter viewport
-        }
-        return true;
-      }
-
-      // 5. For SVG or weird cases: check for children
-      if (element.children && element.children.length > 0) {
-        for (const child of element.children) {
-          if (isElementVisible(child)) return true;
-        }
-      }
-
-//      log(`D isElementVisible(${element.tagName} id=${element.id} class=${element.className}): style.display=${style.display}, style.visibility=${style.visibility}, offsetWidth=${element.offsetWidth}, offsetHeight=${element.offsetHeight}`);
-      return false;
-    }
+  function isElementVisible(element) {
+    const style = getCachedComputedStyle(element);
+    return (
+      element.offsetWidth > 0 &&
+      element.offsetHeight > 0 &&
+      style?.visibility !== "hidden" &&
+      style?.display !== "none"
+    );
+  }
 
   /**
    * Checks if an element is interactive.
@@ -1074,7 +990,7 @@ const buildTree = (
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
 
     // Skip non-visible elements early for performance
-//    if (!isElementVisible(element)) return false;
+    if (!isElementVisible(element)) return false;
 
     // Check for common attributes that often indicate interactivity
     const hasInteractiveAttributes =
@@ -1250,25 +1166,6 @@ const buildTree = (
     return false; // Did not highlight
   }
 
-    function describeNode(node) {
-        if (!node) {
-            return '[LOG] SKIPPING (not visible): node=null or undefined';
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-            let attrObj = {};
-            if (node.getAttributeNames) {
-                node.getAttributeNames().forEach(name => attrObj[name] = node.getAttribute(name));
-            }
-            return `[LOG] SKIPPING (not visible): tag=${node.tagName} id=${node.id || ''} class=${node.className || ''} attrs=${JSON.stringify(attrObj)} outerHTML=${node.outerHTML && node.outerHTML.slice(0, 120)}...`;
-        } else if (node.nodeType === Node.TEXT_NODE) {
-            return `[LOG] SKIPPING (not visible): #text value="${(node.nodeValue || '').trim()}"`;
-        } else if (node.nodeType === Node.COMMENT_NODE) {
-            return `[LOG] SKIPPING (not visible): #comment value="${(node.nodeValue || '').trim()}"`;
-        } else {
-            return `[LOG] SKIPPING (not visible): nodeType=${node.nodeType} nodeValue="${node.nodeValue}"`;
-        }
-    }
-
   /**
    * Creates a node data object for a given node and its descendants.
    *
@@ -1278,20 +1175,9 @@ const buildTree = (
    * @returns {string | null} The ID of the node data object, or null if the node is not processed.
    */
   function buildDomTree(node, parentIframe = null, isParentHighlighted = false) {
-
     // Fast rejection checks first
     if (!node || node.id === HIGHLIGHT_CONTAINER_ID ||
       (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE)) {
-
-      let attrObj = {};
-        if (node.getAttributeNames) {
-          node.getAttributeNames().forEach(name => attrObj[name] = node.getAttribute(name));
-        }
-        log(
-          `SKIPPING (not visible): tag=${node.tagName} id=${node.id || ''} class=${node.className || ''} ` +
-          `attrs=${JSON.stringify(attrObj)} outerHTML=${node.outerHTML && node.outerHTML.slice(0, 120)}...`
-        );
-
       return null;
     }
 
@@ -1348,15 +1234,12 @@ const buildTree = (
 
     // Quick checks for element nodes
     if (node.nodeType === Node.ELEMENT_NODE && !isElementAccepted(node)) {
-      log(`[VISIBLE] ${node.tagName} id=${node.id || ''} class=${node.className || ''}`);
       return null;
     }
 
     // Early viewport check - only filter out elements clearly outside viewport
     // The getBoundingClientRect() of the Shadow DOM host element may return width/height = 0
-    // MODIFICATION: Added `node.tagName.toLowerCase() !== 'iframe'` to prevent pruning iframes
-    // that might be initially hidden but contain important interactive
-    if (viewportExpansion !== -1 && !node.shadowRoot && node.tagName.toLowerCase() !== 'iframe') {
+    if (viewportExpansion !== -1 && !node.shadowRoot) {
       const rect = getCachedBoundingRect(node); // Keep for initial quick check
       const style = getCachedComputedStyle(node);
 
@@ -1413,22 +1296,8 @@ const buildTree = (
 
     let nodeWasHighlighted = false;
     // Perform visibility, interactivity, and highlighting checks
-    // This block is changed to handle iframe visibility correctly.
     if (node.nodeType === Node.ELEMENT_NODE) {
-//      log(`buildDomTree: visiting node ${node.nodeName} id=${node.id || ''} class=${node.className || ''}`);
-      // For iframes, we can't rely on isElementVisible if it's display:none, but we still want to process it.
-      // We'll mark it as not visible but continue processing its children.
-      if (node.tagName.toLowerCase() === 'iframe') {
-        nodeData.isVisible = false; // Mark as not visible, but don't stop processing.
-      } else {
-        nodeData.isVisible = isElementVisible(node); // isElementVisible uses offsetWidth/Height, which is fine
-      }
-
-      // This is the key diagnostic check
-      if (nodeData.tagName === 'faceted-search') {
-          log(`Checking <faceted-search> element. The value of .shadowRoot is: ${String(node.shadowRoot)}`);
-      }
-
+      nodeData.isVisible = isElementVisible(node); // isElementVisible uses offsetWidth/Height, which is fine
       if (nodeData.isVisible) {
         nodeData.isTopElement = isTopElement(node);
         if (nodeData.isTopElement) {
@@ -1443,18 +1312,12 @@ const buildTree = (
     if (node.tagName) {
       const tagName = node.tagName.toLowerCase();
 
-      // --- MODIFIED START ---
-      // The iframe handling logic is refined to start from the body and handle cross-origin errors.
+      // Handle iframes
       if (tagName === "iframe") {
-        log(`Processing <iframe>: id=${node.id || ''} src=${node.src || ''}`);
-
         try {
           const iframeDoc = node.contentDocument || node.contentWindow?.document;
-          if (iframeDoc && iframeDoc.body) {
-            // Since the iframe itself might not be "highlighted", we pass `false`
-            // to ensure its children are evaluated for highlighting independently.
-            // We also start from `iframeDoc.body.childNodes` to be more efficient.
-            for (const child of iframeDoc.body.childNodes) {
+          if (iframeDoc) {
+            for (const child of iframeDoc.childNodes) {
               const domElement = buildDomTree(child, node, false);
               if (domElement) nodeData.children.push(domElement);
             }
@@ -1480,7 +1343,6 @@ const buildTree = (
       else {
         // Handle shadow DOM
         if (node.shadowRoot) {
-          log(`Processing <${node.tagName}> shadow root`);
           nodeData.shadowRoot = true;
           for (const child of node.shadowRoot.childNodes) {
             const domElement = buildDomTree(child, parentIframe, nodeWasHighlighted);
@@ -1508,15 +1370,6 @@ const buildTree = (
       }
     }
 
-    // --- ADDED START ---
-    // This final check ensures we don't add other invisible elements that have no children.
-    // But if it's an iframe, we always want to add it because we've already processed its children.
-    if (!nodeData.isVisible && nodeData.children.length === 0 && node.tagName.toLowerCase() !== 'iframe') {
-//      log(describeNode(node));
-      return null;
-    }
-    // --- ADDED END ---
-
     const id = `${ID.current++}`;
     DOM_HASH_MAP[id] = nodeData;
     return id;
@@ -1525,18 +1378,7 @@ const buildTree = (
   const rootId = buildDomTree(document.body);
 
   // Clear the cache before starting
-  //  DOM_CACHE.clearCache();
+  DOM_CACHE.clearCache();
 
-//  return { rootId, map: DOM_HASH_MAP };
-return { result: { rootId, map: DOM_HASH_MAP }, logs: logs };
+  return { rootId, map: DOM_HASH_MAP };
 };
-
-// === Actual invocation & logging ===
-const result = buildTree({
-  doHighlightElements: false, // or false if you don't need the visual overlay
-  focusHighlightIndex: -1,
-  viewportExpansion: -1, // This is the key change to scan the entire page
-  debugMode: false,
-});     // ⬅️ Calls the function with defaults
-//console.log(result);           // ⬅️ Shows the result in console, but not really due to sandbox
-return result;

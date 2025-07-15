@@ -6,9 +6,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from twocaptcha import TwoCaptcha
-from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, JavascriptException, NoSuchFrameException
+from selenium.common.exceptions import StaleElementReferenceException
 
 from selenium.webdriver.common.by import By
 import requests
@@ -778,6 +777,7 @@ async def processWebdriverScrollTo8(step, i, mission):
         webDriverScrollTo8(driver, target_element, loc, increment)
 
         await log6("WebdriverScrollTo:[" + step["target_var"] + "]", "wan_log", mainwin, mission, i)
+
     except Exception as e:
         # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -2146,3 +2146,181 @@ def webDriverDownloadFile(driver, ele_type, ele_text, downloaded_file_dir, downl
         return downloaded_file_path
     else:
         return ""
+
+
+def webDriverWaitForPageToLoadFully(driver, timeout=30, sentry_locator=None):
+    """
+    A more robust function to wait for a page to be fully loaded.
+
+    It waits for:
+    1. document.readyState to be 'complete'.
+    2. Active jQuery AJAX calls to complete (if jQuery is present).
+    3. Optionally, a specific 'sentry' element to be visible.
+
+    Args:
+        driver: The Selenium WebDriver instance.
+        timeout (int): Maximum time to wait in seconds.
+        sentry_locator (tuple, optional): A locator for a key element to wait for,
+                                          e.g., (By.ID, "footer").
+
+    Returns:
+        bool: True if the page loaded successfully within the timeout, False otherwise.
+    """
+    print("Waiting for page to load fully...")
+
+    # 1. Wait for document.readyState to be 'complete'
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda d: d.execute_script('return document.readyState') == 'complete'
+        )
+    except TimeoutException:
+        print("Timed out waiting for document.readyState to be 'complete'.")
+        return False
+
+    # 2. Wait for jQuery AJAX calls to complete (if jQuery is present)
+    try:
+        has_jquery = driver.execute_script("return typeof jQuery != 'undefined'")
+        if has_jquery:
+            print("jQuery detected. Waiting for AJAX calls to complete...")
+            WebDriverWait(driver, timeout).until(
+                lambda d: d.execute_script("return jQuery.active == 0")
+            )
+    except (TimeoutException, JavascriptException):
+        # It's okay to fail here, jQuery might not be used for all requests.
+        print("Could not confirm jQuery AJAX completion (this might be okay).")
+        pass
+
+    # 3. Wait for a specific 'sentry' element to be visible, if provided
+    # common ones:
+    # main_content_locator = (By.TAG_NAME, "main")
+    # h1_locator = (By.TAG_NAME, "h1")
+    # footer_locator = (By.TAG_NAME, "footer")
+    if sentry_locator:
+        print(f"Waiting for sentry element '{sentry_locator}' to be visible...")
+        try:
+            WebDriverWait(driver, timeout).until(
+                EC.visibility_of_element_located(sentry_locator)
+            )
+        except TimeoutException:
+            print(f"Timed out waiting for sentry element '{sentry_locator}'.")
+            return False
+
+    print("Page appears to be fully loaded.")
+    return True
+
+
+def wait_for_potential_captcha(driver, timeout=25): # Increased timeout for maximum safety
+    """
+    Handles highly dynamic, nested, and initially hidden CAPTCHA iframes.
+    This is the most robust method, using a JavaScript-based polling loop
+    to wait for the CAPTCHA's own scripts to finish rendering the challenge.
+    """
+    from pathlib import Path
+    try:
+        # 1. Switch to the outer CAPTCHA iframe. This part is reliable.
+        print("Checking for outer CAPTCHA iframe...")
+        driver.switch_to.default_content()
+
+        css_primary = "iframe[title='Human verification challenge']"  # broader selector
+        css_fallback = "#px-captcha iframe"
+        iframe_el = None
+        deadline = time.time() + (timeout * 2)  # allow longer since PX may inject late
+
+        while time.time() < deadline:
+            try:
+                # try primary selector first
+                iframe_el = driver.find_element(By.CSS_SELECTOR, css_primary)
+            except NoSuchElementException:
+                try:
+                    iframe_el = driver.find_element(By.CSS_SELECTOR, css_fallback)
+                except NoSuchElementException:
+                    iframe_el = None
+                    # JavaScript fallback – sometimes Selenium can't see freshly added nodes yet
+                    try:
+                        iframe_el = driver.execute_script(
+                            "return document.querySelector('#px-captcha iframe, iframe[title=\\'Human verification challenge\\']');")
+                    except JavascriptException:
+                        iframe_el = None
+
+            if iframe_el:
+                # element located – break immediately (display may still be none initially)
+                print("Outer CAPTCHA iframe candidate located.")
+                break
+
+            print("[DEBUG] polling… total iframes:", len(driver.find_elements(By.TAG_NAME, "iframe")))
+            time.sleep(0.5)
+
+        if not iframe_el:
+            print("[!] Timed out waiting for CAPTCHA iframe")
+            print(driver.execute_script("return document.documentElement.outerHTML"))
+
+            return False
+
+        html = driver.page_source  # same as driver.execute_script("return document.documentElement.outerHTML")
+        Path("debug.html").write_text(html, encoding="utf-8")
+        print("Saved current DOM to debug.html.")
+        iframes = driver.find_elements(By.TAG_NAME, "iframe")
+        print(f"Found {len(iframes)} iframes:")
+        for i, frm in enumerate(iframes):
+            try:
+                if hasattr(frm, "get_attribute"):
+                    attrs = {
+                        "id": frm.get_attribute("id"),
+                        "name": frm.get_attribute("name"),
+                        "title": frm.get_attribute("title"),
+                        "src": frm.get_attribute("src"),
+                        "class": frm.get_attribute("class"),
+                        "style": frm.get_attribute("style"),
+                    }
+                    print(i, attrs)
+                else:
+                    # Handle unexpected dict-like objects
+                    print(i, frm)
+            except Exception as attr_err:
+                print(f"[DEBUG] Unable to fetch attributes for iframe {i}: {attr_err}")
+
+        # ----------------------------------------------------------------------------------
+        # Per the captured DOM there is a SINGLE iframe nested directly inside #px-captcha.
+        # There is **no** additional inner iframe, so we can switch to it directly.
+        # ----------------------------------------------------------------------------------
+
+        outer_iframe_locator = (By.CSS_SELECTOR, "#px-captcha iframe[title='Human verification challenge']")
+        try:
+            WebDriverWait(driver, timeout).until(
+                EC.frame_to_be_available_and_switch_to_it(outer_iframe_locator)
+            )
+            print("Switched to CAPTCHA iframe.")
+        except TimeoutException:
+            print("[!] CAPTCHA iframe not found within timeout. Proceeding with main flow.")
+            return False
+
+        # Inside the CAPTCHA iframe now – wait for the hold-button to become available
+        button_locator = (By.CSS_SELECTOR, "[role='button']")
+        try:
+            WebDriverWait(driver, timeout).until(
+                EC.visibility_of_element_located(button_locator)
+            )
+            print("CAPTCHA button detected and visible.")
+        except TimeoutException:
+            print("[!] CAPTCHA button not visible inside iframe within timeout.")
+
+        # Leave caller in the iframe context so that subsequent code can click the button,
+        # but ensure we always drop back to the main document if the caller doesn't need it.
+    except TimeoutException:
+        print("\n[!] No CAPTCHA iframe/button found within the timeout. Proceeding normally.")
+        # Debugging step: print the content of the current frame context.
+        try:
+            iframe_html = driver.execute_script("return document.body.innerHTML;")
+            print("\n--- DEBUG: CURRENT IFRAME CONTENT AT TIMEOUT ---")
+            print(iframe_html if iframe_html else "[Current iFrame body was empty]")
+            print("--- END DEBUG ---\n")
+        except JavascriptException as e:
+            print(f"[!] Could not get iframe content for debugging: {e}")
+
+    except NoSuchFrameException:
+        print("No CAPTCHA iframe found on the page. Proceeding normally.")
+
+    finally:
+        # IMPORTANT: Always switch back to the main document's context.
+        driver.switch_to.default_content()
+        print("Switched back to main document context.")
