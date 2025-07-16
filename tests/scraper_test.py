@@ -21,7 +21,7 @@ def load_build_dom_tree_script():
 
 def scrape_tests(url=""):
     if not url:
-        # url = "https://www.digikey.com/en/products/filter/tantalum-polymer-capacitors/70"
+        url = "https://www.digikey.com/en/products/filter/tantalum-polymer-capacitors/70"
         # url = "https://www.mouser.com/c/connectors/ic-component-sockets/"
         # url = "https://www.avnet.com/americas/products/c/power-management/"
         # # url = "https://eshop.wpgam.com/"   # no parametric filters
@@ -35,7 +35,7 @@ def scrape_tests(url=""):
         # url = "https://newpowerww.com/products/"
         # url = "https://www.newark.com/c/switches-relays/relays/power-relays"
         #
-        url = "https://www.microchip.com/en-us/parametric-search.html/980?filters=JTdCJTIyY2F0ZWdvcnlkcm9wZG93biUyMiUzQSU1QiUyMk1pY3JvY29udHJvbGxlcnMlMjBBbmQlMjBQcm9jZXNzb3JzJTIyJTJDJTIyQWxsJTIwTWljcm9jb250cm9sbGVycyUyMGFuZCUyME1pY3JvcHJvY2Vzc29ycyUyMiUyQyUyMiUyMiU1RCU3RA=="
+        # url = "https://www.microchip.com/en-us/parametric-search.html/980?filters=JTdCJTIyY2F0ZWdvcnlkcm9wZG93biUyMiUzQSU1QiUyMk1pY3JvY29udHJvbGxlcnMlMjBBbmQlMjBQcm9jZXNzb3JzJTIyJTJDJTIyQWxsJTIwTWljcm9jb250cm9sbGVycyUyMGFuZCUyME1pY3JvcHJvY2Vzc29ycyUyMiUyQyUyMiUyMiU1RCU3RA=="
         # url = "https://www.ti.com/power-management/acdc-dcdc-converters/products.html"
         # url = "https://www.analog.com/en/parametricsearch/12823#/"
         # url = "https://www.monolithicpower.com/en/products/power-management/switching-converters-controllers/step-down-buck/converters/vin-max-19v-to-29v.html"
