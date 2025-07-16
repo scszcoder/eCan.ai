@@ -1,11 +1,9 @@
 export interface Tool {
   name: string;
+  title: string | null;
   description: string;
-  inputSchema: {
-    type: string;
-    required: string[];
-    properties: Record<string, any>;
-  };
+  inputSchema: any;
+  outputSchema: any;
   annotations: any;
-  // 更多属性...
+  meta: any;
 } 
