@@ -1142,7 +1142,10 @@ async def http_call_api(mainwin, args):
 
 def page_scroll(web_driver, mainwin):
     try:
-        js_file_dir = os.path.dirname(mainwin.build_dom_tree_script_path)
+        if mainwin:
+            js_file_dir = os.path.dirname(mainwin.build_dom_tree_script_path)
+        else:
+            js_file_dir = "c:/users/songc/pycharmprojects/ecbot/agent/ec_skills/dom"
         auto_scroll_file_path = os.path.join(js_file_dir, "auto_scroll.js")
         with open(auto_scroll_file_path, 'r') as f:
             scrolling_functions_js = f.read()
