@@ -4,6 +4,11 @@ import json
 import traceback
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException, NoSuchElementException
 
 # =========================== ai generated dome tree code===========================================
 
@@ -359,6 +364,7 @@ class DomExtractor:
 
         return None  # No suitable title found
 
+
     def find_lists_and_menus(self):
         all_found_lists = {}
         processed_containers = set()
@@ -398,6 +404,8 @@ class DomExtractor:
                     queue.append(child_id)
                     visited.add(child_id)
         return descendants
+
+
 
     def _is_valid_title(self, title):
         if not title or not title.strip(): return False
@@ -572,6 +580,93 @@ class DomExtractor:
         # ... It finds the best container div and calls `_parse_filter_group` on its children ...
         return [] # Placeholder for the previous logic
 
+
+    def _find_div_table_components(self):
+        """Finds the header, body, and row containers of a div-based table."""
+        header_container = None
+        body_container = None
+
+        for el_id, el in self.dom_map.items():
+            attrs = el.get('attributes', {})
+            class_name = attrs.get('class', '')
+            # Heuristics for modern JS grids (like AG-Grid)
+            if 'ag-header-container' in class_name or 'ag-header-viewport' in class_name:
+                header_container = el_id
+            if 'ag-center-cols-container' in class_name:
+                body_container = el_id
+
+            if header_container and body_container:
+                return header_container, body_container
+
+        return None, None
+
+
+    def find_and_extract_tables(self):
+        """
+        Finds and extracts data from tables, prioritizing modern div-based grids
+        and falling back to standard HTML tables.
+        """
+        header_container_id, body_container_id = self._find_div_table_components()
+
+        if not (header_container_id and body_container_id):
+            print("Info: No div-based grid found. Add fallback to standard <table> parsing here if needed.")
+            return {}
+
+        # 1. Extract Headers
+        header_elements = self._get_all_descendants(header_container_id)
+        headers = [
+            (self.get_element(el_id).get('attributes').get('col-id'), self.get_element_text(el_id))
+            for el_id in header_elements
+            if self.get_element(el_id).get('attributes', {}).get('role') == 'columnheader'
+        ]
+        # Create a map of col-id to header text for accurate mapping
+        header_map = {col_id: text for col_id, text in headers if col_id}
+
+        # 2. Extract Rows and Cells
+        data_rows_container = self.get_element(body_container_id)
+        rows_data = {}
+
+        for row_id in data_rows_container.get('children', []):
+            row_element = self.get_element(row_id)
+            if not row_element or row_element.get('attributes', {}).get('role') != 'row':
+                continue
+
+            row_cells = row_element.get('children', [])
+
+            # Map cell data to headers using the col-id
+            row_dict = {}
+            primary_key = None
+
+            for cell_id in row_cells:
+                cell_element = self.get_element(cell_id)
+                if not cell_element: continue
+
+                col_id = cell_element.get('attributes', {}).get('col-id')
+                if col_id in header_map:
+                    header_text = header_map[col_id]
+                    cell_text = self.get_element_text(cell_id)
+                    row_dict[header_text] = cell_text
+
+            if not row_dict:
+                continue
+
+            # Use the value from the first header column as the primary key
+            first_header_id = headers[0][0] if headers else None
+            first_header_text = header_map.get(first_header_id)
+
+            if first_header_text and first_header_text in row_dict:
+                primary_key = row_dict[first_header_text].split('\n')[0].strip()  # Clean up the key
+
+            if primary_key:
+                # To avoid overwriting, handle duplicate keys if they exist
+                original_key = primary_key
+                counter = 2
+                while primary_key in rows_data:
+                    primary_key = f"{original_key}_{counter}"
+                    counter += 1
+                rows_data[primary_key] = row_dict
+
+        return rows_data
 # =============== due to arrow's parametric filter container ===============
 import time
 from selenium.common.exceptions import TimeoutException
@@ -679,3 +774,158 @@ def wait_for_dynamic_content(driver, timeout=30):
 #     # Now it's much safer to run your buildDomTree.js script
 #     dom_tree = driver.execute_script(build_dom_tree_script)
 #     # ...
+
+
+# =====================   utility to close cookie banner as well as some advertising popups ===============
+ACCEPT_KEYWORDS = [
+    "accept all", "allow all", "i accept", "agree to all",
+    "accept", "agree", "allow", "ok", "got it", "i understand", "consent"
+]
+
+# Keywords and selectors for generic "close" buttons on popups.
+CLOSE_SELECTORS = [
+    "//button[normalize-space(.)='X' or normalize-space(.)='x' or normalize-space(.)='×']",
+    "//*[contains(@id, 'close') or contains(@class, 'close') or contains(@id, 'dismiss') or contains(@class, 'dismiss')]",
+    "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'close')]",
+    "//a[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'close')]",
+    "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'no thanks')]",
+    "//a[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'no thanks')]",
+    "//*[@aria-label='Close' or @aria-label='close']"
+]
+
+# General XPath template for keyword-based searches.
+CLICKABLE_ELEMENT_XPATH = (
+    "//button[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{keyword}')] | "
+    "//a[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{keyword}')] | "
+    "//div[@role='button' and contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{keyword}')]"
+)
+
+
+# --- 2. The Main Function ---
+
+def handle_popups(webdriver, timeout: int = 10):
+    """
+    Attempts to find and close cookie banners, newsletter popups, and other overlays.
+
+    This function tries several strategies in order:
+    1. Searches for buttons/links with common "accept" keywords.
+    2. Searches for common "close" icons, buttons, or links.
+    3. Executes a JavaScript search to find and click elements within any Shadow DOM.
+    4. Switches to any iframes and repeats the search.
+
+    Args:
+        driver: The active Selenium WebDriver instance.
+        timeout: The maximum time in seconds to wait for elements.
+
+    Returns:
+        bool: True if a popup was likely closed, False otherwise.
+    """
+    print("Attempting to close popups and banners...")
+
+    # --- Strategy 1: Search for Cookie "Accept" Buttons ---
+    print("Strategy 1: Searching for cookie 'Accept' buttons...")
+    try:
+        for keyword in ACCEPT_KEYWORDS:
+            xpath = CLICKABLE_ELEMENT_XPATH.format(keyword=keyword)
+            try:
+                button = WebDriverWait(webdriver, 2).until(  # Use a shorter wait for this initial check
+                    EC.element_to_be_clickable((By.XPATH, xpath))
+                )
+                button.click()
+                print(f"Success: Clicked cookie button with keyword '{keyword}'.")
+                time.sleep(1)
+                return True
+            except (TimeoutException, NoSuchElementException):
+                continue
+            except ElementClickInterceptedException:
+                print(f"Warning: Element for '{keyword}' was intercepted. Trying JS click.")
+                webdriver.execute_script("arguments[0].click();", button)
+                print(f"Success: Clicked cookie button with keyword '{keyword}' using JavaScript.")
+                time.sleep(1)
+                return True
+    except Exception as e:
+        print(f"An error occurred during cookie search: {e}")
+
+    # --- Strategy 2: Search for Generic "Close" Buttons ---
+    print("Strategy 2: Searching for generic 'Close' buttons...")
+    try:
+        for xpath in CLOSE_SELECTORS:
+            try:
+                # Use find_elements to not fail immediately if one isn't found
+                close_buttons = WebDriverWait(webdriver, 2).until(
+                    EC.presence_of_all_elements_located((By.XPATH, xpath))
+                )
+                # Iterate through found elements and try to click a visible one
+                for button in close_buttons:
+                    if button.is_displayed():
+                        webdriver.execute_script("arguments[0].click();", button)
+                        print(f"Success: Clicked a close button using selector: {xpath}")
+                        time.sleep(1)
+                        return True
+            except (TimeoutException, NoSuchElementException):
+                continue
+    except Exception as e:
+        print(f"An error occurred during close button search: {e}")
+
+    # --- Strategy 3: Search within Shadow DOM ---
+    print("Strategy 3: Searching within Shadow DOMs...")
+    try:
+        all_keywords = ACCEPT_KEYWORDS + ["close", "dismiss", "no thanks"]
+        js_script = f"""
+            function findInShadows(root, keyword) {{
+                // Search for buttons, links, and elements with specific close-related attributes
+                const elements = root.querySelectorAll('button, a, div[role="button"], [id*="close"], [class*="close"], [aria-label*="close"]');
+                for (const el of elements) {{
+                    if (el.textContent.trim().toLowerCase().includes(keyword)) {{
+                        return el;
+                    }}
+                }}
+                const shadows = root.querySelectorAll('*');
+                for (const el of shadows) {{
+                    if (el.shadowRoot) {{
+                        const found = findInShadows(el.shadowRoot, keyword);
+                        if (found) return found;
+                    }}
+                }}
+                return null;
+            }}
+            const keywords = {str(all_keywords)};
+            for (const keyword of keywords) {{
+                const acceptButton = findInShadows(document, keyword);
+                if (acceptButton) {{
+                    acceptButton.click();
+                    return keyword;
+                }}
+            }}
+            return null;
+        """
+        clicked_keyword = webdriver.execute_script(js_script)
+        if clicked_keyword:
+            print(f"Success: Clicked button with keyword '{clicked_keyword}' in a Shadow DOM.")
+            time.sleep(1)
+            return True
+    except Exception as e:
+        print(f"An error occurred during Shadow DOM search: {e}")
+
+    # --- Strategy 4: Search within iFrames ---
+    print("Strategy 4: Searching within iFrames...")
+    try:
+        iframes = webdriver.find_elements(By.TAG_NAME, 'iframe')
+        for frame in iframes:
+            try:
+                webdriver.switch_to.frame(frame)
+                print("Switched to an iframe.")
+                # Recursively call the function inside the iframe
+                if handle_popups(webdriver, timeout=3):
+                    webdriver.switch_to.default_content()
+                    print("Success: Closed popup in an iframe and switched back.")
+                    return True
+                webdriver.switch_to.default_content()
+            except Exception as e:
+                print(f"Could not process an iframe: {e}")
+                webdriver.switch_to.default_content()
+    except Exception as e:
+        print(f"An error occurred during iframe search: {e}")
+
+    print("Warning: All strategies failed. No popups or banners were closed.")
+    return False

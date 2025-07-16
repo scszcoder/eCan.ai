@@ -2,6 +2,7 @@ import time
 from selenium import webdriver
 from bot.seleniumSkill import *
 from agent.ec_skills.dom.dom_utils import *
+from agent.mcp.server.server import page_scroll
 
 def load_build_dom_tree_script():
     script = ""
@@ -24,7 +25,7 @@ def scrape_tests(url=""):
         # url = "https://www.mouser.com/c/connectors/ic-component-sockets/"
         # url = "https://www.avnet.com/americas/products/c/power-management/"
         # # url = "https://eshop.wpgam.com/"   # no parametric filters
-        url = "https://www.arrow.com/en/categories/connectors/io-connectors/connector-circular"
+        # url = "https://www.arrow.com/en/categories/connectors/io-connectors/connector-circular"
         # url = "https://www.futureelectronics.com/c/semiconductors/analog--regulators-reference--linear-regulators/products"
         # url = "https://www.sager.com/category/sensors-and-transducers-magnetic-sensors/0000000526"
         # url = "https://www.tti.com/content/ttiinc/en/apps/part-search.html?c=circuit-protection/esd-protection-diodes-tvs-diodes"
@@ -37,7 +38,7 @@ def scrape_tests(url=""):
         # url = "https://www.microchip.com/en-us/parametric-search.html/980?filters=JTdCJTIyY2F0ZWdvcnlkcm9wZG93biUyMiUzQSU1QiUyMk1pY3JvY29udHJvbGxlcnMlMjBBbmQlMjBQcm9jZXNzb3JzJTIyJTJDJTIyQWxsJTIwTWljcm9jb250cm9sbGVycyUyMGFuZCUyME1pY3JvcHJvY2Vzc29ycyUyMiUyQyUyMiUyMiU1RCU3RA=="
         # url = "https://www.ti.com/power-management/acdc-dcdc-converters/products.html"
         # url = "https://www.analog.com/en/parametricsearch/12823#/"
-        # url = "https://www.monolithicpower.com/en/products/power-management/switching-converters-controllers/step-down-buck/converters/vin-max-19v-to-29v.html"
+        url = "https://www.monolithicpower.com/en/products/power-management/switching-converters-controllers/step-down-buck/converters/vin-max-19v-to-29v.html"
 
         # # cn ones.
         # url = "https://ceaci.cecport.com/products"
@@ -53,29 +54,55 @@ def scrape_tests(url=""):
 
 
     web_driver.get(url)  # Replace with the new URL
-    print("opened URL: " + url)
-    time.sleep(3)
-    script = load_build_dom_tree_script()
-    # print("dom tree build script to be executed", script)
-    target = None
-    domTree = execute_js_script(web_driver, script, target)
-    with open("domtree.json", 'w', encoding="utf-8") as dtjf:
-        json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
-        # self.rebuildHTML()
-        dtjf.close()
+    time.sleep(35)
+    print("waited for 35 seconds.................")
+    # scroll to bottom and back up to get the full page
+    page_scroll(web_driver, None)
+    time.sleep(1)
+    # wait for all dynamic content to settle
+    if wait_for_dynamic_content(web_driver):
+        print("opened URL: " + url)
+        time.sleep(3)
+        script = load_build_dom_tree_script()
+        # print("dom tree build script to be executed", script)
+        target = None
+        response = execute_js_script(web_driver, script, target)
+        domTree = response.get("result", {})
 
-    print("dom tree:", type(domTree), domTree.keys())
-    top_level_nodes = find_top_level_nodes(domTree)
-    print("top level nodes:", type(top_level_nodes), top_level_nodes)
-    top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
-    tls = collect_text_nodes_by_level(domTree)
-    print("level texts:", tls)
-    print("level N texts:", [len(tls[i]) for i in range(len(tls))])
-    for l in tls:
-        if l:
-            print("level texts:", [domTree["map"][nid]["text"] for nid in l])
+        # print out some logs.
+        logs = response.get("logs", [])
+        MAX_LOGS = 128
+        if len(logs) > MAX_LOGS:
+            llogs = MAX_LOGS
+        else:
+            llogs = len(logs)
+        for i in range(llogs):
+            print(logs[i])
 
-    sects = sectionize_dt_with_subsections(domTree)
-    print("sections:", sects)
-    test_result = "success"
-    return test_result
+        with open("domtree.json", 'w', encoding="utf-8") as dtjf:
+            json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
+            # self.rebuildHTML()
+            dtjf.close()
+
+        print("dom tree:", type(domTree), domTree.keys())
+        top_level_nodes = find_top_level_nodes(domTree)
+        print("top level nodes:", type(top_level_nodes), top_level_nodes)
+        top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
+        tls = collect_text_nodes_by_level(domTree)
+        print("level texts:", tls)
+        print("level N texts:", [len(tls[i]) for i in range(len(tls))])
+        for l in tls:
+            if l:
+                print("level texts:", [domTree["map"][nid]["text"] for nid in l])
+
+        domExtractor = DomExtractor(domTree["map"])
+        param_filter = domExtractor.find_parametric_filters()
+        print("param filter:", param_filter)
+
+        tables = domExtractor.find_and_extract_tables()
+        print("found tables:", tables)
+
+        sects = sectionize_dt_with_subsections(domTree)
+        print("sections:", sects)
+        test_result = "success"
+        return test_result
