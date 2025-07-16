@@ -1140,7 +1140,7 @@ async def http_call_api(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
-def page_scroll(mainwin, web_driver):
+def page_scroll(web_driver, mainwin):
     try:
         js_file_dir = os.path.dirname(mainwin.build_dom_tree_script_path)
         auto_scroll_file_path = os.path.join(js_file_dir, "auto_scroll.js")
