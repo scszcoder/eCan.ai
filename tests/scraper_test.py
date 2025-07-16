@@ -35,10 +35,10 @@ def scrape_tests(url=""):
         # url = "https://newpowerww.com/products/"
         # url = "https://www.newark.com/c/switches-relays/relays/power-relays"
         #
-        # url = "https://www.microchip.com/en-us/parametric-search.html/980?filters=JTdCJTIyY2F0ZWdvcnlkcm9wZG93biUyMiUzQSU1QiUyMk1pY3JvY29udHJvbGxlcnMlMjBBbmQlMjBQcm9jZXNzb3JzJTIyJTJDJTIyQWxsJTIwTWljcm9jb250cm9sbGVycyUyMGFuZCUyME1pY3JvcHJvY2Vzc29ycyUyMiUyQyUyMiUyMiU1RCU3RA=="
+        url = "https://www.microchip.com/en-us/parametric-search.html/980?filters=JTdCJTIyY2F0ZWdvcnlkcm9wZG93biUyMiUzQSU1QiUyMk1pY3JvY29udHJvbGxlcnMlMjBBbmQlMjBQcm9jZXNzb3JzJTIyJTJDJTIyQWxsJTIwTWljcm9jb250cm9sbGVycyUyMGFuZCUyME1pY3JvcHJvY2Vzc29ycyUyMiUyQyUyMiUyMiU1RCU3RA=="
         # url = "https://www.ti.com/power-management/acdc-dcdc-converters/products.html"
         # url = "https://www.analog.com/en/parametricsearch/12823#/"
-        url = "https://www.monolithicpower.com/en/products/power-management/switching-converters-controllers/step-down-buck/converters/vin-max-19v-to-29v.html"
+        # url = "https://www.monolithicpower.com/en/products/power-management/switching-converters-controllers/step-down-buck/converters/vin-max-19v-to-29v.html"
 
         # # cn ones.
         # url = "https://ceaci.cecport.com/products"
@@ -54,8 +54,10 @@ def scrape_tests(url=""):
 
 
     web_driver.get(url)  # Replace with the new URL
-    time.sleep(35)
-    print("waited for 35 seconds.................")
+    time.sleep(15)
+    print("waited for 15 seconds.................")
+    handle_popups(web_driver)
+    print("done with popups.................")
     # scroll to bottom and back up to get the full page
     page_scroll(web_driver, None)
     time.sleep(1)
