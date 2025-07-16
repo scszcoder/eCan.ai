@@ -195,7 +195,20 @@
       "selectVehicle": "Select a vehicle to view details",
       "name": "Name",
       "justNow": "Just now",
-      "twoWeeksFromNow": "2 weeks from now"
+      "twoWeeksFromNow": "2 weeks from now",
+      "basicInfo": "Basic Info",
+      "arch": "Architecture",
+      "os": "Operating System",
+      "botIds": "Bot IDs",
+      "functions": "Functions",
+      "testDisabled": "Test Disabled",
+      "lastUpdateTime": "Last Update Time",
+      "CAP": "CAP",
+      "mstats": "MStats",
+      "fieldLink": "Field Link",
+      "dailyMids": "Daily MIDs",
+      "ID": "ID",
+      "IP": "IP Address"
     },
     "schedule": {
       "title": "Schedule",

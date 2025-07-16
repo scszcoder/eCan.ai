@@ -149,6 +149,9 @@ class VEHICLE(QStandardItem):
                 }
         return jsd
 
+    def to_dict(self):
+        """返回车辆对象的字典表示，兼容原有genJson结构。"""
+        return self.genJson()
 
     def loadJson(self, dj):
         self.id = dj.get("vid", -1)
