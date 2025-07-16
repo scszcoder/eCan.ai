@@ -195,7 +195,20 @@
       "selectVehicle": "选择一个车辆查看详情",
       "name": "名称",
       "justNow": "刚刚",
-      "twoWeeksFromNow": "两周后"
+      "twoWeeksFromNow": "两周后",
+      "basicInfo": "基础信息",
+      "arch": "架构",
+      "os": "操作系统",
+      "botIds": "绑定Bot数",
+      "functions": "支持功能",
+      "testDisabled": "测试禁用",
+      "lastUpdateTime": "最后更新时间",
+      "CAP": "能力CAP",
+      "mstats": "统计信息",
+      "fieldLink": "现场链接",
+      "dailyMids": "每日MIDs",
+      "ID": "ID",
+      "IP": "IP地址"
     },
     "schedule": {
       "title": "日程安排",
