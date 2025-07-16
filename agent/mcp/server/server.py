@@ -492,9 +492,10 @@ async def in_browser_scroll(mainwin, args):
         web_driver = mainwin.getWebDriver()
 
         if args["input"]["direction"].lower() == "down":
-            web_driver.execute_script(f"window.scrollBy(0, {args["input"]["amount"]});")
+            scroll_amount = 0 - args["input"]["amount"]
         else:
-            web_driver.execute_script(f"window.scrollBy(0, -{args["input"]["amount"]});")
+            scroll_amount = args["input"]["amount"]
+        web_driver.execute_script(f"window.scrollBy(0, {args["input"]["amount"]});")
 
         if args["input"]["post_wait"]:
             time.sleep(args["input"]["post_wait"])
@@ -1138,9 +1139,13 @@ async def http_call_api(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
-def page_scroll(mainwin, web_driver):
+def page_scroll(web_driver, mainwin):
     try:
-        js_file_dir = os.path.dirname(mainwin.build_dom_tree_script_path)
+        if mainwin:
+            js_file_dir = os.path.dirname(mainwin.build_dom_tree_script_path)
+        else:
+            js_file_dir = "c:/users/songc/pycharmprojects/ecbot/agent/ec_skills/dom"
+
         auto_scroll_file_path = os.path.join(js_file_dir, "auto_scroll.js")
         with open(auto_scroll_file_path, 'r') as f:
             scrolling_functions_js = f.read()
@@ -1151,7 +1156,7 @@ def page_scroll(mainwin, web_driver):
 
     # 2. To scroll DOWN, append the call to scrollToPageBottom()
     print("Starting full page scroll-down...")
-    scroll_down_command = scrolling_functions_js + "\nscrollToPageBottom();"
+    scroll_down_command = scrolling_functions_js + "\nscrollToPageBottom(arguments[arguments.length - 1]);"
     down_scroll_count = web_driver.execute_async_script(scroll_down_command)
     print(f"Page fully scrolled down in {down_scroll_count} steps.")
 
@@ -1159,7 +1164,7 @@ def page_scroll(mainwin, web_driver):
 
     # 3. To scroll UP, append the call to scrollToPageTop() and pass arguments
     print("Scrolling back to the top of the page...")
-    scroll_up_command = scrolling_functions_js + "\nscrollToPageTop(arguments[0], arguments[1]);"
+    scroll_up_command = scrolling_functions_js + "\nscrollToPageTop(arguments[0], arguments[1], arguments[arguments.length - 1]);"
     # The arguments for the JS function are passed after the script string
     up_scroll_count = web_driver.execute_async_script(scroll_up_command, down_scroll_count, 600)
     print(f"Scrolled back to top in {up_scroll_count} steps.")
@@ -1206,40 +1211,50 @@ async def os_connect_to_adspower(mainwin, args):
             webdriver.get(url)  # Replace with the new URL
             print("opened URL: " + url)
             time.sleep(5)
+
+            # scroll to bottom and back up to get the full page
             page_scroll(mainwin, webdriver)
 
-            script = mainwin.load_build_dom_tree_script()
-            # print("dom tree build script to be executed", script)
-            target = None
-            response = execute_js_script(webdriver, script, target)
-            domTree = response.get("result", {})
-            logs = response.get("logs", [])
-            if len(logs) > 128:
-                llen = 128
-            else:
-                llen = len(logs)
+            # wait for all dynamic content to settle
+            if wait_for_dynamic_content(webdriver):
 
-            for i in range(llen):
-                print(logs[i])
+                script = mainwin.load_build_dom_tree_script()
+                # print("dom tree build script to be executed", script)
+                target = None
+                response = execute_js_script(webdriver, script, target)
+                domTree = response.get("result", {})
+                logs = response.get("logs", [])
+                if len(logs) > 128:
+                    llen = 128
+                else:
+                    llen = len(logs)
 
-            with open("domtree.json", 'w', encoding="utf-8") as dtjf:
-                json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
-                # self.rebuildHTML()
-                dtjf.close()
+                for i in range(llen):
+                    print(logs[i])
 
-            print("dom tree:", type(domTree), domTree.keys())
-            top_level_nodes = find_top_level_nodes(domTree)
-            print("top level nodes:", type(top_level_nodes), top_level_nodes)
-            top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
-            tls = collect_text_nodes_by_level(domTree)
-            print("level texts:", tls)
-            print("level N texts:", [len(tls[i]) for i in range(len(tls))])
-            for l in tls:
-                if l:
-                    print("level texts:", [domTree["map"][nid]["text"] for nid in l])
+                with open("domtree.json", 'w', encoding="utf-8") as dtjf:
+                    json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
+                    # self.rebuildHTML()
+                    dtjf.close()
 
-            sects = sectionize_dt_with_subsections(domTree)
-            print("sections:", sects)
+                print("dom tree:", type(domTree), domTree.keys())
+                top_level_nodes = find_top_level_nodes(domTree)
+                print("top level nodes:", type(top_level_nodes), top_level_nodes)
+                top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
+                tls = collect_text_nodes_by_level(domTree)
+                print("level texts:", tls)
+                print("level N texts:", [len(tls[i]) for i in range(len(tls))])
+                for l in tls:
+                    if l:
+                        print("level texts:", [domTree["map"][nid]["text"] for nid in l])
+
+                domExtractor = DomExtractor(domTree)
+                param_filter = domExtractor.find_parametric_filters()
+                print("param filter:", param_filter)
+
+
+                sects = sectionize_dt_with_subsections(domTree)
+                print("sections:", sects)
         mainwin.setWebDriver(webdriver)
         # set up output.
         msg = "completed connect to adspower."
@@ -1734,5 +1749,3 @@ async def handle_sse(scope, receive, send):
 async def sse_handle_messages(scope, receive, send):
     print(">>> sse handle messages connected")
     await meca_sse.handle_post_message(scope, receive, send)
-
-

@@ -1,6 +1,3 @@
-
-
-
 /**
  * Scrolls down the page in increments until the page height stabilizes,
  * ensuring all lazy-loaded content is triggered.
@@ -10,37 +7,37 @@
  */
 async function scrollToPageBottom() {
   const done = arguments[arguments.length - 1];
+  const root = document.documentElement;
   const scrollStep = Math.round(window.innerHeight * 0.85);
+  const maxScrolls = 40; // Hard safety cap
   let downScrolls = 0;
   let lastHeight = -1;
   let stableCount = 0;
-  const maxStableCount = 3; // Stop after 3 stable checks where height doesn't change
+  const maxStableCount = 3;
 
-  while (stableCount < maxStableCount) {
-    const currentHeight = document.body.scrollHeight;
+  try {
+    while (stableCount < maxStableCount && downScrolls < maxScrolls) {
+      const currentHeight = root.scrollHeight;
+      if (currentHeight === lastHeight) {
+        stableCount++;
+      } else {
+        stableCount = 0;
+      }
+      lastHeight = currentHeight;
 
-    // Check if the page height has stopped changing
-    if (currentHeight === lastHeight) {
-      stableCount++;
-    } else {
-      stableCount = 0; // Reset counter if height changes
+      window.scrollBy(0, scrollStep);
+      downScrolls++;
+
+      // early exit if we're already at the bottom
+      if (root.scrollTop + window.innerHeight >= currentHeight) {
+        break;
+      }
+
+      await new Promise(r => setTimeout(r, 500));
     }
-    lastHeight = currentHeight;
-
-    window.scrollBy(0, scrollStep);
-    downScrolls++;
-
-    // Wait for a moment to allow new content to load
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Break if we've reached the absolute bottom of the page
-    if (window.innerHeight + window.scrollY >= document.body.scrollHeight) {
-      break;
-    }
+  } finally {
+    done(downScrolls);
   }
-
-  // Return the number of scrolls performed to the Python callback
-  done(downScrolls);
 }
 
 /**
@@ -51,24 +48,19 @@ async function scrollToPageBottom() {
  * @param {number} scrollStepSize - The pixel size for each upward scroll step.
  */
 async function scrollToPageTop() {
-  const downScrolls = arguments[0];
-  const scrollStepSize = arguments[1] || 600; // Use provided step or a default
+  const downScrolls = (arguments[0] ?? 0);
+  const scrollStepSize = arguments[1] || 600;
   const done = arguments[arguments.length - 1];
 
   let upScrolls = 0;
-  for (let i = 0; i < downScrolls; i++) {
-    if (window.scrollY === 0) break; // Check if we are already at the top
-
-    window.scrollBy(0, -scrollStepSize);
-    upScrolls++;
-
-    // A short delay to make the scroll smooth
-    await new Promise(resolve => setTimeout(resolve, 50));
+  try {
+    for (let i = 0; i < downScrolls && window.scrollY > 0; i++) {
+      window.scrollBy(0, -scrollStepSize);
+      upScrolls++;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    window.scrollTo(0, 0);
+  } finally {
+    done(upScrolls);
   }
-
-  // As a final measure, ensure we are exactly at the top
-  window.scrollTo(0, 0);
-
-  // Return the number of upward scrolls performed
-  done(upScrolls);
 }
