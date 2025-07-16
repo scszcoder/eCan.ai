@@ -131,6 +131,10 @@ export class IPCAPI {
         return this.executeRequest<T>('get_vehicles', {username, v_ids });
     }
 
+    public async get_vehicles<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_vehicles', { });
+    }
+
     public async getTools<T>(username: string, tool_ids: string[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_tools', {username, tool_ids });
     }

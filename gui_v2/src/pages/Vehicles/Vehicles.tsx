@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { List, Tag, Typography, Space, Button, Progress, Row, Col, Statistic, Card, Badge } from 'antd';
+import { List, Tag, Space, Button, Progress, Row, Col, Statistic, Card, Badge } from 'antd';
 import { 
     CarOutlined,
     ClusterOutlined,
@@ -23,8 +23,9 @@ import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
 import { IPCAPI } from '@/services/ipc/api';
 import { useUserStore } from '../../stores/userStore';
-
-const { Text, Title } = Typography;
+import { Vehicle } from './types';
+import VehicleList from './VehicleList';
+import VehicleDetails from './VehicleDetails';
 
 const VehicleItem = styled.div`
     padding: 12px;
@@ -53,35 +54,6 @@ const VehicleItem = styled.div`
         color: var(--text-primary);
     }
 `;
-
-interface Vehicle {
-    id: number;
-    name: string;
-    type: string;
-    status: 'active' | 'maintenance' | 'offline';
-    battery: number;
-    location: string;
-    lastMaintenance: string;
-    totalDistance: number;
-    currentTask?: string;
-    nextMaintenance?: string;
-}
-
-const vehiclesEventBus = {
-    listeners: new Set<(data: Vehicle[]) => void>(),
-    subscribe(listener: (data: Vehicle[]) => void) {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-    },
-    emit(data: Vehicle[]) {
-        this.listeners.forEach(listener => listener(data));
-    }
-};
-
-// 导出更新数据的函数
-export const updateVehiclesGUI = (data: Vehicle[]) => {
-    vehiclesEventBus.emit(data);
-};
 
 const Vehicles: React.FC = () => {
     const { t } = useTranslation();
@@ -131,19 +103,31 @@ const Vehicles: React.FC = () => {
         setItems: setVehicles  // Add this line
     } = useDetailView<Vehicle>(initialVehicles);
 
-    const username = useUserStore((state) => state.username);
+    const username = useUserStore((state) => state.username) ?? '';
+
+    useEffect(() => {
+        if (!username) return;
+        (async () => {
+            const response = await IPCAPI.getInstance().get_vehicles();
+            console.log(response.data)
+            if (response && response.success && response.data) {
+                setVehicles(response.data.vehicles);
+            }
+        })();
+    }, [username, setVehicles]);
 
     const handleRefresh = useCallback(async () => {
+        if (!username) return;
         try {
-            const response = await IPCAPI.getInstance().getVehicles(username,[]);
+            const response = await IPCAPI.getInstance().get_vehicles();
             console.log('Vehicles refreshed:', response);
             if (response && response.success && response.data) {
-                setVehicles(response.data);
+                setVehicles(response.data.vehicles);
             }
         } catch (error) {
             console.error('Error refreshing vehicles:', error);
         }
-    }, [setVehicles]);
+    }, [setVehicles, username]);
 
     // Add refresh button to the list title
     const listTitle = (
@@ -174,8 +158,8 @@ const Vehicles: React.FC = () => {
             updateItem(id, {
                 status: 'active',
                 currentTask: undefined,
-                totalDistance: vehicle.totalDistance + 10,
-                battery: Math.max(vehicle.battery - 5, 0),
+                totalDistance: (vehicle.totalDistance ?? 0) + 10,
+                battery: Math.max((vehicle.battery ?? 0) - 5, 0),
             });
         }
     };
@@ -202,185 +186,32 @@ const Vehicles: React.FC = () => {
 
     const handleReset = () => {
         setFilters({});
-    };
-
-    const renderListContent = () => (
-        <>
-            <SearchFilter
-                onSearch={handleSearch}
-                onFilterChange={handleFilterChange}
-                onReset={handleReset}
-                filterOptions={[
-                    {
-                        key: 'status',
-                        label: t('pages.vehicles.status'),
-                        options: [
-                            { label: t('pages.vehicles.status.active'), value: 'active' },
-                            { label: t('pages.vehicles.status.maintenance'), value: 'maintenance' },
-                            { label: t('pages.vehicles.status.offline'), value: 'offline' },
-                        ],
-                    },
-                    {
-                        key: 'type',
-                        label: t('pages.vehicles.type'),
-                        options: [
-                            { label: t('pages.vehicles.groundVehicle'), value: t('pages.vehicles.groundVehicle') },
-                            { label: t('pages.vehicles.aerialVehicle'), value: t('pages.vehicles.aerialVehicle') },
-                        ],
-                    },
-                ]}
-                placeholder={t('pages.vehicles.searchPlaceholder')}
-            />
-            <ActionButtons
-                onAdd={() => {}}
-                onEdit={() => {}}
-                onDelete={() => {}}
-                onRefresh={() => {}}
-                onExport={() => {}}
-                onImport={() => {}}
-                onSettings={() => {}}
-                addText={t('pages.vehicles.addVehicle')}
-                editText={t('pages.vehicles.editVehicle')}
-                deleteText={t('pages.vehicles.deleteVehicle')}
-                refreshText={t('pages.vehicles.refreshVehicles')}
-                exportText={t('pages.vehicles.exportVehicles')}
-                importText={t('pages.vehicles.importVehicles')}
-                settingsText={t('pages.vehicles.vehicleSettings')}
-            />
-            <List
-                dataSource={vehicles}
-                renderItem={vehicle => (
-                    <VehicleItem onClick={() => selectItem(vehicle)}>
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            <Space>
-                                <StatusTag status={vehicle.status} />
-                                <ClusterOutlined />
-                                <Text strong>{vehicle.name}</Text>
-                            </Space>
-                            <Space>
-                                <Tag color="blue">{vehicle.type}</Tag>
-                                {vehicle.currentTask && (
-                                    <Tag color="processing">{t('pages.vehicles.currentTask')}: {vehicle.currentTask}</Tag>
-                                )}
-                            </Space>
-                            <Space>
-                                <EnvironmentOutlined />
-                                <Text type="secondary">{vehicle.location}</Text>
-                            </Space>
-                            <Progress 
-                                percent={vehicle.battery} 
-                                size="small"
-                                status={vehicle.battery < 20 ? 'exception' : 'normal'}
-                            />
-                        </Space>
-                    </VehicleItem>
-                )}
-            />
-        </>
-    );
-
-    const renderDetailsContent = () => {
-        if (!selectedVehicle) {
-            return <Text type="secondary">{t('pages.vehicles.selectVehicle')}</Text>;
-        }
-
-        return (
-            <Space direction="vertical" style={{ width: '100%' }}>
-                <DetailCard
-                    title={t('pages.vehicles.vehicleInformation')}
-                    items={[
-                        {
-                            label: t('pages.vehicles.name'),
-                            value: selectedVehicle.name,
-                            icon: <ClusterOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.type'),
-                            value: selectedVehicle.type,
-                            icon: <ClusterOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.status'),
-                            value: <StatusTag status={selectedVehicle.status} />,
-                            icon: <CheckCircleOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.location'),
-                            value: selectedVehicle.location,
-                            icon: <EnvironmentOutlined />,
-                        },
-                    ]}
-                />
-                <DetailCard
-                    title={t('pages.vehicles.performanceMetrics')}
-                    items={[
-                        {
-                            label: t('pages.vehicles.batteryLevel'),
-                            value: (
-                                <Statistic
-                                    value={selectedVehicle.battery}
-                                    suffix="%"
-                                    prefix={<ThunderboltOutlined />}
-                                />
-                            ),
-                            icon: <ThunderboltOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.totalDistance'),
-                            value: (
-                                <Statistic
-                                    value={selectedVehicle.totalDistance}
-                                    suffix="km"
-                                />
-                            ),
-                            icon: <ClusterOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.lastMaintenance'),
-                            value: selectedVehicle.lastMaintenance,
-                            icon: <ToolOutlined />,
-                        },
-                        {
-                            label: t('pages.vehicles.nextMaintenance'),
-                            value: selectedVehicle.nextMaintenance,
-                            icon: <ClockCircleOutlined />,
-                        },
-                    ]}
-                />
-                <Space>
-                    <Button 
-                        type="primary" 
-                        icon={<PlusOutlined />}
-                        onClick={() => handleStatusChange(selectedVehicle.id, 'active')}
-                        disabled={selectedVehicle.status === 'active'}
-                    >
-                        {t('pages.vehicles.activate')}
-                    </Button>
-                    <Button 
-                        icon={<ToolOutlined />}
-                        onClick={() => handleMaintenance(selectedVehicle.id)}
-                        disabled={selectedVehicle.status === 'maintenance'}
-                    >
-                        {t('pages.vehicles.scheduleMaintenance')}
-                    </Button>
-                    <Button 
-                        icon={<HistoryOutlined />}
-                        onClick={() => handleStatusChange(selectedVehicle.id, 'offline')}
-                        disabled={selectedVehicle.status === 'offline'}
-                    >
-                        {t('pages.vehicles.setOffline')}
-                    </Button>
-                </Space>
-            </Space>
-        );
+        // setVehicles([]); // 不再重置 setVehicles，避免类型错误
     };
 
     return (
         <DetailLayout
             listTitle={listTitle}
             detailsTitle={t('pages.vehicles.vehicleInformation')}
-            listContent={renderListContent()}
-            detailsContent={renderDetailsContent()}
+            listContent={
+                <VehicleList
+                    vehicles={vehicles}
+                    onSelect={selectItem}
+                    filters={filters}
+                    onFilterChange={handleFilterChange}
+                    onSearch={handleSearch}
+                    onReset={handleReset}
+                    t={t}
+                />
+            }
+            detailsContent={
+                <VehicleDetails
+                    vehicle={selectedVehicle ?? undefined}
+                    onStatusChange={handleStatusChange}
+                    onMaintenance={handleMaintenance}
+                    t={t}
+                />
+            }
         />
     );
 };
