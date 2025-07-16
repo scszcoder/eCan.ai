@@ -494,9 +494,10 @@ async def in_browser_scroll(mainwin, args):
         web_driver = mainwin.getWebDriver()
 
         if args["input"]["direction"].lower() == "down":
-            web_driver.execute_script(f"window.scrollBy(0, {args['input']['amount']});")
+            scroll_amount = 0 - args["input"]["amount"]
         else:
-            web_driver.execute_script(f"window.scrollBy(0, -{args['input']['amount']});")
+            scroll_amount = args["input"]["amount"]
+        web_driver.execute_script(f"window.scrollBy(0, {args['input']['amount']});")
 
         if args["input"]["post_wait"]:
             time.sleep(args["input"]["post_wait"])
@@ -1156,7 +1157,7 @@ def page_scroll(web_driver, mainwin):
 
     # 2. To scroll DOWN, append the call to scrollToPageBottom()
     print("Starting full page scroll-down...")
-    scroll_down_command = scrolling_functions_js + "\nscrollToPageBottom();"
+    scroll_down_command = scrolling_functions_js + "\nvar cb = arguments[arguments.length - 1]; scrollToPageBottom(cb);"
     down_scroll_count = web_driver.execute_async_script(scroll_down_command)
     print(f"Page fully scrolled down in {down_scroll_count} steps.")
 
@@ -1164,7 +1165,7 @@ def page_scroll(web_driver, mainwin):
 
     # 3. To scroll UP, append the call to scrollToPageTop() and pass arguments
     print("Scrolling back to the top of the page...")
-    scroll_up_command = scrolling_functions_js + "\nscrollToPageTop(arguments[0], arguments[1]);"
+    scroll_up_command = scrolling_functions_js + "\nvar cb = arguments[arguments.length - 1]; scrollToPageTop(arguments[0], arguments[1], cb);"
     # The arguments for the JS function are passed after the script string
     up_scroll_count = web_driver.execute_async_script(scroll_up_command, down_scroll_count, 600)
     print(f"Scrolled back to top in {up_scroll_count} steps.")
