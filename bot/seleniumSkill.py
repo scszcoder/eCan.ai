@@ -545,7 +545,7 @@ def webDriverStartExistingChrome(driver_path, port):
 
     # Initialize the WebDriver
     service = ChromeService(executable_path=driver_path)
-    print("ready to drive.......")
+    print("ready to drive.......", driver_path, chrome_options)
     driver = webdriver.Chrome(service=service, options=chrome_options)
     return driver
 

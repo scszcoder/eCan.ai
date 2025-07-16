@@ -1139,6 +1139,37 @@ async def http_call_api(mainwin, args):
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+
+def page_scroll(mainwin, web_driver):
+    try:
+        js_file_dir = os.path.dirname(mainwin.build_dom_tree_script_path)
+        auto_scroll_file_path = os.path.join(js_file_dir, "auto_scroll.js")
+        with open(auto_scroll_file_path, 'r') as f:
+            scrolling_functions_js = f.read()
+    except FileNotFoundError:
+        print("Error: auto_scroll.js not found. Please check the path.")
+        # Handle error appropriately
+        exit()
+
+    # 2. To scroll DOWN, append the call to scrollToPageBottom()
+    print("Starting full page scroll-down...")
+    scroll_down_command = scrolling_functions_js + "\nscrollToPageBottom();"
+    down_scroll_count = web_driver.execute_async_script(scroll_down_command)
+    print(f"Page fully scrolled down in {down_scroll_count} steps.")
+
+    time.sleep(1)  # A brief pause
+
+    # 3. To scroll UP, append the call to scrollToPageTop() and pass arguments
+    print("Scrolling back to the top of the page...")
+    scroll_up_command = scrolling_functions_js + "\nscrollToPageTop(arguments[0], arguments[1]);"
+    # The arguments for the JS function are passed after the script string
+    up_scroll_count = web_driver.execute_async_script(scroll_up_command, down_scroll_count, 600)
+    print(f"Scrolled back to top in {up_scroll_count} steps.")
+
+    # Now the page is ready for your buildDomTree.js script
+    print("\nPage is ready for DOM analysis.")
+
+
 async def os_connect_to_adspower(mainwin, args):
     webdriver_path = mainwin.default_webdriver_path
 
@@ -1176,11 +1207,23 @@ async def os_connect_to_adspower(mainwin, args):
         if url:
             webdriver.get(url)  # Replace with the new URL
             print("opened URL: " + url)
-            time.sleep(3)
+            time.sleep(5)
+            page_scroll(mainwin, webdriver)
+
             script = mainwin.load_build_dom_tree_script()
             # print("dom tree build script to be executed", script)
             target = None
-            domTree = execute_js_script(webdriver, script, target)
+            response = execute_js_script(webdriver, script, target)
+            domTree = response.get("result", {})
+            logs = response.get("logs", [])
+            if len(logs) > 128:
+                llen = 128
+            else:
+                llen = len(logs)
+
+            for i in range(llen):
+                print(logs[i])
+
             with open("domtree.json", 'w', encoding="utf-8") as dtjf:
                 json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
                 # self.rebuildHTML()
