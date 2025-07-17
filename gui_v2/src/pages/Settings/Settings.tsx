@@ -8,6 +8,7 @@ import { logger } from '../../utils/logger';
 import type { Settings } from './types';
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
+import { useLocation } from 'react-router-dom';
 
 // type Theme = 'light' | 'dark' | 'system';
 
@@ -47,12 +48,20 @@ const Settings: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const username = useUserStore((state) => state.username);
   const [pageForm] = Form.useForm<{ language: string; theme: 'light' | 'dark' | 'system' }>();
+  const location = useLocation();
   // 优先使用当前操作系统/浏览器语言
   const getDefaultLanguage = () => {
     const browserLang = navigator.language;
     if (browserLang === 'zh-CN' || browserLang === 'en-US') return browserLang;
     return 'zh-CN';
   };
+
+  const isMountedRef = useRef(false);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   // 加载设置
   const loadSettings = useCallback(async () => {
@@ -63,16 +72,22 @@ const Settings: React.FC = () => {
       console.log(response.data);
       if (response && response.success && response.data) {
         const settings = response.data.settings;
-        form.setFieldsValue({
-          ...settings
-        });
+        if (isMountedRef.current) {
+          form.setFieldsValue({
+            ...settings
+          });
+        }
       } else {
         logger.warn('Settings response was not successful:', response);
-        form.setFieldsValue({});
+        if (isMountedRef.current) {
+          form.setFieldsValue({});
+        }
       }
     } catch (error) {
       logger.error('Failed to load settings:', error instanceof Error ? error.message : 'Unknown error');
-      form.setFieldsValue({});
+      if (isMountedRef.current) {
+        form.setFieldsValue({});
+      }
       message.error('Failed to load settings');
     } finally {
       setLoading(false);
@@ -129,7 +144,11 @@ const Settings: React.FC = () => {
   };
 
   // 统一 label 国际化函数
-  const getLabel = (key: string) => t(`settings.${key}`) || t(`settingsForm.${key}`) || key;
+  const getLabel = (key: string) =>
+    t(`pages.settings.${key}`) ||
+    t(`settings.${key}`) ||
+    t(`settingsForm.${key}`) ||
+    key;
 
   const cardTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -193,6 +212,7 @@ const Settings: React.FC = () => {
       >
         {/* 其余设置分组 */}
         <Form
+          key={location.pathname + '-main'}
           form={form}
           layout="vertical"
           onFinish={handleSave}
@@ -275,6 +295,7 @@ const Settings: React.FC = () => {
         {/* 页面设置分组放在底部，无保存按钮，切换即生效 */}
         <Card title={t('pages.settings.page_settings')} style={{ marginTop: 32 }}>
           <Form
+            key={location.pathname + '-page'}
             form={pageForm}
             layout="vertical"
             initialValues={{ language: getDefaultLanguage(), theme: (theme === 'light' || theme === 'dark' || theme === 'system') ? theme : 'light' }}
