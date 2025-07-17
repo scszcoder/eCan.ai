@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Form, Select, Switch, Button, App, Input } from 'antd';
+import { Card, Form, Select, Switch, Button, App, Input, Row, Col } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -73,11 +73,11 @@ const Settings: React.FC = () => {
     } catch (error) {
       logger.error('Failed to load settings:', error instanceof Error ? error.message : 'Unknown error');
       form.setFieldsValue({});
-      message.error(t('pages.settings.loadError'));
+      message.error('Failed to load settings');
     } finally {
       setLoading(false);
     }
-  }, [form, theme, t, message, i18n.language, username]);
+  }, [form, username]);
 
   // 初始化加载设置
   useEffect(() => {
@@ -92,14 +92,18 @@ const Settings: React.FC = () => {
 
   // 页面设置保存
   const handlePageThemeChange = (value: 'light' | 'dark' | 'system') => {
+    saveScroll();
     changeTheme(value);
     message.success(t('pages.settings.themeChanged'));
+    setTimeout(restoreScroll, 0);
   };
   const handlePageLanguageChange = async (value: string) => {
+    saveScroll();
     try {
       await i18n.changeLanguage(value);
       changeLanguage(value);
       message.success(t('pages.settings.languageChanged'));
+      setTimeout(restoreScroll, 0);
       console.log('当前语言已切换为:', i18n.language);
     } catch (e) {
       message.error(t('pages.settings.languageChangeError'));
@@ -125,7 +129,7 @@ const Settings: React.FC = () => {
   };
 
   // 统一 label 国际化函数
-  const getLabel = (key: string) => t(`pages.settings.${key}`) || t(`settingsForm.${key}`) || key;
+  const getLabel = (key: string) => t(`settings.${key}`) || t(`settingsForm.${key}`) || key;
 
   const cardTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -140,12 +144,52 @@ const Settings: React.FC = () => {
     </div>
   );
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const saveScroll = () => {
+    const container = containerRef.current;
+    if (container) {
+      localStorage.setItem('settingsScrollTop', String(container.scrollTop));
+    }
+  };
+  const restoreScroll = () => {
+    const container = containerRef.current;
+    if (container) {
+      const saved = localStorage.getItem('settingsScrollTop');
+      if (saved) {
+        container.scrollTop = Number(saved);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      localStorage.setItem('settingsScrollTop', String(container.scrollTop));
+    };
+    container.addEventListener('scroll', handleScroll);
+    // 页面加载时恢复滚动
+    const saved = localStorage.getItem('settingsScrollTop');
+    if (saved) {
+      container.scrollTop = Number(saved);
+    }
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
   return (
-    <div className="settings-container">
+    <div
+      className="settings-container"
+      ref={containerRef}
+      style={{ height: '100%', maxHeight: 'calc(100vh - 64px)', overflowY: 'auto' }}
+    >
       <Card
         title={cardTitle}
         className="settings-card"
         loading={loading}
+        styles={{ body: { padding: 16 } }}
+        style={{ maxWidth: 1200, margin: '0 auto' }}
       >
         {/* 其余设置分组 */}
         <Form
@@ -156,72 +200,76 @@ const Settings: React.FC = () => {
           preserve={false}
         >
           {/* 基础设置（去除语言和主题） */}
-          <Card title={getLabel('basic')} style={{ marginBottom: 16 }}>
-            <Form.Item label={getLabel('display_resolution')} name="display_resolution">
-              <Input placeholder={getLabel('display_resolution')} />
-            </Form.Item>
-            <Form.Item label={getLabel('debug_mode')} name="debug_mode" valuePropName="checked">
-              <Switch />
-            </Form.Item>
-            <Form.Item label={getLabel('default_wifi')} name="default_wifi">
-              <Input placeholder={getLabel('default_wifi')} />
-            </Form.Item>
-            <Form.Item label={getLabel('default_webdriver')} name="default_webdriver">
-              <Input placeholder={getLabel('default_webdriver')} />
-            </Form.Item>
+          <Card title={getLabel('basic')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
+            <Row gutter={12}>
+              <Col span={12}><Form.Item label={getLabel('display_resolution')} name="display_resolution"><Input size="small" placeholder={getLabel('display_resolution')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('debug_mode')} name="debug_mode" valuePropName="checked"><Switch size="small" /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('default_wifi')} name="default_wifi"><Input size="small" placeholder={getLabel('default_wifi')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('default_webdriver')} name="default_webdriver"><Input size="small" placeholder={getLabel('default_webdriver')} /></Form.Item></Col>
+            </Row>
           </Card>
           {/* 网络与端口 */}
-          <Card title={getLabel('network')} style={{ marginBottom: 16 }}>
-            <Form.Item label={getLabel('api_api_port')} name="api_api_port"><Input placeholder={getLabel('api_api_port')} /></Form.Item>
-            <Form.Item label={getLabel('localUserDB_host')} name="localUserDB_host"><Input placeholder={getLabel('localUserDB_host')} /></Form.Item>
-            <Form.Item label={getLabel('localUserDB_port')} name="localUserDB_port"><Input placeholder={getLabel('localUserDB_port')} /></Form.Item>
-            <Form.Item label={getLabel('localAgentDB_host')} name="localAgentDB_host"><Input placeholder={getLabel('localAgentDB_host')} /></Form.Item>
-            <Form.Item label={getLabel('localAgentDB_port')} name="localAgentDB_port"><Input placeholder={getLabel('localAgentDB_port')} /></Form.Item>
-            <Form.Item label={getLabel('localAgent_ports')} name="localAgent_ports">
-              <Select
-                mode="tags"
-                style={{ width: '100%' }}
-                tokenSeparators={[',']}
-                value={(form.getFieldValue('localAgent_ports') as any)?.map((v: any) => String(v))}
-                onChange={(vals: any[]) => form.setFieldValue('localAgent_ports', vals.map((v: any) => Number(v)))}
-                placeholder={getLabel('localAgent_ports')}
-              />
-            </Form.Item>
-            <Form.Item label={getLabel('local_server_port')} name="local_server_port"><Input placeholder={getLabel('local_server_port')} /></Form.Item>
-            <Form.Item label={getLabel('lan_api_endpoint')} name="lan_api_endpoint"><Input placeholder={getLabel('lan_api_endpoint')} /></Form.Item>
-            <Form.Item label={getLabel('lan_api_host')} name="lan_api_host"><Input placeholder={getLabel('lan_api_host')} /></Form.Item>
-            <Form.Item label={getLabel('wan_api_endpoint')} name="wan_api_endpoint"><Input placeholder={getLabel('wan_api_endpoint')} /></Form.Item>
-            <Form.Item label={getLabel('ws_api_endpoint')} name="ws_api_endpoint"><Input placeholder={getLabel('ws_api_endpoint')} /></Form.Item>
+          <Card title={getLabel('network')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
+            <Row gutter={12}>
+              <Col span={12}><Form.Item label={getLabel('api_api_port')} name="api_api_port"><Input size="small" placeholder={getLabel('api_api_port')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('localUserDB_host')} name="localUserDB_host"><Input size="small" placeholder={getLabel('localUserDB_host')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('localUserDB_port')} name="localUserDB_port"><Input size="small" placeholder={getLabel('localUserDB_port')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('localAgentDB_host')} name="localAgentDB_host"><Input size="small" placeholder={getLabel('localAgentDB_host')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('localAgentDB_port')} name="localAgentDB_port"><Input size="small" placeholder={getLabel('localAgentDB_port')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('localAgent_ports')} name="localAgent_ports">
+                <Select
+                  mode="tags"
+                  style={{ width: '100%' }}
+                  tokenSeparators={[',']}
+                  value={(form.getFieldValue('localAgent_ports') as any)?.map((v: any) => String(v))}
+                  onChange={(vals: any[]) => form.setFieldValue('localAgent_ports', vals.map((v: any) => Number(v)))}
+                  placeholder={getLabel('localAgent_ports')}
+                  size="small"
+                />
+              </Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('local_server_port')} name="local_server_port"><Input size="small" placeholder={getLabel('local_server_port')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('lan_api_endpoint')} name="lan_api_endpoint"><Input size="small" placeholder={getLabel('lan_api_endpoint')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('lan_api_host')} name="lan_api_host"><Input size="small" placeholder={getLabel('lan_api_host')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('wan_api_endpoint')} name="wan_api_endpoint"><Input size="small" placeholder={getLabel('wan_api_endpoint')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('ws_api_endpoint')} name="ws_api_endpoint"><Input size="small" placeholder={getLabel('ws_api_endpoint')} /></Form.Item></Col>
+            </Row>
           </Card>
           {/* 打印与文件 */}
-          <Card title={getLabel('print_file')} style={{ marginBottom: 16 }}>
-            <Form.Item label={getLabel('default_printer')} name="default_printer"><Input placeholder={getLabel('default_printer')} /></Form.Item>
-            <Form.Item label={getLabel('new_orders_dir')} name="new_orders_dir"><Input placeholder={getLabel('new_orders_dir')} /></Form.Item>
-            <Form.Item label={getLabel('new_bots_file_path')} name="new_bots_file_path"><Input placeholder={getLabel('new_bots_file_path')} /></Form.Item>
-            <Form.Item label={getLabel('last_bots_file')} name="last_bots_file"><Input placeholder={getLabel('last_bots_file')} /></Form.Item>
-            <Form.Item label={getLabel('last_bots_file_time')} name="last_bots_file_time"><Input placeholder={getLabel('last_bots_file_time')} /></Form.Item>
+          <Card title={getLabel('print_file')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
+            <Row gutter={12}>
+              <Col span={12}><Form.Item label={getLabel('default_printer')} name="default_printer"><Input size="small" placeholder={getLabel('default_printer')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('new_orders_dir')} name="new_orders_dir"><Input size="small" placeholder={getLabel('new_orders_dir')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('new_bots_file_path')} name="new_bots_file_path"><Input size="small" placeholder={getLabel('new_bots_file_path')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('last_bots_file')} name="last_bots_file"><Input size="small" placeholder={getLabel('last_bots_file')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('last_bots_file_time')} name="last_bots_file_time"><Input size="small" placeholder={getLabel('last_bots_file_time')} /></Form.Item></Col>
+            </Row>
           </Card>
           {/* 调度与引擎 */}
-          <Card title={getLabel('engine')} style={{ marginBottom: 16 }}>
-            <Form.Item label={getLabel('img_engine')} name="img_engine"><Input placeholder={getLabel('img_engine')} /></Form.Item>
-            <Form.Item label={getLabel('schedule_engine')} name="schedule_engine"><Input placeholder={getLabel('schedule_engine')} /></Form.Item>
-            <Form.Item label={getLabel('schedule_mode')} name="schedule_mode"><Input placeholder={getLabel('schedule_mode')} /></Form.Item>
+          <Card title={getLabel('engine')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
+            <Row gutter={12}>
+              <Col span={12}><Form.Item label={getLabel('img_engine')} name="img_engine"><Input size="small" placeholder={getLabel('img_engine')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('schedule_engine')} name="schedule_engine"><Input size="small" placeholder={getLabel('schedule_engine')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('schedule_mode')} name="schedule_mode"><Input size="small" placeholder={getLabel('schedule_mode')} /></Form.Item></Col>
+            </Row>
           </Card>
           {/* 高级设置 */}
-          <Card title={getLabel('advanced')} style={{ marginBottom: 16 }}>
-            <Form.Item label={getLabel('mids_forced_to_run')} name="mids_forced_to_run">
-              <Select
-                mode="tags"
-                style={{ width: '100%' }}
-                tokenSeparators={[',']}
-                value={(form.getFieldValue('mids_forced_to_run') as any)?.map((v: any) => String(v))}
-                onChange={(vals: any[]) => form.setFieldValue('mids_forced_to_run', vals)}
-                placeholder={getLabel('mids_forced_to_run')}
-              />
-            </Form.Item>
+          <Card title={getLabel('advanced')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
+            <Row gutter={12}>
+              <Col span={24}><Form.Item label={getLabel('mids_forced_to_run')} name="mids_forced_to_run">
+                <Select
+                  mode="tags"
+                  style={{ width: '100%' }}
+                  tokenSeparators={[',']}
+                  value={(form.getFieldValue('mids_forced_to_run') as any)?.map((v: any) => String(v))}
+                  onChange={(vals: any[]) => form.setFieldValue('mids_forced_to_run', vals)}
+                  placeholder={getLabel('mids_forced_to_run')}
+                  size="small"
+                />
+              </Form.Item></Col>
+            </Row>
           </Card>
           <Form.Item>
-            <Button type="primary" htmlType="submit" loading={loading}>{t('common.save')}</Button>
+            <Button type="primary" htmlType="submit" loading={loading} size="small">{t('common.save')}</Button>
           </Form.Item>
         </Form>
         {/* 页面设置分组放在底部，无保存按钮，切换即生效 */}
