@@ -268,57 +268,60 @@ const ChatList: React.FC<ChatListProps> = ({
             <ChatListArea>
                 <List
                     dataSource={safeChats}
-                    renderItem={chat => (
-                        <ChatItem
-                            key={chat.id}
-                            $isActive={chat.id === activeChatId}
-                            onClick={() => onChatSelect(chat.id)}
-                        >
-                            <div 
-                                className="delete-button-wrapper"
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseDown={(e) => e.stopPropagation()}
+                    renderItem={chat => {
+                        console.log('[ChatList] render chat:', chat.id, chat.lastMsg, chat.lastMsgTime, chat);
+                        return (
+                            <ChatItem
+                                key={chat.id}
+                                $isActive={chat.id === activeChatId}
+                                onClick={() => onChatSelect(chat.id)}
                             >
-                                <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<MinusOutlined />}
-                                    className={`delete-button ${hoveredDeleteButton === chat.id ? 'show' : ''}`}
-                                    onClick={() => handleDeleteConfirm(chat.id)}
-                                    style={{ 
-                                        fontSize: '11px', 
-                                        lineHeight: '1',
-                                        padding: '0',
-                                        margin: '0',
-                                        width: '18px',
-                                        height: '18px',
-                                        minWidth: '18px',
-                                        border: 'none',
-                                        boxShadow: 'none'
-                                    }}
-                                    onMouseEnter={() => handleDeleteButtonMouseEnter(chat.id)}
-                                    onMouseLeave={handleDeleteButtonMouseLeave}
-                                />
-                            </div>
-                            <div className="chat-content">
-                                <div className="chat-header">
-                                    <Avatar icon={getAvatarIcon(chat.type)} size="small" />
-                                    <Text strong className="chat-name">{chat.name}</Text>
-                                    {chat.unread > 0 && (
-                                        <Badge count={chat.unread} />
-                                    )}
+                                <div 
+                                    className="delete-button-wrapper"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                    <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<MinusOutlined />}
+                                        className={`delete-button ${hoveredDeleteButton === chat.id ? 'show' : ''}`}
+                                        onClick={() => handleDeleteConfirm(chat.id)}
+                                        style={{ 
+                                            fontSize: '11px', 
+                                            lineHeight: '1',
+                                            padding: '0',
+                                            margin: '0',
+                                            width: '18px',
+                                            height: '18px',
+                                            minWidth: '18px',
+                                            border: 'none',
+                                            boxShadow: 'none'
+                                        }}
+                                        onMouseEnter={() => handleDeleteButtonMouseEnter(chat.id)}
+                                        onMouseLeave={handleDeleteButtonMouseLeave}
+                                    />
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <Text type="secondary" className="chat-message">
-                                        {chat.lastMsg || t('pages.chat.noMessages')}
-                                    </Text>
-                                    <Text type="secondary" className="chat-time">
-                                        {formatTime(chat.lastMsgTime)}
-                                    </Text>
+                                <div className="chat-content">
+                                    <div className="chat-header">
+                                        <Avatar icon={getAvatarIcon(chat.type)} size="small" />
+                                        <Text strong className="chat-name">{chat.name}</Text>
+                                        {chat.unread > 0 && (
+                                            <Badge count={chat.unread} />
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <Text type="secondary" className="chat-message">
+                                            {chat.lastMsg || t('pages.chat.noMessages')}
+                                        </Text>
+                                        <Text type="secondary" className="chat-time">
+                                            {formatTime(chat.lastMsgTime)}
+                                        </Text>
+                                    </div>
                                 </div>
-                            </div>
-                        </ChatItem>
-                    )}
+                            </ChatItem>
+                        );
+                    }}
                 />
             </ChatListArea>
             <Modal
