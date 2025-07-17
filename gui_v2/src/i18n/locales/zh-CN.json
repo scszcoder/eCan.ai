@@ -672,7 +672,11 @@
       "refreshTools": "刷新工具",
       "exportTools": "导出工具",
       "importTools": "导入工具",
-      "toolSettings": "工具设置"
+      "toolSettings": "工具设置",
+      "selectTool": "请选择工具",
+      "description": "描述",
+      "inputSchema": "输入Schema",
+      "outputSchema": "输出Schema"
     },
     "skill_editor": {
       "title": "技能编辑器",

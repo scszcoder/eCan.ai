@@ -609,7 +609,11 @@
       "refreshTools": "Refresh Tools",
       "exportTools": "Export Tools",
       "importTools": "Import Tools",
-      "toolSettings": "Tool Settings"
+      "toolSettings": "Tool Settings",
+      "selectTool": "Please select a tool",
+      "description": "Description",
+      "inputSchema": "Input Schema",
+      "outputSchema": "Output Schema"
     },
     "tasks": {
       "title": "Tasks",
@@ -812,9 +816,9 @@
       "formMinLength": "At least {{length}} characters required",
       "formMaxLength": "At most {{length}} characters allowed",
       "formNumber": "Please enter a valid number",
-      "formRange": "Please enter a number between {{min}} and {{max}}"
-    },
-    "page_settings": "Loacl Page Settings"
+      "formRange": "Please enter a number between {{min}} and {{max}}",
+      "page_settings": "Local Page Settings"
+    }
   },
   "search": {
     "placeholder": "Search...",
