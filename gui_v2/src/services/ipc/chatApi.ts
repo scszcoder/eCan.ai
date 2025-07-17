@@ -105,5 +105,11 @@ export function createChatApi(apiInstance: IPCAPI) {
         deleteMessage<T>(chatId: string, messageId: string): Promise<APIResponse<T>> {
             return apiInstance['executeRequest']('delete_message', { chatId, messageId });
         },
+        /**
+         * 清除会话未读数
+         */
+        cleanChatUnRead<T>(chatId: string): Promise<APIResponse<T>> {
+            return apiInstance['executeRequest']('clean_chat_unread', { chatId });
+        },
     };
 } 
