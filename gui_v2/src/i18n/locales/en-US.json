@@ -739,12 +739,16 @@
         "importTest": "Import Tests",
         "testSettings": "Test Settings"
     },
-    "formRequired": "{{label}} is required",
-    "formEmail": "Please enter a valid email address",
-    "formMinLength": "At least {{length}} characters required",
-    "formMaxLength": "At most {{length}} characters allowed",
-    "formNumber": "Please enter a valid number",
-    "formRange": "Please enter a number between {{min}} and {{max}}"
+    "settings": {
+      "title": "Page Settings",
+      "formRequired": "{{label}} is required",
+      "formEmail": "Please enter a valid email address",
+      "formMinLength": "At least {{length}} characters required",
+      "formMaxLength": "At most {{length}} characters allowed",
+      "formNumber": "Please enter a valid number",
+      "formRange": "Please enter a number between {{min}} and {{max}}"
+    },
+    "page_settings": "Loacl Page Settings"
   },
   "search": {
     "placeholder": "Search...",
@@ -798,5 +802,36 @@
     "product_id": "Product ID",
     "rank": "Rank",
     "summary": "Summary"
+  },
+  "settingsForm": {
+    "basic": "Basic Settings",
+    "network": "Network & Ports",
+    "print_file": "Print & File",
+    "engine": "Engine & Scheduler",
+    "advanced": "Advanced Settings",
+    "display_resolution": "Display Resolution",
+    "debug_mode": "Debug Mode",
+    "api_api_port": "API Port",
+    "localUserDB_host": "Local UserDB Host",
+    "localUserDB_port": "Local UserDB Port",
+    "localAgentDB_host": "Local AgentDB Host",
+    "localAgentDB_port": "Local AgentDB Port",
+    "localAgent_ports": "Local Agent Ports",
+    "local_server_port": "Local Server Port",
+    "lan_api_endpoint": "LAN API Endpoint",
+    "lan_api_host": "LAN API Host",
+    "wan_api_endpoint": "WAN API Endpoint",
+    "ws_api_endpoint": "WS API Endpoint",
+    "default_printer": "Default Printer",
+    "new_orders_dir": "New Orders Directory",
+    "new_bots_file_path": "New Bots File Path",
+    "last_bots_file": "Last Bots File",
+    "last_bots_file_time": "Last Bots File Time",
+    "img_engine": "Image Engine",
+    "schedule_engine": "Schedule Engine",
+    "schedule_mode": "Schedule Mode",
+    "mids_forced_to_run": "MIDs Forced to Run",
+    "default_wifi": "Default WiFi",
+    "default_webdriver": "Default WebDriver"
   }
 } 
