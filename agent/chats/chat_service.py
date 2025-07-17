@@ -272,9 +272,12 @@ class ChatService(metaclass=SingletonMeta):
                     ext=att.get("ext")
                 )
                 message.attachments.append(attachment_obj)
-            chat.messages.append(message)
+            # 更新chat.lastMsg和lastMsgTime
+            chat.lastMsg = json.dumps(content, ensure_ascii=False)
+            chat.lastMsgTime = createAt
             # 新增消息未读，chat.unread +1
             chat.unread = (chat.unread or 0) + 1
+            chat.messages.append(message)
             session.add(message)
             session.flush()
             return {

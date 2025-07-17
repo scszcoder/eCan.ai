@@ -261,6 +261,18 @@
         "templates": {
           "product_search": "product_search"
         }
+      },
+      "lastMsg": {
+        "text": "文本",
+        "image": "图片",
+        "file": "文件",
+        "code": "代码",
+        "system": "系统消息",
+        "notification": "通知",
+        "card": "卡片",
+        "markdown": "Markdown",
+        "table": "表格",
+        "unknownType": "未知类型"
       }
     },
     "skills": {

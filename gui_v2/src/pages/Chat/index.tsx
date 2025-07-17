@@ -14,6 +14,18 @@ import { useChatNotifications, NOTIF_PAGE_SIZE } from './hooks/useChatNotificati
 import { useMessages } from './hooks/useMessages';
 import { notificationManager } from './managers/NotificationManager';
 import type { ChatNotificationItem } from './managers/NotificationManager';
+import { getDisplayMsg } from './utils/displayMsg';
+
+// 工具函数：尝试将字符串解析为对象
+function parseMaybeJson(str: any): any {
+    if (typeof str === 'string') {
+        try {
+            const obj = JSON.parse(str);
+            if (typeof obj === 'object' && obj !== null) return obj;
+        } catch {}
+    }
+    return str;
+}
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -109,26 +121,33 @@ const ChatPage: React.FC = () => {
     // 同步消息管理器中的消息到聊天列表
     useEffect(() => {
         setChats(prevChats => {
+            console.log('[setChats] prevChats:', prevChats);
             return prevChats.map(chat => {
                 const messages = allMessages.get(chat.id) || [];
                 const unreadCount = unreadCounts.get(chat.id) || 0;
-                
-                // 更新最后一条消息信息
-                const lastMessage = messages[messages.length - 1];
-                const lastMsg = lastMessage 
-                    ? (typeof lastMessage.content === 'string' ? lastMessage.content : JSON.stringify(lastMessage.content))
-                    : chat.lastMsg;
-                const lastMsgTime = lastMessage?.createAt || chat.lastMsgTime;
-                
+
+                // 乐观刷新：取已发送成功或发送中的消息
+                const validMessages = messages.filter(m => m.status === 'complete' || m.status === 'sending');
+                let lastMsg = chat.lastMsg;
+                let lastMsgTime = chat.lastMsgTime;
+                if (validMessages.length > 0) {
+                    const lastMessage = validMessages[validMessages.length - 1];
+                    lastMsg = getDisplayMsg(lastMessage.content, t);
+                    lastMsgTime = lastMessage.createAt;
+                } else if (lastMsg && typeof lastMsg === 'object' && lastMsg !== null) {
+                    lastMsg = getDisplayMsg(lastMsg, t);
+                }
+
                 return {
                     ...chat,
                     messages,
                     unread: unreadCount,
-                    lastMsg,
+                    lastMsg: getDisplayMsg(parseMaybeJson(lastMsg), t),
                     lastMsgTime,
                 };
             });
         });
+        console.log('[setChats] newChats:', chats);
     }, [allMessages, unreadCounts]);
 
     // 抽取获取聊天的函数，可以在多个地方调用
@@ -251,7 +270,11 @@ const ChatPage: React.FC = () => {
                 }
                 
                 logger.debug("[getChatsAndSetState] Parsed chat data, count:", chatData.length);
-                setChats(chatData);
+                // 这里直接对 lastMsg 做 display 解析
+                setChats(chatData.map(chat => ({
+                    ...chat,
+                    lastMsg: getDisplayMsg(chat.lastMsg, t),
+                })));
                 
                 // 处理agentId相关逻辑
                 if (agentId) {
@@ -419,7 +442,7 @@ const ChatPage: React.FC = () => {
                 // 确保每个消息都有唯一的 ID
                 messages = messages.map((message, index) => ({
                     ...message,
-                    id: message.id || `server_msg_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`
+                    id: message.id || 'server_msg_' + Date.now() + '_' + index + '_' + Math.random().toString(36).substr(2, 9)
                 }));
                 
                 // 使用消息管理器更新消息
@@ -535,8 +558,9 @@ const ChatPage: React.FC = () => {
         ));
     };
 
+    // handleMessageSend 发送消息时加 log
     const handleMessageSend = async (content: string, attachments: Attachment[]) => {
-        console.log('[handleMessageSend] attachments:', attachments);
+        console.log('[handleMessageSend] called, content:', content, 'attachments:', attachments);
         if (!activeChatId) {
             logger.error('No activeChatId!!!');
             return;
@@ -591,6 +615,7 @@ const ChatPage: React.FC = () => {
 
         // 先乐观地更新 UI - 使用消息管理器
         addMessageToChat(activeChatId, userMessage);
+        console.log('[handleMessageSend] after addMessageToChat, allMessages:', allMessages);
 
         try {
             // 使用新的 API 发送消息
@@ -640,17 +665,21 @@ const ChatPage: React.FC = () => {
         ? null
         : chats.find((c) => c.id === activeChatId) || null;
 
-    const renderListContent = () => (
-        <ChatList
-            chats={chats}
-            activeChatId={activeChatId}
-            onChatSelect={setActiveChatIdAndFetchMessages}
-            onChatDelete={handleChatDelete}
-            onChatPin={handleChatPin}
-            onChatMute={handleChatMute}
-            onFilterChange={handleFilterChange}
-        />
-    );
+    // renderListContent 加 log
+    const renderListContent = () => {
+        console.log('[renderListContent] chats:', chats);
+        return (
+            <ChatList
+                chats={chats}
+                activeChatId={activeChatId}
+                onChatSelect={setActiveChatIdAndFetchMessages}
+                onChatDelete={handleChatDelete}
+                onChatPin={handleChatPin}
+                onChatMute={handleChatMute}
+                onFilterChange={handleFilterChange}
+            />
+        );
+    };
 
     const renderDetailsContent = () => (
         <ChatDetail 

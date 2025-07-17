@@ -261,6 +261,18 @@
         "templates": {
           "product_search": "product_search"
         }
+      },
+      "lastMsg": {
+        "text": "Text",
+        "image": "Image",
+        "file": "File",
+        "code": "Code",
+        "system": "System",
+        "notification": "Notification",
+        "card": "Card",
+        "markdown": "Markdown",
+        "table": "Table",
+        "unknownType": "Unknown"
       }
     },
     "skills": {
