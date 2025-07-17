@@ -4,11 +4,11 @@ import { ReloadOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
-import { IPCAPI } from '@/services/ipc/api';
 import { useUserStore } from '../../stores/userStore';
 import { Vehicle } from './types';
 import VehicleList from './VehicleList';
 import VehicleDetails from './VehicleDetails';
+import { get_ipc_api } from '@/services/ipc_api';
 
 const Vehicles: React.FC = () => {
   const { t } = useTranslation();
@@ -30,7 +30,7 @@ const Vehicles: React.FC = () => {
   // 获取车辆数据
   const fetchVehicles = useCallback(async () => {
     if (!username) return;
-    const response = await IPCAPI.getInstance().get_vehicles();
+    const response = await get_ipc_api().getVehicles();
     if (
       response &&
       response.success &&

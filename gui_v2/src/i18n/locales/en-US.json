@@ -267,11 +267,55 @@
       "exportSchedule": "Export Schedule",
       "importSchedule": "Import Schedule",
       "scheduleSettings": "Schedule Settings",
-      "scheduleRepeatTypeLabel": "Repeat Type",
-      "scheduleRepeatUnitLabel": "Repeat Unit",
-      "scheduleStartTimeLabel": "Start Time",
-      "scheduleEndTimeLabel": "End Time",
-      "scheduleTimeoutLabel": "Timeout"
+      "repeatType": "Repeat Type",
+      "repeatTypeMap": {
+        "none": "None",
+        "by seconds": "By Seconds",
+        "by minutes": "By Minutes",
+        "by hours": "By Hours",
+        "by days": "By Days",
+        "by weeks": "By Weeks",
+        "by months": "By Months",
+        "by years": "By Years"
+      },
+      "repeatUnit": "Repeat Unit",
+      "repeatUnitMap": {
+        "second": "Second",
+        "minute": "Minute",
+        "hour": "Hour",
+        "day": "Day",
+        "week": "Week",
+        "month": "Month",
+        "year": "Year"
+      },
+      "repeatNumber": "Repeat Number",
+      "timeOut": "Timeout (seconds)",
+      "weekDays": "Week Days",
+      "weekDayNames": {
+        "M": "Monday",
+        "Tu": "Tuesday",
+        "W": "Wednesday",
+        "Th": "Thursday",
+        "F": "Friday",
+        "SA": "Saturday",
+        "SU": "Sunday"
+      },
+      "months": "Months",
+      "monthNames": {
+        "Jan": "January",
+        "Feb": "February",
+        "Mar": "March",
+        "Apr": "April",
+        "May": "May",
+        "Jun": "June",
+        "Jul": "July",
+        "Aug": "August",
+        "Sep": "September",
+        "Oct": "October",
+        "Nov": "November",
+        "Dec": "December"
+      },
+      "customFields": "Custom Fields"
     },
     "chat": {
       "title": "Chats",

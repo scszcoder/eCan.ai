@@ -2,7 +2,6 @@ import traceback
 from typing import Any, Optional, Dict
 import uuid
 from app_context import AppContext
-from gui.LoginoutGUI import Login
 from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry

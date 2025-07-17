@@ -267,21 +267,55 @@
       "exportSchedule": "导出日程",
       "importSchedule": "导入日程",
       "scheduleSettings": "日程设置",
-      "scheduleRepeatTypeLabel": "重复类型",
-      "scheduleRepeatUnitLabel": "重复单位",
-      "scheduleStartTimeLabel": "开始时间",
-      "scheduleEndTimeLabel": "结束时间",
-      "scheduleTimeoutLabel": "超时时间",
-      "repeatType": {
-        "daily": "每天",
-        "weekly": "每周",
-        "monthly": "每月"
+      "repeatType": "重复类型",
+      "repeatTypeMap": {
+        "none": "不重复",
+        "by seconds": "每秒",
+        "by minutes": "每分钟",
+        "by hours": "每小时",
+        "by days": "每天",
+        "by weeks": "每周",
+        "by months": "每月",
+        "by years": "每年"
       },
-      "repeatUnit": {
+      "repeatUnit": "重复单位",
+      "repeatUnitMap": {
+        "second": "秒",
+        "minute": "分钟",
+        "hour": "小时",
         "day": "天",
         "week": "周",
-        "month": "月"
-      }
+        "month": "月",
+        "year": "年"
+      },
+      "repeatNumber": "重复数量",
+      "timeOut": "超时时间(秒)",
+      "weekDays": "星期",
+      "weekDayNames": {
+        "M": "周一",
+        "Tu": "周二",
+        "W": "周三",
+        "Th": "周四",
+        "F": "周五",
+        "SA": "周六",
+        "SU": "周日"
+      },
+      "months": "月份",
+      "monthNames": {
+        "Jan": "一月",
+        "Feb": "二月",
+        "Mar": "三月",
+        "Apr": "四月",
+        "May": "五月",
+        "Jun": "六月",
+        "Jul": "七月",
+        "Aug": "八月",
+        "Sep": "九月",
+        "Oct": "十月",
+        "Nov": "十一月",
+        "Dec": "十二月"
+      },
+      "customFields": "自定义字段"
     },
     "chat": {
       "title": "我的聊天",

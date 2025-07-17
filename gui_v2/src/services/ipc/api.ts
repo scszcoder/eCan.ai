@@ -127,12 +127,12 @@ export class IPCAPI {
         return this.executeRequest<T>('get_tasks', {username, task_ids });
     }
 
-    public async getVehicles<T>(username: string, v_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_vehicles', {username, v_ids });
+    public async getVehicles<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_vehicles', { });
     }
 
-    public async get_vehicles<T>(): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_vehicles', { });
+    public async getSchedules<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_schedules', { });
     }
 
     public async getTools<T>(username: string, tool_ids: string[]): Promise<APIResponse<T>> {
