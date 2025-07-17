@@ -5,15 +5,18 @@
 
 import { FC, useContext, useEffect, useState } from 'react';
 
+import classnames from 'classnames';
 import { WorkflowInputs, WorkflowOutputs } from '@flowgram.ai/runtime-interface';
 import { useService } from '@flowgram.ai/free-layout-editor';
-import { CodeEditor } from '@flowgram.ai/form-materials';
-import { Button, SideSheet } from '@douyinfe/semi-ui';
-import { IconClose, IconPlay, IconSpin, IconStop } from '@douyinfe/semi-icons';
+import { Button, SideSheet, Switch } from '@douyinfe/semi-ui';
+import { IconClose, IconPlay, IconSpin } from '@douyinfe/semi-icons';
 
+import { TestRunJsonInput } from '../testrun-json-input';
+import { TestRunForm } from '../testrun-form';
 import { NodeStatusGroup } from '../node-status-bar/group';
 import { WorkflowRuntimeService } from '../../../plugins/runtime-plugin/runtime-service';
 import { SidebarContext } from '../../../context';
+import { IconCancel } from '../../../assets/icon-cancel';
 
 import styles from './index.module.less';
 
@@ -27,7 +30,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const { nodeId: sidebarNodeId, setNodeId } = useContext(SidebarContext);
 
   const [isRunning, setRunning] = useState(false);
-  const [value, setValue] = useState<string>(`{}`);
+  const [values, setValues] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<string[]>();
   const [result, setResult] = useState<
     | {
@@ -37,6 +40,17 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     | undefined
   >();
 
+  // en - Use localStorage to persist the JSON mode state
+  const [inputJSONMode, _setInputJSONMode] = useState(() => {
+    const savedMode = localStorage.getItem('testrun-input-json-mode');
+    return savedMode ? JSON.parse(savedMode) : false;
+  });
+
+  const setInputJSONMode = (checked: boolean) => {
+    _setInputJSONMode(checked);
+    localStorage.setItem('testrun-input-json-mode', JSON.stringify(checked));
+  };
+
   const onTestRun = async () => {
     if (isRunning) {
       await runtimeService.taskCancel();
@@ -44,17 +58,15 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     }
     setResult(undefined);
     setErrors(undefined);
-    setRunning(true);
-    try {
-      await runtimeService.taskRun(value);
-    } catch (e: any) {
-      setErrors([e.message]);
+    const taskID = await runtimeService.taskRun(values);
+    if (taskID) {
+      setRunning(true);
     }
   };
 
   const onClose = async () => {
     await runtimeService.taskCancel();
-    setValue(`{}`);
+    setValues({});
     setRunning(false);
     onCancel();
   };
@@ -90,10 +102,20 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
 
   const renderForm = (
     <div className={styles['testrun-panel-form']}>
-      <div className={styles.title}>Input Form</div>
-      <div className={styles['code-editor-container']}>
-        <CodeEditor languageId="json" value={value} onChange={setValue} />
+      <div className={styles['testrun-panel-input']}>
+        <div className={styles.title}>Input Form</div>
+        <div>JSON Mode</div>
+        <Switch
+          checked={inputJSONMode}
+          onChange={(checked: boolean) => setInputJSONMode(checked)}
+          size="small"
+        />
       </div>
+      {inputJSONMode ? (
+        <TestRunJsonInput values={values} setValues={setValues} />
+      ) : (
+        <TestRunForm values={values} setValues={setValues} />
+      )}
       {errors?.map((e) => (
         <div className={styles.error} key={e}>
           {e}
@@ -107,8 +129,11 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const renderButton = (
     <Button
       onClick={onTestRun}
-      icon={isRunning ? <IconStop size="small" /> : <IconPlay size="small" />}
-      className={`${styles.button} ${isRunning ? styles.running : styles.default}`}
+      icon={isRunning ? <IconCancel /> : <IconPlay size="small" />}
+      className={classnames(styles.button, {
+        [styles.running]: isRunning,
+        [styles.default]: !isRunning,
+      })}
     >
       {isRunning ? 'Cancel' : 'Test Run'}
     </Button>
@@ -121,7 +146,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       mask={false}
       motion={false}
       onCancel={onClose}
-      width={368}
+      width={400}
       headerStyle={{
         display: 'none',
       }}

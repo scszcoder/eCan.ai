@@ -10,8 +10,8 @@ import { DEFAULT_NODE_OUTPUTS } from "../../typings/node-outputs";
 import { WorkflowNodeType } from "../constants";
 import { formMeta } from "./form-meta";
 
-export const HttpNodeRegistry: FlowNodeRegistry = {
-  type: WorkflowNodeType.Http,
+export const HttpApiNodeRegistry: FlowNodeRegistry = {
+  type: WorkflowNodeType.HttpApi,
   meta: {
     size: {
       width: 360,

@@ -13,7 +13,8 @@ import { CommentNodeRegistry } from './comment';
 import { BlockStartNodeRegistry } from './block-start';
 import { BlockEndNodeRegistry } from './block-end';
 import { BasicNodeRegistry } from './basic';
-import { HttpNodeRegistry } from './http';
+import { HTTPNodeRegistry } from './http';
+import { HttpApiNodeRegistry } from './http-api';
 import { RAGNodeRegistry } from './rag';
 
 export { WorkflowNodeType } from './constants';
@@ -28,6 +29,7 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   BlockStartNodeRegistry,
   BlockEndNodeRegistry,
   BasicNodeRegistry,
-  HttpNodeRegistry,
+  HTTPNodeRegistry,
+  HttpApiNodeRegistry,
   RAGNodeRegistry,
 ];

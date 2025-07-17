@@ -5,12 +5,13 @@
 
 import { FC, useState } from 'react';
 
+import classNames from 'classnames';
 import { Tag } from '@douyinfe/semi-ui';
 import { IconSmallTriangleDown } from '@douyinfe/semi-icons';
 
 import { DataStructureViewer } from '../viewer';
 
-import './index.css';
+import styles from './index.module.less';
 
 interface NodeStatusGroupProps {
   title: string;
@@ -37,28 +38,19 @@ export const NodeStatusGroup: FC<NodeStatusGroupProps> = ({
   return (
     <>
       <div
-        className="node-status-group"
+        className={styles['node-status-group']}
         onClick={() => hasContent && !disableCollapse && setIsExpanded(!isExpanded)}
       >
         {!disableCollapse && (
           <IconSmallTriangleDown
-            style={{
-              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-              transition: 'transform 0.2s',
-              cursor: 'pointer',
-              marginRight: '4px',
-              opacity: hasContent ? 1 : 0,
-            }}
+            className={classNames(styles['node-status-group-icon'], {
+              [styles['node-status-group-icon-expanded']]: isExpanded && hasContent,
+            })}
           />
         )}
         <span>{title}:</span>
         {!hasContent && (
-          <Tag
-            size="small"
-            style={{
-              marginLeft: 4,
-            }}
-          >
+          <Tag size="small" className={styles['node-status-group-tag']}>
             null
           </Tag>
         )}
