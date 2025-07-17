@@ -23,7 +23,7 @@ export interface Settings {
   ws_api_endpoint: string;
   schedule_engine: string;
   schedule_mode: string;
-  theme: 'light' | 'dark';
-  language: string;
+  // theme: 'light' | 'dark';
+  // language: string;
   // 更多属性...
 } 
