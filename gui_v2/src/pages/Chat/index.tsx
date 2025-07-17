@@ -121,7 +121,7 @@ const ChatPage: React.FC = () => {
     // 同步消息管理器中的消息到聊天列表
     useEffect(() => {
         setChats(prevChats => {
-            console.log('[setChats] prevChats:', prevChats);
+            // console.log('[setChats] prevChats:', prevChats);
             return prevChats.map(chat => {
                 const messages = allMessages.get(chat.id) || [];
                 const unreadCount = unreadCounts.get(chat.id) || 0;
@@ -147,7 +147,7 @@ const ChatPage: React.FC = () => {
                 };
             });
         });
-        console.log('[setChats] newChats:', chats);
+        // console.log('[setChats] newChats:', chats);
     }, [allMessages, unreadCounts]);
 
     // 抽取获取聊天的函数，可以在多个地方调用
@@ -254,7 +254,7 @@ const ChatPage: React.FC = () => {
                 userId,
                 false // deep 参数，按需可调整
             );
-            logger.debug("[getChatsAndSetState] Got response:", response.success);
+            console.log("[getChatsAndSetState] Got response:", response.data);
             if (response.success && response.data) {
                 let chatData: Chat[] = Array.isArray((response.data as any).data)
                     ? (response.data as any).data
@@ -398,10 +398,8 @@ const ChatPage: React.FC = () => {
         
         // 更新最后选择的聊天ID
         lastSelectedChatIdRef.current = chatId;
-        
         // 设置活动聊天ID
         setActiveChatId(chatId);
-        
         // 获取消息
         handleChatSelect(chatId);
     };
@@ -667,7 +665,7 @@ const ChatPage: React.FC = () => {
 
     // renderListContent 加 log
     const renderListContent = () => {
-        console.log('[renderListContent] chats:', chats);
+        // console.log('[renderListContent] chats:', chats);
         return (
             <ChatList
                 chats={chats}

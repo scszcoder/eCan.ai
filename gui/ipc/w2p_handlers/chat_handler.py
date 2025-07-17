@@ -752,3 +752,29 @@ def handle_get_chat_notifications(request: IPCRequest, params: Optional[dict]) -
         logger.error(f"Error in get_chat_notifications handler: {e}")
         return create_error_response(request, 'GET_CHAT_NOTIFICATIONS_ERROR', str(e))
 
+@IPCHandlerRegistry.handler('clean_chat_unread')
+def handle_clean_chat_unread(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
+    """
+    处理清除指定会话未读数请求，将 chat 的 unread 设置为 0。
+    """
+    try:
+        chatId = params.get('chatId')
+        if not chatId:
+            return create_error_response(request, 'INVALID_PARAMS', 'chatId 必填')
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        chat_service = main_window.chat_service
+        # 假设 chat_service 有 set_chat_unread 方法，否则直接更新 chat 的 unread 字段
+        if hasattr(chat_service, 'set_chat_unread'):
+            result = chat_service.set_chat_unread(chatId=chatId, unread=0)
+        else:
+            # 兼容：直接调用 update_chat 或自定义方法
+            if hasattr(chat_service, 'update_chat'):
+                result = chat_service.update_chat(chatId=chatId, unread=0)
+            else:
+                return create_error_response(request, 'NOT_IMPLEMENTED', 'chat_service 未实现 set_chat_unread 或 update_chat 方法')
+        return create_success_response(request, result)
+    except Exception as e:
+        logger.error(f"Error in clean_chat_unread handler: {e}")
+        return create_error_response(request, 'CLEAN_CHAT_UNREAD_ERROR', str(e))
+
