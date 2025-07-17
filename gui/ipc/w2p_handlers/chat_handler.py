@@ -10,13 +10,10 @@ from typing import Any, Dict, Optional
 import uuid
 from agent.ec_agent import EC_Agent
 from app_context import AppContext
-from gui.LoginoutGUI import Login
 from gui.MainGUI import MainWindow
-from gui.ipc.handlers import validate_params
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
 from gui.ipc.registry import IPCHandlerRegistry
-import asyncio
 from agent.chats.chat_service import ChatService
 import threading
 import tempfile
