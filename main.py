@@ -24,6 +24,7 @@ from bot.network import runCommanderLAN, runPlatoonLAN
 
 
 from tests.unittests import *
+from tests.scraper_test import *
 
 from app_context import AppContext
 
@@ -140,9 +141,11 @@ if __name__ == '__main__':
     # test_selenium_amazon()
     # test_parse_xml()
     # test_pyzipunzip()
+    res = scrape_tests()
 
     try:
-        main()
+        print("main starts...")
+        # main()
     except Exception as e:
         error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
         logger.error(error_info)
