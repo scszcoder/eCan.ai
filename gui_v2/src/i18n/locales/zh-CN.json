@@ -611,5 +611,16 @@
     "feedback": "反馈选项",
     "score": "分数",
     "summary": "对比摘要"
+  },
+  "department": {
+    "hr": "人力资源部",
+    "it": "信息技术部",
+    "finance": "财务部",
+    "sales": "销售部",
+    "marketing": "市场部",
+    "operations": "运营部",
+    "customer_service": "客服部",
+    "research": "研发部",
+    "legal": "法务部"
   }
 }

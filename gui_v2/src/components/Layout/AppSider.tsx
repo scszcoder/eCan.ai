@@ -1,17 +1,18 @@
 import React from 'react';
 import { Layout, Menu } from 'antd';
 import styled from '@emotion/styled';
-import { SafetyCertificateOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
+import HLogo1Dark from '@/assets/HLogo1Dark.png';
 
 const { Sider } = Layout;
 
 const Logo = styled.div`
     height: 64px;
-    padding: 0 16px;
+    padding: 0; /* 去除左右 padding 让 logo 区域更大 */
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: center;
+    gap: 0;
     cursor: pointer;
     transition: all 0.3s ease;
     margin: 0;
@@ -28,13 +29,17 @@ const Logo = styled.div`
         );
     }
     .logo-icon {
-        width: 32px;
-        height: 32px;
+        width: 100%;
+        height: 64px;
         display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-color-hover) 100%);
-        border-radius: 6px;
+        align-items: center; /* 垂直居中 */
+        justify-content: center; /* 水平居中 */
+        background: none;
+        border-radius: 0px;
+        border: 0px solid rgba(24, 144, 255, 0.18);
+        box-sizing: border-box;
+        margin: 0;
+        padding: 8px; /* 增加内边距让图片与边缘有距离 */
         transition: all 0.3s ease;
         .anticon {
             font-size: 18px;
@@ -77,9 +82,8 @@ const AppSider: React.FC<AppSiderProps> = ({ collapsed, onLogoClick, menuItems, 
     <StyledSider trigger={null} collapsible collapsed={collapsed} theme="dark">
         <Logo onClick={onLogoClick}>
             <div className="logo-icon">
-                <SafetyCertificateOutlined />
+                <img src={HLogo1Dark} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8, display: 'block' }} />
             </div>
-            <div className="logo-text">ECBot</div>
         </Logo>
         <MenuWrapper>
             <Menu
