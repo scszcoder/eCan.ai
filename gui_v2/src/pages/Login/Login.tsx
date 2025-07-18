@@ -8,9 +8,8 @@ import { get_ipc_api } from '../../services/ipc_api';
 import { logger } from '../../utils/logger';
 import { useUserStore } from '@/stores/userStore';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/logoWhite22.png';
 import './Login.css';
-import { AppDataStoreHandler } from '@/stores/AppDataStoreHandler';
 
 const { Title, Text } = Typography;
 
@@ -210,7 +209,6 @@ const Login: React.FC = () => {
 									alt="Logo"
 									className="logo-image"
 								/>
-								<div className="logo-border" />
 							</div>
 							<Title level={2} style={{ color: '#fff', margin: 0 }}>{t('login.title')}</Title>
 							<Text style={{ color: 'rgba(255, 255, 255, 0.7)' }}>{t('login.subtitle')}</Text>

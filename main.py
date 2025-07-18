@@ -53,18 +53,9 @@ def main():
     ctx.set_app_info(app_info)
 
     # 设置应用程序图标（在 QApplication 创建之后）
-    # 首先尝试从应用程序根目录加载图标
-    icon_path = os.path.join(app_info.app_home_path, "ECBot.ico")
-    if not os.path.exists(icon_path) and getattr(sys, 'frozen', False):
-        # 如果是生产环境且图标不在根目录，尝试从资源目录加载
-        icon_path = os.path.join(app_info.app_resources_path, "images", "ECBot.ico")
-    if os.path.exists(icon_path):
-        app_icon = QIcon(icon_path)
-        app.setWindowIcon(app_icon)
-        logger.info(f"Successfully loaded application icon from: {icon_path}")
-    else:
-        logger.error(f"Warning: Could not find application icon at: {icon_path}")
-        
+    from utils.app_icon_helper import set_app_icon
+    set_app_icon(app, logger)
+
     # app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
@@ -141,11 +132,11 @@ if __name__ == '__main__':
     # test_selenium_amazon()
     # test_parse_xml()
     # test_pyzipunzip()
-    res = scrape_tests()
+    # res = scrape_tests()
 
     try:
-        print("main starts...")
-        # main()
+        # print("main starts...")
+        main()
     except Exception as e:
         error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
         logger.error(error_info)

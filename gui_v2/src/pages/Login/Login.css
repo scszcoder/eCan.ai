@@ -91,10 +91,9 @@
 /* Logo 容器 */
 .logo-container {
   position: relative;
-  width: 80px;
-  height: 80px;
+  width: 160px;
+  height: 160px;
   margin: 0 auto 16px;
-  animation: float 6s ease-in-out infinite;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
   will-change: transform, opacity;
@@ -122,7 +121,6 @@
   bottom: -4px;
   border: 2px solid rgba(24, 144, 255, 0.3);
   border-radius: 16px;
-  animation: rotate 10s linear infinite;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
   will-change: transform, opacity;

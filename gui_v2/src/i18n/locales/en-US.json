@@ -611,5 +611,16 @@
     "feedback": "Feedback Options Here",
     "score": "Score",
     "summary": "Summary"
+  },
+  "department": {
+    "hr": "Human Resources",
+    "it": "IT Department",
+    "finance": "Finance",
+    "sales": "Sales",
+    "marketing": "Marketing",
+    "operations": "Operations",
+    "customer_service": "Customer Service",
+    "research": "Research",
+    "legal": "Legal"
   }
 }

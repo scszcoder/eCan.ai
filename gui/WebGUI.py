@@ -7,6 +7,9 @@ import time
 import uuid
 from gui.LoginoutGUI import Login
 from gui.ipc.api import IPCAPI
+from PySide6.QtGui import QPixmap  # Add this import
+from PySide6.QtGui import QIcon  # Add this import
+from PySide6.QtCore import Qt  # For high quality scaling
 
 # 配置日志以抑制 macOS IMK 警告
 if sys.platform == 'darwin':
@@ -22,7 +25,10 @@ from gui.ipc.w2p_handlers.chat_handler import echo_and_push_message_async
 class WebGUI(QMainWindow):
     def __init__(self, py_login: Login=None):
         super().__init__()
-        self.setWindowTitle("ECBot Agent")
+        self.setWindowTitle("eCan.ai")
+        # Set window icon
+        icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
+        self.setWindowIcon(QIcon(icon_path))
         self.setGeometry(100, 100, 1200, 800)
         
         # 创建中心部件和布局
@@ -127,15 +133,22 @@ class WebGUI(QMainWindow):
     
     def closeEvent(self, event):
         """窗口关闭事件"""
-        # 创建确认对话框
-        reply = QMessageBox.question(
-            self,
-            'Confirm Exit',
-            'Are you sure you want to exit the program?',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
+        # 创建自定义对话框
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle('Confirm Exit')
+        msg_box.setText('Are you sure you want to exit the program?')
+        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg_box.setDefaultButton(QMessageBox.No)
+        # Set custom icon
+        logo_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
+        pixmap = QPixmap(logo_path)
+        if not pixmap.isNull():
+            # 保持比例并高质量缩放
+            scaled_pixmap = pixmap.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            msg_box.setIconPixmap(scaled_pixmap)
+        else:
+            msg_box.setIcon(QMessageBox.Question)
+        reply = msg_box.exec()
         if reply == QMessageBox.Yes:
             # 接受关闭事件
             event.accept()
