@@ -131,14 +131,14 @@ const Apps: React.FC = () => {
         return {
             ...app,
             name: t(`pages.apps.apps.${app.name}.name`),
-            category: t(`pages.apps.categories.${app.category}`),
+            category: t(`pages.apps.categoriesMap.${app.category}`),
             description: t(`pages.apps.apps.${app.name}.description`),
             features: app.features.map(feature => {
                 // 如果功能名称已经是中文，直接返回
                 if (feature.includes('创建') || feature.includes('跟踪') || feature.includes('协作')) {
                     return feature;
                 }
-                return t(`pages.apps.apps.${app.name}.features.${feature}`);
+                return t(`pages.apps.apps.${app.name}.featuresMap.${feature}`);
             }),
             lastUpdated: app.lastUpdated === '2 days ago'
                 ? t('pages.apps.time.daysAgo', { days: 2 })
@@ -179,7 +179,7 @@ const Apps: React.FC = () => {
                             <Text strong>{app.name}</Text>
                         </Space>
                         <Space>
-                            <Tag color={getStatusColor(app.status)}>{t(`pages.apps.status.${app.status}`)}</Tag>
+                            <Tag color={getStatusColor(app.status)}>{t(`pages.apps.statusMap.${app.status}`)}</Tag>
                             <Tag color="blue">{app.category}</Tag>
                         </Space>
                         <Space>
@@ -210,7 +210,7 @@ const Apps: React.FC = () => {
                 </Space>
                 <Space>
                     <Tag color={getStatusColor(translatedApp.status)}>
-                        <CheckCircleOutlined /> {t('pages.apps.status')}: {t(`pages.apps.status.${translatedApp.status}`)}
+                        <CheckCircleOutlined /> {t('pages.apps.status')}: {t(`pages.apps.statusMap.${translatedApp.status}`)}
                     </Tag>
                     <Tag>
                         <ClockCircleOutlined /> {t('pages.apps.lastUpdated')}: {translatedApp.lastUpdated}

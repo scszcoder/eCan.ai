@@ -2,7 +2,7 @@ import traceback
 from typing import Any, Optional, Dict
 import uuid
 from app_context import AppContext
-from gui.LoginoutGUI import Login
+from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -37,13 +37,13 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
 
         # 获取用户名和密码
         username = data['username']
-        ctx = AppContext()
-        login: Login = ctx.login
         # 简单的密码验证
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get settings successful for user: {username}")
-        settings = login.main_win.general_settings
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        settings = main_window.general_settings
         resultJS = {
             'token': token,
             'settings': settings,

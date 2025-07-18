@@ -1,7 +1,5 @@
 import traceback
 from typing import Any, Optional, Dict
-from gui.LoginoutGUI import Login
-from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from gui.ipc.callable.manager import callable_manager

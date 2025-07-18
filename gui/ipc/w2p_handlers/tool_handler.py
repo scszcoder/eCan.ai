@@ -2,7 +2,7 @@ import traceback
 from typing import Any, Optional, Dict
 import uuid
 from app_context import AppContext
-from gui.LoginoutGUI import Login
+from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -37,15 +37,14 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
 
         # 获取用户名和密码
         username = data['username']
-        ctx = AppContext()
-        login: Login = ctx.login
-        # 简单的密码验证
-        # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get tools successful for user: {username}")
+
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
         resultJS = {
             'token': token,
-            'tools': [tool.model_dump() for tool in login.main_win.mcp_tools_schemas],
+            'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'message': 'Get all successful'
         }
         logger.debug('get tools resultJS:' + str(resultJS))

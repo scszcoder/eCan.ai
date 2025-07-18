@@ -2,7 +2,7 @@ import traceback
 from typing import Any, Optional, Dict
 import uuid
 from app_context import AppContext
-from gui.LoginoutGUI import Login
+from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -34,9 +34,9 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 'INVALID_PARAMS',
                 error
             )
-        ctx = AppContext()
-        login: Login = ctx.login
-        agents = login.main_win.agents
+        app_ctx = AppContext()
+        main_window: MainWindow = app_ctx.main_window
+        agents = main_window.agents
         all_tasks = []
         for agent in agents:
             all_tasks.extend(agent.tasks)

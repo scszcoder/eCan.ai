@@ -15,11 +15,12 @@ const { Text } = Typography;
 interface FormItemProps {
   children: React.ReactNode;
   name: string;
-  type: string;
+  type?: string;
   required?: boolean;
   description?: string;
   labelWidth?: number;
   vertical?: boolean;
+  style?: React.CSSProperties;
 }
 export function FormItem({
   children,
@@ -29,14 +30,15 @@ export function FormItem({
   type,
   labelWidth,
   vertical,
+  style,
 }: FormItemProps): JSX.Element {
   const renderTitle = useCallback(
     (showTooltip?: boolean) => (
       <div style={{ width: '0', display: 'flex', flex: '1' }}>
         <Text style={{ width: '100%' }} ellipsis={{ showTooltip: !!showTooltip }}>
           {name}
+          {required && <span style={{ color: '#f93920', paddingLeft: '2px' }}>*</span>}
         </Text>
-        {required && <span style={{ color: '#f93920', paddingLeft: '2px' }}>*</span>}
       </div>
     ),
     []
@@ -56,6 +58,7 @@ export function FormItem({
               justifyContent: 'center',
               alignItems: 'center',
             }),
+        ...style,
       }}
     >
       <div
@@ -64,13 +67,15 @@ export function FormItem({
           alignItems: 'center',
           color: 'var(--semi-color-text-0)',
           width: labelWidth || 118,
+          minWidth: labelWidth || 118,
+          maxWidth: labelWidth || 118,
           position: 'relative',
           display: 'flex',
           columnGap: 4,
           flexShrink: 0,
         }}
       >
-        <TypeTag className="form-item-type-tag" type={type} />
+        {type && <TypeTag className="form-item-type-tag" type={type} />}
         {description ? <Tooltip content={description}>{renderTitle()}</Tooltip> : renderTitle(true)}
       </div>
 

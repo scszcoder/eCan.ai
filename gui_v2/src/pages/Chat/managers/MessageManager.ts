@@ -1,8 +1,7 @@
 import { eventBus } from '@/utils/eventBus';
 import { logger } from '@/utils/logger';
 import { Message } from '../types/chat';
-import { logMessageProcessing } from '../utils/messageUtils';
-import { addMessageToList, updateMessageInList } from '../utils/messageHandlers';
+import { addMessageToList, updateMessageInList, sortMessagesByTime } from '../utils/messageHandlers';
 
 class MessageManager {
   private listeners: Set<(messages: Map<string, Message[]>) => void> = new Set();
@@ -112,14 +111,19 @@ class MessageManager {
 
   // 设置聊天消息（用于初始化或更新）
   setMessages(chatId: string, messages: Message[]): void {
-    this.messages.set(chatId, messages);
+    // 强制排序，保证老→新
+    this.messages.set(chatId, sortMessagesByTime(messages));
     this.notifyListeners();
   }
 
   // 添加消息到聊天（用于发送新消息时）
   addMessageToChat(chatId: string, message: Message): void {
     // 调用通用的添加消息方法，但不更新未读计数（因为是自己发送的）
-    this.addMessageInternal(chatId, message, false);
+    const chatMessages = this.messages.get(chatId) || [];
+    const result = addMessageToList(chatMessages, message);
+    // 强制排序，保证老→新
+    this.messages.set(chatId, sortMessagesByTime(result.messages));
+    this.notifyListeners();
   }
 
   // 更新消息（用于更新现有消息的状态）

@@ -41,6 +41,7 @@ export interface Message {
     senderId?: string;
     senderName?: string;
     time?: number;
+    isRead?: boolean; // 新增，表示消息是否已读
 }
 
 /**
