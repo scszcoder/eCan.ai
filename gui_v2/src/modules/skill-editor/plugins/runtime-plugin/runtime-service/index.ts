@@ -73,14 +73,17 @@ export class WorkflowRuntimeService {
     );
   }
 
-  public async taskRun(inputsString: string): Promise<void> {
+  public async taskRun(inputs: WorkflowInputs): Promise<string | undefined> {
     if (this.taskID) {
       await this.taskCancel();
     }
-    if (!this.validateForm()) {
+    const isFormValid = await this.validateForm();
+    if (!isFormValid) {
+      this.resultEmitter.fire({
+        errors: ['Form validation failed'],
+      });
       return;
     }
-    const inputs = JSON.parse(inputsString) as WorkflowInputs;
     const schema = this.document.toJSON();
     const validateResult = await this.runtimeClient.TaskValidate({
       schema: JSON.stringify(schema),
@@ -93,18 +96,30 @@ export class WorkflowRuntimeService {
       return;
     }
     this.reset();
-    const output = await this.runtimeClient.TaskRun({
-      schema: JSON.stringify(schema),
-      inputs,
-    });
-    if (!output) {
-      this.resultEmitter.fire({});
+    let taskID: string | undefined;
+    try {
+      const output = await this.runtimeClient.TaskRun({
+        schema: JSON.stringify(schema),
+        inputs,
+      });
+      taskID = output?.taskID;
+    } catch (e) {
+      this.resultEmitter.fire({
+        errors: [(e as Error)?.message],
+      });
       return;
     }
-    this.taskID = output.taskID;
+    if (!taskID) {
+      this.resultEmitter.fire({
+        errors: ['Task run failed'],
+      });
+      return;
+    }
+    this.taskID = taskID;
     this.syncTaskReportIntervalID = setInterval(() => {
       this.syncTaskReport();
     }, SYNC_TASK_REPORT_INTERVAL);
+    return this.taskID;
   }
 
   public async taskCancel(): Promise<void> {

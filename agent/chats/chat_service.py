@@ -272,9 +272,12 @@ class ChatService(metaclass=SingletonMeta):
                     ext=att.get("ext")
                 )
                 message.attachments.append(attachment_obj)
-            chat.messages.append(message)
+            # 更新chat.lastMsg和lastMsgTime
+            chat.lastMsg = json.dumps(content, ensure_ascii=False)
+            chat.lastMsgTime = createAt
             # 新增消息未读，chat.unread +1
             chat.unread = (chat.unread or 0) + 1
+            chat.messages.append(message)
             session.add(message)
             session.flush()
             return {
@@ -733,5 +736,36 @@ class ChatService(metaclass=SingletonMeta):
                 "success": True,
                 "id": chatId,
                 "data": [n.to_dict() for n in chat_notifications],
+                "error": None
+            }
+
+    def set_chat_unread(self, chatId: str, unread: int = 0) -> Dict[str, Any]:
+        """
+        设置指定 chat 的未读数为指定值（通常为 0）。
+        参数：chatId（必需），unread（可选，默认0）
+        返回：标准结构
+        """
+        if not chatId:
+            return {
+                "success": False,
+                "id": None,
+                "data": None,
+                "error": "chatId is required"
+            }
+        with self.session_scope() as session:
+            chat = session.get(Chat, chatId)
+            if not chat:
+                return {
+                    "success": False,
+                    "id": chatId,
+                    "data": None,
+                    "error": f"Chat {chatId} not found"
+                }
+            chat.unread = unread
+            session.flush()
+            return {
+                "success": True,
+                "id": chatId,
+                "data": chat.to_dict(),
                 "error": None
             }

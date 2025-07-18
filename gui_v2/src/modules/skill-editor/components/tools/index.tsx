@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ */
+
 import { useState, useEffect } from 'react';
 
 import { useRefresh } from '@flowgram.ai/free-layout-editor';
@@ -5,12 +10,12 @@ import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Divider } from '@douyinfe/semi-ui';
 import { IconUndo, IconRedo } from '@douyinfe/semi-icons';
 
+import { TestRunButton } from '../testrun/testrun-button';
 import { AddNode } from '../add-node';
 import { ZoomSelect } from './zoom-select';
 import { SwitchLine } from './switch-line';
 import { ToolContainer, ToolSection } from './styles';
 import { Save } from './save';
-import { Run } from './run';
 import { Readonly } from './readonly';
 import { MinimapSwitch } from './minimap-switch';
 import { Minimap } from './minimap';
@@ -21,7 +26,6 @@ import { AutoLayout } from './auto-layout';
 import { Open } from './open';
 import { Info } from './info';
 import { NewPage } from './new-page';
-import { useInfoStore } from '../../stores/info-store';
 
 export const Tools = () => {
   const { history, playground } = useClientContext();
@@ -79,7 +83,7 @@ export const Tools = () => {
         <NewPage disabled={playground.config.readonly} />
         <Save disabled={playground.config.readonly} />
         <Info />
-        <Run />
+        <TestRunButton disabled={playground.config.readonly} />
       </ToolSection>
     </ToolContainer>
   );
