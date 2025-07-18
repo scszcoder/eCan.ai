@@ -1,15 +1,11 @@
-import gc
-import json
 import logging
-from dataclasses import dataclass
 from importlib import resources
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-
 if TYPE_CHECKING:
-	from selenium.webdriver.remote.webdriver import WebDriver
-	from selenium.common.exceptions import JavascriptException
+	from agent.ec_skills.browser.types import Page
+
 
 from agent.ec_skills.dom.views import (
 	DOMBaseNode,
@@ -17,68 +13,136 @@ from agent.ec_skills.dom.views import (
 	DOMState,
 	DOMTextNode,
 	SelectorMap,
+	# ViewportInfo,
 )
-from agent.run_utils import time_execution_async
+# from browser_use.utils import is_new_tab_page, time_execution_async
 
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ViewportInfo:
-	width: int
-	height: int
+# @dataclass
+# class ViewportInfo:
+# 	width: int
+# 	height: int
 
 
 class DomService:
-	def __init__(self, driver: 'WebDriver'):
-		self.driver = driver
+	logger: logging.Logger
+
+	def __init__(self, page: 'Page', logger: logging.Logger | None = None):
+		self.page = page
 		self.xpath_cache = {}
-		self.js_code = resources.files('browser_use.dom').joinpath('buildDomTree.js').read_text()
+		self.logger = logger or logging.getLogger(__name__)
+
+		self.js_code = resources.files('browser_use.dom.dom_tree').joinpath('index.js').read_text()
 
 	# region - Clickable elements
-	@time_execution_async('--get_clickable_elements')
+	# @time_execution_async('--get_clickable_elements')
 	async def get_clickable_elements(
-			self,
-			highlight_elements: bool = True,
-			focus_element: int = -1,
-			viewport_expansion: int = 0,
+		self,
+		highlight_elements: bool = True,
+		focus_element: int = -1,
+		viewport_expansion: int = 0,
 	) -> DOMState:
-		element_tree, selector_map = self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
+		element_tree, selector_map = await self._build_dom_tree(highlight_elements, focus_element, viewport_expansion)
 		return DOMState(element_tree=element_tree, selector_map=selector_map)
 
-	@time_execution_async('--get_cross_origin_iframes')
+	# @time_execution_async('--get_cross_origin_iframes')
 	async def get_cross_origin_iframes(self) -> list[str]:
-		iframe_elements = self.driver.find_elements("tag name", "iframe")
-		hidden_frame_urls = [
-            iframe.get_attribute("src") for iframe in iframe_elements
-            if not iframe.is_displayed()
-        ]
+		# invisible cross-origin iframes are used for ads and tracking, dont open those
+		hidden_frame_urls = await self.page.locator('iframe').filter(visible=False).evaluate_all('e => e.map(e => e.src)')
 
-		current_url = self.driver.current_url
-		current_domain = urlparse(current_url).netloc
+		is_ad_url = lambda url: any(
+			domain in urlparse(url).netloc for domain in ('doubleclick.net', 'adroll.com', 'googletagmanager.com')
+		)
 
-		def is_ad_url(url):
-			return any(domain in urlparse(url).netloc for domain in (
-                'doubleclick.net', 'adroll.com', 'googletagmanager.com'
-            ))
+		return [
+			frame.url
+			for frame in self.page.frames
+			if urlparse(frame.url).netloc  # exclude data:urls and new tab pages
+			and urlparse(frame.url).netloc != urlparse(self.page.url).netloc  # exclude same-origin iframes
+			and frame.url not in hidden_frame_urls  # exclude hidden frames
+			and not is_ad_url(frame.url)  # exclude most common ad network tracker frame URLs
+		]
 
-		frames = self.driver.find_elements("tag name", "iframe")
-		frame_urls = []
-		for frame in frames:
-			src = frame.get_attribute("src")
-			if not src:
-				continue
+	# @time_execution_async('--build_dom_tree')
+	async def _build_dom_tree(
+		self,
+		highlight_elements: bool,
+		focus_element: int,
+		viewport_expansion: int,
+	) -> tuple[DOMElementNode, SelectorMap]:
+		if await self.page.evaluate('1+1') != 2:
+			raise ValueError('The page cannot evaluate javascript code properly')
 
-			parsed = urlparse(src)
-			if not parsed.netloc:
-				continue
+		def is_new_tab_page(url: str) -> bool:
+			return True
 
-			if parsed.netloc != current_domain and src not in hidden_frame_urls and not is_ad_url(src):
-				frame_urls.append(src)
+		if is_new_tab_page(self.page.url):
+			# short-circuit if the page is a new empty tab for speed, no need to inject buildDomTree.js
+			return (
+				DOMElementNode(
+					tag_name='body',
+					xpath='',
+					attributes={},
+					children=[],
+					is_visible=False,
+					parent=None,
+				),
+				{},
+			)
 
-		return frame_urls
+		# NOTE: We execute JS code in the browser to extract important DOM information.
+		#       The returned hash map contains information about the DOM tree and the
+		#       relationship between the DOM elements.
+		debug_mode = self.logger.getEffectiveLevel() == logging.DEBUG
+		args = {
+			'doHighlightElements': highlight_elements,
+			'focusHighlightIndex': focus_element,
+			'viewportExpansion': viewport_expansion,
+			'debugMode': debug_mode,
+		}
 
-	async def _construct_dom_tree(self, eval_page: dict) -> Tuple[DOMElementNode, SelectorMap]:
+		try:
+			self.logger.debug(f'🔧 Starting JavaScript DOM analysis for {self.page.url[:50]}...')
+			eval_page: dict = await self.page.evaluate(self.js_code, args)
+			self.logger.debug('✅ JavaScript DOM analysis completed')
+		except Exception as e:
+			self.logger.error('Error evaluating JavaScript: %s', e)
+			raise
+
+		# Only log performance metrics in debug mode
+		if debug_mode and 'perfMetrics' in eval_page:
+			perf = eval_page['perfMetrics']
+
+			# Get key metrics for summary
+			total_nodes = perf.get('nodeMetrics', {}).get('totalNodes', 0)
+			# processed_nodes = perf.get('nodeMetrics', {}).get('processedNodes', 0)
+
+			# Count interactive elements from the DOM map
+			interactive_count = 0
+			if 'map' in eval_page:
+				for node_data in eval_page['map'].values():
+					if isinstance(node_data, dict) and node_data.get('isInteractive'):
+						interactive_count += 1
+
+			# Create concise summary
+			url_short = self.page.url[:50] + '...' if len(self.page.url) > 50 else self.page.url
+			self.logger.debug(
+				'🔎 Ran buildDOMTree.js interactive element detection on: %s interactive=%d/%d\n',
+				url_short,
+				interactive_count,
+				total_nodes,
+				# processed_nodes,
+			)
+
+		self.logger.debug('🔄 Starting Python DOM tree construction...')
+		result = await self._construct_dom_tree(eval_page)
+		self.logger.debug('✅ Python DOM tree construction completed')
+		return result
+
+	# @time_execution_async('--construct_dom_tree')
+	async def _construct_dom_tree(
+		self,
+		eval_page: dict,
+	) -> tuple[DOMElementNode, SelectorMap]:
 		js_node_map = eval_page['map']
 		js_root_id = eval_page['rootId']
 
@@ -95,12 +159,15 @@ class DomService:
 			if isinstance(node, DOMElementNode) and node.highlight_index is not None:
 				selector_map[node.highlight_index] = node
 
+			# NOTE: We know that we are building the tree bottom up
+			#       and all children are already processed.
 			if isinstance(node, DOMElementNode):
 				for child_id in children_ids:
 					if child_id not in node_map:
 						continue
 
 					child_node = node_map[child_id]
+
 					child_node.parent = node
 					node.children.append(child_node)
 
@@ -110,65 +177,19 @@ class DomService:
 		del js_node_map
 		del js_root_id
 
-		gc.collect()
-
 		if html_to_dict is None or not isinstance(html_to_dict, DOMElementNode):
 			raise ValueError('Failed to parse HTML to dictionary')
 
 		return html_to_dict, selector_map
 
-
-	@time_execution_async('--build_dom_tree')
-	async def _build_dom_tree(
-        self,
-        highlight_elements: bool,
-        focus_element: int,
-        viewport_expansion: int,
-    ) -> Tuple[DOMElementNode, SelectorMap]:
-
-		if self.driver.execute_script('return 1 + 1') != 2:
-			raise ValueError('The page cannot evaluate javascript code properly')
-
-		if self.driver.current_url == 'about:blank':
-			return (
-                DOMElementNode(
-                    tag_name='body',
-                    xpath='',
-                    attributes={},
-                    children=[],
-                    is_visible=False,
-                    parent=None,
-                ),
-                {},
-            )
-
-		debug_mode = logger.getEffectiveLevel() == logging.DEBUG
-		args = {
-            'doHighlightElements': highlight_elements,
-            'focusHighlightIndex': focus_element,
-            'viewportExpansion': viewport_expansion,
-            'debugMode': debug_mode,
-        }
-
-		try:
-			eval_page = self.driver.execute_script(f"return ({self.js_code})({json.dumps(args)})")
-		except JavascriptException as e:
-			logger.error('Error evaluating JavaScript: %s', e)
-			raise
-
-		if debug_mode and 'perfMetrics' in eval_page:
-			logger.debug(
-                'DOM Tree Building Performance Metrics for: %s\n%s',
-                self.driver.current_url,
-                json.dumps(eval_page['perfMetrics'], indent=2),
-            )
-
-		return await self._construct_dom_tree(eval_page)
-
-	def _parse_node(self, node_data: dict) -> Tuple[Optional[DOMBaseNode], list[int]]:
+	def _parse_node(
+		self,
+		node_data: dict,
+	) -> tuple[DOMBaseNode | None, list[int]]:
 		if not node_data:
 			return None, []
 
+		# Process text nodes immediately
 		if node_data.get('type') == 'TEXT_NODE':
 			text_node = DOMTextNode(
 				text=node_data['text'],
@@ -177,7 +198,10 @@ class DomService:
 			)
 			return text_node, []
 
+		# Process coordinates if they exist for element nodes
+
 		viewport_info = None
+
 		if 'viewport' in node_data:
 			viewport_info = ViewportInfo(
 				width=node_data['viewport']['width'],
@@ -200,4 +224,5 @@ class DomService:
 		)
 
 		children_ids = node_data.get('children', [])
+
 		return element_node, children_ids

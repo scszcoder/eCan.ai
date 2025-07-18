@@ -10,6 +10,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException, NoSuchElementException
 
+def cap_text_length(text: str, max_length: int) -> str:
+	if len(text) > max_length:
+		return text[:max_length] + '...'
+	return text
+
 # =========================== ai generated dome tree code===========================================
 
 
