@@ -90,7 +90,7 @@ const QAPlatform: React.FC = () => {
       key: 'question',
       width: 300,
       render: (text, record) => (
-        <div>
+        <div key={record.id}>
           <div style={{ fontWeight: 500, color: '#1890ff', cursor: 'pointer' }}>
             {text}
           </div>
@@ -106,7 +106,7 @@ const QAPlatform: React.FC = () => {
       key: 'answer',
       width: 400,
       render: (text) => (
-        <div style={{ 
+        <div key={`answer-${text}`} style={{ 
           maxHeight: 60, 
           overflow: 'hidden',
           fontSize: 12,
@@ -126,14 +126,14 @@ const QAPlatform: React.FC = () => {
       title: '状态',
       key: 'status',
       width: 100,
-      render: () => {
+      render: (_, record) => {
         const status = 'pending'; // 这里应该从数据中获取
         const config = statusConfig[status as keyof typeof statusConfig];
         return (
           <Badge 
             status={config.color as any} 
             text={config.text}
-            icon={config.icon}
+            // icon={config.icon} // Badge 没有 icon 属性，移除
           />
         );
       },
@@ -144,26 +144,13 @@ const QAPlatform: React.FC = () => {
       width: 120,
       render: (_, record) => (
         <Dropdown
-          overlay={
-            <Menu>
-              <Menu.Item key="view" icon={<EyeOutlined />}>
-                查看详情
-              </Menu.Item>
-              <Menu.Item key="edit" icon={<EditOutlined />}>
-                编辑答案
-              </Menu.Item>
-              <Menu.Item key="approve" icon={<CheckOutlined />}>
-                审核通过
-              </Menu.Item>
-              <Menu.Item key="reject" icon={<CloseOutlined />}>
-                拒绝
-              </Menu.Item>
-              <Menu.Divider />
-              <Menu.Item key="delete" icon={<DeleteOutlined />} danger>
-                删除
-              </Menu.Item>
-            </Menu>
-          }
+          menu={{ items: getMenuItems(record), onClick: ({ key }) => {
+            if (key === 'view') { /* 查看详情逻辑 */ }
+            else if (key === 'edit') { handleEditAnswer(record); }
+            else if (key === 'approve') { /* 审核通过逻辑 */ }
+            else if (key === 'reject') { /* 拒绝逻辑 */ }
+            else if (key === 'delete') { /* 删除逻辑 */ }
+          }}}
         >
           <Button type="text" icon={<MoreOutlined />} />
         </Dropdown>
@@ -219,6 +206,16 @@ const QAPlatform: React.FC = () => {
       setSelectedRowKeys(newSelectedRowKeys);
     },
   };
+
+  // 在组件内部定义菜单项
+  const getMenuItems = (record: QAPair) => ([
+    { key: 'view', label: '查看详情', icon: <EyeOutlined /> },
+    { key: 'edit', label: '编辑答案', icon: <EditOutlined /> },
+    { key: 'approve', label: '审核通过', icon: <CheckOutlined /> },
+    { key: 'reject', label: '拒绝', icon: <CloseOutlined /> },
+    { type: 'divider' as const },
+    { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
+  ]);
 
   return (
     <div>

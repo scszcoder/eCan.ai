@@ -183,16 +183,16 @@ const PermissionManager: React.FC = () => {
       key: 'permissions',
       render: (_, record) => (
         <div>
-          {record.permissions.slice(0, 3).map(perm => {
+          {record.permissions.slice(0, 3).map((perm, idx) => {
             const permInfo = permissions.find(p => p.id === perm);
             return (
-              <Tag key={perm} size="small" style={{ marginBottom: 4 }}>
+              <Tag key={perm + '-' + idx} style={{ marginBottom: 4 }}>
                 {permInfo?.name || perm}
               </Tag>
             );
           })}
           {record.permissions.length > 3 && (
-            <Tag size="small">+{record.permissions.length - 3}</Tag>
+            <Tag key={record.id + '-more'}>+{record.permissions.length - 3}</Tag>
           )}
         </div>
       ),
@@ -252,7 +252,7 @@ const PermissionManager: React.FC = () => {
       render: (name, record) => (
         <div>
           <div style={{ fontWeight: 500 }}>{name}</div>
-          {record.isSystem && <Tag size="small" color="orange">系统角色</Tag>}
+          {record.isSystem && <Tag color="orange">系统角色</Tag>}
         </div>
       ),
     },
