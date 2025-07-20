@@ -191,8 +191,8 @@ const KnowledgeBase: React.FC = () => {
       width: 200,
       render: tags => (
         <Space>
-          {tags?.map((tag: string) => (
-            <Tag key={tag} color="blue">{tag}</Tag>
+          {tags?.map((tag: string, idx: number) => (
+            <Tag key={tag + '-' + idx} color="blue">{tag}</Tag>
           ))}
         </Space>
       ),
@@ -207,37 +207,38 @@ const KnowledgeBase: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 120,
-      render: (_, record) => (
-        <Dropdown
-          overlay={
-            <Menu>
-              <Menu.Item key="view" icon={<EyeOutlined />} onClick={() => {
-                setSelectedDocument(record);
-                setIsCollaborationVisible(true);
-              }}>
-                查看
-              </Menu.Item>
-              <Menu.Item key="edit" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-                编辑
-              </Menu.Item>
-              <Menu.Item key="version" icon={<HistoryOutlined />} onClick={() => {
-                setSelectedDocument(record);
-                setIsVersionControlVisible(true);
-              }}>
-                版本历史
-              </Menu.Item>
-              <Menu.Divider />
-              <Menu.Item key="delete" icon={<DeleteOutlined />} danger>
-                删除
-              </Menu.Item>
-            </Menu>
-          }
-        >
-          <Button type="text" icon={<MoreOutlined />} />
-        </Dropdown>
-      ),
+      render: (_, record) => {
+        const menuItems = [
+          { key: 'view', label: '查看', icon: <EyeOutlined /> },
+          { key: 'edit', label: '编辑', icon: <EditOutlined /> },
+          { key: 'version', label: '版本历史', icon: <HistoryOutlined /> },
+          { type: 'divider' as const },
+          { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
+        ];
+        return (
+          <Dropdown
+            menu={{ items: menuItems, onClick: ({ key }) => {
+              if (key === 'view') { setSelectedDocument(record); setIsCollaborationVisible(true); }
+              else if (key === 'edit') { handleEdit(record); }
+              else if (key === 'version') { setSelectedDocument(record); setIsVersionControlVisible(true); }
+              else if (key === 'delete') { /* 删除逻辑 */ }
+            }}}
+          >
+            <Button type="text" icon={<MoreOutlined />} />
+          </Dropdown>
+        );
+      },
     },
   ];
+
+  // 在组件内部定义菜单项
+  const getMenuItems = (record: KnowledgeEntry) => ([
+    { key: 'view', label: '查看', onClick: () => { setSelectedDocument(record); setIsCollaborationVisible(true); } },
+    { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
+    { key: 'version', label: '版本历史', onClick: () => { setSelectedDocument(record); setIsVersionControlVisible(true); } },
+    { type: 'divider' },
+    { key: 'delete', label: '删除', danger: true },
+  ]);
 
   // 卡片视图渲染
   const renderCardView = () => (
@@ -248,15 +249,9 @@ const KnowledgeBase: React.FC = () => {
             hoverable
             size="small"
             actions={[
-              <Tooltip title="查看">
-                <EyeOutlined key="view" />
-              </Tooltip>,
-              <Tooltip title="编辑">
-                <EditOutlined key="edit" onClick={() => handleEdit(item)} />
-              </Tooltip>,
-              <Tooltip title="删除">
-                <DeleteOutlined key="delete" style={{ color: '#ff4d4f' }} />
-              </Tooltip>,
+              <Tooltip title="查看" key="view"><EyeOutlined /></Tooltip>,
+              <Tooltip title="编辑" key="edit"><EditOutlined onClick={() => handleEdit(item)} /></Tooltip>,
+              <Tooltip title="删除" key="delete"><DeleteOutlined style={{ color: '#ff4d4f' }} /></Tooltip>,
             ]}
           >
             <Card.Meta
@@ -271,8 +266,8 @@ const KnowledgeBase: React.FC = () => {
                     {item.content.substring(0, 60)}...
                   </div>
                   <div style={{ marginBottom: 8 }}>
-                    {item.tags?.map(tag => (
-                      <Tag key={tag}>{tag}</Tag>
+                    {item.tags?.map((tag, idx) => (
+                      <Tag key={tag + '-' + idx}>{tag}</Tag>
                     ))}
                   </div>
                   <div style={{ fontSize: 12, color: '#666' }}>

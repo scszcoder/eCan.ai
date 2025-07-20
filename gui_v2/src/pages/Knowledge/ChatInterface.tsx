@@ -126,7 +126,7 @@ const ChatInterface: React.FC = () => {
                 <Text strong style={{ fontSize: 12 }}>📚 相关文档：</Text>
                 <div style={{ marginTop: 4 }}>
                   {message.relatedDocs.map((doc, index) => (
-                    <div key={index}>
+                    <div key={doc.title + '-' + index}>
                       <Text 
                         style={{ fontSize: 12, cursor: 'pointer', color: '#1890ff' }}
                         onClick={() => console.log('打开文档:', doc.title)}

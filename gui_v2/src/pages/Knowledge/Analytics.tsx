@@ -273,7 +273,7 @@ const Analytics: React.FC = () => {
         <Col xs={24} lg={12}>
           <Card title="分类统计" size="small">
             {analyticsData.topCategories.map((category, index) => (
-              <div key={index} style={{ marginBottom: 16 }}>
+              <div key={category.name + '-' + index} style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <span>{category.name}</span>
                   <span>{category.count} 篇</span>
@@ -292,6 +292,7 @@ const Analytics: React.FC = () => {
             <Table
               columns={topDocumentsColumns}
               dataSource={analyticsData.topDocuments}
+              rowKey={(record) => record.title + '-' + record.category}
               pagination={false}
               size="small"
             />
@@ -306,6 +307,7 @@ const Analytics: React.FC = () => {
             <Table
               columns={recentActivityColumns}
               dataSource={analyticsData.recentActivity}
+              rowKey={(record) => record.type + '-' + record.title + '-' + record.user + '-' + record.time}
               pagination={false}
               size="small"
             />

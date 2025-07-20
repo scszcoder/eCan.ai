@@ -185,7 +185,7 @@ const VersionControl: React.FC<VersionControlProps> = ({
                 key={version.id}
                 dot={version.isCurrent ? <HistoryOutlined style={{ color: '#1890ff' }} /> : undefined}
               >
-                <Card size="small" style={{ marginBottom: 16 }}>
+                <Card size="small" style={{ marginBottom: 16 }} key={version.id + '-card'}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                     <div>
                       <Space>

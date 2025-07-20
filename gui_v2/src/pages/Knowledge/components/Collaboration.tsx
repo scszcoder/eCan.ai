@@ -273,7 +273,18 @@ const Collaboration: React.FC<CollaborationProps> = ({
                 {comment.isEdited && <Text type="secondary"> (已编辑)</Text>}
               </Text>
             </div>
-            <Dropdown overlay={renderCommentMenu(comment)} trigger={['click']}>
+            <Dropdown menu={{
+              items: [
+                { key: 'reply', icon: <MessageOutlined />, label: '回复', onClick: () => handleReply(comment) },
+                { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: () => handleEdit(comment) },
+                { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: () => handleDelete(comment) },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'reply') handleReply(comment);
+                else if (key === 'edit') handleEdit(comment);
+                else if (key === 'delete') handleDelete(comment);
+              },
+            }} trigger={['click']}>
               <Button type="text" size="small" icon={<MoreOutlined />} />
             </Dropdown>
           </div>
@@ -314,7 +325,9 @@ const Collaboration: React.FC<CollaborationProps> = ({
           {/* 回复列表 */}
           {comment.replies.length > 0 && (
             <div style={{ marginTop: 12, paddingLeft: 16, borderLeft: '2px solid #f0f0f0' }}>
-              {comment.replies.map(reply => renderComment(reply, true))}
+              {comment.replies.map(reply => (
+                <React.Fragment key={reply.id}>{renderComment(reply, true)}</React.Fragment>
+              ))}
             </div>
           )}
         </div>
@@ -411,7 +424,9 @@ const Collaboration: React.FC<CollaborationProps> = ({
         <div style={{ marginBottom: 16 }}>
           <Text strong>评论 ({comments.length})</Text>
         </div>
-        {comments.map(comment => renderComment(comment))}
+        {comments.map(comment => (
+          <React.Fragment key={comment.id}>{renderComment(comment)}</React.Fragment>
+        ))}
       </div>
     </div>
   );

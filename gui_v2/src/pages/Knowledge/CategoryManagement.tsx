@@ -266,25 +266,19 @@ const CategoryManagement: React.FC = () => {
           </span>
         )}
         <Dropdown
-          overlay={
-            <Menu>
-              <Menu.Item key="add" icon={<PlusOutlined />} onClick={() => handleAdd(node.key)}>
-                添加子分类
-              </Menu.Item>
-              <Menu.Item key="edit" icon={<EditOutlined />} onClick={() => handleEdit(node)}>
-                编辑
-              </Menu.Item>
-              <Menu.Divider />
-              <Menu.Item 
-                key="delete" 
-                icon={<DeleteOutlined />} 
-                danger
-                onClick={() => handleDelete(node)}
-              >
-                删除
-              </Menu.Item>
-            </Menu>
-          }
+          menu={{
+            items: [
+              { key: 'add', icon: <PlusOutlined />, label: '添加子分类' },
+              { key: 'edit', icon: <EditOutlined />, label: '编辑' },
+              { type: 'divider' },
+              { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true },
+            ],
+            onClick: ({ key }) => {
+              if (key === 'add') handleAdd(node.key);
+              else if (key === 'edit') handleEdit(node);
+              else if (key === 'delete') handleDelete(node);
+            },
+          }}
           trigger={['click']}
         >
           <Button type="text" size="small" icon={<MoreOutlined />} />
