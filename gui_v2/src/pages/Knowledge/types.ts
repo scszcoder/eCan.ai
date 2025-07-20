@@ -1,27 +1,28 @@
-export interface Knowledge {
+// 知识条目类型
+export interface KnowledgeEntry {
   id: number;
-  name: string;
-  type: string;
-  status: 'active' | 'maintenance' | 'offline';
-  battery: number;
-  location: string;
-  lastMaintenance: string;
-  totalDistance: number;
-  currentTask?: string;
-  nextMaintenance?: string;
+  title: string;
+  content: string;
+  category: string;
+  tags?: string[];
+  createdAt: string;
+  updatedAt: string;
 }
 
-export const knowledgeEventBus = {
-  listeners: new Set<(data: Knowledge[]) => void>(),
-  subscribe(listener: (data: Knowledge[]) => void) {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  },
-  emit(data: Knowledge[]) {
-    this.listeners.forEach(listener => listener(data));
-  }
-};
+// 问答对类型
+export interface QAPair {
+  id: number;
+  question: string;
+  answer: string;
+  asker: string;
+  createdAt: string;
+  category?: string;
+  relatedKnowledgeIds?: number[];
+}
 
-export const updateKnowledgeGUI = (data: Knowledge[]) => {
-  knowledgeEventBus.emit(data);
-}; 
+// 知识分类类型
+export interface KnowledgeCategory {
+  id: number;
+  name: string;
+  description?: string;
+} 

@@ -15,7 +15,7 @@ import Tasks from '../pages/Tasks/Tasks';
 import Tools from '../pages/Tools/Tools';
 import Settings from '../pages/Settings/Settings';
 import Console from '../pages/Console/Console';
-import Knowledge from '../pages/Knowledge/Knowledge';
+import KnowledgePlatform from '../pages/Knowledge/index';
 import Tests from '../pages/Tests/Tests';
 import VirtualPlatform from '../pages/Agents/VirtualPlatform';
 import DepartmentRoom from '../pages/Agents/DepartmentRoom';
@@ -121,7 +121,7 @@ export const protectedRoutes: RouteConfig[] = [
             },
             {
                 path: 'knowledge',
-                element: <Knowledge />,
+                element: <KnowledgePlatform />,
             },
             {
                 path: 'tests',
