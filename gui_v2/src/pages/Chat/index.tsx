@@ -250,7 +250,7 @@ const ChatPage: React.FC = () => {
         try {
             logger.debug("[getChatsAndSetState] Getting chats for userId:", userId);
             // 使用新的 API 获取聊天数据
-            const response = await get_ipc_api().chat.getChats(
+            const response = await get_ipc_api().chatApi.getChats(
                 userId,
                 false // deep 参数，按需可调整
             );
@@ -349,7 +349,7 @@ const ChatPage: React.FC = () => {
             };
             
             logger.debug('[createChatWithAgent] Creating chat for agent:', targetAgentId);
-            const response = await get_ipc_api().chat.createChat(chatData);
+            const response = await get_ipc_api().chatApi.createChat(chatData);
             const resp: any = response;
             
             if (resp.success && resp.data && resp.data.data) {
@@ -422,7 +422,7 @@ const ChatPage: React.FC = () => {
     // 获取并处理聊天消息
     const fetchAndProcessChatMessages = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
-            const response = await get_ipc_api().chat.getChatMessages({
+            const response = await get_ipc_api().chatApi.getChatMessages({
                 chatId,
                 limit: PAGE_SIZE,
                 offset: 0,
@@ -467,7 +467,7 @@ const ChatPage: React.FC = () => {
     const fetchAndProcessChatNotifications = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
             if (typeof setIsInitialLoading === 'function') setIsInitialLoading(true);
-            const notificationResponse = await get_ipc_api().chat.getChatNotifications({ 
+            const notificationResponse = await get_ipc_api().chatApi.getChatNotifications({ 
                 chatId, 
                 limit: NOTIF_PAGE_SIZE, 
                 offset: 0, 
@@ -513,7 +513,7 @@ const ChatPage: React.FC = () => {
     const handleChatDelete = async (chatId: string) => {
         try {
             // 调用 API 删除聊天
-            const response = await get_ipc_api().chat.deleteChat(chatId);
+            const response = await get_ipc_api().chatApi.deleteChat(chatId);
             
             if (response.success) {
                 // 本地更新 UI
@@ -628,7 +628,7 @@ const ChatPage: React.FC = () => {
                 attachments: safeAttachments as any
             };
             
-            const response = await get_ipc_api().chat.sendChat(messageData);
+            const response = await get_ipc_api().chatApi.sendChat(messageData);
             logger.debug("[sendChat] response:", response.data);
             if (!response.success) {
                 logger.error('Failed to send message:', response.error);

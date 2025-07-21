@@ -1,7 +1,3 @@
-"""
-IPC 服务模块，处理与前端的数据交互
-"""
-
 from PySide6.QtCore import QObject, Slot, Signal, QRunnable, QThreadPool
 from utils.logger_helper import logger_helper as logger
 import json
@@ -42,7 +38,7 @@ class Worker(QRunnable):
             response = create_error_response(self.request, 'WORKER_ERROR', f"{str(e)}\n{error_details}")
             self.signals.error.emit(self.request, response)
 
-class IPCService(QObject):
+class IPCWebChannelService(QObject):
     """IPC 服务类，处理与前端的数据交互"""
     
     # 定义信号
@@ -50,7 +46,7 @@ class IPCService(QObject):
     
     def __init__(self):
         super().__init__()
-        logger.info("IPC service initialized")
+        logger.info("IPC WebChannel service initialized")
         # 存储请求ID和对应的回调函数的映射
         self._request_callbacks: Dict[str, Callable[[IPCResponse], None]] = {}
         self.threadpool = QThreadPool()

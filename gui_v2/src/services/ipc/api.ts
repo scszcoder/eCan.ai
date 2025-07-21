@@ -2,7 +2,7 @@
  * IPC API
  * 提供与 Python 后端通信的高级 API
  */
-import { IPCClient } from './client';
+import { IPCWCClient } from './ipcWCClient';
 import { IPCResponse } from './types';
 import { logger } from '../../utils/logger';
 import { createChatApi } from './chatApi';
@@ -37,15 +37,15 @@ export interface TestConfig {
  */
 export class IPCAPI {
     private static instance: IPCAPI;
-    private client: IPCClient;
+    private ipcWCClient: IPCWCClient;
 
     // 新增 chat 字段
-    public chat: ReturnType<typeof createChatApi>;
+    public chatApi: ReturnType<typeof createChatApi>;
 
     private constructor() {
-        this.client = IPCClient.getInstance();
+        this.ipcWCClient = IPCWCClient.getInstance();
         // 初始化 chat api
-        this.chat = createChatApi(this);
+        this.chatApi = createChatApi(this);
     }
 
     /**
@@ -67,7 +67,7 @@ export class IPCAPI {
     private async executeRequest<T>(method: string, params?: unknown): Promise<APIResponse<T>> {
         try {
             //logger.debug(`Executing ${method}`, params ? `with params: ${JSON.stringify(params)}` : '');
-            const response = await this.client.sendRequest(method, params) as IPCResponse;
+            const response = await this.ipcWCClient.sendRequest(method, params) as IPCResponse;
 
             if (response.status === 'success') {
                 return {

@@ -2,25 +2,25 @@
  * Unit tests for SequentialIPCClient.
  */
 import { SequentialIPCClient } from './sequentialClient';
-import { IPCClient } from './client';
+import { IPCWCClient } from './ipcWCClient';
 import { logger } from '../../utils/logger';
 
 // 1. Mock the dependencies
-jest.mock('./client', () => {
-    // This is a manual mock of the IPCClient class
+jest.mock('./ipcWCClient', () => {
+    // This is a manual mock of the IPCWCClient class
     const mockSendRequest = jest.fn();
     return {
-        IPCClient: {
-            getInstance: jest.fn().mockReturnValue({
+        IPCWCClient: {
+            getInstance: jest.fn(() => ({
                 sendRequest: mockSendRequest,
-            }),
+            })),
         },
     };
 });
 
 // Mock the actual SequentialIPCClient to control its behavior in tests
 jest.mock('./sequentialClient', () => {
-    const { IPCClient } = require('./client');
+    const { IPCWCClient } = require('./ipcWCClient');
     let promiseChain = Promise.resolve();
 
     return {
@@ -28,7 +28,7 @@ jest.mock('./sequentialClient', () => {
             return {
                 sendRequest: (method: string, params: any) => {
                     const newRequest = () => {
-                        return IPCClient.getInstance().sendRequest(method, params);
+                        return IPCWCClient.getInstance().sendRequest(method, params);
                     };
                     // Chain requests, but ensure failures in one don't break the chain for the next.
                     promiseChain = promiseChain.then(newRequest, newRequest);
@@ -50,9 +50,9 @@ jest.mock('../../utils/logger', () => ({
 }));
 
 // Type assertion for the mocked client
-const MockedIPCClient = IPCClient as jest.Mocked<typeof IPCClient>;
+const MockedIPCWCClient = IPCWCClient as jest.Mocked<typeof IPCWCClient>;
 // Get the underlying mock function to control its behavior in tests
-const mockSendRequest = (MockedIPCClient.getInstance() as any).sendRequest as jest.Mock;
+const mockSendRequest = (MockedIPCWCClient.getInstance() as any).sendRequest as jest.Mock;
 
 describe('SequentialIPCClient', () => {
 

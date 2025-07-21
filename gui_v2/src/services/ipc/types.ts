@@ -7,7 +7,7 @@
  * IPC 接口定义
  * 定义了与 Python 后端通信的基本接口
  */
-export interface IPC {
+export interface IPCWebChannel {
     /** 发送消息到 Python 后端 */
     web_to_python: (message: string) => string;
     /** 接收来自 Python 后端的消息 */
@@ -230,7 +230,7 @@ declare global {
             };
         };
         /** IPC 对象 */
-        ipc: IPC;
+        ipc: IPCWebChannel;
     }
 }
 
