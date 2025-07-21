@@ -38,8 +38,10 @@ class Worker(QRunnable):
             response = create_error_response(self.request, 'WORKER_ERROR', f"{str(e)}\n{error_details}")
             self.signals.error.emit(self.request, response)
 
-class IPCWebChannelService(QObject):
-    """IPC 服务类，处理与前端的数据交互"""
+class IPCWCService(QObject):
+    """
+    IPC(Inter-Process Communication) WebChannel Service
+    """
     
     # 定义信号
     python_to_web = Signal(str)  # 发送消息到 Web 的信号

@@ -5,7 +5,7 @@ IPC API 管理模块
 from typing import Optional, Dict, Any, Callable, TypeVar, Generic, List
 from dataclasses import dataclass
 from .types import IPCResponse
-from .webchannel_service import IPCWebChannelService
+from .wc_service import IPCWCService
 from utils.logger_helper import logger_helper as logger
 import gui.ipc.w2p_handlers
 
@@ -31,17 +31,17 @@ class IPCAPI:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def __init__(self, ipc_webchannel_service: Optional[IPCWebChannelService] = None):
+    def __init__(self, ipc_wc_service: Optional[IPCWCService] = None):
         """
         初始化 IPC API
         
         Args:
-            ipc_webchannel_service: IPC 服务实例（可选，如果已初始化则忽略）
+            ipc_wc_service: IPC 服务实例（可选，如果已初始化则忽略）
         """
         if not self._initialized:
-            if ipc_webchannel_service is None:
+            if ipc_wc_service is None:
                 raise ValueError("IPC service must be provided for first initialization")
-            self._ipc_webchannel_service: IPCWebChannelService = ipc_webchannel_service
+            self._ipc_wc_service: IPCWCService = ipc_wc_service
             self._initialized = True
             logger.info("IPC API initialized")
     
@@ -105,7 +105,7 @@ class IPCAPI:
         def ipc_response_callback(response: IPCResponse) -> None:
             self._convert_response(response, callback)
             
-        self._ipc_webchannel_service.send_request(method, params, meta, ipc_response_callback)
+        self._ipc_wc_service.send_request(method, params, meta, ipc_response_callback)
     
     def get_config(
         self,
