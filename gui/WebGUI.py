@@ -30,6 +30,7 @@ class WebGUI(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
         # 创建 Web 引擎
         self.web_engine_view = WebEngineView(self)
         
@@ -54,6 +55,7 @@ class WebGUI(QMainWindow):
         
         # 添加 Web 引擎到布局
         layout.addWidget(self.web_engine_view)
+        layout.setSpacing(0)
         
         # 设置快捷键
         self._setup_shortcuts()
