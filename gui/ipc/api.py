@@ -5,7 +5,7 @@ IPC API 管理模块
 from typing import Optional, Dict, Any, Callable, TypeVar, Generic, List
 from dataclasses import dataclass
 from .types import IPCResponse
-from .service import IPCService
+from .webchannel_service import IPCWebChannelService
 from utils.logger_helper import logger_helper as logger
 import gui.ipc.w2p_handlers
 
@@ -31,17 +31,17 @@ class IPCAPI:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def __init__(self, ipc_service: Optional[IPCService] = None):
+    def __init__(self, ipc_webchannel_service: Optional[IPCWebChannelService] = None):
         """
         初始化 IPC API
         
         Args:
-            ipc_service: IPC 服务实例（可选，如果已初始化则忽略）
+            ipc_webchannel_service: IPC 服务实例（可选，如果已初始化则忽略）
         """
         if not self._initialized:
-            if ipc_service is None:
+            if ipc_webchannel_service is None:
                 raise ValueError("IPC service must be provided for first initialization")
-            self._ipc_service: IPCService = ipc_service
+            self._ipc_webchannel_service: IPCWebChannelService = ipc_webchannel_service
             self._initialized = True
             logger.info("IPC API initialized")
     
@@ -57,7 +57,7 @@ class IPCAPI:
             RuntimeError: 如果实例尚未初始化
         """
         if cls._instance is None:
-            raise RuntimeError("IPCAPI has not been initialized. Call IPCAPI(ipc_service) first.")
+            raise RuntimeError("IPCAPI has not been initialized. Call IPCAPI(ipc_webchannel_service) first.")
         return cls._instance
     
     def _convert_response(
@@ -105,7 +105,7 @@ class IPCAPI:
         def ipc_response_callback(response: IPCResponse) -> None:
             self._convert_response(response, callback)
             
-        self._ipc_service.send_request(method, params, meta, ipc_response_callback)
+        self._ipc_webchannel_service.send_request(method, params, meta, ipc_response_callback)
     
     def get_config(
         self,
@@ -325,62 +325,3 @@ class IPCAPI:
         """
         params = {'chatId': chatId, 'content': content, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
         self._send_request('push_chat_notification', params, callback=callback)
-
-# 使用示例
-"""
-# 获取 IPC API 单例实例
-ipc_api = IPCAPI.get_instance()
-
-# 获取配置示例
-def handle_config(response: APIResponse[Any]):
-    if response.success:
-        print(f"Config value: {response.data}")
-    else:
-        print(f"Error: {response.error}")
-
-ipc_api.get_config('some_key', handle_config)
-
-# 设置配置示例
-def handle_set_config(response: APIResponse[bool]):
-    if response.success:
-        print("Config updated successfully")
-    else:
-        print(f"Error: {response.error}")
-
-ipc_api.set_config('some_key', 'some_value', handle_set_config)
-
-# 刷新仪表盘数据示例
-def handle_dashboard_update(response: APIResponse[Dict[str, Any]]):
-    if response.success:
-        print(f"Dashboard data updated: {response.data}")
-    else:
-        print(f"Error updating dashboard: {response.error}")
-
-# 使用随机数据更新仪表盘
-import random
-dashboard_data = {
-    'overview': random.randint(10, 100),
-    'statistics': random.randint(5, 50),
-    'recentActivities': random.randint(20, 200),
-    'quickActions': random.randint(1, 30)
-}
-ipc_api.refresh_dashboard(dashboard_data, handle_dashboard_update)
-
-# 使用定时器定期更新仪表盘数据
-from PySide6.QtCore import QTimer
-
-def setup_dashboard_timer():
-    timer = QTimer()
-    def update_dashboard():
-        dashboard_data = {
-            'overview': random.randint(10, 100),
-            'statistics': random.randint(5, 50),
-            'recentActivities': random.randint(20, 200),
-            'quickActions': random.randint(1, 30)
-        }
-        ipc_api.refresh_dashboard(dashboard_data, handle_dashboard_update)
-    
-    timer.timeout.connect(update_dashboard)
-    timer.start(5000)  # 每5秒更新一次
-    return timer
-""" 

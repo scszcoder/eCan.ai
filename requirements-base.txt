@@ -292,3 +292,8 @@ pytest-cov>=4.1.0
 pytest==8.2.2
 pytest-asyncio==1.0.0
 langmem==0.0.27
+lightrag
+faiss-cpu
+sentence-transformers
+neo4j 
+gradio

@@ -187,7 +187,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
 
     // 处理表单提交
     const handleFormSubmit = async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
-        const response = await get_ipc_api().chat.chatFormSubmit(chatId, messageId, formId, processedForm)
+        const response = await get_ipc_api().chatApi.chatFormSubmit(chatId, messageId, formId, processedForm)
         console.log(JSON.stringify(response))
         if (response.success) {
             Toast.success(t('pages.chat.formSubmitSuccess'));
@@ -218,7 +218,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             return;
         }
         // 默认行为：调用 ipc_api 删除消息
-        const response = await get_ipc_api().chat.deleteMessage(chatId, messageId);
+        const response = await get_ipc_api().chatApi.deleteMessage(chatId, messageId);
         console.log(JSON.stringify(response))
         if (response.success) {
             Toast.success(t('pages.chat.deleteMessageSuccess'));
@@ -245,7 +245,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         isLoadingMoreRef.current = true;
         setLoadingMore(true);
         console.log('Pagination request params', { chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
-        const res = await get_ipc_api().chat.getChatMessages({ chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
+        const res = await get_ipc_api().chatApi.getChatMessages({ chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
         let newMsgs: any[] = [];
         if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
             newMsgs = (res.data as any).data;

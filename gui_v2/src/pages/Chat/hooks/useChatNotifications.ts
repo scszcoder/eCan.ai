@@ -36,7 +36,7 @@ export const useChatNotifications = (chatId: string, pageSize = NOTIF_PAGE_SIZE,
     }
     setLoadingMore(true);
     console.log('[useChatNotifications] loadMore start', { chatId, pageSize, offset, isInit });
-    const res = await get_ipc_api().chat.getChatNotifications({
+    const res = await get_ipc_api().chatApi.getChatNotifications({
       chatId,
       limit: pageSize,
       offset: isInit ? 0 : offset,

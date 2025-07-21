@@ -3,7 +3,6 @@
  * 负责与 Python 后端进行通信
  */
 import {
-    IPC,
     IPCRequest,
     IPCResponse,
     IPCRequestHandler,
@@ -13,6 +12,7 @@ import {
     generateRequestId,
     isIPCResponse
 } from './types';
+import { IPCWebChannel } from './types';
 import { getHandlers } from './handlers';
 import { logger } from '../../utils/logger';
 
@@ -22,9 +22,9 @@ const DEFAULT_REQUEST_TIMEOUT = 30000; // 默认30秒超时
  * IPC 客户端类
  * 实现了与 Python 后端的通信功能
  */
-export class IPCClient {
-    private static instance: IPCClient;
-    private ipc: IPC | null = null;
+export class IPCWCClient {
+    private static instance: IPCWCClient;
+    private ipcWebChannel: IPCWebChannel | null = null;
     private requestHandlers: Record<string, IPCRequestHandler>;
     private errorHandler: IPCErrorHandler | null = null;
     private initPromise: Promise<void> | null = null;
@@ -41,16 +41,16 @@ export class IPCClient {
      * 初始化 IPC 客户端
      */
     private init(): void {
-        logger.info('start ipc client init...');
-        if (this.ipc) {
+        logger.info('start ipc wc client init...');
+        if (this.ipcWebChannel) {
             return;
         }
 
         this.initPromise = new Promise((resolve) => {
             const handleWebChannelReady = () => {
                 logger.info('WebChannel ready event triggered');
-                if (!this.ipc && window.ipc) {
-                    this.setIPC(window.ipc);
+                if (!this.ipcWebChannel && window.ipc) {
+                    this.setIPCWebChannel(window.ipc);
                     logger.info('IPC initialized successfully');
                     window.removeEventListener('webchannel-ready', handleWebChannelReady);
                     resolve();
@@ -70,7 +70,7 @@ export class IPCClient {
      * 等待 IPC 初始化完成
      */
     private async waitForInit(): Promise<void> {
-        if (this.ipc) {
+        if (this.ipcWebChannel) {
             return;
         }
         if (this.initPromise) {
@@ -82,23 +82,23 @@ export class IPCClient {
      * 获取 IPC 客户端单例
      * @returns IPC 客户端实例
      */
-    public static getInstance(): IPCClient {
-        if (!IPCClient.instance) {
-            IPCClient.instance = new IPCClient();
+    public static getInstance(): IPCWCClient {
+        if (!IPCWCClient.instance) {
+            IPCWCClient.instance = new IPCWCClient();
         }
-        return IPCClient.instance;
+        return IPCWCClient.instance;
     }
 
     /**
      * 设置 IPC 对象
-     * @param ipc - IPC 接口实例
+     * @param ipcWebChannel - IPC 接口实例
      */
-    public setIPC(ipc: IPC): void {
-        if (this.ipc) {
+    public setIPCWebChannel(ipcWebChannel: IPCWebChannel): void {
+        if (this.ipcWebChannel) {
             logger.warn('IPC object already set, ignoring duplicate initialization');
             return;
         }
-        this.ipc = ipc;
+        this.ipcWebChannel = ipcWebChannel;
         this.setupMessageHandler();
         logger.info('IPC object set and message handler initialized');
     }
@@ -121,14 +121,14 @@ export class IPCClient {
     public async sendRequest(method: string, params?: unknown, timeout: number = DEFAULT_REQUEST_TIMEOUT): Promise<any> {
         await this.waitForInit();
 
-        if (!this.ipc) {
+        if (!this.ipcWebChannel) {
             throw createErrorResponse(generateRequestId(), 'INIT_ERROR', 'IPC not initialized');
         }
 
         const request = createRequest(method, params);
         const paramsStr = params ? JSON.stringify(params) : '';
         const truncatedParams = paramsStr.length > 500 ? paramsStr.substring(0, 500) + '...' : paramsStr;
-        logger.debug(`Sending request: ${method}`, params ? `with params: ${truncatedParams}` : '');
+        logger.debug(`[IPCWCClient] Sending request: ${method}`, params ? `with params: ${truncatedParams}` : '');
 
         // 1. 设置一个超时Promise
         let timeoutId: number;
@@ -146,7 +146,7 @@ export class IPCClient {
             this.pendingRequests.set(request.id, { resolve, reject });
             
             try {
-                const responseStr = await this.ipc!.web_to_python(JSON.stringify(request));
+                const responseStr = await this.ipcWebChannel!.web_to_python(JSON.stringify(request));
                 // logger.debug(`Received response: ${responseStr}`);
                 const immediateResponse = JSON.parse(responseStr) as IPCResponse;
                 
@@ -181,12 +181,12 @@ export class IPCClient {
      */
     private handleMessage(message: string): void {
         try {
-            logger.debug(`python_to_web: Received message: ${message}`);
+            logger.debug(`[IPCWCClient] python_to_web: Received message: ${message}`);
             const message_obj = JSON.parse(message);
 
             // 检查这是否是一个对后台任务的最终响应
             if (isIPCResponse(message_obj) && this.pendingRequests.has(message_obj.id)) {
-                logger.debug(`Received pushed response for request ${message_obj.id}`);
+                logger.debug(`[IPCWCClient] Received pushed response for request ${message_obj.id}`);
                 const response = message_obj as IPCResponse;
 
                 const promiseCallbacks = this.pendingRequests.get(message_obj.id)!;
@@ -241,7 +241,7 @@ export class IPCClient {
      * @param result - 响应结果
      */
     private sendResponse(requestId: string, result: unknown): void {
-        if (!this.ipc) {
+        if (!this.ipcWebChannel) {
             logger.error('IPC object not set');
             return;
         }
@@ -256,8 +256,8 @@ export class IPCClient {
 
         try {
             // 注意：这里我们假设 python 端不需要这个调用的返回值
-            this.ipc.web_to_python(JSON.stringify(response));
-            logger.debug('Response sent:' + JSON.stringify(response));
+            this.ipcWebChannel.web_to_python(JSON.stringify(response));
+            logger.debug('[IPCWCClient] Response sent:' + JSON.stringify(response));
         } catch (error) {
             logger.error('Failed to send response:', error);
             this.handleError({
@@ -274,7 +274,7 @@ export class IPCClient {
      * @param error - 错误对象
      */
     private sendErrorResponse(requestId: string, error: { code: string; message: string; details?: unknown }): void {
-        if (!this.ipc) {
+        if (!this.ipcWebChannel) {
             logger.error('IPC object not set');
             return;
         }
@@ -292,7 +292,7 @@ export class IPCClient {
         };
 
         try {
-            this.ipc.web_to_python(JSON.stringify(response));
+            this.ipcWebChannel.web_to_python(JSON.stringify(response));
             logger.debug('Error response sent:' + JSON.stringify(response));
         } catch (e) {
             logger.error('Failed to send error response:', e);
@@ -315,14 +315,14 @@ export class IPCClient {
      * 设置消息处理器，监听来自 Python 的消息
      */
     private setupMessageHandler(): void {
-        if (!this.ipc) return;
+        if (!this.ipcWebChannel) return;
         
         // 关键: 监听 python_to_web 信号
-        if (this.ipc.python_to_web && typeof this.ipc.python_to_web.connect === 'function') {
-            this.ipc.python_to_web.connect(this.handleMessage.bind(this));
-            logger.info("Connected to python_to_web signal for pushed messages.");
+        if (this.ipcWebChannel.python_to_web && typeof this.ipcWebChannel.python_to_web.connect === 'function') {
+            this.ipcWebChannel.python_to_web.connect(this.handleMessage.bind(this));
+            logger.info("[IPCWCClient] Connected to python_to_web signal for pushed messages.");
         } else {
-            logger.error("Could not connect to python_to_web signal. Pushed messages will not be received.");
+            logger.error("[IPCWCClient] Could not connect to python_to_web signal. Pushed messages will not be received.");
         }
     }
 } 

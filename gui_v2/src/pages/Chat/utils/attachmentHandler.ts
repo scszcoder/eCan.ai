@@ -152,7 +152,7 @@ export const getUploadProps = () => ({
                     return;
                 }
                 const api = get_ipc_api();
-                const resp = await api.chat.uploadAttachment({
+                const resp = await api.chatApi.uploadAttachment({
                     name: fileName,
                     type: fileType,
                     size: fileSize,

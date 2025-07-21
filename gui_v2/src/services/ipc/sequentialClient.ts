@@ -3,16 +3,16 @@
  * 提供一个保证请求处理顺序的 IPC 客户端封装。
  * 所有请求都会被立即发送到后端并行处理，但前端对结果的处理会严格按照请求发出的顺序执行。
  */
-import { IPCClient } from './client';
+import { IPCWCClient } from './ipcWCClient';
 import { logger } from '../../utils/logger';
 
 export class SequentialIPCClient {
-    private ipcClient: IPCClient;
+    private ipcClient: IPCWCClient;
     // Promise 链的末端，确保下一个任务在前一个任务的 Promise 完成后才开始处理结果
     private requestChain: Promise<any>;
 
     constructor() {
-        this.ipcClient = IPCClient.getInstance();
+        this.ipcClient = IPCWCClient.getInstance();
         this.requestChain = Promise.resolve();
     }
 
