@@ -8,7 +8,6 @@ import time
 import traceback
 from typing import Any, Dict, Optional
 import uuid
-from agent.ec_agent import EC_Agent
 from app_context import AppContext
 from gui.MainGUI import MainWindow
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response

@@ -90,7 +90,7 @@ def main():
         logger.info("Running in production mode (built files)")
 
     # 创建并显示 Web GUI
-    web_gui = WebGUI(utils.logger_helper.login)
+    web_gui = WebGUI()
     ctx.set_web_gui(web_gui)
 
     set_top_web_gui(web_gui)

@@ -9,7 +9,7 @@ from PySide6.QtCore import QUrl, Qt, Slot, Signal, QObject
 from PySide6.QtWebChannel import QWebChannel
 from utils.logger_helper import logger_helper as logger
 from gui.core.request_interceptor import RequestInterceptor
-from gui.ipc.webchannel_service import IPCWebChannelService
+from gui.ipc.wc_service import IPCWCService
 from gui.ipc.api import IPCAPI
 from typing import Optional, Callable, Any, Dict, Union
 from pathlib import Path
@@ -73,7 +73,7 @@ class WebEngineView(QWebEngineView):
         self._is_loading: bool = False
         self._last_error: Optional[str] = None
         self._channel: Optional[QWebChannel] = None
-        self._ipc_webchannel_service: Optional[IPCWebChannelService] = None
+        self._ipc_wc_service: Optional[IPCWCService] = None
         self._webchannel_script: Optional[QWebEngineScript] = None
         self.gui_top = parent
         # 1. 初始化引擎
@@ -86,13 +86,13 @@ class WebEngineView(QWebEngineView):
         self.setup_interceptor()
         
         # 4. 创建 IPC 服务（在页面初始化后）
-        self._ipc_webchannel_service = IPCWebChannelService()
+        self._ipc_wc_service = IPCWCService()
 
         # 5. 设置 WebChannel（在页面加载前）
         self.setup_webchannel()
 
         # # 6. 初始化 IPCAPI 单例
-        self._ipc_api = IPCAPI(self._ipc_webchannel_service)
+        self._ipc_api = IPCAPI(self._ipc_wc_service)
 
     def get_ipc_api(self):
         return self._ipc_api
@@ -136,7 +136,7 @@ class WebEngineView(QWebEngineView):
             self.page().setWebChannel(self._channel)
 
             # 注册 IPC 服务
-            self._channel.registerObject('ipc', self.ipc_webchannel_service)
+            self._channel.registerObject('ipc', self._ipc_wc_service)
 
             # 注入初始化脚本
             init_js = f'''
@@ -188,9 +188,9 @@ class WebEngineView(QWebEngineView):
                 self._channel = None
 
             # 清理 IPC 服务
-            if self._ipc_webchannel_service:
-                self._ipc_webchannel_service.deleteLater()
-                self._ipc_webchannel_service = None
+            if self._ipc_wc_service:
+                self._ipc_wc_service.deleteLater()
+                self._ipc_wc_service = None
 
             logger.info("WebChannel cleanup completed")
         except Exception as e:
@@ -357,6 +357,6 @@ class WebEngineView(QWebEngineView):
         return self._interceptor
 
     @property
-    def ipc_webchannel_service(self) -> Optional[IPCWebChannelService]:
+    def ipc_wc_service(self) -> Optional[IPCWCService]:
         """获取 IPC 服务"""
-        return self._ipc_webchannel_service 
+        return self._ipc_wc_service 
