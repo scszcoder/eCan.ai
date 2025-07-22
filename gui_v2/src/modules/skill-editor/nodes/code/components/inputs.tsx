@@ -9,12 +9,12 @@ import { IFlowValue, InputsValues } from '@flowgram.ai/form-materials';
 import { useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 
-export function Params() {
+export function Inputs() {
   const { readonly } = useNodeRenderContext();
 
   return (
-    <FormItem name="params" type="object" vertical>
-      <Field<Record<string, IFlowValue | undefined> | undefined> name="paramsValues">
+    <FormItem name="inputs" type="object" vertical>
+      <Field<Record<string, IFlowValue | undefined> | undefined> name="inputsValues">
         {({ field }) => (
           <InputsValues
             value={field.value}

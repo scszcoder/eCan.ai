@@ -9,12 +9,10 @@ import {
   PositionSchema,
   FlowNodeTransformData,
 } from '@flowgram.ai/free-layout-editor';
-import { createBatchOutputsFormPlugin, provideBatchInputEffect } from '@flowgram.ai/form-materials';
 
-import { defaultFormMeta } from '../default-form-meta';
 import { FlowNodeRegistry } from '../../typings';
 import iconLoop from '../../assets/icon-loop.jpg';
-import { LoopFormRender } from './loop-form-render';
+import { formMeta } from './form-meta';
 import { WorkflowNodeType } from '../constants';
 
 let index = 0;
@@ -46,8 +44,8 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
     padding: () => ({
       top: 120,
       bottom: 60,
-      left: 100,
-      right: 100,
+      left: 60,
+      right: 60,
     }),
     /**
      * Controls the node selection status within the subcanvas
@@ -100,12 +98,5 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
       ],
     };
   },
-  formMeta: {
-    ...defaultFormMeta,
-    render: LoopFormRender,
-    effect: {
-      loopFor: provideBatchInputEffect,
-    },
-    plugins: [createBatchOutputsFormPlugin({ outputKey: 'loopOutputs' })],
-  },
+  formMeta,
 };

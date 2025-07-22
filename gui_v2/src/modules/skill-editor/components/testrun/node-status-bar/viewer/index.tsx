@@ -74,6 +74,21 @@ const TreeNode: React.FC<TreeNodeProps> = ({ label, value, level, isLast = false
             {val.toString()}
           </span>
         );
+      case 'object':
+        // Handle empty objects and arrays
+        if (Array.isArray(val)) {
+          return (
+            <span className={styles.primitiveValue} onDoubleClick={() => handleCopy('[]')}>
+              []
+            </span>
+          );
+        } else {
+          return (
+            <span className={styles.primitiveValue} onDoubleClick={() => handleCopy('{}')}>
+              {'{}'}
+            </span>
+          );
+        }
       default:
         return (
           <span className={styles.primitiveValue} onDoubleClick={() => handleCopy(String(val))}>
