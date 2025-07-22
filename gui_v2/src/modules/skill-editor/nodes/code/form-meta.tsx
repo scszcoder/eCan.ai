@@ -13,6 +13,7 @@ import { Outputs } from './components/outputs';
 import { Inputs } from './components/inputs';
 import { Code } from './components/code';
 import { defaultFormMeta } from '../default-form-meta';
+import { FormCallable } from '../../form-components/form-callable';
 
 export const FormRender = ({ form }: FormRenderProps<CodeNodeJSON>) => (
   <>
@@ -21,6 +22,7 @@ export const FormRender = ({ form }: FormRenderProps<CodeNodeJSON>) => (
       <Inputs />
       <Code />
       <Outputs />
+      <FormCallable />
       <FormOutputs />
     </FormContent>
   </>

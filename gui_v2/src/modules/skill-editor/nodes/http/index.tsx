@@ -9,6 +9,7 @@ import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
 import iconHTTP from '../../assets/icon-http.svg';
 import { formMeta } from './form-meta';
+import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
 let index = 0;
 
@@ -38,14 +39,7 @@ export const HTTPNodeRegistry: FlowNodeRegistry = {
         },
         headers: {},
         params: {},
-        outputs: {
-          type: 'object',
-          properties: {
-            body: { type: 'string' },
-            headers: { type: 'object' },
-            statusCode: { type: 'integer' },
-          },
-        },
+        outputs: DEFAULT_NODE_OUTPUTS,
       },
     };
   },

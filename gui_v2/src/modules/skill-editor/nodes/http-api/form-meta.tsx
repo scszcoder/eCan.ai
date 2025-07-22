@@ -6,11 +6,11 @@
 import { Collapse, Input, JsonViewer, Select, Switch, Tag } from "@douyinfe/semi-ui";
 import React, { useCallback, useRef } from "react";
 
-import { IFlowValue } from "@flowgram.ai/form-materials";
+import { IFlowValue, InputsValues } from "@flowgram.ai/form-materials";
 import { Field, FieldRenderProps, FormMeta, FormRenderProps, ValidateTrigger } from "@flowgram.ai/free-layout-editor";
 import { mapValues } from "lodash-es";
 
-import { FormContent, FormHeader, FormItem, FormOutputs, PropertiesEdit, TypeTag } from "../../form-components";
+import { FormContent, FormHeader, FormItem, FormOutputs, TypeTag } from "../../form-components";
 import { FormCallable } from "../../form-components/form-callable";
 import { useIsSidebar } from "../../hooks";
 import { FlowNodeJSON, JsonSchema } from "../../typings";
@@ -42,24 +42,11 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
             <Collapse.Panel header="Inputs" itemKey="1">
               <Field
                 name="http.requestParams.properties"
-                render={({ field: { value: propertiesSchemaValue, onChange: propertiesSchemaChange } }: FieldRenderProps<Record<string, JsonSchema>>) => (
-                  <Field<Record<string, IFlowValue>> name="http.requestParamsValues">
-                    {({ field: { value: propertiesValue, onChange: propertiesValueChange } }) => {
-                      const onChange = (newProperties: Record<string, JsonSchema>) => {
-                        const newPropertiesValue = mapValues(newProperties, (v) => v.default);
-                        const newPropetiesSchema = mapValues(newProperties, (v) => {
-                          delete v.default;
-                          return v;
-                        });
-                        propertiesValueChange(newPropertiesValue);
-                        propertiesSchemaChange(newPropetiesSchema);
-                      };
-                      const value = mapValues(propertiesSchemaValue, (v, key) => ({
-                        ...v,
-                        default: propertiesValue?.[key],
-                      }));
-                      return <PropertiesEdit value={value} onChange={onChange} useFx={true} />;
-                    }}
+                render={() => (
+                  <Field<Record<string, IFlowValue | undefined> | undefined> name="http.requestParamsValues">
+                    {({ field: { value, onChange } }) => (
+                      <InputsValues value={value} onChange={(_v) => onChange(_v)} />
+                    )}
                   </Field>
                 )}
               />
@@ -78,24 +65,11 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
             <Collapse.Panel header="Request Headers" itemKey="3">
               <Field
                 name="http.requestHeaders.properties"
-                render={({ field: { value: propertiesSchemaValue, onChange: propertiesSchemaChange } }: FieldRenderProps<Record<string, JsonSchema>>) => (
-                  <Field<Record<string, IFlowValue>> name="http.requestHeadersValues">
-                    {({ field: { value: propertiesValue, onChange: propertiesValueChange } }) => {
-                      const onChange = (newProperties: Record<string, JsonSchema>) => {
-                        const newPropertiesValue = mapValues(newProperties, (v) => v.default);
-                        const newPropetiesSchema = mapValues(newProperties, (v) => {
-                          delete v.default;
-                          return v;
-                        });
-                        propertiesValueChange(newPropertiesValue);
-                        propertiesSchemaChange(newPropetiesSchema);
-                      };
-                      const value = mapValues(propertiesSchemaValue, (v, key) => ({
-                        ...v,
-                        default: propertiesValue?.[key],
-                      }));
-                      return <PropertiesEdit value={value} onChange={onChange} useFx={true} />;
-                    }}
+                render={() => (
+                  <Field<Record<string, IFlowValue | undefined> | undefined> name="http.requestHeadersValues">
+                    {({ field: { value, onChange } }) => (
+                      <InputsValues value={value} onChange={(_v) => onChange(_v)} />
+                    )}
                   </Field>
                 )}
               />
@@ -154,42 +128,14 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
                           render={({ field: propertiesField }: FieldRenderProps<Record<string, JsonSchema>>) => (
                             <Field name="http.bodyFormDataValues">
                               {({ field: valuesField }) => {
-                                const handlePropertiesChange = (newProperties: Record<string, JsonSchema>) => {
-                                  const cleanSchema = { ...newProperties };
-                                  Object.values(cleanSchema).forEach((schema) => {
-                                    if (schema && typeof schema === "object") {
-                                      delete schema.default;
-                                    }
-                                  });
-                                  propertiesField.onChange(cleanSchema);
-
-                                  const newValues = Object.keys(newProperties).reduce((acc, key) => {
-                                    const schema = newProperties[key];
-                                    if (schema && typeof schema === "object") {
-                                      acc[key] = schema.default;
-                                    }
-                                    return acc;
-                                  }, {} as Record<string, any>);
-                                  valuesField.onChange(newValues);
+                                const handlePropertiesChange = (value?: Record<string, IFlowValue | undefined> | undefined) => {
+                                  valuesField.onChange(value);
                                 };
 
-                                const propertiesEditValue = Object.keys(propertiesField.value || {}).reduce((acc: Record<string, any>, key) => {
-                                  const schema = propertiesField.value?.[key];
-                                  if (schema && typeof schema === "object") {
-                                    acc[key] = {
-                                      ...schema,
-                                      default: valuesField.value?.[key],
-                                    };
-                                  }
-                                  return acc;
-                                }, {});
+                                const propertiesEditValue: Record<string, IFlowValue | undefined> = valuesField.value && typeof valuesField.value === 'object' ? { ...valuesField.value } : {};
 
                                 return (
-                                  <PropertiesEdit 
-                                    value={propertiesEditValue} 
-                                    onChange={handlePropertiesChange} 
-                                    useFx={true} 
-                                  />
+                                  <InputsValues value={propertiesEditValue} onChange={handlePropertiesChange} />
                                 );
                               }}
                             </Field>
