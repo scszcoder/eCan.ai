@@ -4,25 +4,33 @@
  */
 
 import { Field } from '@flowgram.ai/free-layout-editor';
-import { IFlowValue, InputsValues } from '@flowgram.ai/form-materials';
+import { CodeEditor } from '@flowgram.ai/form-materials';
+import { Divider } from '@douyinfe/semi-ui';
 
-import { useNodeRenderContext } from '../../../hooks';
+import { useIsSidebar, useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 
-export function Params() {
+export function Code() {
+  const isSidebar = useIsSidebar();
   const { readonly } = useNodeRenderContext();
 
+  if (!isSidebar) {
+    return null;
+  }
+
   return (
-    <FormItem name="params" type="object" vertical>
-      <Field<Record<string, IFlowValue | undefined> | undefined> name="paramsValues">
+    <>
+      <Divider />
+      <Field<string> name="script.content">
         {({ field }) => (
-          <InputsValues
+          <CodeEditor
+            languageId="typescript"
             value={field.value}
             onChange={(value) => field.onChange(value)}
             readonly={readonly}
           />
         )}
       </Field>
-    </FormItem>
+    </>
   );
 }

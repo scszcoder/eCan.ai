@@ -14,7 +14,7 @@ import {
 import { IFlowValue } from '@flowgram.ai/form-materials';
 
 import { type JsonSchema } from './json-schema';
-import { type CallableFunction } from './callable';
+import { WorkflowNodeType } from '../nodes';
 
 /**
  * You can customize the data of the node, and here you can use JsonSchema to define the input and output of the node
@@ -39,10 +39,6 @@ export interface FlowNodeJSON extends FlowNodeJSONDefault {
      */
     outputs?: JsonSchema;
     /**
-     * callable function data
-     */
-    callable?: CallableFunction;
-    /**
      * Rest properties
      */
     [key: string]: any;
@@ -57,6 +53,7 @@ export interface FlowNodeMeta extends WorkflowNodeMeta {
   sidebarDisabled?: boolean;
   nodePanelHidden?: boolean;
   wrapperStyle?: React.CSSProperties;
+  onlyInContainer?: WorkflowNodeType;
 }
 
 /**
