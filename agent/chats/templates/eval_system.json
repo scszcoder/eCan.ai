@@ -1,0 +1,34 @@
+{
+  "id": "eval_system_form",
+  "title": "score system",
+  "components": [
+    {
+      "name": "price",
+      "type": "integer",
+      "raw_value": 125,
+      "unit": "cents",
+      "tooltip": "MCU Core Types",
+      "score_formula": "80 + (125-price)",
+      "weight": 0.3
+    },
+    {
+      "name": "availability",
+      "type": "integer",
+      "raw_value": 0,
+      "unit": "days",
+      "tooltip": "MCU Core Types",
+      "score_formula": "100 - 5*availability",
+      "weight": 0.3
+    },
+    {
+      "name": "performance",
+      "type": "integer",
+      "raw_value": 0,
+      "unit": "days",
+      "tooltip": "MCU Core Types",
+      "score_formula": "100 - 5*availability",
+      "weight": 0.4
+    }
+  ],
+  "submit_text": "保存"
+}
