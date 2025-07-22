@@ -1396,4 +1396,27 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
+    tool_schema = types.Tool(
+        name="api_ecan_ai_query_components",
+        description="send ecan_ai API to query components and get their parametric filter values.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["[component]"],
+                    "properties": {
+                        "[component]": {
+                            "type": "list",
+                            "description": "list of components'attributes.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
     return tool_schemas

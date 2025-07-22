@@ -44,7 +44,7 @@ from utils.logger_helper import get_agent_by_id, get_traceback
 from .event_store import InMemoryEventStore
 from collections import defaultdict
 from agent.ec_skills.dom.dom_utils import *
-
+from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
@@ -1620,6 +1620,22 @@ async def os_reconnect_wifi(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def api_ecan_ai_query_components(mainwin, args):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        components = ecan_ai_api_query_components(mainwin, args['input']['components'])
+        msg = "completed rpa operator report work results"
+        result = [TextContent(type="text", text=msg)]
+        result.meta = components
+        return result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 tool_function_mapping = {
         "say_hello": say_hello,
         "os_wait": os_wait,
@@ -1670,7 +1686,8 @@ tool_function_mapping = {
         "rpa_operator_report_work_results": rpa_operator_report_work_results,
         "os_connect_to_adspower": os_connect_to_adspower,
         "os_connect_to_chrome": os_connect_to_chrome,
-        "os_reconnect_wifi": os_reconnect_wifi
+        "os_reconnect_wifi": os_reconnect_wifi,
+        "api_ecan_ai_query_components": api_ecan_ai_query_components
     }
 
 def set_server_main_win(mw):

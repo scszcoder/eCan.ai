@@ -923,7 +923,14 @@ def gen_get_knowledges_string():
     logger_helper.debug(query_string)
     return query_string
 
+def gen_query_components_string(components):
+    query_string = "query MyGetKnowledgesQuery { getKnowledges (ids:'"
+    rec_string = "0"
 
+    tail_string = "') }"
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
 
 
 
@@ -1501,6 +1508,21 @@ def send_get_knowledges_request_to_cloud(session, token, endpoint):
 
     return jresponse
 
+
+def send_query_components_request_to_cloud(session, token, components, endpoint):
+
+    queryInfo = gen_query_components_string(components)
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryComponents"])
+
+    return jresponse
 
 
 
