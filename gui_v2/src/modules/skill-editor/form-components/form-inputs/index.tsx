@@ -52,9 +52,7 @@ export function FormInputs() {
                       onChange={field.onChange}
                       readonly={readonly}
                       hasError={Object.keys(fieldState?.errors || {}).length > 0}
-                      constantProps={{
-                        schema: property,
-                      }}
+                      schema={property}
                     />
                   )}
                   <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />

@@ -132,7 +132,7 @@ export function useEditorProps(
         return true;
       },
       canDropToNode: (ctx, params) => {
-        const { dragNodeType } = params;
+        const { dragNodeType, dropNodeType } = params;
         /**
          * 开始/结束节点无法更改容器
          * The start and end nodes cannot change container
@@ -144,6 +144,18 @@ export function useEditorProps(
             WorkflowNodeType.BlockStart,
             WorkflowNodeType.BlockEnd,
           ].includes(dragNodeType as WorkflowNodeType)
+        ) {
+          return false;
+        }
+        /**
+         * 继续循环与终止循环只能在循环节点中
+         * Continue loop and break loop can only be in loop nodes
+         */
+        if (
+          [WorkflowNodeType.Continue, WorkflowNodeType.Break].includes(
+            dragNodeType as WorkflowNodeType
+          ) &&
+          dropNodeType !== WorkflowNodeType.Loop
         ) {
           return false;
         }
