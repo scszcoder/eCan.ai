@@ -21,15 +21,18 @@ const NodeWrap = styled.div`
   cursor: pointer;
   font-size: 19px;
   padding: 0 15px;
+  background-color: hsl(252deg 62% 55% / 9%);
+  color: hsl(252 62% 54.9%);
   &:hover {
-    background-color: hsl(252deg 62% 55% / 9%);
-    color: hsl(252 62% 54.9%);
+    background-color: hsl(252deg 62% 55% / 15%);
   }
 `;
 
 const NodeLabel = styled.div`
   font-size: 12px;
   margin-left: 10px;
+  opacity: 1;
+  visibility: visible;
 `;
 
 interface NodeProps {

@@ -9,6 +9,7 @@ import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
 import iconCode from '../../assets/icon-script.png';
 import { formMeta } from './form-meta';
+import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
 let index = 0;
 
@@ -57,28 +58,7 @@ export const CodeNodeRegistry: FlowNodeRegistry = {
           language: 'javascript',
           content: defaultCode,
         },
-        outputs: {
-          type: 'object',
-          properties: {
-            key0: {
-              type: 'string',
-            },
-            key1: {
-              type: 'array',
-              items: {
-                type: 'string',
-              },
-            },
-            key2: {
-              type: 'object',
-              properties: {
-                key21: {
-                  type: 'string',
-                },
-              },
-            },
-          },
-        },
+        outputs: DEFAULT_NODE_OUTPUTS,
       },
     };
   },

@@ -15,6 +15,7 @@ import { Headers } from './components/headers';
 import { Body } from './components/body';
 import { Api } from './components/api';
 import { defaultFormMeta } from '../default-form-meta';
+import { FormCallable } from '../../form-components/form-callable';
 
 export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
   <>
@@ -29,6 +30,7 @@ export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
       <Body />
       <Divider />
       <Timeout />
+      <FormCallable />
       <FormOutputs />
     </FormContent>
   </>
