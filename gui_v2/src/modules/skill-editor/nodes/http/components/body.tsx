@@ -74,7 +74,7 @@ export function Body() {
     <Field<string> name="body.bodyType" defaultValue="JSON">
       {({ field }) => (
         <div style={{ marginTop: 5 }}>
-          <FormItem name="Body" vertical>
+          <FormItem name="Body" vertical type="object">
             <Select
               value={field.value}
               onChange={(value) => {

@@ -15,7 +15,7 @@ export function Api() {
 
   return (
     <div>
-      <FormItem name="API" required vertical>
+      <FormItem name="API" required vertical type="string">
         <div style={{ display: 'flex', gap: 5 }}>
           <Field<string> name="api.method" defaultValue="GET">
             {({ field }) => (

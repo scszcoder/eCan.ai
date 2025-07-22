@@ -3,10 +3,17 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FormRenderProps, FlowNodeJSON, Field } from '@flowgram.ai/free-layout-editor';
+import { FormRenderProps, FlowNodeJSON, Field, FormMeta } from '@flowgram.ai/free-layout-editor';
 import { SubCanvasRender } from '@flowgram.ai/free-container-plugin';
-import { BatchOutputs, BatchVariableSelector, IFlowRefValue } from '@flowgram.ai/form-materials';
+import {
+  BatchOutputs,
+  BatchVariableSelector,
+  createBatchOutputsFormPlugin,
+  IFlowRefValue,
+  provideBatchInputEffect,
+} from '@flowgram.ai/form-materials';
 
+import { defaultFormMeta } from '../default-form-meta';
 import { useIsSidebar, useNodeRenderContext } from '../../hooks';
 import { FormHeader, FormContent, FormOutputs, FormItem, Feedback } from '../../form-components';
 
@@ -77,4 +84,13 @@ export const LoopFormRender = ({ form }: FormRenderProps<LoopNodeJSON>) => {
       </FormContent>
     </>
   );
+};
+
+export const formMeta: FormMeta = {
+  ...defaultFormMeta,
+  render: LoopFormRender,
+  effect: {
+    loopFor: provideBatchInputEffect,
+  },
+  plugins: [createBatchOutputsFormPlugin({ outputKey: 'loopOutputs' })],
 };

@@ -7,7 +7,7 @@ import React, { FC } from 'react';
 
 import styled from 'styled-components';
 import { NodePanelRenderProps } from '@flowgram.ai/free-node-panel-plugin';
-import { useClientContext } from '@flowgram.ai/free-layout-editor';
+import { useClientContext, WorkflowNodeEntity } from '@flowgram.ai/free-layout-editor';
 
 import { FlowNodeRegistry } from '../../typings';
 import { nodeRegistries } from '../../nodes';
@@ -65,10 +65,11 @@ const NodesWrap = styled.div`
 
 interface NodeListProps {
   onSelect: NodePanelRenderProps['onSelect'];
+  containerNode?: WorkflowNodeEntity;
 }
 
 export const NodeList: FC<NodeListProps> = (props) => {
-  const { onSelect } = props;
+  const { onSelect, containerNode } = props;
   const context = useClientContext();
   const handleClick = (e: React.MouseEvent, registry: FlowNodeRegistry) => {
     const json = registry.onAdd?.(context);
@@ -82,6 +83,12 @@ export const NodeList: FC<NodeListProps> = (props) => {
     <NodesWrap style={{ width: 80 * 2 + 20 }}>
       {nodeRegistries
         .filter((register) => register.meta.nodePanelVisible !== false)
+        .filter((register) => {
+          if (register.meta.onlyInContainer) {
+            return register.meta.onlyInContainer === containerNode?.flowNodeType;
+          }
+          return true;
+        })
         .map((registry) => (
           <Node
             key={registry.type}
