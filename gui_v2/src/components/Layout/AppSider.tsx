@@ -2,7 +2,7 @@ import React from 'react';
 import { Layout, Menu } from 'antd';
 import styled from '@emotion/styled';
 import type { MenuProps } from 'antd';
-import HLogo1Dark from '@/assets/HLogo1Dark.png';
+import HLogo1Dark from '@/assets/HLogo1Dark2.png';
 
 const { Sider } = Layout;
 
@@ -82,7 +82,7 @@ const AppSider: React.FC<AppSiderProps> = ({ collapsed, onLogoClick, menuItems, 
     <StyledSider trigger={null} collapsible collapsed={collapsed} theme="dark">
         <Logo onClick={onLogoClick}>
             <div className="logo-icon">
-                <img src={HLogo1Dark} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8, display: 'block' }} />
+                <img src={HLogo1Dark} alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 0, display: 'block' }} />
             </div>
         </Logo>
         <MenuWrapper>
