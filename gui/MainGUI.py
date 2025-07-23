@@ -105,7 +105,9 @@ from agent.ec_agents.build_agents import *
 import concurrent.futures
 from agent.mcp.sse_manager import SSEManager
 from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
-
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai import JsonCssExtractionStrategy
+from crawl4ai.script.c4a_compile import C4ACompiler
 
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
@@ -346,6 +348,13 @@ class MainWindow(QMainWindow):
         self.botsFingerPrintsReady = False
         self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
         self.default_webdriver = None
+        self.crawler_browser_config = BrowserConfig(
+            headless=False,
+            verbose=True,
+            viewport_width=1920,
+            viewport_height=1080
+        )
+        self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QPlainTextEdit()
         self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -1468,6 +1477,12 @@ class MainWindow(QMainWindow):
 
     def setWebDriver(self, driver):
         self.default_webdriver = driver
+
+    def setWebCrawler(self, crawler):
+        self.async_crawler = crawler
+
+    def getWebDriver(self):
+        return self.async_crawler
 
     def load_build_dom_tree_script(self):
         script = ""
