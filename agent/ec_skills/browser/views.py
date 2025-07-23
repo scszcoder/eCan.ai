@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -14,25 +14,48 @@ class TabInfo(BaseModel):
 	page_id: int
 	url: str
 	title: str
-	parent_page_id: Optional[int] = None  # parent page that contains this popup or cross-origin iframe
+	parent_page_id: int | None = None  # parent page that contains this popup or cross-origin iframe
 
 
-class GroupTabsAction(BaseModel):
-	tab_ids: list[int]
-	title: str
-	color: Optional[str] = 'blue'
+class PageInfo(BaseModel):
+	"""Comprehensive page size and scroll information"""
 
+	# Current viewport dimensions
+	viewport_width: int
+	viewport_height: int
 
-class UngroupTabsAction(BaseModel):
-	tab_ids: list[int]
+	# Total page dimensions
+	page_width: int
+	page_height: int
+
+	# Current scroll position
+	scroll_x: int
+	scroll_y: int
+
+	# Calculated scroll information
+	pixels_above: int
+	pixels_below: int
+	pixels_left: int
+	pixels_right: int
+
+	# Page statistics are now computed dynamically instead of stored
 
 
 @dataclass
-class BrowserState(DOMState):
+class BrowserStateSummary(DOMState):
+	"""The summary of the browser's current state designed for an LLM to process"""
+
+	# provided by DOMState:
+	# element_tree: DOMElementNode
+	# selector_map: SelectorMap
+
 	url: str
 	title: str
 	tabs: list[TabInfo]
-	screenshot: Optional[str] = None
+	screenshot: str | None = field(default=None, repr=False)
+	page_info: PageInfo | None = None  # Enhanced page information
+
+	# Keep legacy fields for backward compatibility
 	pixels_above: int = 0
 	pixels_below: int = 0
 	browser_errors: list[str] = field(default_factory=list)
@@ -40,11 +63,13 @@ class BrowserState(DOMState):
 
 @dataclass
 class BrowserStateHistory:
+	"""The summary of the browser's state at a past point in time to usse in LLM message history"""
+
 	url: str
 	title: str
 	tabs: list[TabInfo]
 	interacted_element: list[DOMHistoryElement | None] | list[None]
-	screenshot: Optional[str] = None
+	screenshot: str | None = None
 
 	def to_dict(self) -> dict[str, Any]:
 		data = {}

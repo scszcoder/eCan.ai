@@ -10,7 +10,7 @@ from utils.logger_helper import get_agent_by_id, get_traceback
 from agent.mcp.local_client import local_mcp_call_tool
 from tests.agent_tests import SEARCH_PARTS_RESULTS
 import re
-
+from agent.ec_skills.search_parts.decision_utils import *
 
 async def mcp_call_tool(mcp_client, tool_name, args):
     # async with mcp_client.session("E-Commerce Agents Service") as session:
@@ -337,18 +337,13 @@ def final_select_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     webdriver = mainwin.webdriver
     try:
-        url = state["messages"][0]
-        webdriver.switch_to.window(webdriver.window_handles[0])
-        time.sleep(3)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
+        # score and ranking
+        if state["tool_result"]:
+            for part_result in state["tool_result"]:
+                score = calc_overall_score(part_result)
+                part_result["score"] = score
 
-        # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            state["tool_result"] = sorted(state["tool_result"], key=lambda x: x["score"], reverse=True)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 

@@ -45,6 +45,7 @@ from .event_store import InMemoryEventStore
 from collections import defaultdict
 from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components
+from agent.ec_skills.crawler.crawler_tools import *
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
@@ -177,10 +178,14 @@ async def os_wait(mainwin, args):
 async def in_browser_wait_for_element(mainwin, args):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
-        web_driver = mainwin.getWebDriver()
-        wait = WebDriverWait(web_driver, args["input"]["timeout"])
-        sel = get_selector(args['input']["element_type"])
-        args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            wait = WebDriverWait(web_driver, args["input"]["timeout"])
+            sel = get_selector(args['input']["element_type"])
+            args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
+        else:
+
         msg=f"completed loading element{args['input']['element_name']}."
         result = [TextContent(type="text", text=msg)]
         return result
