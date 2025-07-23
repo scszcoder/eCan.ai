@@ -108,7 +108,7 @@ from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from crawl4ai import JsonCssExtractionStrategy
 from crawl4ai.script.c4a_compile import C4ACompiler
-
+from agent.ec_skills.crawler.crawler_sessions import BrowserSession
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -348,13 +348,8 @@ class MainWindow(QMainWindow):
         self.botsFingerPrintsReady = False
         self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
         self.default_webdriver = None
-        self.crawler_browser_config = BrowserConfig(
-            headless=False,
-            verbose=True,
-            viewport_width=1920,
-            viewport_height=1080
-        )
-        self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
+        self.crawler_browser_config = None
+        self.async_crawler = None
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QPlainTextEdit()
         self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -1130,6 +1125,8 @@ class MainWindow(QMainWindow):
         # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
+        self.newWebCrawler()
+        self.setupBrowserSession()
 
     async def initialize_mcp(self):
         local_server_port = 4668
@@ -1481,8 +1478,25 @@ class MainWindow(QMainWindow):
     def setWebCrawler(self, crawler):
         self.async_crawler = crawler
 
-    def getWebDriver(self):
+    def getWebCrawler(self):
         return self.async_crawler
+
+    def newWebCrawler(self):
+        self.crawler_browser_config = BrowserConfig(
+            headless=False,
+            verbose=True,
+            viewport_width=1920,
+            viewport_height=1080
+        )
+        self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
+
+    def setupBrowserSession(self):
+
+        browser = self.async_crawler.crawler_strategy.browser_manager.browser
+        self.browser_session = BrowserSession(browser=browser)
+
+    def getBrowserSession(self):
+        return self.browser_session
 
     def load_build_dom_tree_script(self):
         script = ""

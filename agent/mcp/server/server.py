@@ -185,7 +185,7 @@ async def in_browser_wait_for_element(mainwin, args):
             sel = get_selector(args['input']["element_type"])
             args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
         else:
-
+            crawler_wait_for_element(args['input']['element_type'], args['input']['element_name'], args['input']['timeout'])
         msg=f"completed loading element{args['input']['element_name']}."
         result = [TextContent(type="text", text=msg)]
         return result
@@ -197,21 +197,23 @@ async def in_browser_wait_for_element(mainwin, args):
 
 # Element Interaction Actions
 async def in_browser_click_element_by_index(mainwin, args):
-    web_driver = mainwin.getWebDriver()
+    crawler = mainwin.getCrawler()
+    if not crawler:
+        web_driver = mainwin.getWebDriver()
 
-    if args['input']['index'] not in await browser.get_selector_map():
-        raise Exception(f"Element with index {args['input']['index']} does not exist - retry or use alternative actions")
+        if args['input']['index'] not in await browser.get_selector_map():
+            raise Exception(f"Element with index {args['input']['index']} does not exist - retry or use alternative actions")
 
-    element_node = await browser.get_dom_element_by_index(args['input']['index'])
-    initial_pages = len(session.pages)
+        element_node = await browser.get_dom_element_by_index(args['input']['index'])
+        initial_pages = len(session.pages)
 
-    # if element has file uploader then dont click
-    if await browser.is_file_uploader(element_node):
-        msg = f"Index {args['input']['index']} - has an element which opens file upload dialog. To upload files please use a specific function to upload files "
-        logger.info(msg)
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
+        # if element has file uploader then dont click
+        if await browser.is_file_uploader(element_node):
+            msg = f"Index {args['input']['index']} - has an element which opens file upload dialog. To upload files please use a specific function to upload files "
+            logger.info(msg)
+            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
-    msg = None
+        msg = None
 
     try:
         download_path = await browser._click_element_node(element_node)
@@ -351,8 +353,13 @@ async def in_browser_input_text(mainwin, args):
 # Tab Management Actions
 async def in_browser_switch_tab(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
-        webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
+        else:
+            action_result = crawler_switch_tab(args['input']['tab_title_txt'], args['input']['url'])
+
         msg = f"completed in-browser switch tab {args['input']['tab_title_txt']}."
         result = [TextContent(type="text", text=msg)]
         return result
@@ -365,19 +372,22 @@ async def in_browser_switch_tab(mainwin, args):
 async def in_browser_open_tab(mainwin, args):
 
     try:
-        web_driver = mainwin.getWebDriver()
-        url = args['input']["url"]
-        web_driver.switch_to.window(web_driver.window_handles[0])
-        time.sleep(3)
-        web_driver.execute_script(f"window.open('{url}', '_blank');")
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            url = args['input']["url"]
+            web_driver.switch_to.window(web_driver.window_handles[0])
+            time.sleep(3)
+            web_driver.execute_script(f"window.open('{url}', '_blank');")
 
-        # Switch to the new tab
-        web_driver.switch_to.window(web_driver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            web_driver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            # Switch to the new tab
+            web_driver.switch_to.window(web_driver.window_handles[-1])
+            time.sleep(3)
+            # Navigate to the new URL in the new tab
+            if url:
+                web_driver.get(url)  # Replace with the new URL
+                print("open URL: " + url)
+        else:
 
         msg = f'completed'
         logger.info(msg)
