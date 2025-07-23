@@ -46,6 +46,20 @@ from collections import defaultdict
 from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components
 from agent.ec_skills.crawler.crawler_tools import *
+from browser_use.controller.views import (
+	ClickElementAction,
+	CloseTabAction,
+	DoneAction,
+	GoToUrlAction,
+	InputTextAction,
+	NoParamsAction,
+	ScrollAction,
+	SearchGoogleAction,
+	SendKeysAction,
+	StructuredOutputAction,
+	SwitchTabAction,
+	UploadFileAction,
+)
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
