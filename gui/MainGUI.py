@@ -4,6 +4,7 @@ import json
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
 from common.models import VehicleModel
+from knowledge.lightrag_server import LightragServer
 from utils.server import HttpServer
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
@@ -341,6 +342,8 @@ class MainWindow(QMainWindow):
         self.missionWin = None
         self.chatWin = None
         self.newGui = BrowserWindow(self)
+        self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath})
+        self.lightrag_server.start()
 
         self.trainNewSkillWin = None
         self.reminderWin = None

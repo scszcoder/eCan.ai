@@ -23,3 +23,6 @@ gui_v2/node_modules/
 gui_v2/build/
 gui_v2/dist/
 gui_v2/coverage/
+/knowledge/inputs
+/knowledge/rag_storage
+/knowledge/*.log
