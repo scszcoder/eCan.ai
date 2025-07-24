@@ -111,6 +111,10 @@ export class IPCAPI {
         return this.executeRequest<T>('get_last_login', {});
     }
 
+    public async logout<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('logout', {});
+    }
+
     public async getAll<T>(username: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_all', { username });
     }

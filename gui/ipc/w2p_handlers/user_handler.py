@@ -99,3 +99,35 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
             'LOGIN_ERROR',
             f"Error during get_last_login: {str(e)}"
         )
+    
+@IPCHandlerRegistry.handler('logout')
+def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取最后一次登录信息的请求
+
+    Args:
+        request: IPC 请求对象
+        params: 请求参数 (未使用)
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Logout handler called with request: {request}")
+
+        ctx = AppContext()
+        login: Login = ctx.login
+        result = login.handleLogout()
+
+        logger.info(f"Logout successful.")
+        return create_success_response(request, {
+            "result": result,
+            'message': 'Logout successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in logout handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGOUT_ERROR',
+            f"Error during logout: {str(e)}"
+        )

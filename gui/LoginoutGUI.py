@@ -788,6 +788,10 @@ class Login(QDialog):
         # self.new_main_win.loadURL(new_gui_url)
         # self.new_main_win.show()
 
+    def handleLogout(self):
+        self.cog.logout()
+        return True
+
     def get_mainwin(self):
         return self.main_win
 
