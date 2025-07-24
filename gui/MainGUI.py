@@ -92,7 +92,6 @@ from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 from langchain_openai import ChatOpenAI
 from agent.ec_agent import EC_Agent
-from agent.runner.service import Runner
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
 from agent.ec_agents.create_agent_tasks import create_agent_tasks

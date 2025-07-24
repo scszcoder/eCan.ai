@@ -56,10 +56,13 @@ async def browser_use_wait(mainwin, seconds):
     return action_result.extracted_content or "No content."
 
 
-async def browser_use_click(mainwin, element_type, element_name):
-
-
-
+async def browser_use_click(mainwin, text, nth, ele_type):
+    node_element = await mainwin.browser_session.get_locate_element_by_text(text, nth, ele_type)
+    print("found element", node_element)
+    if node_element is None:
+        return
+    bustat = await mainwin.browser_session._click_element_node(node_element)
+    return bustat
 
 
 

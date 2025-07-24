@@ -8,7 +8,6 @@ from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
-from agent.runner.service import Runner
 from agent.tasks import Repeat_Types
 from agent.ec_agents.create_agent_tasks import create_my_twin_chat_task
 import traceback
