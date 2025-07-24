@@ -43,9 +43,9 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
 from .event_store import InMemoryEventStore
 from collections import defaultdict
-from agent.ec_skills.dom.dom_utils import *
+# from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components
-from agent.ec_skills.crawler.crawler_tools import *
+from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from browser_use.controller.views import (
 	ClickElementAction,
 	CloseTabAction,
