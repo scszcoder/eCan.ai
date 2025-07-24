@@ -108,7 +108,8 @@ from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from crawl4ai import JsonCssExtractionStrategy
 from crawl4ai.script.c4a_compile import C4ACompiler
-from agent.ec_skills.crawler.crawler_sessions import BrowserSession
+from browser_use.browser import BrowserSession
+from browser_use.filesystem.file_system import FileSystem
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -350,6 +351,8 @@ class MainWindow(QMainWindow):
         self.default_webdriver = None
         self.crawler_browser_config = None
         self.async_crawler = None
+        self.browser_session = None
+        self.browser_use_controller = None
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QPlainTextEdit()
         self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -451,7 +454,7 @@ class MainWindow(QMainWindow):
                 self.img_engine = self.general_settings.get("img_engine", "lan")
                 self.schedule_engine = self.general_settings.get("schedule_engine", "wan")
                 self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
-
+                self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
 
 
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
@@ -1090,6 +1093,12 @@ class MainWindow(QMainWindow):
 
         self.keyboard_task = asyncio.create_task(self.listen_for_hotkey())
 
+        if not self.browser_use_file_system_path:
+            # create a temporary file system using agent ID
+            base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
+            self.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
+
+        self.browser_use_file_system = FileSystem(self.browser_use_file_system_path)
         self.llm = ChatOpenAI(model='gpt-4o')
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
@@ -1127,6 +1136,7 @@ class MainWindow(QMainWindow):
         # asyncio.create_task(self.async_agents_init())
         self.newWebCrawler()
         self.setupBrowserSession()
+        self.setupBrowserUseController()
 
     async def initialize_mcp(self):
         local_server_port = 4668
@@ -1491,12 +1501,18 @@ class MainWindow(QMainWindow):
         self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
 
     def setupBrowserSession(self):
-
         browser = self.async_crawler.crawler_strategy.browser_manager.browser
         self.browser_session = BrowserSession(browser=browser)
 
+    def setupBrowserUseController(self):
+        display_files_in_done_text = True
+        self.browser_use_controller = Controller(display_files_in_done_text=display_files_in_done_text)
+
     def getBrowserSession(self):
         return self.browser_session
+
+    def getBrowserUseController(self):
+        return self.browser_use_controller
 
     def load_build_dom_tree_script(self):
         script = ""
