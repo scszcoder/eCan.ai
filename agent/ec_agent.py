@@ -29,8 +29,7 @@ from agent.a2a.common.client import A2AClient
 from agent.message_manager.service import MessageManager
 from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
 from agent.prompts import AgentMessagePrompt, PlannerPrompt
-from agent.models import (
-	REQUIRED_LLM_API_ENV_VARS,
+from browser_use.agent.views import (
 	ActionResult,
 	AgentError,
 	AgentHistory,
@@ -39,8 +38,9 @@ from agent.models import (
 	AgentSettings,
 	AgentState,
 	AgentStepInfo,
+	AgentStructuredOutput,
+	BrowserStateHistory,
 	StepMetadata,
-	ToolCallingMethod,
 )
 from agent.a2a.common.server import A2AServer
 from agent.a2a.common.types import AgentCard, AgentCapabilities
@@ -48,14 +48,12 @@ from agent.a2a.common.utils.push_notification_auth import PushNotificationSender
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
 from agent.a2a.common.types import Message, TextPart, FilePart, DataPart, FileContent, TaskSendParams
 
-from agent.ec_skills.browser.browser import Browser
-from agent.ec_skills.browser.context import BrowserContext
-from agent.runner.context import RunnerContext
-
-from agent.base import GlobalContext, Personality
-from agent.ec_skill import EC_Skill
-from agent.ec_skills.browser.views import BrowserState, BrowserStateHistory
-from agent.ec_skills.dom.history_tree_processor.service import (
+from browser_use.browser.types import Browser, BrowserContext, Page
+from browser_use.browser.views import BrowserStateSummary
+from browser_use.config import CONFIG
+from browser_use.controller.registry.views import ActionModel
+from browser_use.controller.service import Controller
+from browser_use.dom.history_tree_processor.service import (
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
@@ -111,8 +109,6 @@ class EC_Agent(Generic[Context]):
 		# Optional parameters
 		browser: Browser | None = None,
 		browser_context: BrowserContext | None = None,
-		global_context: GlobalContext | None = None,
-		runner_context: RunnerContext | None = None,
 		skill_set: Optional[List[EC_Skill]] = None,
 		card: AgentCard | None = None,
 		supervisors: Optional[List[str]] = None,
@@ -318,7 +314,6 @@ class EC_Agent(Generic[Context]):
 		# self.browser_context = browser_context or BrowserContext(
 		# 	browser=self.browser, config=self.browser.config.new_context_config
 		# )
-		self.global_context = global_context or GlobalContext()
 
 		# =====================a2a client+server setup ==================================
 		capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
@@ -740,33 +735,35 @@ class EC_Agent(Generic[Context]):
 		return [ActionResult(error=error_msg, include_in_memory=True)]
 
 	def _make_history_item(
-		self,
-		model_output: AgentOutput | None,
-		state: BrowserState,
-		result: list[ActionResult],
-		metadata: Optional[StepMetadata] = None,
+			self,
+			model_output: AgentOutput | None,
+			browser_state_summary: BrowserStateSummary,
+			result: list[ActionResult],
+			metadata: StepMetadata | None = None,
 	) -> None:
-		"""Create and stores history item"""
+		"""Create and store history item"""
 
 		if model_output:
-			interacted_elements = AgentHistory.get_interacted_element(model_output, state.selector_map)
+			interacted_elements = AgentHistory.get_interacted_element(model_output, browser_state_summary.selector_map)
 		else:
 			interacted_elements = [None]
 
 		state_history = BrowserStateHistory(
-			url=state.url,
-			title=state.title,
-			tabs=state.tabs,
+			url=browser_state_summary.url,
+			title=browser_state_summary.title,
+			tabs=browser_state_summary.tabs,
 			interacted_element=interacted_elements,
-			screenshot=state.screenshot,
+			screenshot=browser_state_summary.screenshot,
 		)
 
-		history_item = AgentHistory(model_output=model_output, result=result, state=state_history, metadata=metadata)
+		history_item = AgentHistory(
+			model_output=model_output,
+			result=result,
+			state=state_history,
+			metadata=metadata,
+		)
 
 		self.state.history.history.append(history_item)
-
-	THINK_TAGS = re.compile(r'<think>.*?</think>', re.DOTALL)
-	STRAY_CLOSE_TAG = re.compile(r'.*?</think>', re.DOTALL)
 
 	def _remove_think_tags(self, text: str) -> str:
 		# Step 1: Remove well-formed <think>...</think>

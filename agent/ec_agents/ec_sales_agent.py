@@ -10,7 +10,6 @@ from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_sales_chat_task, create_ec_sales_work_task
 
-from agent.runner.service import Runner
 from agent.tasks import Repeat_Types
 import traceback
 import socket
