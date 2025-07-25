@@ -342,7 +342,7 @@ class MainWindow(QMainWindow):
         self.missionWin = None
         self.chatWin = None
         self.newGui = BrowserWindow(self)
-        self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath})
+        self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"})
         self.lightrag_server.start()
 
         self.trainNewSkillWin = None
@@ -1157,6 +1157,9 @@ class MainWindow(QMainWindow):
             print("Initialization successful:", result)
             return result
 
+    def stop_lightrag_server(self):
+        self.lightrag_server.stop()
+        self.lightrag_server = None
 
     async def async_agents_init(self):
         print("initing agents async.....")

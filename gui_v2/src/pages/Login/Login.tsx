@@ -18,6 +18,8 @@ interface LoginFormValues {
 	password: string;
 	confirmPassword?: string;
 	role: string;
+	confirmCode?: string;
+	newPassword?: string;
 }
 
 type AuthMode = 'login' | 'signup' | 'forgot';
@@ -32,6 +34,8 @@ const Login: React.FC = () => {
 	// State
 	const [mode, setMode] = useState<AuthMode>('login');
 	const [loading, setLoading] = useState(false);
+	// 新增本地 state 控制验证码发送
+	const [codeSent, setCodeSent] = useState(false);
 
 	// Initialize IPC API and load login info
 	useEffect(() => {
@@ -115,30 +119,66 @@ const Login: React.FC = () => {
 		}
 	};
 
-	const handleSignup = async (values: LoginFormValues, api: any) => {
+	const handleSignup = async (values: LoginFormValues, api: IPCAPI) => {
 		if (values.password !== values.confirmPassword) {
 			messageApi.error(t('login.passwordMismatch'));
 			return;
 		}
-		await api.handle_sign_up(values.username, values.password, values.role);
-		Modal.success({
-			title: t('login.signupSuccess'),
-			content: t('login.signupSuccessMessage'),
-			onOk: () => {
-				setMode('login');
-			}
-		});
+		const response = await api.signup(values.username, values.password);
+		if (response.success) {
+			Modal.success({
+				title: t('login.signupSuccess'),
+				content: response.data && typeof response.data === 'object' && 'message' in response.data ? String((response.data as any).message) : t('login.signupSuccessMessage'),
+				onOk: () => {
+					setMode('login');
+				}
+			});
+		} else {
+			messageApi.error(response.error?.message || t('login.failed'));
+		}
 	};
 
-	const handleForgotPassword = async (values: LoginFormValues, api: any) => {
-		if (values.password !== values.confirmPassword) {
-			messageApi.error(t('login.passwordMismatch'));
-			return;
-		}
-		await api.handle_forget_password(values.username, values.password);
-		messageApi.success(t('login.forgotSuccess'));
-		handleModeChange('login');
-	};
+	const handleForgotPasswordSendCode = async () => {
+    try {
+        const username = form.getFieldValue('username');
+        if (!username) {
+            messageApi.error(t('login.usernameRequired'));
+            return;
+        }
+        const api = get_ipc_api();
+        await api.forgotPassword(username);
+        setCodeSent(true);
+        messageApi.success(t('login.forgotCodeSent'));
+    } catch (error) {
+        logger.error('Forgot password send code error:', error);
+        messageApi.error(t('login.forgotCodeSendError'));
+    }
+};
+
+const handleForgotPasswordReset = async () => {
+    try {
+        const username = form.getFieldValue('username');
+        const confirmCode = form.getFieldValue('confirmCode');
+        const newPassword = form.getFieldValue('newPassword');
+        if (!username || !confirmCode || !newPassword) {
+            messageApi.error(t('login.forgotFieldsRequired'));
+            return;
+        }
+        const api = get_ipc_api();
+        const response = await api.confirmForgotPassword(username, confirmCode, newPassword);
+        if (response.success) {
+            messageApi.success(t('login.forgotSuccess'));
+            setMode('login');
+            setCodeSent(false);
+            form.resetFields();
+        } else {
+            messageApi.error(response.error?.message || t('login.failed'));
+        }
+    } catch (error) {
+        logger.error('Forgot password reset error:', error);
+        messageApi.error(t('login.forgotResetError'));
+    }
+};
 
 	const handleSubmit = async (values: LoginFormValues) => {
 		setLoading(true);
@@ -154,7 +194,7 @@ const Login: React.FC = () => {
 					await handleSignup(values, api);
 					break;
 				case 'forgot':
-					await handleForgotPassword(values, api);
+					await handleForgotPasswordReset(); // 调用新的重置密码逻辑
 					break;
 			}
 		} catch (error) {
@@ -206,7 +246,7 @@ const Login: React.FC = () => {
 							<div className="logo-container">
 								<img
 									src={logo}
-									alt="Logo"
+									alt={t('login.logoAlt')}
 									className="logo-image"
 								/>
 							</div>
@@ -233,72 +273,134 @@ const Login: React.FC = () => {
 									className="form-input"
 								/>
 							</Form.Item>
-
-							<Form.Item
-								name="password"
-								rules={[{ required: true, message: t('login.passwordRequired') }]}
-							>
-								<Input.Password
-									prefix={<LockOutlined />}
-									placeholder={t('common.password')}
-									size="large"
-									className="form-input"
-								/>
-							</Form.Item>
-
-							{mode === 'signup' && (
+							{mode === 'login' && (
 								<Form.Item
-									name="confirmPassword"
-									rules={[
-										{ required: true, message: t('login.confirmPasswordRequired') },
-										({ getFieldValue }) => ({
-											validator(_, value) {
-												if (!value || getFieldValue('password') === value) {
-													return Promise.resolve();
-												}
-												return Promise.reject(new Error(t('login.passwordMismatch')));
-											},
-										}),
-									]}
+									name="password"
+									rules={[{ required: true, message: t('login.passwordRequired') }]}
 								>
 									<Input.Password
 										prefix={<LockOutlined />}
-										placeholder={t('login.confirmPassword')}
+										placeholder={t('common.password')}
 										size="large"
 										className="form-input"
 									/>
 								</Form.Item>
 							)}
-
-							<Form.Item
-								name="role"
-								rules={[{ required: true, message: t('login.roleRequired') }]}
-							>
-								<Select
-									placeholder={t('login.selectRole')}
-									size="large"
-									className="form-input"
+							{mode === 'signup' && (
+								<>
+									<Form.Item
+										name="password"
+										rules={[{ required: true, message: t('login.passwordRequired') }]}
+									>
+										<Input.Password
+											prefix={<LockOutlined />}
+											placeholder={t('common.password')}
+											size="large"
+											className="form-input"
+										/>
+									</Form.Item>
+									<Form.Item
+										name="confirmPassword"
+										rules={[
+											{ required: true, message: t('login.confirmPasswordRequired') },
+											({ getFieldValue }) => ({
+												validator(_, value) {
+													if (!value || getFieldValue('password') === value) {
+														return Promise.resolve();
+													}
+													return Promise.reject(new Error(t('login.passwordMismatch')));
+												},
+											}),
+										]}
+									>
+										<Input.Password
+											prefix={<LockOutlined />}
+											placeholder={t('login.confirmPassword')}
+											size="large"
+											className="form-input"
+										/>
+									</Form.Item>
+								</>
+							)}
+							{mode === 'login' && (
+								<Form.Item
+									name="role"
+									rules={[{ required: true, message: t('login.roleRequired') }]}
 								>
-									<Select.Option value="Commander">{t('roles.commander')}</Select.Option>
-									<Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
-									<Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
-								</Select>
-							</Form.Item>
-
-							<Form.Item>
-								<Button
-									type="primary"
-									htmlType="submit"
-									size="large"
-									block
-									loading={loading}
-									className="login-button"
-								>
-									{mode === 'login' ? t('login.loginButton') :
-										mode === 'signup' ? t('login.signUp') :
-											t('login.resetPassword')}
-								</Button>
-							</Form.Item>
+									<Select
+										placeholder={t('login.selectRole')}
+										size="large"
+										className="form-input"
+									>
+										<Select.Option value="Commander">{t('roles.commander')}</Select.Option>
+										<Select.Option value="Platoon">{t('roles.platoon')}</Select.Option>
+										<Select.Option value="Staff Officer">{t('roles.staff_office')}</Select.Option>
+									</Select>
+								</Form.Item>
+							)}
+							{mode === 'forgot' && !codeSent && (
+								<Form.Item>
+									<Button
+										type="primary"
+										block
+										size="large"
+										onClick={handleForgotPasswordSendCode}
+										className="login-button"
+									>
+										{t('login.sendConfirmCode')}
+									</Button>
+								</Form.Item>
+							)}
+							{mode === 'forgot' && codeSent && (
+								<>
+									<Form.Item
+										name="confirmCode"
+										rules={[{ required: true, message: t('login.confirmCodeRequired') }]}
+									>
+										<Input
+											placeholder={t('login.confirmCode')}
+											size="large"
+											className="form-input"
+										/>
+									</Form.Item>
+									<Form.Item
+										name="newPassword"
+										rules={[{ required: true, message: t('login.newPasswordRequired') }]}
+									>
+										<Input.Password
+											prefix={<LockOutlined />}
+											placeholder={t('login.newPassword')}
+											size="large"
+											className="form-input"
+										/>
+									</Form.Item>
+									<Form.Item>
+										<Button
+											type="primary"
+											block
+											size="large"
+											onClick={handleForgotPasswordReset}
+											className="login-button"
+										>
+											{t('login.resetPassword')}
+										</Button>
+									</Form.Item>
+								</>
+							)}
+							{(mode === 'login' || mode === 'signup') && (
+								<Form.Item>
+									<Button
+										type="primary"
+										htmlType="submit"
+										size="large"
+										block
+										loading={loading}
+										className="login-button"
+									>
+										{mode === 'login' ? t('login.loginButton') : t('login.signUp')}
+									</Button>
+								</Form.Item>
+							)}
 
 							<div style={{
 								display: 'flex',

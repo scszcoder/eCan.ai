@@ -53,7 +53,16 @@
     "confirmPassword": "Confirm Password",
     "backToLogin": "Back to Login",
     "resetPassword": "Reset Password",
-    "verifying": "Verifying..."
+    "verifying": "Verifying...",
+    "sendConfirmCode": "Send Confirm Code",
+    "forgotCodeSent": "Verification code sent, please check your email or phone.",
+    "forgotCodeSendError": "Failed to send verification code.",
+    "forgotFieldsRequired": "Please fill in all required fields.",
+    "confirmCodeRequired": "Please enter the verification code.",
+    "newPasswordRequired": "Please enter the new password.",
+    "logoAlt": "System Logo",
+    "newPassword": "New Password",
+    "confirmCode": "Verification Code"
   },
   "roles": {
     "commander": "Commander",

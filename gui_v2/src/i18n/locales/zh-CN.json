@@ -53,7 +53,16 @@
     "confirmPassword": "确认密码",
     "backToLogin": "返回登录",
     "resetPassword": "重置密码",
-    "verifying": "正在验证..."
+    "verifying": "正在验证...",
+    "sendConfirmCode": "发送验证码",
+    "forgotCodeSent": "验证码已发送，请检查您的邮箱或手机。",
+    "forgotCodeSendError": "验证码发送失败。",
+    "forgotFieldsRequired": "请填写所有必填项。",
+    "confirmCodeRequired": "请输入验证码。",
+    "newPasswordRequired": "请输入新密码。",
+    "logoAlt": "系统Logo",
+    "newPassword": "新密码",
+    "confirmCode": "验证码"
   },
   "roles": {
     "commander": "指挥官",
