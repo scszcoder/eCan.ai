@@ -15,24 +15,13 @@ from langgraph.graph.message import AnyMessage, add_messages, MessagesState, Bas
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from sqlalchemy.testing.suite.test_reflection import metadata
-from agent.message_manager.service import MessageManager
-from agent.message_manager.utils import convert_input_messages, extract_json_from_model_output, save_conversation
+from browser_use.agent.message_manager.utils import save_conversation
 from agent.prompts import AgentMessagePrompt, PlannerPrompt
-from agent.models import ActionResult
-from typing_extensions import TypedDict
-from langgraph.prebuilt import tools_condition
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
-from agent.mcp.client.client_manager import MCPClientSessionManager
-from agent.mcp.server.tool_schemas import tool_schemas
-from agent.a2a.common.types import AgentSkill, Message, TextPart
-import json
-import traceback
-import time
-import httpx
-import asyncio
-import requests
-import operator
+from browser_use.agent.views import (
+	ActionResult,
+	StepMetadata,
+)
+
 from agent.ec_skill import *
 from utils.logger_helper import get_agent_by_id
 
