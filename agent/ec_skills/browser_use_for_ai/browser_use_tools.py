@@ -23,6 +23,11 @@ async def browser_use_locate_element(mainwin, element):
     found = await mainwin.browser_session.get_locate_element(element)
     return found
 
+async def browser_use_wait_for_element(mainwin, element):
+    found = await mainwin.browser_session.wait_for_element(element)
+    return found
+
+
 async def browser_use_locate_element_by_xpath(mainwin, xpath):
     found = await mainwin.browser_session.get_locate_element_by_xpath(xpath)
     return found
@@ -143,7 +148,7 @@ async def browser_use_click_element_by_index(mainwin, index):
 
 
 #'Click and input text into a input interactive element', param_model=InputTextAction,
-async def browser_use_input_text(mainwin, index, text, has_sensitive_data: bool = False):
+async def browser_use_input_text(mainwin, index, text):
     InputTextAction = create_model(
         'InputTextAction',
         __base__=ActionModel,
@@ -515,6 +520,21 @@ async def browser_use_done(mainwin):
     )
 
     action = DoneAction()
+
+    action_result = await mainwin.browser_use_controller.act(
+        action=action,
+        browser_session=mainwin.browser_session,
+        page_extraction_llm=mainwin.llm,
+        file_system=mainwin.browser_use_file_system,
+    )
+
+    return action_result.extracted_content or "No content."
+
+
+async def browser_use_drag_drop(mainwin, cell_or_range: str):
+    ClearCellContentsAction = mainwin.browser_use_controller.registry.actions['clear_cell_contents'].param_model
+
+    action = ClearCellContentsAction(cell_or_range=cell_or_range)
 
     action_result = await mainwin.browser_use_controller.act(
         action=action,
