@@ -47,7 +47,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             'agents': [agent.to_dict() for agent in agents],
             'message': 'Get all successful'
         }
-        logger.debug('get agents resultJS:' + str(resultJS))
+        logger.trace('get agents resultJS:' + str(resultJS))
         return create_success_response(request, resultJS)
 
     except Exception as e:
