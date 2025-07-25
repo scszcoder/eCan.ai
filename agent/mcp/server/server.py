@@ -28,7 +28,7 @@ import json
 from dotenv import load_dotenv
 import logging
 from datetime import datetime
-from agent.runner.models import (
+from agent.ec_skills.browser_use_for_ai.browser_use_extension import (
     Position,
 )
 import shutil
@@ -402,6 +402,7 @@ async def in_browser_open_tab(mainwin, args):
                 web_driver.get(url)  # Replace with the new URL
                 print("open URL: " + url)
         else:
+            bu_result = await browser_use_go_to_url(mainwin, args['input']["url"])
 
         msg = f'completed'
         logger.info(msg)
