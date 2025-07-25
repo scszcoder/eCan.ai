@@ -391,7 +391,7 @@ class Login(QDialog):
 
 
     def changeEvent(self, event):
-        print("event occured....", event.type())
+        # print("event occured....", event.type())
         if event.type() == QEvent.LanguageChange:
             print("re-translating....")
             self.retranslateUi()
@@ -505,7 +505,7 @@ class Login(QDialog):
         return self.current_user
 
     def getLogUser(self):
-        print("current user:", self.current_user)
+        # print("current user:", self.current_user)
         return self.current_user.split("@")[0] + "_" + self.current_user.split("@")[1].replace(".", "_")
 
     def decode_jwt(self, token):

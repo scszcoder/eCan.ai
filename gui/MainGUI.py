@@ -1178,7 +1178,7 @@ class MainWindow(QMainWindow):
         print("MCP client created....")
         # tl = await self.mcp_client.list_tools()
         tl = await local_mcp_list_tools(url)
-        print("list of tools:", tl)
+        # print("list of tools:", tl)
 
         # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
 
@@ -1255,7 +1255,7 @@ class MainWindow(QMainWindow):
         if len(free_ports) < n:
             raise RuntimeError(f"Only {len(free_ports)} free ports available, but {n} requested.")
 
-        print("free ports", free_ports)
+        # print("free ports", free_ports)
         return free_ports[:n]
 
     def save_agent_skill(self, skill):
