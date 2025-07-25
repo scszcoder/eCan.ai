@@ -11,15 +11,15 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from openai import RateLimitError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
-from agent.runner.registry.models import ActionModel
+from browser_use.agent.views import ActionModel, ActionResult
 from agent.message_manager.models import MessageManagerState
-from agent.ec_skills.browser.views import BrowserStateHistory
-from agent.ec_skills.dom.history_tree_processor.service import (
+from browser_use.browser.views import BrowserStateHistory
+from browser_use.dom.history_tree_processor.service import (
 	DOMElementNode,
 	DOMHistoryElement,
 	HistoryTreeProcessor,
 )
-from agent.ec_skills.dom.views import SelectorMap
+from browser_use.dom.views import SelectorMap
 
 ToolCallingMethod = Literal['function_calling', 'json_mode', 'raw', 'auto']
 REQUIRED_LLM_API_ENV_VARS = {
