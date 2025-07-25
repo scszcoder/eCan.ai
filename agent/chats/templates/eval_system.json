@@ -1,5 +1,6 @@
 {
   "id": "eval_system_form",
+  "type": "score",
   "title": "score system",
   "components": [
     {
