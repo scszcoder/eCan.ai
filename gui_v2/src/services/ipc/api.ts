@@ -115,6 +115,18 @@ export class IPCAPI {
         return this.executeRequest<T>('logout', {});
     }
 
+    public async signup<T>(username: string, password: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('signup', { username, password });
+    }
+
+    public async forgotPassword<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('forgot_password', { username });
+    }
+
+    public async confirmForgotPassword<T>(username: string, confirmCode: string, newPassword: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('confirm_forgot_password', { username, confirmCode, newPassword});
+    }
+
     public async getAll<T>(username: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_all', { username });
     }

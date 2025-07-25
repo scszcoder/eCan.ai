@@ -10,7 +10,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from typing import TypedDict, List, Any
 import subprocess
-from langgraph.graph.graph import CompiledGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.graph.message import AnyMessage, add_messages, MessagesState, BaseMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
@@ -52,7 +52,7 @@ class EC_Skill(AgentSkill):
     id: str = str(uuid.uuid4())
     work_flow: StateGraph = StateGraph(State)        # {"app_name": "app_context", ....} "ecbot" being the internal rpa runs.
     diagram: dict = {}
-    runnable: CompiledGraph = None
+    runnable: CompiledStateGraph = None
     mcp_client: MultiServerMCPClient = None
     owner: str = ""
     name: str = "generic"
