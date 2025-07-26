@@ -46,20 +46,7 @@ from collections import defaultdict
 # from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
-from browser_use.controller.views import (
-	ClickElementAction,
-	CloseTabAction,
-	DoneAction,
-	GoToUrlAction,
-	InputTextAction,
-	NoParamsAction,
-	ScrollAction,
-	SearchGoogleAction,
-	SendKeysAction,
-	StructuredOutputAction,
-	SwitchTabAction,
-	UploadFileAction,
-)
+
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
@@ -199,7 +186,7 @@ async def in_browser_wait_for_element(mainwin, args):
             sel = get_selector(args['input']["element_type"])
             args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
         else:
-            crawler_wait_for_element(args['input']['element_type'], args['input']['element_name'], args['input']['timeout'])
+            browser_use_wait_for_element(args['input']['element_type'], args['input']['element_name'], args['input']['timeout'])
         msg=f"completed loading element{args['input']['element_name']}."
         result = [TextContent(type="text", text=msg)]
         return result
@@ -218,7 +205,7 @@ async def in_browser_click_element_by_index(mainwin, args):
         if args['input']['index'] not in await browser.get_selector_map():
             raise Exception(f"Element with index {args['input']['index']} does not exist - retry or use alternative actions")
 
-        element_node = await browser.get_dom_element_by_index(args['input']['index'])
+        element_node = await browser_use_get_dom_element_by_index(args['input']['index'])
         initial_pages = len(session.pages)
 
         # if element has file uploader then dont click
@@ -254,6 +241,7 @@ async def in_browser_click_element_by_index(mainwin, args):
 
 async def in_browser_click_element_by_selector(mainwin, args):
     try:
+        crawler = mainwin.getCrawler()
         web_driver = mainwin.getWebDriver()
         if web_driver:
             browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
@@ -283,6 +271,7 @@ async def in_browser_click_element_by_selector(mainwin, args):
 
 async def in_browser_click_element_by_xpath(mainwin, args):
     try:
+        crawler = mainwin.getCrawler()
         web_driver = mainwin.getWebDriver()
         browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
         browser = browser_context.browser
@@ -310,6 +299,7 @@ async def in_browser_click_element_by_xpath(mainwin, args):
 
 async def in_browser_click_element_by_text(mainwin, args):
     try:
+        crawler = mainwin.getCrawler()
         web_driver = mainwin.getWebDriver()
         web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
         # find element
@@ -336,22 +326,28 @@ async def in_browser_click_element_by_text(mainwin, args):
 
 async def in_browser_input_text(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
 
-        web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
-        # find element
-        targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
-        if targets and args['input']["nth"] < len(targets):
-            target = targets[args['input']["nth"]]
+            web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
+            # find element
+            targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
+            if targets and args['input']["nth"] < len(targets):
+                target = targets[args['input']["nth"]]
+            else:
+                target = None
+
+            webDriverKeyIn(web_driver, target, args['input']["text"])
+            if args['input']["post_enter"]:
+                target.send_keys(Keys.ENTER)
+
+            if args['input']["post_wait"]:
+                time.sleep(args['input']["post_wait"])
         else:
-            target = None
+            dom_index = args['input']["text"]
+            bu_result = await browser_use_input_text(mainwin, dom_index, args['input']['text'])
 
-        webDriverKeyIn(web_driver, target, args['input']["text"])
-        if args['input']["post_enter"]:
-            target.send_keys(Keys.ENTER)
-
-        if args['input']["post_wait"]:
-            time.sleep(args['input']["post_wait"])
 
 
         msg = f"completed loading element by index {args['input']['index']}."
@@ -372,9 +368,10 @@ async def in_browser_switch_tab(mainwin, args):
             web_driver = mainwin.getWebDriver()
             webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
         else:
-            action_result = crawler_switch_tab(args['input']['tab_title_txt'], args['input']['url'])
+            page_id = args['input']["url"]
+            bu_result = await browser_use_switch_tab(mainwin, page_id, args['input']['url'])
 
-        msg = f"completed in-browser switch tab {args['input']['tab_title_txt']}."
+        msg = f"completed in-browser switch tab {args['input']['url']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -417,15 +414,20 @@ async def in_browser_open_tab(mainwin, args):
 
 async def in_browser_close_tab(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
-        if args['input']["tab_title"]:
-            for handle in web_driver.window_handles:
-                web_driver.switch_to.window(handle)
-                if args['input']["tab_title"] in web_driver.current_url:
-                    break
-        web_driver.close()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            if args['input']["tab_title"]:
+                for handle in web_driver.window_handles:
+                    web_driver.switch_to.window(handle)
+                    if args['input']["tab_title"] in web_driver.current_url:
+                        break
+            web_driver.close()
+        else:
+            page_id = args['input']["url"]
+            bu_result = await browser_use_close_tab(mainwin, page_id, args['input']["url"])
 
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed closing tab {args['input']['url']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -436,9 +438,15 @@ async def in_browser_close_tab(mainwin, args):
 # Content Actions
 async def in_browser_scrape_content(mainwin, args):
     try:
-        web_driver = mainwin.web_driver
-        dom_service = mainwin.dom_service
-        dom_service.get_clickable_elements()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.web_driver
+            dom_service = mainwin.dom_service
+            dom_service.get_clickable_elements()
+        else:
+            extract_links = True
+            bu_result = await browser_use_extract_structured_data(mainwin, args['input']['query'], extract_links)
+            print("extracted page result: " + bu_result)
 
         msg = f"completed loading element by index {args['input']['index']}."
         result = [TextContent(type="text", text=msg)]
@@ -451,8 +459,12 @@ async def in_browser_scrape_content(mainwin, args):
 
 async def in_browser_execute_javascript(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
-        result = execute_js_script(web_driver, args['input']["script"], args['input']["target"])
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            result = execute_js_script(web_driver, args['input']["script"], args['input']["target"])
+        else:
+            bu_result = await browser_use_execute_javascript(mainwin, args['input']['script'])
 
         msg = f"completed in browser execute javascript {args['input']['script']}."
         tool_result = [TextContent(type="text", text=msg)]
@@ -465,17 +477,22 @@ async def in_browser_execute_javascript(mainwin, args):
 
 async def in_browser_build_dom_tree(mainwin, args):
     try:
-        webdriver = mainwin.getWebDriver()
-        script = mainwin.load_build_dom_tree_script()
-        # print("dom tree build script to be executed", script)
-        target = None
-        domTree = execute_js_script(webdriver, script, target)
-        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        print("obtained dom tree:", domTree)
-        with open("domtree.json", 'w', encoding="utf-8") as dtjf:
-            json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
-            # self.rebuildHTML()
-            dtjf.close()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            webdriver = mainwin.getWebDriver()
+            script = mainwin.load_build_dom_tree_script()
+            # print("dom tree build script to be executed", script)
+            target = None
+            domTree = execute_js_script(webdriver, script, target)
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+            print("obtained dom tree:", domTree)
+            with open("domtree.json", 'w', encoding="utf-8") as dtjf:
+                json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
+                # self.rebuildHTML()
+                dtjf.close()
+        else:
+            print("build dom tree....")
+            # bu_result = await browser_use_build_dom_tree(mainwin)
 
         domTreeJSString = json.dumps(domTree)            # clear error
         time.sleep(1)
@@ -498,9 +515,13 @@ async def in_browser_build_dom_tree(mainwin, args):
 async def in_browser_save_href_to_file(mainwin, args) -> CallToolResult:
     """Retrieves and returns the full HTML content of the current page to a file"""
     try:
-        web_driver = mainwin.getWebDriver()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
 
-        saved = webDriverDownloadFile(web_driver, args["input"]["ele_type"], args["input"]["ele_text"], args["input"]["dl_dir"], args["input"]["dl_file"])
+            saved = webDriverDownloadFile(web_driver, args["input"]["ele_type"], args["input"]["ele_text"], args["input"]["dl_dir"], args["input"]["dl_file"])
+        else:
+            br_result = await browser_use_download_file(mainwin, args["input"]["ele_type"], args["input"]["ele_text"], args["input"]["dl_dir"], args["input"]["dl_file"])
 
         msg = f"completed loading {saved}."
         tool_result = [TextContent(type="text", text=msg)]
@@ -513,16 +534,20 @@ async def in_browser_save_href_to_file(mainwin, args) -> CallToolResult:
 
 async def in_browser_scroll(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
 
-        if args["input"]["direction"].lower() == "down":
-            scroll_amount = 0 - args["input"]["amount"]
+            if args["input"]["direction"].lower() == "down":
+                scroll_amount = 0 - args["input"]["amount"]
+            else:
+                scroll_amount = args["input"]["amount"]
+            web_driver.execute_script(f"window.scrollBy(0, {args['input']['amount']});")
+
+            if args["input"]["post_wait"]:
+                time.sleep(args["input"]["post_wait"])
         else:
-            scroll_amount = args["input"]["amount"]
-        web_driver.execute_script(f"window.scrollBy(0, {args['input']['amount']});")
-
-        if args["input"]["post_wait"]:
-            time.sleep(args["input"]["post_wait"])
+            br_result = await browser_use_scroll(mainwin, args["input"]["direction"], args["input"]["amount"], args["input"]["post_wait"])
 
         msg = f"completed in browser scroll {args['input']['direction']} {args['input']['amount']}."
         tool_result = [TextContent(type="text", text=msg)]
@@ -535,13 +560,17 @@ async def in_browser_scroll(mainwin, args):
 # send keys
 async def in_browser_send_keys(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        page = await browser.get_current_page()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            browser_context = login.main_win.getBrowserContextById(args["context_id"])
+            browser = browser_context.browser
+            page = await browser.get_current_page()
 
 
-        await page.keyboard.press(args.keys)
+            await page.keyboard.press(args.keys)
+        else:
+            br_result = await browser_use_send_keys(mainwin, args["context_id"], args['input']['keys'])
 
         msg = f'⌨️  Sent keys: {args.keys}'
         logger.info(msg)
@@ -556,13 +585,16 @@ async def in_browser_send_keys(mainwin, args):
 
 async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
     try:
-        web_driver = mainwin.getWebDriver()
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
 
-        element = web_driver.find_element("xpath", "//*[contains(text(), args['input']['text'])]")
+            element = web_driver.find_element("xpath", "//*[contains(text(), args['input']['text'])]")
 
-        # Scroll to the element
-        web_driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
-
+            # Scroll to the element
+            web_driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
+        else:
+            br_result = await browser_use_scroll_to_text(mainwin, args["input"]["text"])
 
         msg = f"completed in browser scroll to text {args['input']['text']}."
         tool_result = [TextContent(type="text", text=msg)]
@@ -575,72 +607,16 @@ async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
 
 async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
     try:
-        index = args["index"]
-        web_driver = mainwin.getWebDriver()
-        """Get all options from a native dropdown"""
-        browser_context = login.main_win.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        page = await browser.get_current_page()
-        selector_map = await browser.get_selector_map()
-        dom_element = selector_map[index]
-
-        # Frame-aware approach since we know it works
-        all_options = []
-        frame_index = 0
-
-        for frame in page.frames:
-            try:
-                options = await frame.evaluate(
-                    """
-                    (xpath) => {
-                        const select = document.evaluate(xpath, document, null,
-                            XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                        if (!select) return null;
-
-                        return {
-                            options: Array.from(select.options).map(opt => ({
-                                text: opt.text, //do not trim, because we are doing exact match in select_dropdown_option
-                                value: opt.value,
-                                index: opt.index
-                            })),
-                            id: select.id,
-                            name: select.name
-                        };
-                    }
-                """,
-                    dom_element.xpath,
-                )
-
-                if options:
-                    logger.debug(f'Found dropdown in frame {frame_index}')
-                    logger.debug(f'Dropdown ID: {options["id"]}, Name: {options["name"]}')
-
-                    formatted_options = []
-                    for opt in options['options']:
-                        # encoding ensures AI uses the exact string in select_dropdown_option
-                        encoded_text = json.dumps(opt['text'])
-                        formatted_options.append(f'{opt["index"]}: text={encoded_text}')
-
-                    all_options.extend(formatted_options)
-
-            except Exception as e:
-                logger.debug(f'Frame {frame_index} evaluation failed: {str(e)}')
-
-            frame_index += 1
-
-        if all_options:
-            msg = '\n'.join(all_options)
-            msg += '\nUse the exact text string in select_dropdown_option'
-            logger.info(msg)
-            msg = f"completed loading element by index {args['input']['index']}."
-            tool_result = [TextContent(type="text", text=msg)]
-            return tool_result
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
         else:
-            msg = 'No options found in any frame for dropdown'
-            logger.info(msg)
-            msg = f"completed loading element by index {args['input']['index']}."
-            tool_result = [TextContent(type="text", text=msg)]
-            return tool_result
+            br_result = await browser_use_get_dropdown_options(mainwin, args["context_id"], args['input']['index'])
+
+
+        msg = f"completed loading element by index {args['input']['index']}."
+        tool_result = [TextContent(type="text", text=msg)]
+        return tool_result
 
 
     except Exception as e:
@@ -651,85 +627,12 @@ async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
 
 async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
     try:
-        """Select dropdown option by the text of the option you want to select"""
-        web_driver = mainwin.getWebDriver()
-        browser_context = mainwin.getBrowserContextById(args["context_id"])
-        browser = browser_context.browser
-        page = await browser.get_current_page()
-        selector_map = await browser.get_selector_map()
-        dom_element = selector_map[index]
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+        else:
+            br_result = await browser_use_select_dropdown_option(mainwin, args["context_id"], args['input']['index'])
 
-        # Validate that we're working with a select element
-        if dom_element.tag_name != 'select':
-            logger.error(f'Element is not a select! Tag: {dom_element.tag_name}, Attributes: {dom_element.attributes}')
-            msg = f'Cannot select option: Element with index {index} is a {dom_element.tag_name}, not a select'
-            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
-
-        text = ""
-        logger.debug(f"Attempting to select '{text}' using xpath: {dom_element.xpath}")
-        logger.debug(f'Element attributes: {dom_element.attributes}')
-        logger.debug(f'Element tag: {dom_element.tag_name}')
-
-        xpath = '//' + dom_element.xpath
-
-        frame_index = 0
-        for frame in page.frames:
-            try:
-                logger.debug(f'Trying frame {frame_index} URL: {frame.url}')
-
-                # First verify we can find the dropdown in this frame
-                find_dropdown_js = """
-					(xpath) => {
-						try {
-							const select = document.evaluate(xpath, document, null,
-								XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-							if (!select) return null;
-
-							return {
-								id: select.id,
-								name: select.name,
-								found: true,
-								tagName: select.tagName,
-								optionCount: select.options.length,
-								currentValue: select.value,
-								availableOptions: Array.from(select.options).map(o => o.text.trim())
-							};
-						} catch (e) {
-							return {error: e.toString(), found: false};
-						}
-					}
-				"""
-
-                dropdown_info = await frame.evaluate(find_dropdown_js, dom_element.xpath)
-
-                if dropdown_info:
-                    if not dropdown_info.get('found'):
-                        logger.error(f'Frame {frame_index} error: {dropdown_info.get("error")}')
-                        continue
-
-                    logger.debug(f'Found dropdown in frame {frame_index}: {dropdown_info}')
-                    text = ""
-                    # "label" because we are selecting by text
-                    # nth(0) to disable error thrown by strict mode
-                    # timeout=1000 because we are already waiting for all network events, therefore ideally we don't need to wait a lot here (default 30s)
-                    selected_option_values = (
-                        await frame.locator('//' + dom_element.xpath).nth(0).select_option(label=text, timeout=1000)
-                    )
-
-                    msg = f'selected option {text} with value {selected_option_values}'
-                    logger.info(msg + f' in frame {frame_index}')
-
-                    return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
-
-            except Exception as frame_e:
-                logger.error(f'Frame {frame_index} attempt failed: {str(frame_e)}')
-                logger.error(f'Frame type: {type(frame)}')
-                logger.error(f'Frame URL: {frame.url}')
-
-            frame_index += 1
-
-        msg = f"Could not select option '{text}' in any frame"
-        logger.info(msg)
         msg = f"completed loading element by index {args['input']['index']}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
@@ -740,212 +643,18 @@ async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
 
 
 async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
-    """
-    Performs a precise drag and drop operation between elements or coordinates.
-    """
-
-    async def get_drag_elements(
-            web_driver: webdriver,
-            source_selector: str,
-            target_selector: str,
-    ) -> Tuple[Optional[ElementHandle], Optional[ElementHandle]]:
-        """Get source and target elements with appropriate error handling."""
-        source_element = None
-        target_element = None
-
-        try:
-            # page.locator() auto-detects CSS and XPath
-            source_locator = page.locator(source_selector)
-            target_locator = page.locator(target_selector)
-
-            # Check if elements exist
-            source_count = await source_locator.count()
-            target_count = await target_locator.count()
-
-            if source_count > 0:
-                source_element = await source_locator.first.element_handle()
-                logger.debug(f'Found source element with selector: {source_selector}')
-            else:
-                logger.warning(f'Source element not found: {source_selector}')
-
-            if target_count > 0:
-                target_element = await target_locator.first.element_handle()
-                logger.debug(f'Found target element with selector: {target_selector}')
-            else:
-                logger.warning(f'Target element not found: {target_selector}')
-
-        except Exception as e:
-            logger.error(f'Error finding elements: {str(e)}')
-
-        return source_element, target_element
-
-    async def get_element_coordinates(
-            source_element: ElementHandle,
-            target_element: ElementHandle,
-            source_position: Optional[Position],
-            target_position: Optional[Position],
-    ) -> Tuple[Optional[Tuple[int, int]], Optional[Tuple[int, int]]]:
-        """Get coordinates from elements with appropriate error handling."""
-        source_coords = None
-        target_coords = None
-
-        try:
-            # Get source coordinates
-            if source_position:
-                source_coords = (source_position.x, source_position.y)
-            else:
-                source_box = await source_element.bounding_box()
-                if source_box:
-                    source_coords = (
-                        int(source_box['x'] + source_box['width'] / 2),
-                        int(source_box['y'] + source_box['height'] / 2),
-                    )
-
-            # Get target coordinates
-            if target_position:
-                target_coords = (target_position.x, target_position.y)
-            else:
-                target_box = await target_element.bounding_box()
-                if target_box:
-                    target_coords = (
-                        int(target_box['x'] + target_box['width'] / 2),
-                        int(target_box['y'] + target_box['height'] / 2),
-                    )
-        except Exception as e:
-            logger.error(f'Error getting element coordinates: {str(e)}')
-
-        return source_coords, target_coords
-
-    async def execute_drag_operation(
-            web_driver: webdriver,
-            source_x: int,
-            source_y: int,
-            target_x: int,
-            target_y: int,
-            steps: int,
-            delay_ms: int,
-    ) -> Tuple[bool, str]:
-        """Execute the drag operation with comprehensive error handling."""
-        try:
-            # Try to move to source position
-            try:
-                await page.mouse.move(source_x, source_y)
-                logger.debug(f'Moved to source position ({source_x}, {source_y})')
-            except Exception as e:
-                logger.error(f'Failed to move to source position: {str(e)}')
-                return False, f'Failed to move to source position: {str(e)}'
-
-            # Press mouse button down
-            await page.mouse.down()
-
-            # Move to target position with intermediate steps
-            for i in range(1, steps + 1):
-                ratio = i / steps
-                intermediate_x = int(source_x + (target_x - source_x) * ratio)
-                intermediate_y = int(source_y + (target_y - source_y) * ratio)
-
-                await page.mouse.move(intermediate_x, intermediate_y)
-
-                if delay_ms > 0:
-                    await asyncio.sleep(delay_ms / 1000)
-
-            # Move to final target position
-            await page.mouse.move(target_x, target_y)
-
-            # Move again to ensure dragover events are properly triggered
-            await page.mouse.move(target_x, target_y)
-
-            # Release mouse button
-            await page.mouse.up()
-
-            return True, 'Drag operation completed successfully'
-
-        except Exception as e:
-            return False, f'Error during drag operation: {str(e)}'
-
-    browser_context = login.main_win.getBrowserContextById(context_id)
-    browser = browser_context.browser
-    page = await browser.get_current_page()
-
     try:
-        web_driver = mainwin.getWebDriver()
-        # Initialize variables
-        source_x: Optional[int] = None
-        source_y: Optional[int] = None
-        target_x: Optional[int] = None
-        target_y: Optional[int] = None
-
-        # Normalize parameters
-        steps = max(1, args.steps or 10)
-        delay_ms = max(0, args.delay_ms or 5)
-
-        # Case 1: Element selectors provided
-        if args.element_source and args.element_target:
-            logger.debug('Using element-based approach with selectors')
-
-            source_element, target_element = await get_drag_elements(
-                page,
-                args.element_source,
-                args.element_target,
-            )
-
-            if not source_element or not target_element:
-                error_msg = f'Failed to find {"source" if not source_element else "target"} element'
-                return CallToolResult(content = [TextContent(type="text", text=error_msg)], isError=False)
-
-            source_coords, target_coords = await get_element_coordinates(
-                source_element, target_element, args.element_source_offset, args.element_target_offset
-            )
-
-            if not source_coords or not target_coords:
-                error_msg = f'Failed to determine {"source" if not source_coords else "target"} coordinates'
-                return CallToolResult(content = [TextContent(type="text", text=error_msg)], isError=False)
-
-            source_x, source_y = source_coords
-            target_x, target_y = target_coords
-
-        # Case 2: Coordinates provided directly
-        elif all(
-                coord is not None
-                for coord in
-                [args.coord_source_x, args.coord_source_y, args.coord_target_x, args.coord_target_y]
-        ):
-            logger.debug('Using coordinate-based approach')
-            source_x = args.coord_source_x
-            source_y = args.coord_source_y
-            target_x = args.coord_target_x
-            target_y = args.coord_target_y
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
         else:
-            error_msg = 'Must provide either source/target selectors or source/target coordinates'
+            source_x = args["input"]["source_x"]
+            source_y = args["input"]["source_y"]
+            target_x = args["input"]["target_x"]
+            target_y = args["input"]["target_y"]
+            br_result = await browser_use_drag_drop(mainwin, args["context_id"], args['input']['index'])
 
-            return CallToolResult(content=[TextContent(type="text", text=error_msg)], isError=False)
-
-        # Validate coordinates
-        if any(coord is None for coord in [source_x, source_y, target_x, target_y]):
-            error_msg = 'Failed to determine source or target coordinates'
-            return CallToolResult(content=[TextContent(type="text", text=error_msg)], isError=False)
-
-        # Perform the drag operation
-        success, message = await execute_drag_operation(
-            page,
-            cast(int, source_x),
-            cast(int, source_y),
-            cast(int, target_x),
-            cast(int, target_y),
-            steps,
-            delay_ms,
-        )
-
-        if not success:
-            logger.error(f'Drag operation failed: {message}')
-            return CallToolResult(content=[TextContent(type="text", text=message)], isError=True)
-
-        # Create descriptive message
-        if args.element_source and args.element_target:
-            msg = f"🖱️ Dragged element '{args.element_source}' to '{args.element_target}'"
-        else:
-            msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
-
+        msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
         logger.info(msg)
         return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
 
@@ -957,91 +666,94 @@ async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
 
 async def in_browser_multi_actions(mainwin, args):
     try:
-        web_driver = mainwin.getWebDriver()
-        actions = args["input"]["actions"]
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+        else:
+            actions = args["input"]["actions"]
 
-        def fill_parametric_cards(driver, filled_json):
-            # Get all cards again
-            cards = driver.find_elements(By.CSS_SELECTOR, 'div.div-card')
+            def fill_parametric_cards(driver, filled_json):
+                # Get all cards again
+                cards = driver.find_elements(By.CSS_SELECTOR, 'div.div-card')
 
-            for card in cards:
-                # Get card title
-                try:
-                    title = card.find_element(By.CSS_SELECTOR, '.tss-css-oy50zv-cardHeader').text.strip()
-                except Exception:
-                    continue
-                if title not in filled_json:
-                    continue
-                card_data = filled_json[title]
+                for card in cards:
+                    # Get card title
+                    try:
+                        title = card.find_element(By.CSS_SELECTOR, '.tss-css-oy50zv-cardHeader').text.strip()
+                    except Exception:
+                        continue
+                    if title not in filled_json:
+                        continue
+                    card_data = filled_json[title]
 
-                # --- Range input handling ---
-                min_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="min"]')
-                max_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="max"]')
-                select_units = card.find_elements(By.CSS_SELECTOR, 'select[data-filter-type="unit"]')
+                    # --- Range input handling ---
+                    min_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="min"]')
+                    max_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="max"]')
+                    select_units = card.find_elements(By.CSS_SELECTOR, 'select[data-filter-type="unit"]')
 
-                if min_inputs or max_inputs:
-                    # Fill min/max values
-                    if min_inputs and "min_value" in card_data:
-                        min_input = min_inputs[0]
-                        min_input.clear()
-                        min_input.send_keys(str(card_data["min_value"]))
-                    if max_inputs and "max_value" in card_data:
-                        max_input = max_inputs[0]
-                        max_input.clear()
-                        max_input.send_keys(str(card_data["max_value"]))
-                    # Select unit
-                    if select_units and "unit_value" in card_data:
-                        select = Select(select_units[0])
-                        select.select_by_visible_text(card_data["unit_value"])
-                    continue
+                    if min_inputs or max_inputs:
+                        # Fill min/max values
+                        if min_inputs and "min_value" in card_data:
+                            min_input = min_inputs[0]
+                            min_input.clear()
+                            min_input.send_keys(str(card_data["min_value"]))
+                        if max_inputs and "max_value" in card_data:
+                            max_input = max_inputs[0]
+                            max_input.clear()
+                            max_input.send_keys(str(card_data["max_value"]))
+                        # Select unit
+                        if select_units and "unit_value" in card_data:
+                            select = Select(select_units[0])
+                            select.select_by_visible_text(card_data["unit_value"])
+                        continue
 
-                # --- Options handling (checkboxes, radio) ---
-                # options can be a single value or a list
-                selected_options = card_data.get("options", [])
-                if isinstance(selected_options, str):
-                    selected_options = [selected_options]
+                    # --- Options handling (checkboxes, radio) ---
+                    # options can be a single value or a list
+                    selected_options = card_data.get("options", [])
+                    if isinstance(selected_options, str):
+                        selected_options = [selected_options]
 
-                # Check all <label> with matching text or data-testid
-                for option in selected_options:
-                    # Look for option by label's text or inner <span>
-                    found = False
-                    for label in card.find_elements(By.CSS_SELECTOR, "label"):
-                        label_text = label.text.strip()
-                        # Try direct match or in nested span with data-testid
-                        if option == label_text:
-                            # Click the checkbox/radio
-                            try:
-                                # The clickable part is often the first <span> inside the label
-                                span_checkbox = label.find_element(By.CSS_SELECTOR,
-                                                                   "span[role=checkbox],span.MuiButtonBase-root")
-                                driver.execute_script("arguments[0].scrollIntoView();", span_checkbox)
-                                if not span_checkbox.is_selected():
-                                    span_checkbox.click()
-                                found = True
-                                break
-                            except Exception:
-                                # fallback: click the whole label
-                                label.click()
-                                found = True
-                                break
-                        # Sometimes the label has a <span> with data-testid containing the option text
-                        try:
-                            inner_spans = label.find_elements(By.CSS_SELECTOR, 'span[data-testid]')
-                            for span in inner_spans:
-                                if option == span.text.strip():
-                                    driver.execute_script("arguments[0].scrollIntoView();", span)
-                                    span.click()
+                    # Check all <label> with matching text or data-testid
+                    for option in selected_options:
+                        # Look for option by label's text or inner <span>
+                        found = False
+                        for label in card.find_elements(By.CSS_SELECTOR, "label"):
+                            label_text = label.text.strip()
+                            # Try direct match or in nested span with data-testid
+                            if option == label_text:
+                                # Click the checkbox/radio
+                                try:
+                                    # The clickable part is often the first <span> inside the label
+                                    span_checkbox = label.find_element(By.CSS_SELECTOR,
+                                                                       "span[role=checkbox],span.MuiButtonBase-root")
+                                    driver.execute_script("arguments[0].scrollIntoView();", span_checkbox)
+                                    if not span_checkbox.is_selected():
+                                        span_checkbox.click()
                                     found = True
                                     break
-                            if found:
-                                break
-                        except Exception:
-                            continue
-                    if not found:
-                        print(f"[WARN] Could not find and select option '{option}' for '{title}'")
+                                except Exception:
+                                    # fallback: click the whole label
+                                    label.click()
+                                    found = True
+                                    break
+                            # Sometimes the label has a <span> with data-testid containing the option text
+                            try:
+                                inner_spans = label.find_elements(By.CSS_SELECTOR, 'span[data-testid]')
+                                for span in inner_spans:
+                                    if option == span.text.strip():
+                                        driver.execute_script("arguments[0].scrollIntoView();", span)
+                                        span.click()
+                                        found = True
+                                        break
+                                if found:
+                                    break
+                            except Exception:
+                                continue
+                        if not found:
+                            print(f"[WARN] Could not find and select option '{option}' for '{title}'")
 
-            print("All filters filled!")
-            return("completed fill parametric cards")
+                print("All filters filled!")
+                return("completed fill parametric cards")
 
         msg = "completed filling empty actions."
         if actions:
