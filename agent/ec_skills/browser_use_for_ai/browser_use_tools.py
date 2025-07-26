@@ -2,24 +2,14 @@ import time
 import asyncio
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionModel, ActionResult
-from typing import Any, Self
-from browser_use.browser import BrowserSession
-from browser_use.browser.types import Page
-from browser_use.browser.views import BrowserError
-from browser_use.controller.registry.service import Registry
-from browser_use.filesystem.file_system import FileSystem
-from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import UserMessage
-from browser_use.observability import observe_debug
-from browser_use.utils import time_execution_sync
+from browser_use.browser.types import (
+	ElementHandle,
+)
+from browser_use.dom.views import DOMElementNode, SelectorMap
 from pydantic import create_model
 import markdownify
 
-async def browser_use_locate_element(mainwin, element):
-    found = await mainwin.browser_session.get_locate_element(element)
-    return found
-
-async def browser_use_locate_element(mainwin, element):
+async def browser_use_locate_element(mainwin, element: DOMElementNode) -> ElementHandle | None:
     found = await mainwin.browser_session.get_locate_element(element)
     return found
 
@@ -28,11 +18,11 @@ async def browser_use_wait_for_element(mainwin, element):
     return found
 
 
-async def browser_use_locate_element_by_xpath(mainwin, xpath):
+async def browser_use_locate_element_by_xpath(mainwin, xpath: str) -> ElementHandle | None:
     found = await mainwin.browser_session.get_locate_element_by_xpath(xpath)
     return found
 
-async def browser_use_locate_element_by_css_selector(mainwin, css_selector):
+async def browser_use_locate_element_by_css_selector(mainwin, css_selector: str) -> ElementHandle | None:
     found = await mainwin.browser_session.get_locate_element_by_css_selector(css_selector)
     return found
 
@@ -128,7 +118,7 @@ async def browser_use_go_back(mainwin,):
     return action_result.extracted_content or "No content."
 
 
-#'Click element by index', param_model=ClickElementAction)
+#'Click element by index', param_model=ClickElementAction), index is the index of the dom element selector map node index
 async def browser_use_click_element_by_index(mainwin, index):
     ClickElementAction = create_model(
         'ClickElementAction',
@@ -532,9 +522,9 @@ async def browser_use_done(mainwin):
 
 
 async def browser_use_drag_drop(mainwin, cell_or_range: str):
-    ClearCellContentsAction = mainwin.browser_use_controller.registry.actions['clear_cell_contents'].param_model
+    DragDropAction = mainwin.browser_use_controller.registry.actions['clear_cell_contents'].param_model
 
-    action = ClearCellContentsAction(cell_or_range=cell_or_range)
+    action = DragDropAction(cell_or_range=cell_or_range)
 
     action_result = await mainwin.browser_use_controller.act(
         action=action,
