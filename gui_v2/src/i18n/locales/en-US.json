@@ -282,6 +282,24 @@
         "markdown": "Markdown",
         "table": "Table",
         "unknownType": "Unknown"
+      },
+      "scoreForm": {
+        "weight": "Weight",
+        "scoreFormula": "Score Formula",
+        "scoreLookupTable": "Score Lookup Table",
+        "inputValue": "Input Value",
+        "score": "Score",
+        "addRow": "Add Row",
+        "rawValue": "Raw Value",
+        "targetValue": "Target Value",
+        "weightSumError": "Weight sum must equal 1",
+        "groupWeightSumError": "Group weight sum must equal 1",
+        "componentGroup": "Component Group",
+        "parentComponent": "Parent Component",
+        "childComponent": "Child Component",
+        "scoringComponent": "Scoring Component",
+        "delete": "Delete",
+        "save": "Save"
       }
     },
     "skills": {

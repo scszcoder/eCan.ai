@@ -19,6 +19,24 @@
     "stop": "停止",
     "unknown": "未知"
   },
+  "scoreForm": {
+    "weight": "权重",
+    "scoreFormula": "分数公式",
+    "scoreLookupTable": "分数查找表",
+    "inputValue": "输入值",
+    "score": "分数",
+    "addRow": "添加一行",
+    "rawValue": "原始值",
+    "targetValue": "目标值",
+    "weightSumError": "权重总和必须为1",
+    "groupWeightSumError": "同组权重总和必须为1",
+    "componentGroup": "组件组",
+    "parentComponent": "父组件",
+    "childComponent": "子组件",
+    "scoringComponent": "评分组件",
+    "delete": "删除",
+    "save": "保存"
+  },
   "menu": {
     "dashboard": "仪表盘",
     "vehicles": "电脑管理",
@@ -282,6 +300,24 @@
         "markdown": "Markdown",
         "table": "表格",
         "unknownType": "未知类型"
+      },
+      "scoreForm": {
+        "weight": "权重",
+        "scoreFormula": "分数公式",
+        "scoreLookupTable": "分数查找表",
+        "inputValue": "输入值",
+        "score": "分数",
+        "addRow": "添加一行",
+        "rawValue": "原始值",
+        "targetValue": "目标值",
+        "weightSumError": "权重总和必须为1",
+        "groupWeightSumError": "同组权重总和必须为1",
+        "componentGroup": "组件组",
+        "parentComponent": "父组件",
+        "childComponent": "子组件",
+        "scoringComponent": "评分组件",
+        "delete": "删除",
+        "save": "保存"
       }
     },
     "skills": {

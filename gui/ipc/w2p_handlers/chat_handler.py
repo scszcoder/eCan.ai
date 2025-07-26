@@ -78,8 +78,7 @@ def dispatch_add_message(chat_service: ChatService, args: dict) -> dict:
         elif msg_type == 'form':
             form = content.get('form', {})
             return chat_service.add_form_message(
-                chatId=chatId, role=role, form_id=form.get('id', ''), title=form.get('title', ''),
-                fields=form.get('fields', []), submit_text=form.get('submit_text', '提交'), senderId=senderId,
+                chatId=chatId, role=role, form=form, senderId=senderId,
                 createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
         elif msg_type == 'code':
             code = content.get('code', {})
@@ -273,8 +272,7 @@ def echo_and_push_message_async(chatId, message):
             elif msg_type == 'form':
                 form = content.get('form', {})
                 db_result = chat_service.add_form_message(
-                    chatId=chatId, role=role, form_id=form.get('id', ''), title=form.get('title', ''),
-                    fields=form.get('fields', []), submit_text=form.get('submit_text', '提交'), senderId=senderId,
+                    chatId=chatId, role=role, form=form, senderId=senderId,
                     createAt=createAt, senderName=senderName, status=status, ext=ext, attachments=attachments)
             elif msg_type == 'code':
                 code = content.get('code', {})
@@ -346,7 +344,21 @@ def echo_and_push_message_async(chatId, message):
             push_message(main_window, chatId, form_msg)
         except Exception as e:
             logger.error(f"Failed to push form template message: {e}")
-        # 3. 构造并推送 agent notification 消息
+        # 3. 构造并推送表单模板消息
+        try:
+            template_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/eval_system.json')
+            template_path = os.path.abspath(template_path)
+            with open(template_path, 'r', encoding='utf-8') as f:
+                form_template = json.load(f)
+
+            print("=====start====") 
+            print(form_template) 
+            print("=====end======")  
+            form_msg = build_form_message(form_template, base_msg=echo_msg, chatId=chatId)
+            push_message(main_window, chatId, form_msg)
+        except Exception as e:
+            logger.error(f"Failed to push form template message: {e}")
+        # 4. 构造并推送 agent notification 消息
         try:
             search_results_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/search_results.json')
             search_results_path = os.path.abspath(search_results_path)
