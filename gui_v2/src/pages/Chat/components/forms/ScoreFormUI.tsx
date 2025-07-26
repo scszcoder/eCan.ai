@@ -16,6 +16,8 @@ interface ScoreComponent {
   score_lut?: Record<string, number>;
   weight?: number;
   components?: ScoreComponent[]; // for group
+  // internal for table row stable key
+  _lutRowIds?: Record<string, string>;
 }
 
 interface ScoreFormData {
@@ -38,9 +40,31 @@ function checkWeightSum(components: ScoreComponent[]): boolean {
   return Math.abs(sum - 1) < 1e-6;
 }
 
+// 1. 工具函数：生成唯一ID
+function genRowId() {
+  return Math.random().toString(36).slice(2) + Date.now();
+}
+// 初始化时为每个 score_lut 生成 _lutRowIds
+function addLutRowIds(obj: any) {
+  if (obj && typeof obj === 'object') {
+    if (obj.score_lut && !obj._lutRowIds) {
+      obj._lutRowIds = {};
+      Object.keys(obj.score_lut).forEach(k => {
+        obj._lutRowIds[k] = genRowId();
+      });
+    }
+    if (obj.components) obj.components.forEach(addLutRowIds);
+    if (obj.raw_value && typeof obj.raw_value === 'object') Object.values(obj.raw_value).forEach(addLutRowIds);
+  }
+}
+
 const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messageId }) => {
   const { t } = useTranslation();
-  const [formState, setFormState] = useState<ScoreFormData>(() => JSON.parse(JSON.stringify(form)));
+  const [formState, setFormState] = useState<ScoreFormData>(() => {
+    const copy = JSON.parse(JSON.stringify(form));
+    addLutRowIds(copy);
+    return copy;
+  });
   const [collapsedStates, setCollapsedStates] = useState<Record<string, boolean>>({});
 
   // 工具函数：递归定位到path的对象
@@ -57,6 +81,11 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
       const node = getNodeByPath(newState, path);
       const entries = Object.entries(node.score_lut || {});
       const [oldKey, value] = entries[idx];
+      // 更新 _lutRowIds
+      if (!node._lutRowIds) node._lutRowIds = {};
+      const rowId = node._lutRowIds[oldKey] || genRowId();
+      delete node._lutRowIds[oldKey];
+      node._lutRowIds[newKey] = rowId;
       entries[idx] = [newKey, value];
       node.score_lut = Object.fromEntries(entries.filter(([k]) => k));
       return newState;
@@ -78,8 +107,10 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
       const newState = JSON.parse(JSON.stringify(prev));
       const node = getNodeByPath(newState, path);
       const entries = Object.entries(node.score_lut || {});
+      const [key] = entries[idx];
       entries.splice(idx, 1);
       node.score_lut = Object.fromEntries(entries);
+      if (node._lutRowIds) delete node._lutRowIds[key];
       return newState;
     });
   };
@@ -87,7 +118,15 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
     setFormState(prev => {
       const newState = JSON.parse(JSON.stringify(prev));
       const node = getNodeByPath(newState, path);
-      node.score_lut = { ...(node.score_lut || {}), '': '' };
+      if (!node.score_lut) node.score_lut = {};
+      if (!node._lutRowIds) node._lutRowIds = {};
+      let newKey = '';
+      let i = 1;
+      while (node.score_lut.hasOwnProperty(newKey) || node._lutRowIds.hasOwnProperty(newKey)) {
+        newKey = `new_${i++}`;
+      }
+      node.score_lut[newKey] = '';
+      node._lutRowIds[newKey] = genRowId();
       return newState;
     });
   };
@@ -260,10 +299,10 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                         {
                           title: t('pages.chat.scoreForm.inputValue'),
                           dataIndex: 'key',
-                          render: (text: string, record: any, idx: number) => (
+                          render: (text: string, record: any) => (
                             <Input
                               value={text}
-                              onChange={val => updateLutKey(path, idx, val)}
+                              onChange={val => updateLutKey(path, record._idx, val)}
                               placeholder={t('pages.chat.scoreForm.inputValue')}
                               size="small"
                             />
@@ -272,10 +311,10 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                         {
                           title: t('pages.chat.scoreForm.score'),
                           dataIndex: 'value',
-                          render: (text: string, record: any, idx: number) => (
+                          render: (text: string, record: any) => (
                             <Input
                               value={text}
-                              onChange={val => updateLutValue(path, idx, val)}
+                              onChange={val => updateLutValue(path, record._idx, val)}
                               placeholder={t('pages.chat.scoreForm.score')}
                               type="number"
                               size="small"
@@ -285,17 +324,22 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                         {
                           title: '',
                           dataIndex: 'action',
-                          render: (_: any, __: any, idx: number) => (
-                            <Button type="danger" theme="borderless" size="small" onClick={() => removeLutRow(path, idx)}>{t('pages.chat.scoreForm.delete')}</Button>
+                          render: (_: any, record: any) => (
+                            <Button type="danger" theme="borderless" size="small" onClick={() => removeLutRow(path, record._idx)}>{t('pages.chat.scoreForm.delete')}</Button>
                           ),
                         },
                       ]}
-                      dataSource={Object.entries(comp.score_lut || {}).map(([key, value], idx) => ({ key: key || `lut_${idx}`, value }))}
+                      dataSource={Object.entries(comp.score_lut || {}).map(([key, value], idx) => ({
+                        key,
+                        value,
+                        _idx: idx,
+                        _rowId: (comp._lutRowIds && comp._lutRowIds[key]) || `__lut_${idx}`
+                      }))}
                       pagination={false}
                       bordered
                       size="small"
                       style={{ marginTop: 4, maxWidth: 350 }}
-                      rowKey="key"
+                      rowKey="_rowId"
                     />
                     <Button size='small' theme='solid' type='primary' onClick={() => addLutRow(path)} style={{ marginTop: 6 }}>{t('pages.chat.scoreForm.addRow')}</Button>
                   </div>
@@ -456,10 +500,10 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                   {
                     title: t('pages.chat.scoreForm.inputValue'),
                     dataIndex: 'key',
-                    render: (text: string, record: any, idx: number) => (
+                    render: (text: string, record: any) => (
                       <Input
                         value={text}
-                        onChange={val => updateLutKey(path, idx, val)}
+                        onChange={val => updateLutKey(path, record._idx, val)}
                         placeholder={t('pages.chat.scoreForm.inputValue')}
                         size="small"
                       />
@@ -468,10 +512,10 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                   {
                     title: t('pages.chat.scoreForm.score'),
                     dataIndex: 'value',
-                    render: (text: string, record: any, idx: number) => (
+                    render: (text: string, record: any) => (
                       <Input
                         value={text}
-                        onChange={val => updateLutValue(path, idx, val)}
+                        onChange={val => updateLutValue(path, record._idx, val)}
                         placeholder={t('pages.chat.scoreForm.score')}
                         type="number"
                         size="small"
@@ -481,17 +525,22 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                   {
                     title: '',
                     dataIndex: 'action',
-                    render: (_: any, __: any, idx: number) => (
-                      <Button type="danger" theme="borderless" size="small" onClick={() => removeLutRow(path, idx)}>{t('pages.chat.scoreForm.delete')}</Button>
+                    render: (_: any, record: any) => (
+                      <Button type="danger" theme="borderless" size="small" onClick={() => removeLutRow(path, record._idx)}>{t('pages.chat.scoreForm.delete')}</Button>
                     ),
                   },
                 ]}
-                dataSource={Object.entries(comp.score_lut || {}).map(([key, value], idx) => ({ key: key || `lut_${idx}`, value }))}
+                dataSource={Object.entries(comp.score_lut || {}).map(([key, value], idx) => ({
+                  key,
+                  value,
+                  _idx: idx,
+                  _rowId: (comp._lutRowIds && comp._lutRowIds[key]) || `__lut_${idx}`
+                }))}
                 pagination={false}
                 bordered
                 size="small"
                 style={{ marginTop: 4, maxWidth: 350 }}
-                rowKey="key"
+                rowKey="_rowId"
               />
               <Button size='small' theme='solid' type='primary' onClick={() => addLutRow(path)} style={{ marginTop: 6 }}>{t('pages.chat.scoreForm.addRow')}</Button>
             </div>
