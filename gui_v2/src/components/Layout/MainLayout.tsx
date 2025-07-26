@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Typography } from 'antd';
+import { Layout } from 'antd';
 import type { MenuProps } from 'antd';
 import {
     DashboardOutlined,
@@ -9,7 +9,6 @@ import {
     RobotOutlined,
     EditOutlined,
     TeamOutlined,
-    BarChartOutlined,
     AppstoreOutlined,
     ToolOutlined,
     SettingOutlined,
@@ -29,8 +28,8 @@ import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
 import PageBackBreadcrumb from './PageBackBreadcrumb';
+import { get_ipc_api } from '@/services/ipc_api';
 
-const { Title } = Typography;
 
 const StyledLayout = styled(Layout)`
     min-height: 100vh;
@@ -55,18 +54,22 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         }
     }, [i18n]);
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
         pageRefreshManager.disable();
-        
+        // 调用后端登出接口
+        try {
+            await get_ipc_api().logout();
+        } catch (e) {
+            // 可以根据需要处理错误
+            console.error('Logout API error:', e);
+        }
         // 清理localStorage
         localStorage.removeItem('isAuthenticated');
         localStorage.removeItem('userRole');
         localStorage.removeItem('token');
         localStorage.removeItem('username');
-        
         // 清理userStore
         useUserStore.getState().setUsername(null);
-        
         window.location.replace('/login');
     };
 

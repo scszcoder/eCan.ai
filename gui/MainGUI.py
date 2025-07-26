@@ -4,6 +4,7 @@ import json
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
 from common.models import VehicleModel
+from knowledge.lightrag_server import LightragServer
 from utils.server import HttpServer
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
@@ -341,6 +342,8 @@ class MainWindow(QMainWindow):
         self.missionWin = None
         self.chatWin = None
         self.newGui = BrowserWindow(self)
+        self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"})
+        self.lightrag_server.start()
 
         self.trainNewSkillWin = None
         self.reminderWin = None
@@ -1154,6 +1157,9 @@ class MainWindow(QMainWindow):
             print("Initialization successful:", result)
             return result
 
+    def stop_lightrag_server(self):
+        self.lightrag_server.stop()
+        self.lightrag_server = None
 
     async def async_agents_init(self):
         print("initing agents async.....")
@@ -1172,7 +1178,7 @@ class MainWindow(QMainWindow):
         print("MCP client created....")
         # tl = await self.mcp_client.list_tools()
         tl = await local_mcp_list_tools(url)
-        print("list of tools:", tl)
+        # print("list of tools:", tl)
 
         # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
 
@@ -1249,7 +1255,7 @@ class MainWindow(QMainWindow):
         if len(free_ports) < n:
             raise RuntimeError(f"Only {len(free_ports)} free ports available, but {n} requested.")
 
-        print("free ports", free_ports)
+        # print("free ports", free_ports)
         return free_ports[:n]
 
     def save_agent_skill(self, skill):

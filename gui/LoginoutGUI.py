@@ -391,7 +391,7 @@ class Login(QDialog):
 
 
     def changeEvent(self, event):
-        print("event occured....", event.type())
+        # print("event occured....", event.type())
         if event.type() == QEvent.LanguageChange:
             print("re-translating....")
             self.retranslateUi()
@@ -505,7 +505,7 @@ class Login(QDialog):
         return self.current_user
 
     def getLogUser(self):
-        print("current user:", self.current_user)
+        # print("current user:", self.current_user)
         return self.current_user.split("@")[0] + "_" + self.current_user.split("@")[1].replace(".", "_")
 
     def decode_jwt(self, token):
@@ -788,84 +788,97 @@ class Login(QDialog):
         # self.new_main_win.loadURL(new_gui_url)
         # self.new_main_win.show()
 
+    def handleLogout(self):
+        self.cog.logout()
+        self.main_win.stop_lightrag_server()
+        return True
+
     def get_mainwin(self):
         return self.main_win
 
     def handleSignUp(self, uname="", pw=""):
-        print("Signing up...." + self.textName.text() + "...." + self.textPass.text())
-        if (self.textPass.text() == self.textPass2.text()):
-            try:
-                if not uname:
-                    uname = self.textName.text()
+        print("Signing up...." + uname + "...." + pw)
+        # if (self.textPass.text() == self.textPass2.text()):
+        try:
+            # if not uname:
+            #     uname = self.textName.text()
 
-                if not pw:
-                    pw = self.textPass.text()
+            # if not pw:
+            #     pw = self.textPass.text()
 
-                response = self.aws_client.sign_up(
-                    ClientId=CLIENT_ID,
-                    Username=uname,
-                    Password=pw,
-                    UserAttributes=[{"Name": "email", "Value": uname}]
-                )
-                print(response)
-                msgBox = QMessageBox()
-                msgBox.setText(QApplication.translate("QMessageBox",
-                                                      "Please confirm that you have received the verification email and verified it."))
+            response = self.aws_client.sign_up(
+                ClientId=CLIENT_ID,
+                Username=uname,
+                Password=pw,
+                UserAttributes=[{"Name": "email", "Value": uname}]
+            )
+            print(response)
+            return True, "Please confirm that you have received the verification email and verified it."
+            # msgBox = QMessageBox()
+            # msgBox.setText(QApplication.translate("QMessageBox",
+                                                #   "Please confirm that you have received the verification email and verified it."))
 
-            # except botocore.errorfactory.ClientError as e:
-            except Exception as e:
-                # except ClientError as e:
-                ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
+        # except botocore.errorfactory.ClientError as e:
+        except Exception as e:
+            # except ClientError as e:
+            ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
 
-                print("Exception Error:", ex_stat)
-                msgBox = QMessageBox()
-                if "UsernameExistsException" in str(e):
-                    msgBox.setText(QApplication.translate("QMessageBox", "Oops! User already exists.  Try again..."))
-                else:
-                    msgBox.setText(QApplication.translate("QMessageBox", "Sign up Error.  Try again..."))
+            print("Exception Error:", ex_stat)
+            # msgBox = QMessageBox()
+
+            if "UsernameExistsException" in str(e):
+                # msgBox.setText(QApplication.translate("QMessageBox", "Oops! User already exists.  Try again..."))
+                message = "Oops! User already exists.  Try again..."
+            else:
+                # msgBox.setText(QApplication.translate("QMessageBox", "Sign up Error.  Try again..."))
+                message = "Sign up Error.  Try again..."
+
+            return False, message
 
             # msgBox.setInformativeText("Do you want to save your changes?")
             # msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
             # msgBox.setDefaultButton(QMessageBox.Save)
-            ret = msgBox.exec()
+            # ret = msgBox.exec()
 
-            # now back to the standard login screen.
-            self.cog.initiate_forgot_password()
-            self.confirm_code_label.setVisible(False)
-            self.textConfirmCode.setVisible(False)
-            self.pw_label.setText(QApplication.translate("QLabel", "Password:"))
-            self.login_label.setText(QApplication.translate("QLabel", "Login:"))
-            self.signup_label.setVisible(True)
-            self.mempw_cb.setVisible(True)
-            self.forget_label.setVisible(True)
+            # # now back to the standard login screen.
+            # self.cog.initiate_forgot_password()
+            # self.confirm_code_label.setVisible(False)
+            # self.textConfirmCode.setVisible(False)
+            # self.pw_label.setText(QApplication.translate("QLabel", "Password:"))
+            # self.login_label.setText(QApplication.translate("QLabel", "Login:"))
+            # self.signup_label.setVisible(True)
+            # self.mempw_cb.setVisible(True)
+            # self.forget_label.setVisible(True)
 
-            self.confirm_pw_label.setVisible(False)
-            self.textPass2.setVisible(False)
+            # self.confirm_pw_label.setVisible(False)
+            # self.textPass2.setVisible(False)
 
-            self.buttonLogin.setText(QApplication.translate("QPushButton", "Login"))
-            self.buttonLogin.clicked.disconnect(self.handleSignUp)
-            self.buttonLogin.clicked.connect(self.handleLogin)
+            # self.buttonLogin.setText(QApplication.translate("QPushButton", "Login"))
+            # self.buttonLogin.clicked.disconnect(self.handleSignUp)
+            # self.buttonLogin.clicked.connect(self.handleLogin)
 
-        else:
-            QMessageBox.warning(
-                self, 'Error', 'mismatched password')
+        # else:
+        #     QMessageBox.warning(
+        #         self, 'Error', 'mismatched password')
 
-    def handleForgotPassword(self):
-        print("forgot password...." + self.textName.text())
-        if (not self.textName.text() == ""):
+    def handleForgotPassword(self, username):
+        print("forgot password...." + username)
+        # if (not self.textName.text() == ""):
 
-            self.aws_client.forgot_password(ClientId=CLIENT_ID, Username=self.textName.text())
+        try:
+            self.aws_client.forgot_password(ClientId=CLIENT_ID, Username=username)
 
-            self.confirm_code_label.setVisible(True)
-            self.textConfirmCode.setVisible(True)
+            return True
+            # self.confirm_code_label.setVisible(True)
+            # self.textConfirmCode.setVisible(True)
 
-            self.pw_label.setText(QApplication.translate("QLabel", "Set New Password:"))
-            self.pw_label.setVisible(True)
-            self.textPass.setVisible(True)
-            self.user_label.setText(QApplication.translate("QLabel", "Input Email Address:"))
-            self.buttonLogin.setText(QApplication.translate("QLabel", "Confirm New Password"))
-            self.buttonLogin.clicked.disconnect(self.handleForgotPassword)
-            self.buttonLogin.clicked.connect(self.handleConfirmForgotPassword)
+            # self.pw_label.setText(QApplication.translate("QLabel", "Set New Password:"))
+            # self.pw_label.setVisible(True)
+            # self.textPass.setVisible(True)
+            # self.user_label.setText(QApplication.translate("QLabel", "Input Email Address:"))
+            # self.buttonLogin.setText(QApplication.translate("QLabel", "Confirm New Password"))
+            # self.buttonLogin.clicked.disconnect(self.handleForgotPassword)
+            # self.buttonLogin.clicked.connect(self.handleConfirmForgotPassword)
 
             # cog.admin_reset_password(self.textName.text())   # this API can only be called by administrator
 
@@ -876,29 +889,34 @@ class Login(QDialog):
             #     UserAttributes=[{"Name": "email", "Value": "songc@yahoo.com"}],
             # )
             # print(response)
+        except Exception as e:
+            ex_stat = f"Error in handle forgot password: {traceback.format_exc()} {str(e)}"
 
-        else:
-            QMessageBox.warning(
-                self, 'Error', 'Invalid Email Address')
+            print("Exception Error:", ex_stat)
+            return False, "Error in Handle forgot password"
 
-    def handleConfirmForgotPassword(self):
-        print("forgot password...." + self.textPass.text())
+        # else:
+        #     QMessageBox.warning(
+        #         self, 'Error', 'Invalid Email Address')
 
-        response = self.aws_client.confirm_forgot_password(ClientId=CLIENT_ID, Username=self.textName.text(),
-                                                           ConfirmationCode=self.textConfirmCode.text(),
-                                                           Password=self.textPass.text())
+    def handleConfirmForgotPassword(self, username, confirm_code, new_password):
+        print("confirm forgot password...." + username)
 
-        self.confirm_code_label.setVisible(False)
-        self.textConfirmCode.setVisible(False)
-        self.pw_label.setText(QApplication.translate("QLabel", "Password:"))
-        self.login_label.setText(QApplication.translate("QLabel", "Login"))
-        self.signup_label.setVisible(True)
-        self.mempw_cb.setVisible(True)
-        self.forget_label.setVisible(True)
+        response = self.aws_client.confirm_forgot_password(ClientId=CLIENT_ID, Username=username,
+                                                           ConfirmationCode=confirm_code,
+                                                           Password=new_password)
+        return True
+        # self.confirm_code_label.setVisible(False)
+        # self.textConfirmCode.setVisible(False)
+        # self.pw_label.setText(QApplication.translate("QLabel", "Password:"))
+        # self.login_label.setText(QApplication.translate("QLabel", "Login"))
+        # self.signup_label.setVisible(True)
+        # self.mempw_cb.setVisible(True)
+        # self.forget_label.setVisible(True)
 
-        self.buttonLogin.setText(QApplication.translate("QPushButton", "Login"))
-        self.buttonLogin.clicked.disconnect(self.handleConfirmForgotPassword)
-        self.buttonLogin.clicked.connect(self.handleLogin)
+        # self.buttonLogin.setText(QApplication.translate("QPushButton", "Login"))
+        # self.buttonLogin.clicked.disconnect(self.handleConfirmForgotPassword)
+        # self.buttonLogin.clicked.connect(self.handleLogin)
 
     def renew_access_token(self):
         """
