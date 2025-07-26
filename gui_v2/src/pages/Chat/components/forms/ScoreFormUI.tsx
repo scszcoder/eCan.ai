@@ -1,49 +1,525 @@
-import React from 'react';
-import { Card, Tooltip } from '@douyinfe/semi-ui';
-import { IconInfoCircle } from '@douyinfe/semi-icons';
+import React, { useState, useMemo } from 'react';
+import { Card, Tooltip, Input, Button, Typography, Table, Slider } from '@douyinfe/semi-ui';
+import { IconInfoCircle, IconFolder, IconFile, IconChevronDown, IconChevronRight } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { DynamicScoreFormProps } from './types';
 
-const ScoreFormUI: React.FC<DynamicScoreFormProps> = ({ form }) => {
+interface ScoreComponent {
+  name: string;
+  type: string;
+  raw_value: any;
+  target_value?: number;
+  max_value?: number;
+  min_value?: number;
+  unit?: string;
+  tooltip?: string;
+  score_formula?: string;
+  score_lut?: Record<string, number>;
+  weight?: number;
+  components?: ScoreComponent[]; // for group
+}
+
+interface ScoreFormData {
+  id: string;
+  type: 'score';
+  title?: string;
+  components: ScoreComponent[];
+}
+
+interface ScoreFormUIProps {
+  form: ScoreFormData;
+  onSubmit?: (form: ScoreFormData, chatId?: string, messageId?: string) => void;
+  chatId?: string;
+  messageId?: string;
+}
+
+// 校验同级weight总和是否为1
+function checkWeightSum(components: ScoreComponent[]): boolean {
+  const sum = components.reduce((acc, c) => acc + (Number(c.weight) || 0), 0);
+  return Math.abs(sum - 1) < 1e-6;
+}
+
+const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messageId }) => {
   const { t } = useTranslation();
-  // 递归渲染评分项
-  const renderComponent = (comp: any, parentKey = '') => {
-    if (comp.raw_value && typeof comp.raw_value === 'object' && !Array.isArray(comp.raw_value)) {
+  const [formState, setFormState] = useState<ScoreFormData>(() => JSON.parse(JSON.stringify(form)));
+  const [collapsedStates, setCollapsedStates] = useState<Record<string, boolean>>({});
+
+  // 工具函数：递归定位到path的对象
+  const getNodeByPath = (obj: any, path: string[]) => {
+    let node = obj;
+    for (const p of path) node = node[p];
+    return node;
+  };
+
+  // score_lut 操作
+  const updateLutKey = (path: string[], idx: number, newKey: string) => {
+    setFormState(prev => {
+      const newState = JSON.parse(JSON.stringify(prev));
+      const node = getNodeByPath(newState, path);
+      const entries = Object.entries(node.score_lut || {});
+      const [oldKey, value] = entries[idx];
+      entries[idx] = [newKey, value];
+      node.score_lut = Object.fromEntries(entries.filter(([k]) => k));
+      return newState;
+    });
+  };
+  const updateLutValue = (path: string[], idx: number, newValue: string) => {
+    setFormState(prev => {
+      const newState = JSON.parse(JSON.stringify(prev));
+      const node = getNodeByPath(newState, path);
+      const entries = Object.entries(node.score_lut || {});
+      const [key] = entries[idx];
+      entries[idx] = [key, newValue];
+      node.score_lut = Object.fromEntries(entries.filter(([k]) => k));
+      return newState;
+    });
+  };
+  const removeLutRow = (path: string[], idx: number) => {
+    setFormState(prev => {
+      const newState = JSON.parse(JSON.stringify(prev));
+      const node = getNodeByPath(newState, path);
+      const entries = Object.entries(node.score_lut || {});
+      entries.splice(idx, 1);
+      node.score_lut = Object.fromEntries(entries);
+      return newState;
+    });
+  };
+  const addLutRow = (path: string[]) => {
+    setFormState(prev => {
+      const newState = JSON.parse(JSON.stringify(prev));
+      const node = getNodeByPath(newState, path);
+      node.score_lut = { ...(node.score_lut || {}), '': '' };
+      return newState;
+    });
+  };
+
+  // 切换折叠状态
+  const toggleCollapse = (path: string[]) => {
+    const pathKey = path.join('.');
+    setCollapsedStates(prev => ({
+      ...prev,
+      [pathKey]: !prev[pathKey]
+    }));
+  };
+
+  // 递归渲染评分项/分组
+  const renderComponent = (comp: ScoreComponent, path: string[] = [], parentComponents?: ScoreComponent[]) => {
+    const pathKey = path.join('.');
+    const isCollapsed = collapsedStates[pathKey] || false;
+
+    // 分组组件
+    if (comp.components && Array.isArray(comp.components)) {
+      // 校验同级weight
+      const weightOk = checkWeightSum(comp.components);
       return (
-        <Card key={parentKey + comp.name} style={{ marginBottom: 16, background: '#f7f9fa' }}>
-          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 16 }}>
-            {comp.name} {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 4, color: 'var(--semi-color-primary)', verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
+        <Card
+          key={pathKey}
+          style={{ 
+            marginBottom: 24, 
+            marginLeft: path.length > 1 ? 24 : 0, 
+            borderColor: weightOk ? undefined : 'red', 
+            background: weightOk ? undefined : 'rgba(255,0,0,0.06)' 
+          }}
+          bodyStyle={{ padding: 18 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isCollapsed ? 0 : 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <Button
+                type="tertiary"
+                theme="borderless"
+                icon={isCollapsed ? <IconChevronRight /> : <IconChevronDown />}
+                onClick={() => toggleCollapse(path)}
+                style={{ padding: 4, marginRight: 8 }}
+              />
+              <Typography.Title heading={5} style={{ fontWeight: 700, marginBottom: 0 }}>
+                {comp.name}
+              </Typography.Title>
+              {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+              <Input
+                value={comp.weight ?? ''}
+                onChange={v => {
+                  const newState = JSON.parse(JSON.stringify(formState));
+                  let node = newState;
+                  for (const p of path) node = node[p];
+                  node.weight = Number(v);
+                  setFormState(newState);
+                }}
+                placeholder={t('pages.chat.scoreForm.weight')}
+                type='number'
+                step={0.1}
+                style={{ width: 100 }}
+              />
+            </div>
           </div>
-          <div style={{ marginLeft: 16 }}>
-            {Object.entries(comp.raw_value).map(([k, v]: [string, any]) => renderComponent(v, parentKey + comp.name + '.'))}
-          </div>
+          
+          {!isCollapsed && (
+            <>
+              {!weightOk && (
+                <div style={{ color: 'red', marginTop: 8, fontWeight: 500 }}>{t('pages.chat.scoreForm.groupWeightSumError')}</div>
+              )}
+              <div style={{ marginTop: 12 }}>
+                {comp.components.map((subComp, idx) =>
+                  renderComponent(subComp, [...path, 'components', String(idx)], comp.components)
+                )}
+              </div>
+            </>
+          )}
         </Card>
       );
     }
-    return (
-      <div key={parentKey + comp.name} style={{ display: 'flex', alignItems: 'center', marginBottom: 12, padding: 8, borderRadius: 6, background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
-        <div style={{ flex: 2, fontWeight: 500, fontSize: 15 }}>
-          {comp.name} {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 4, color: 'var(--semi-color-primary)', verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
+
+    // 嵌套raw_value为对象的情况（如 performance）
+    if (typeof comp.raw_value === 'object' && comp.raw_value !== null && !Array.isArray(comp.raw_value)) {
+      // 计算同级weight校验
+      let weightError = false;
+      if (parentComponents) {
+        const sum = parentComponents.reduce((acc, c) => acc + (Number(c.weight) || 0), 0);
+        weightError = Math.abs(sum - 1) > 1e-6;
+      }
+      return (
+        <div key={pathKey} style={{ marginBottom: 20 }}>
+          {/* 父组件 */}
+          <Card
+            style={{
+              marginBottom: 16,
+              marginLeft: path.length > 1 ? 24 : 0,
+              border: '1px solid var(--semi-color-border)',
+              borderRadius: 8,
+              background: 'var(--semi-color-bg-0)'
+            }}
+            bodyStyle={{ padding: 16 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isCollapsed ? 0 : 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <Button
+                  type="tertiary"
+                  theme="borderless"
+                  icon={isCollapsed ? <IconChevronRight /> : <IconChevronDown />}
+                  onClick={() => toggleCollapse(path)}
+                  style={{ padding: 4, marginRight: 8 }}
+                />
+                <IconFolder style={{ marginRight: 8, color: 'var(--semi-color-primary)', fontSize: 16 }} />
+                <Typography.Text strong style={{ fontSize: 16, color: 'var(--semi-color-text-0)' }}>
+                  {comp.name}
+                </Typography.Text>
+                {comp.tooltip && (
+                  <Tooltip content={comp.tooltip}>
+                    <IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer', color: 'var(--semi-color-text-2)' }} />
+                  </Tooltip>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+                <Input
+                  value={comp.weight ?? ''}
+                  onChange={v => {
+                    const newState = JSON.parse(JSON.stringify(formState));
+                    let node = newState;
+                    for (const p of path) node = node[p];
+                    node.weight = Number(v);
+                    setFormState(newState);
+                  }}
+                  placeholder={t('pages.chat.scoreForm.weight')}
+                  type='number'
+                  step={0.1}
+                  style={{ width: 100, borderColor: weightError ? 'red' : undefined }}
+                />
+                {weightError && <span style={{ color: 'red', fontSize: 12 }}>{t('pages.chat.scoreForm.weightSumError')}</span>}
+              </div>
+            </div>
+            
+            {!isCollapsed && (
+              <>
+                {/* 父组件字段 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <label style={{ minWidth: 64, color: 'var(--semi-color-text-2)', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</label>
+                    <Input
+                      value={comp.score_formula ?? ''}
+                      onChange={v => {
+                        const newState = JSON.parse(JSON.stringify(formState));
+                        let node = newState;
+                        for (const p of path) node = node[p];
+                        node.score_formula = v;
+                        setFormState(newState);
+                      }}
+                      placeholder={t('pages.chat.scoreForm.scoreFormula')}
+                      style={{ width: 220, textAlign: 'left' }}
+                    />
+                  </div>
+                  
+                  {/* 分数查找表 */}
+                  <div>
+                                          <Typography.Text strong style={{ marginBottom: 8, display: 'block', color: 'var(--semi-color-text-0)' }}>
+                        {t('pages.chat.scoreForm.scoreLookupTable')}
+                      </Typography.Text>
+                    <Table
+                      columns={[
+                        {
+                          title: t('pages.chat.scoreForm.inputValue'),
+                          dataIndex: 'key',
+                          render: (text: string, record: any, idx: number) => (
+                            <Input
+                              value={text}
+                              onChange={val => updateLutKey(path, idx, val)}
+                              placeholder={t('pages.chat.scoreForm.inputValue')}
+                              size="small"
+                            />
+                          ),
+                        },
+                        {
+                          title: t('pages.chat.scoreForm.score'),
+                          dataIndex: 'value',
+                          render: (text: string, record: any, idx: number) => (
+                            <Input
+                              value={text}
+                              onChange={val => updateLutValue(path, idx, val)}
+                              placeholder={t('pages.chat.scoreForm.score')}
+                              type="number"
+                              size="small"
+                            />
+                          ),
+                        },
+                        {
+                          title: '',
+                          dataIndex: 'action',
+                          render: (_: any, __: any, idx: number) => (
+                            <Button type="danger" theme="borderless" size="small" onClick={() => removeLutRow(path, idx)}>{t('pages.chat.scoreForm.delete')}</Button>
+                          ),
+                        },
+                      ]}
+                      dataSource={Object.entries(comp.score_lut || {}).map(([key, value], idx) => ({ key: key || `lut_${idx}`, value }))}
+                      pagination={false}
+                      bordered
+                      size="small"
+                      style={{ marginTop: 4, maxWidth: 350 }}
+                      rowKey="key"
+                    />
+                    <Button size='small' theme='solid' type='primary' onClick={() => addLutRow(path)} style={{ marginTop: 6 }}>{t('pages.chat.scoreForm.addRow')}</Button>
+                  </div>
+                </div>
+              </>
+            )}
+          </Card>
+          
+          {!isCollapsed && (
+            /* 子组件容器 */
+            <div style={{ 
+              marginLeft: path.length > 1 ? 32 : 8, 
+              paddingLeft: 16, 
+              borderLeft: '2px solid var(--semi-color-border)',
+              position: 'relative'
+            }}>
+              <div style={{ 
+                position: 'absolute', 
+                top: 0, 
+                left: -6, 
+                background: 'var(--semi-color-bg-0)', 
+                color: 'var(--semi-color-text-2)', 
+                padding: '2px 6px', 
+                borderRadius: 4, 
+                fontSize: 10, 
+                fontWeight: 500,
+                border: '1px solid var(--semi-color-border)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}>
+                <IconFile style={{ fontSize: 10 }} />
+              </div>
+              
+              {/* 渲染子组件 */}
+              <div style={{ paddingTop: 16 }}>
+                {Object.entries(comp.raw_value).map(([k, v]) => {
+                  // 为子组件添加名称显示
+                  const childComponent = v as ScoreComponent;
+                  const childWithName = {
+                    ...childComponent,
+                    name: k // 使用key作为名称
+                  };
+                  return renderComponent(childWithName, [...path, 'raw_value', k], Object.values(comp.raw_value) as ScoreComponent[]);
+                })}
+              </div>
+            </div>
+          )}
         </div>
-        <div style={{ flex: 1, textAlign: 'right', color: '#888' }}>{comp.raw_value}{comp.unit ? ' ' + comp.unit : ''}</div>
-        {comp.target_value !== undefined && <div style={{ flex: 1, textAlign: 'right', color: '#888' }}>{t('目标')}: {comp.target_value}{comp.unit ? ' ' + comp.unit : ''}</div>}
-        {comp.weight !== undefined && <div style={{ flex: 1, textAlign: 'right', color: '#888' }}>{t('权重')}: {comp.weight}</div>}
-        {comp.score_formula && <div style={{ flex: 2, textAlign: 'right', color: '#1890ff', fontSize: 13 }}>{t('公式')}: {comp.score_formula}</div>}
-        {comp.score_lut && Object.keys(comp.score_lut).length > 0 && (
-          <Tooltip content={Object.entries(comp.score_lut).map(([k, v]) => `${k}: ${v}`).join('\n')}><span style={{ marginLeft: 8, color: '#faad14', cursor: 'pointer' }}>{t('分数表')}</span></Tooltip>
+      );
+    }
+
+    // 叶子评分项
+    const min = comp.min_value;
+    const max = comp.max_value;
+    const showSlider = typeof min === 'number' && typeof max === 'number';
+    // 计算同级weight校验
+    let weightError = false;
+    if (parentComponents) {
+      const sum = parentComponents.reduce((acc, c) => acc + (Number(c.weight) || 0), 0);
+      weightError = Math.abs(sum - 1) > 1e-6;
+    }
+    return (
+      <Card key={pathKey} style={{ marginBottom: 16, marginLeft: path.length > 1 ? 24 : 0 }} bodyStyle={{ padding: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isCollapsed ? 0 : 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <Button
+              type="tertiary"
+              theme="borderless"
+              icon={isCollapsed ? <IconChevronRight /> : <IconChevronDown />}
+              onClick={() => toggleCollapse(path)}
+              style={{ padding: 4, marginRight: 8 }}
+            />
+            <Typography.Text strong style={{ fontSize: 16 }}>{comp.name}</Typography.Text>
+            {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+            <Input
+              value={comp.weight ?? ''}
+              onChange={v => {
+                const newState = JSON.parse(JSON.stringify(formState));
+                let node = newState;
+                for (const p of path) node = node[p];
+                node.weight = Number(v);
+                setFormState(newState);
+              }}
+              placeholder={t('pages.chat.scoreForm.weight')}
+              type='number'
+              step={0.1}
+              style={{ width: 100, borderColor: weightError ? 'red' : undefined }}
+            />
+            {weightError && <span style={{ color: 'red', fontSize: 13 }}>{t('pages.chat.scoreForm.groupWeightSumError')}</span>}
+          </div>
+        </div>
+        
+        {!isCollapsed && (
+          <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.rawValue')}</label>
+              <span style={{ color: '#fff' }}>
+                {(typeof comp.raw_value === 'string' || typeof comp.raw_value === 'number')
+                  ? `${comp.raw_value} ${comp.unit || ''}`
+                  : '--'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.targetValue')}</label>
+              <Input
+                value={comp.target_value ?? comp.raw_value ?? ''}
+                onChange={v => {
+                  const newState = JSON.parse(JSON.stringify(formState));
+                  let node = newState;
+                  for (const p of path) node = node[p];
+                  node.target_value = v;
+                  setFormState(newState);
+                }}
+                placeholder={t('pages.chat.scoreForm.targetValue')}
+                style={{ width: 120, textAlign: 'left' }}
+                suffix={comp.unit}
+              />
+              {showSlider && (
+                <Slider
+                  min={min}
+                  max={max}
+                  value={Number(comp.target_value ?? comp.raw_value ?? min)}
+                  onChange={v => {
+                    const newState = JSON.parse(JSON.stringify(formState));
+                    let node = newState;
+                    for (const p of path) node = node[p];
+                    node.target_value = v;
+                    setFormState(newState);
+                  }}
+                  style={{ width: 180 }}
+                  tipFormatter={v => `${v}${comp.unit || ''}`}
+                />
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</label>
+              <Input
+                value={comp.score_formula ?? ''}
+                onChange={v => {
+                  const newState = JSON.parse(JSON.stringify(formState));
+                  let node = newState;
+                  for (const p of path) node = node[p];
+                  node.score_formula = v;
+                  setFormState(newState);
+                }}
+                placeholder={t('pages.chat.scoreForm.scoreFormula')}
+                style={{ width: 220, textAlign: 'left' }}
+              />
+            </div>
+                          <div style={{ marginBottom: 8 }}>
+                <Typography.Text strong>{t('pages.chat.scoreForm.scoreLookupTable')}</Typography.Text>
+              <Table
+                columns={[
+                  {
+                    title: t('pages.chat.scoreForm.inputValue'),
+                    dataIndex: 'key',
+                    render: (text: string, record: any, idx: number) => (
+                      <Input
+                        value={text}
+                        onChange={val => updateLutKey(path, idx, val)}
+                        placeholder={t('pages.chat.scoreForm.inputValue')}
+                        size="small"
+                      />
+                    ),
+                  },
+                  {
+                    title: t('pages.chat.scoreForm.score'),
+                    dataIndex: 'value',
+                    render: (text: string, record: any, idx: number) => (
+                      <Input
+                        value={text}
+                        onChange={val => updateLutValue(path, idx, val)}
+                        placeholder={t('pages.chat.scoreForm.score')}
+                        type="number"
+                        size="small"
+                      />
+                    ),
+                  },
+                  {
+                    title: '',
+                    dataIndex: 'action',
+                    render: (_: any, __: any, idx: number) => (
+                      <Button type="danger" theme="borderless" size="small" onClick={() => removeLutRow(path, idx)}>{t('pages.chat.scoreForm.delete')}</Button>
+                    ),
+                  },
+                ]}
+                dataSource={Object.entries(comp.score_lut || {}).map(([key, value], idx) => ({ key: key || `lut_${idx}`, value }))}
+                pagination={false}
+                bordered
+                size="small"
+                style={{ marginTop: 4, maxWidth: 350 }}
+                rowKey="key"
+              />
+              <Button size='small' theme='solid' type='primary' onClick={() => addLutRow(path)} style={{ marginTop: 6 }}>{t('pages.chat.scoreForm.addRow')}</Button>
+            </div>
+          </>
         )}
-      </div>
+      </Card>
     );
   };
+
+  const handleSubmit = () => {
+    onSubmit?.(formState, chatId, messageId);
+  };
+
   return (
-    <Card>
+    <Card bodyStyle={{ padding: 28 }}>
       {form.title && (
         <>
-          <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8, textAlign: 'center' }}>{form.title}</div>
-          <div style={{ borderBottom: '1px solid #e5e6eb', margin: '0 auto 16px auto', width: '60%' }} />
+          <Typography.Title heading={4} style={{ textAlign: 'center', marginBottom: 8 }}>{form.title}</Typography.Title>
+          <div style={{ borderBottom: '1px solid var(--semi-color-border)', margin: '0 auto 16px auto', width: '60%' }} />
         </>
       )}
-      {Array.isArray(form.components) && form.components.map((comp: any) => renderComponent(comp))}
+      
+      {/* 渲染所有第一层组件 */}
+      {Array.isArray(formState.components) && formState.components.map((comp, idx) => renderComponent(comp, ['components', String(idx)], formState.components))}
+      
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
+        <Button type="primary" size="large" theme="solid" style={{ minWidth: 120, fontWeight: 600, borderRadius: 8 }} onClick={handleSubmit}>{t('pages.chat.scoreForm.save')}</Button>
+      </div>
     </Card>
   );
 };

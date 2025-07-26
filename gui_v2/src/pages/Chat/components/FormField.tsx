@@ -18,7 +18,14 @@ interface DynamicFormProps {
 
 const DynamicForm: React.FC<DynamicFormProps> = ({ form, chatId, messageId, onFormSubmit }) => {
   if (form.type === 'score') {
-    return <ScoreFormUI form={form} />;
+    return (
+      <ScoreFormUI
+        form={form}
+        chatId={chatId}
+        messageId={messageId}
+        onSubmit={(f, cId, mId) => onFormSubmit?.(f.id, f, cId, mId, f)}
+      />
+    );
   }
   return <NormalFormUI form={form} chatId={chatId} messageId={messageId} onFormSubmit={onFormSubmit} />;
 };

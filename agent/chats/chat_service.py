@@ -300,10 +300,9 @@ class ChatService(metaclass=SingletonMeta):
             **kwargs
         )
 
-    def add_form_message(self, chatId: str, role: str, form_id: str, title: str, fields: list, 
-                         submit_text: str = "提交", senderId: str = None, createAt: int = None, **kwargs):
-        """添加表单消息的便捷方法"""
-        content = ContentSchema.create_form(form_id, title, fields, submit_text)
+    def add_form_message(self, chatId: str, role: str, form: dict, senderId: str = None, createAt: int = None, **kwargs):
+        """添加表单消息的便捷方法，直接使用 form 字典生成 content，不做字段解析"""
+        content = {"type": "form", "form": form}
         return self.add_message(
             chatId=chatId, 
             role=role, 
