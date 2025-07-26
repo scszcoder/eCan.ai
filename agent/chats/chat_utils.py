@@ -173,7 +173,7 @@ class ContentSchema:
 
     @staticmethod
     def create_form(form_id: str, title: str, fields: list, submit_text: str = "提交") -> dict:
-        """创建表单内容，用于数据收集"""
+        """创建表单内容，用于数据收集，fields 字段应原样存储，不做任何解析"""
         return {
             "type": ContentType.FORM.value,
             "form": {

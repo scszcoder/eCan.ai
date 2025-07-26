@@ -1,0 +1,6 @@
+人工智能（AI）是计算机科学的一个分支，致力于开发能够模拟人类智能的系统。
+Machine learning is a core technology of AI that enables computers to learn from data.
+深度学习是机器学习的一个子集，采用多层神经网络处理复杂问题。
+Knowledge graphs help organize and connect information for better retrieval.
+Python 是一种广泛使用的高级编程语言，适合数据分析和人工智能开发。
+OpenAI develops advanced AI models such as GPT-4o and text-embedding-3-large. 

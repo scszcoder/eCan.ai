@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { docco } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import { Content } from '../types/chat';
-import { DynamicForm } from './FormField';
+import DynamicForm from './FormField';
 import { processStringContent } from '../utils/contentUtils';
 import { useTranslation } from 'react-i18next';
 
@@ -325,7 +325,7 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chat
         return <NotificationContent notification={parsedContent.notification} />;
       case 'form': {
         const formData = (parsedContent as any).form || parsedContent;
-        if (formData && typeof formData === 'object' && Array.isArray((formData as any).fields)) {
+        if (formData && typeof formData === 'object') {
           // 优先用 chatId/messageId 变量
           const chatIdToUse = chatId || (parsedContent as any).chatId || (parsedContent as any).chat_id;
           const messageIdToUse = messageId || (parsedContent as any).messageId || (parsedContent as any).message_id || (parsedContent as any).id;
