@@ -2,9 +2,11 @@ import logging
 import colorlog
 from logging.handlers import RotatingFileHandler
 import os
+from app_context import AppContext
 from config.constants import APP_NAME
 from config.app_info import app_info
 import traceback
+
 # ====== 集成 TRACE 日志等级 ======
 TRACE_LEVEL_NUM = 5
 logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
@@ -106,9 +108,12 @@ def set_top_web_gui(web_gui):
     top_web_gui = web_gui
 
 def get_agent_by_id(agent_id):
-    global top_web_gui
-    agent = next((ag for ag in top_web_gui.py_login.main_win.agents if ag.card.id == agent_id), None)
-    print("by id foundagent: ", agent_id, agent.card)
+    # global top_web_gui
+    from gui.MainGUI import MainWindow
+    app_ctx = AppContext()
+    main_window: MainWindow = app_ctx.main_window
+    agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
+    # print("by id found agent: ", agent_id, agent.card)
     return agent
 
 def get_traceback(e, eType="Error"):
