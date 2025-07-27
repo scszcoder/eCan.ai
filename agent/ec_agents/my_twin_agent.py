@@ -13,7 +13,7 @@ from agent.ec_agents.create_agent_tasks import create_my_twin_chat_task
 import traceback
 import socket
 import uuid
-
+from browser_use.llm import ChatOpenAI
 
 
 def set_up_my_twin_agent(mainwin):

@@ -10,6 +10,7 @@ from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.tasks import Repeat_Types
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_helper_chat_task, create_ec_helper_work_task
+from browser_use.llm import ChatOpenAI
 
 import traceback
 import socket
