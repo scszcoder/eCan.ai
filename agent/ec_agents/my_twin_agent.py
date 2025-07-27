@@ -36,7 +36,8 @@ def set_up_my_twin_agent(mainwin):
         )
         print("agent card created:", agent_card.name, agent_card.url)
         chat_task = create_my_twin_chat_task(mainwin)
-        helper = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
 
     except Exception as e:
         # Get the traceback information

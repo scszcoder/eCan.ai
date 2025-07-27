@@ -40,8 +40,8 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         chatter_task = create_ec_rpa_supervisor_chat_task(mainwin)
         daily_task = create_ec_rpa_supervisor_daily_task(mainwin)
         on_request_task = create_ec_rpa_supervisor_on_request_task(mainwin)
-
-        supervisor = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[schedule_skill, serve_request_skill, chatter_skill], tasks=[daily_task, on_request_task, chatter_task])
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        supervisor = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=[schedule_skill, serve_request_skill, chatter_skill], tasks=[daily_task, on_request_task, chatter_task])
 
     except Exception as e:
         # Get the traceback information

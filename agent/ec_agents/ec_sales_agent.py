@@ -38,8 +38,8 @@ def set_up_ec_sales_agent(mainwin):
 
         chatter_task = create_ec_sales_chat_task(mainwin)
         worker_task = create_ec_sales_work_task(mainwin)
-
-        sales = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        sales = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:
         # Get the traceback information

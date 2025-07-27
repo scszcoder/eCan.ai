@@ -39,8 +39,8 @@ def set_up_ec_helper_agent(mainwin):
         print("agent card created:", agent_card.name, agent_card.url)
         chatter_task = create_ec_helper_chat_task(mainwin)
         worker_task = create_ec_helper_work_task(mainwin)
-
-        helper = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:
         # Get the traceback information
