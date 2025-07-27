@@ -70,6 +70,7 @@ class EC_Agent(Agent):
 	def __init__(
 		self,
 		mainwin,
+		skill_llm,
 		tasks: Optional[List[ManagedTask]] = None,
 		# Optional parameters
 		skill_set: Optional[List[EC_Skill]] = None,
@@ -89,6 +90,7 @@ class EC_Agent(Agent):
 	):
 		# Core components
 		self.tasks = tasks
+		self.skill_llm = skill_llm
 		self.running_tasks = []
 		self.skill_set = skill_set
 		self._stop_event = asyncio.Event()
@@ -110,7 +112,8 @@ class EC_Agent(Agent):
 				"dims": 1536,
 			}
 		)
-
+		# keep the old inits
+		super().__init__(*args, **kwargs)
 
 		# LLM API connection setup
 		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
@@ -157,8 +160,7 @@ class EC_Agent(Agent):
 		self.runner = TaskRunner(self)
 		self.human_chatter = HumanChatter(self)
 
-		# keep the old inits
-		super().__init__(*args, **kwargs)
+
 
 	def to_dict(self):
 		agentJS = {
@@ -211,10 +213,11 @@ class EC_Agent(Agent):
 		skill_ids = {s.id for s in skills}
 		self.skill_set = [s for s in self.skill_set if s.id not in skill_ids] + skills
 
+	def set_skill_llm(self, llm):
+		self.skill_llm = llm
+
 	def set_llm(self, llm):
 		self.llm = llm
-
-
 
 	def get_card(self):
 		return self.card
