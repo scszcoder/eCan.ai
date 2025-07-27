@@ -1476,10 +1476,8 @@ def processWebdriverWaitUntilClickable(step, i, mission):
         print("element name:", element_name)
 
         try:
-            print("wait until:", wait_time)
-            wait = WebDriverWait(driver, wait_time)
+            symTab[step["result"]] = webDriverWaitUntilClickable(driver, element_type, element_name, wait_time)
 
-            symTab[step["result"]] = wait.until(EC.element_to_be_clickable((element_type, element_name)))
         except TimeoutException:
             print(f"Element was not found clickable within {wait_time} seconds.")
             symTab[step["result"]] = None
@@ -1501,6 +1499,12 @@ def processWebdriverWaitUntilClickable(step, i, mission):
 
     return (i + 1), ex_stat
 
+def webDriverWaitUntilClickable(driver, element_type, element_name, timeout):
+    print("wait until:", timeout)
+    wait = WebDriverWait(driver, timeout)
+
+    result = wait.until(EC.element_to_be_clickable((element_type, element_name)))
+    return result
 
 def processWebdriverSwitchToDefaultContent(step, i):
     try:
@@ -1578,11 +1582,7 @@ def processWebdriverWaitForVisibility(step, i, mission):
         print("element type:", element_type)
         print("element name:", element_name)
 
-
-        print("wait until:", wait_time)
-        wait = WebDriverWait(driver, wait_time)
-
-        symTab[step["result"]] = wait.until(EC.visibility_of_element_located((element_type, element_name)))
+        symTab[step["result"]] = webDriverWaitForVisibility(driver, element_type, element_name, wait_time)
 
         regSteps(step["type"], "", start, True, mainwin)
 
@@ -1600,6 +1600,12 @@ def processWebdriverWaitForVisibility(step, i, mission):
 
     return (i + 1), ex_stat
 
+def webDriverWaitForVisibility(driver, element_type, element_name, timeout):
+    print("wait until:", timeout)
+    wait = WebDriverWait(driver, timeout)
+
+    result = wait.until(EC.visibility_of_element_located((element_type, element_name)))
+    return result
 
 
 def processWebdriverQuit(step, i):

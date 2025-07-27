@@ -18,6 +18,7 @@ from datetime import timedelta
 import platform
 from pynput.mouse import Controller
 from PySide6.QtWebEngineWidgets import QWebEngineView
+from browser_use.llm import ChatOpenAI
 
 from utils.logger_helper import logger_helper
 from tests.unittests import *
@@ -122,8 +123,8 @@ def gen_agent_from_cloud_data(mainwin, ajs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-
-        new_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -171,8 +172,8 @@ def gen_new_agent(mainwin, ajs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-
-        new_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -337,8 +338,8 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-
-        new_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -538,8 +539,8 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-
-        new_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -747,8 +748,8 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-
-        new_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -946,8 +947,8 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-
-        new_agent = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -992,8 +993,8 @@ def gen_new_knowledge(mainwin, kjs):
             skills=agent_skills,
         )
         print("knowledge created:", agent_card.name, agent_card.url)
-
-        new_knowledge = EC_Agent(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
+        model = ChatOpenAI(model='gpt-4.1-mini')
+        new_knowledge = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_knowledge
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)

@@ -198,38 +198,14 @@ async def in_browser_wait_for_element(mainwin, args):
 
 # Element Interaction Actions
 async def in_browser_click_element_by_index(mainwin, args):
-    crawler = mainwin.getCrawler()
-    if not crawler:
-        web_driver = mainwin.getWebDriver()
-
-        if args['input']['index'] not in await browser.get_selector_map():
-            raise Exception(f"Element with index {args['input']['index']} does not exist - retry or use alternative actions")
-
-        element_node = await browser_use_get_dom_element_by_index(args['input']['index'])
-        initial_pages = len(session.pages)
-
-        # if element has file uploader then dont click
-        if await browser.is_file_uploader(element_node):
-            msg = f"Index {args['input']['index']} - has an element which opens file upload dialog. To upload files please use a specific function to upload files "
-            logger.info(msg)
-            return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
-
-        msg = None
-
     try:
-        download_path = await browser._click_element_node(element_node)
-        if download_path:
-            msg = f'💾  Downloaded file to {download_path}'
+        crawler = mainwin.getCrawler()
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            raise Exception(f"Element with index {args['input']['index']} without crawler not implemented")
         else:
-            msg = f"🖱️  Clicked button with index {args['input']['index']}: {element_node.get_all_text_till_next_clickable_element(max_depth=2)}"
+            br_result = await browser_use_click_element_by_index(mainwin, args['input']['index'])
 
-        logger.info(msg)
-        logger.debug(f'Element xpath: {element_node.xpath}')
-        if len(session.pages) > initial_pages:
-            new_tab_msg = 'New tab opened - switching to it'
-            msg += f' - {new_tab_msg}'
-            logger.info(new_tab_msg)
-            await browser.switch_to_tab(-1)
         msg = f"completed loading element by index {args['input']['index']}."
         result = [TextContent(type="text", text=msg)]
         return result
@@ -242,23 +218,16 @@ async def in_browser_click_element_by_index(mainwin, args):
 async def in_browser_click_element_by_selector(mainwin, args):
     try:
         crawler = mainwin.getCrawler()
-        web_driver = mainwin.getWebDriver()
-        if web_driver:
-            browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
-            browser = browser_context.browser
-            element_node = await browser.get_locate_element_by_css_selector(args['input']["css_selector"])
-            if element_node:
-                try:
-                    await element_node.scroll_into_view_if_needed()
-                    await element_node.click(timeout=1500, force=True)
-                except Exception:
-                    try:
-                        # Handle with js evaluate if fails to click using playwright
-                        await element_node.evaluate('el => el.click()')
-                    except Exception as e:
-                        css_selector = args['input']['css_selector']
-                        logger.warning(f"Element not clickable with css selector '{css_selector}' - {e}")
-                        return CallToolResult(error=str(e))
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            if web_driver:
+                element_handle = webDriverWaitForVisibility(web_driver, By.CSS_SELECTOR, args['input']['css_selector'], args['input']['timeout'])
+                element_handle.click()
+        else:
+            browser_session = mainwin.browser_session
+            element_handle = await browser_session.get_locate_element_by_css_selector(args['input']["css_selector"])
+            await element_handle.click()
+            await asyncio.sleep(0.8)
 
         msg = f"completed loading element by index {args['input']['css_selector']}."
         result = [TextContent(type="text", text=msg)]
@@ -272,25 +241,21 @@ async def in_browser_click_element_by_selector(mainwin, args):
 async def in_browser_click_element_by_xpath(mainwin, args):
     try:
         crawler = mainwin.getCrawler()
-        web_driver = mainwin.getWebDriver()
-        browser_context = login.main_win.getBrowserContextById(args['input']["context_id"])
-        browser = browser_context.browser
-        element_node = await browser.get_locate_element_by_xpath(args['input']["xpath"])
-        if element_node:
-            try:
-                await element_node.scroll_into_view_if_needed()
-                await element_node.click(timeout=1500, force=True)
-            except Exception:
-                try:
-                    # Handle with js evaluate if fails to click using playwright
-                    await element_node.evaluate('el => el.click()')
-                except Exception as e:
-                    xpath = args['input']['xpath']
-                    logger.warning(f"Element not clickable with xpath '{xpath}' - {e}")
-                    return CallToolResult(error=str(e))
-            msg = f"completed loading element by index {args['input']['xpath']}."
-            result = [TextContent(type="text", text=msg)]
-            return result
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            if web_driver:
+                element_handle = webDriverWaitForVisibility(web_driver, By.XPATH, args['input']['xpath'],
+                                                            args['input']['timeout'])
+                element_handle.click()
+        else:
+            browser_session = mainwin.browser_session
+            element_handle = await browser_session.get_locate_element_by_xpath(args['input']["xpath"])
+            await element_handle.click()
+            await asyncio.sleep(0.8)
+
+        msg = f"completed loading element by index {args['input']['xpath']}."
+        result = [TextContent(type="text", text=msg)]
+        return result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserClickElementByXpath")
         logger.debug(err_trace)
@@ -300,20 +265,23 @@ async def in_browser_click_element_by_xpath(mainwin, args):
 async def in_browser_click_element_by_text(mainwin, args):
     try:
         crawler = mainwin.getCrawler()
-        web_driver = mainwin.getWebDriver()
-        web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
-        # find element
-        targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
-        if targets and args['input']["nth"] < len(targets):
-            target = targets[args['input']["nth"]]
+        if not crawler:
+            web_driver = mainwin.getWebDriver()
+            web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
+            # find element
+            targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
+            if targets and args['input']["nth"] < len(targets):
+                target = targets[args['input']["nth"]]
+            else:
+                target = None
+
+            if target:
+                target.click()
+
+            if args['input']["post_wait"]:
+                time.sleep(args['input']["post_wait"])
         else:
-            target = None
-
-        if target:
-            target.click()
-
-        if args['input']["post_wait"]:
-            time.sleep(args['input']["post_wait"])
+            br_result = await browser_use_click_element_by_index(mainwin,args['input']['element_text'])
 
         msg = f"completed in-browser click."
         result = [TextContent(type="text", text=msg)]
@@ -347,8 +315,6 @@ async def in_browser_input_text(mainwin, args):
         else:
             dom_index = args['input']["text"]
             bu_result = await browser_use_input_text(mainwin, dom_index, args['input']['text'])
-
-
 
         msg = f"completed loading element by index {args['input']['index']}."
         result = [TextContent(type="text", text=msg)]
@@ -1378,6 +1344,30 @@ async def api_ecan_ai_query_components(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def api_ecan_ai_img2text_icons(mainwin, args):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        log_user = mainwin.user.replace("@", "_").replace(".", "_")
+        session = mainwin.session
+        token = mainwin.tokens['AuthenticationResult']['IdToken']
+
+        mission = mainwin.getTrialRunMission()
+
+        screen_data = await readRandomWindow8(mission, args["input"]["win_title_keyword"], log_user, session, token)
+
+        msg = "completed rpa operator report work results"
+        result = [TextContent(type="text", text=msg)]
+        result.meta = screen_data
+        return result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+
 tool_function_mapping = {
         "say_hello": say_hello,
         "os_wait": os_wait,
@@ -1429,7 +1419,8 @@ tool_function_mapping = {
         "os_connect_to_adspower": os_connect_to_adspower,
         "os_connect_to_chrome": os_connect_to_chrome,
         "os_reconnect_wifi": os_reconnect_wifi,
-        "api_ecan_ai_query_components": api_ecan_ai_query_components
+        "api_ecan_ai_query_components": api_ecan_ai_query_components,
+        "api_ecan_ai_img2text_icons": api_ecan_ai_img2text_icons
     }
 
 def set_server_main_win(mw):
