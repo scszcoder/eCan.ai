@@ -18,9 +18,25 @@ class LightragServer:
         self.extra_env = extra_env or {}
         logger.info(f"[LightragServer] extra_env: {self.extra_env}")  # debug log
         self.proc = None
-        self.parent_pid = os.getppid()
+        
+        # Get parent process ID - handle Windows compatibility
+        import platform
+        is_windows = platform.system().lower().startswith('win')
+        if is_windows:
+            try:
+                import psutil
+                self.parent_pid = psutil.Process().ppid()
+            except (ImportError, AttributeError):
+                # Fallback to os.getppid() if psutil is not available
+                self.parent_pid = os.getppid()
+        else:
+            self.parent_pid = os.getppid()
+            
         self._monitor_running = False
         self._monitor_thread = None
+        
+        # Check if parent process monitoring should be disabled
+        self.disable_parent_monitoring = self.extra_env.get("DISABLE_PARENT_MONITORING", "false").lower() == "true"
         # 自动处理 APP_DATA 生成相关目录
         app_data_path = self.extra_env.get("APP_DATA_PATH")
         if app_data_path:
@@ -39,9 +55,35 @@ class LightragServer:
         return env
 
     def _monitor_parent(self):
+        import platform
+        is_windows = platform.system().lower().startswith('win')
+        
+        # Try to import psutil for Windows process monitoring
+        psutil_available = False
+        if is_windows:
+            try:
+                import psutil
+                psutil_available = True
+            except ImportError:
+                logger.warning("psutil not available, parent process monitoring may not work properly on Windows")
+        
         while self._monitor_running:
             try:
-                os.kill(self.parent_pid, 0)
+                if is_windows and psutil_available:
+                    # On Windows, use psutil to check if parent process exists
+                    try:
+                        parent_process = psutil.Process(self.parent_pid)
+                        # Check if process is still running
+                        if not parent_process.is_running():
+                            logger.error("Parent process is gone, exiting lightrag server...")
+                            os._exit(1)
+                    except psutil.NoSuchProcess:
+                        logger.error("Parent process is gone, exiting lightrag server...")
+                        os._exit(1)
+                else:
+                    # On Unix-like systems or Windows without psutil, use os.kill
+                    # Note: This may not work reliably on Windows
+                    os.kill(self.parent_pid, 0)
             except OSError:
                 logger.error("Parent process is gone, exiting lightrag server...")
                 os._exit(1)
@@ -62,9 +104,12 @@ class LightragServer:
         stdout_log = open(stdout_log_path, "a", encoding="utf-8")
         stderr_log = open(stderr_log_path, "a", encoding="utf-8")
         # 启动父进程监控线程
-        self._monitor_running = True
-        self._monitor_thread = threading.Thread(target=self._monitor_parent, daemon=True)
-        self._monitor_thread.start()
+        if not self.disable_parent_monitoring:
+            self._monitor_running = True
+            self._monitor_thread = threading.Thread(target=self._monitor_parent, daemon=True)
+            self._monitor_thread.start()
+        else:
+            logger.info("Parent process monitoring disabled")
         import platform
         if platform.system().lower().startswith('win'):
             self.proc = subprocess.Popen(
@@ -97,10 +142,11 @@ class LightragServer:
         return self.proc
 
     def stop(self):
-        self._monitor_running = False
-        if self._monitor_thread is not None:
-            self._monitor_thread.join(timeout=2)
-            self._monitor_thread = None
+        if not self.disable_parent_monitoring:
+            self._monitor_running = False
+            if self._monitor_thread is not None:
+                self._monitor_thread.join(timeout=2)
+                self._monitor_thread = None
         if self.proc is not None:
             self.proc.terminate()
             logger.info("lightrag server stopped.")
