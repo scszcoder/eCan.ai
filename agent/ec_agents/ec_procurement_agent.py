@@ -9,6 +9,7 @@ from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_procurement_chat_task, create_ec_procurement_work_task
+from browser_use.llm import ChatOpenAI
 
 from agent.tasks import Repeat_Types
 import traceback
