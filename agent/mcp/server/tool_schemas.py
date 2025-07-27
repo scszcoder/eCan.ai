@@ -644,7 +644,6 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-
     tool_schema = types.Tool(
         name="in_browser_send_keys",
         description="use browser driver like selenium or playwright to send hot keys to the web page.",
@@ -1411,6 +1410,41 @@ def build_agent_mcp_tools_schemas():
                             "type": "list",
                             "description": "list of components'attributes.",
                         }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="api_ecan_ai_img2text_icons",
+        description="run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["image", "icons", "options", "end_point"],
+                    "properties": {
+                        "image": {
+                            "type": "string",
+                            "description": "the full path of the image file",
+                        },
+                        "icons": {
+                            "type": "string",
+                            "description": "comma separated list of the full path of the icon files",
+                        },
+                        "metadata": {
+                            "type": "dict",
+                            "description": "json data to make the api call for effective, for random image data, just leave this as {}.",
+                        },
+                        "end_point": {
+                            "type": "string",
+                            "description": "either local/lan/wan, local means the algorithm runs on this host, lan means the algorithm runs on a remote computer within the LAN, wan means the algorithm runs on a remote computer on the internet, outside of the LAN",
+                        },
                     },
                 }
             }
