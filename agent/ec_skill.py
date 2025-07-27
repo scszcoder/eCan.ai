@@ -17,7 +17,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.errors import NodeInterrupt
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import interrupt
-from sqlalchemy.testing.suite.test_reflection import metadata
+#from sqlalchemy.testing.suite.test_reflection import metadata
 
 from typing_extensions import TypedDict
 from langgraph.prebuilt import tools_condition
