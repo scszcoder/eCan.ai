@@ -3,6 +3,8 @@ from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import *
 from agent.ec_skills.search_1688.search_1688_skill import *
 from agent.ec_skills.search_1688.search_1688_chatter_skill import *
 from agent.ec_skills.search_digi_key.search_digi_key_skill import *
+from agent.ec_skills.search_parts.search_parts_skill import *
+from agent.ec_skills.search_parts.search_parts_chatter_skill import *
 
 from agent.ec_skills.my_twin.my_twin_chatter_skill import *
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
@@ -43,13 +45,15 @@ async def build_agent_skills(mainwin, skill_path=""):
 
                 new_skill = await create_search_1688_skill(mainwin)
                 skills.append(new_skill)
-                new_skill = await create_search_1688_chatter_skill(mainwin)
-                skills.append(new_skill)
 
                 new_skill = await create_search_digi_key_skill(mainwin)
                 skills.append(new_skill)
-                # new_skill = await create_search_digi_key_chatter_skill(mainwin)
-                # skills.append(new_skill)
+
+                new_skill = await create_search_parts_skill(mainwin)
+                skills.append(new_skill)
+
+                new_skill = await create_search_parts_chatter_skill(mainwin)
+                skills.append(new_skill)
             else:
                 skills = build_agent_skills_from_files(mainwin, skill_path)
 

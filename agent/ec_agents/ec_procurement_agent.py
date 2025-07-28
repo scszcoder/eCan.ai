@@ -27,7 +27,8 @@ def set_up_ec_procurement_agent(mainwin):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         worker_skill = next((sk for sk in agent_skills if "search digi-key" in sk.name), None)
         print("ec_procurement skill:", worker_skill.name)
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for meca search 1688 web site"),None)
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"),None)
+        print("chatter skill:", chatter_skill.name)
 
         agent_card = AgentCard(
             name="Engineering Procurement Agent",
