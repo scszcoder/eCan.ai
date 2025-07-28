@@ -877,7 +877,7 @@ def page_scroll(web_driver, mainwin):
 async def os_connect_to_adspower(mainwin, args):
     webdriver_path = mainwin.default_webdriver_path
 
-    print("inital state:", args)
+    print("initial state:", args)
     try:
         url = args['input']["url"]
         # global ads_config, local_api_key, local_api_port, sk_work_settings

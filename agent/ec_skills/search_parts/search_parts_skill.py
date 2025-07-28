@@ -422,12 +422,12 @@ def check_captcha_logic(state: NodeState) -> str:
         logger.debug(state.error)
         return "error"
 
-async def create_search_digi_key_skill(mainwin):
+async def create_search_parts_skill(mainwin):
     try:
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_skill = EC_Skill(name="meca search components",
+        searcher_skill = EC_Skill(name="ecan.ai search parts and components web site",
                              description="help search part/components.")
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
@@ -547,7 +547,7 @@ async def create_search_digi_key_skill(mainwin):
         print("search_digi_key_skill build is done!")
         return searcher_skill
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorCreateSearchDigiKeySkill")
+        err_trace = get_traceback(e, "ErrorCreateSearchPartsSkill")
         logger.debug(err_trace)
         return None
 
