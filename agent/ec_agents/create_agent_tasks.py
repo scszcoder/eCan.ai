@@ -275,9 +275,10 @@ def create_ec_procurement_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for meca search 1688 web site"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "MECA Procurement Chatter Task"), None)
-
+    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "eCan.ai Procurement Chatter Task"), None)
+    print("chatter skill name:", chatter_skill.name)
+    print("chatter skill:", chatter_skill)
     if not chatter_task:
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,
@@ -295,7 +296,7 @@ def create_ec_procurement_chat_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         chatter_task = ManagedTask(
             id=task_id,
-            name="MECA Procurement Chatter Task",
+            name="eCan.ai Procurement Chatter Task",
             description="chat with human user about anything related to e-commerce procurement work.",
             status=status,  # or whatever default status you need
             sessionId=session_id,

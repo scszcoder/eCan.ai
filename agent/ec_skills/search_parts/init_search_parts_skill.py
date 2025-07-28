@@ -9,6 +9,7 @@ def init_search_parts_skill(agent, msg=None, file_names=[]):
         "input": msg_txt,
         "attachments": attachments,
         "tool_input": {
+            "url": "https://www.digikey.com/en/products"
         }
     }
     return init_state

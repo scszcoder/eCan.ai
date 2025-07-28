@@ -365,11 +365,10 @@ async def in_browser_open_tab(mainwin, args):
                 web_driver.get(url)  # Replace with the new URL
                 print("open URL: " + url)
         else:
-            bu_result = await browser_use_go_to_url(mainwin, args['input']["url"])
+            bu_result = await browser_use_go_to_url(mainwin, args["input"]["url"])
 
-        msg = f'completed'
+        msg = f'completed openning tab and go to site:{args["input"]["url"]}.'
         logger.info(msg)
-        msg = f"completed loading element by index {args['input']['index']}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:

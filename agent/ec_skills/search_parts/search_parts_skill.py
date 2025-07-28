@@ -44,7 +44,7 @@ def go_to_next_site_node(state: NodeState) -> NodeState:
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"os_connect_to_adspower", args={"input": state["tool_input"]} ))
+            tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"in_browser_open_tab", args={"input": state["tool_input"]} ))
             # tool_result = await mainwin.mcp_client.call_tool(
             #     "os_connect_to_adspower", arguments={"input": state.tool_input}
             # )
@@ -385,6 +385,8 @@ def send_results_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
+    twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
+
     webdriver = mainwin.webdriver
     try:
         # use A2A to send results to chatter process, and chatter will send
@@ -392,7 +394,7 @@ def send_results_node(state: NodeState) -> NodeState:
         state["result"] = SEARCH_PARTS_RESULTS
         print("about to send this result: ", state["result"])
         # adapt results to GUI notification format.
-        agent.send_to_a2a({"type": "search results", "content": state["result"]})
+        agent.a2a_send_chat_message(twin_agent, {"type": "search results", "content": state["result"]})
         # send result notification to GUI
 
         return state
@@ -415,7 +417,7 @@ def check_done_logic(state: NodeState) -> str:
 
 def check_captcha_logic(state: NodeState) -> str:
     try:
-        return "solve_captcha" if state.condition else "check_sub_categories"
+        return "solve_captcha" if state.condition else "search_parametric_filters"
 
     except Exception as e:
         state.error = get_traceback(e, "ErrorCheckCaptchaLogic")
@@ -523,7 +525,6 @@ async def create_search_parts_skill(mainwin):
         # workflow.add_node("goto_site", goto_site)
 
         workflow.add_node("check_captcha", check_captcha_node)
-        workflow.add_conditional_edges("check_captcha", check_captcha_logic, ["solve_captcha", "check_sub_categories"])
 
         workflow.add_node("solve_captcha", solve_captcha_node)
 
@@ -537,9 +538,12 @@ async def create_search_parts_skill(mainwin):
         workflow.add_node("send_results", send_results_node)
         workflow.add_edge("send_results", END)
 
-        workflow.add_edge("go to digi-key site", "check_captcha")
+        workflow.add_edge("go_to_next_site", "check_captcha")
+        workflow.add_conditional_edges("check_captcha", check_captcha_logic, ["solve_captcha", "search_parametric_filters"])
+        workflow.add_edge("search_parametric_filters", "collect_search_results")
+        workflow.add_edge("collect_search_results", "check_goals")
 
-        workflow.add_conditional_edges("check_goals", check_done_logic, ["go_to next_site", "final_select"])
+        workflow.add_conditional_edges("check_goals", check_done_logic, ["go_to_next_site", "final_select"])
 
         searcher_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill

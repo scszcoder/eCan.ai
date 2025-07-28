@@ -91,12 +91,12 @@ class ManagedTask(Task):
     # model_config = ConfigDict(ignored_types=('langgraph.types.Command',), arbitrary_types_allowed=True)
     # Command: ClassVar = None
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __post_init_post_parse__(self):
         self.pause_event.set()
         self.priority = Priority_Types.LOW
         if self.checkpoint_nodes is None:
             self.checkpoint_nodes = []
+
 
     def to_dict(self):
         # Convert datetime to ISO format string for JSON serialization
