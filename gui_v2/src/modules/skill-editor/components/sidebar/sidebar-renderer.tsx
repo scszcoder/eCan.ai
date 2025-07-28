@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { useCallback, useContext, useEffect, useMemo } from 'react';
+import { useCallback, useContext, useEffect, useMemo, startTransition } from 'react';
 
 import {
   PlaygroundEntityContext,
@@ -21,7 +21,10 @@ export const SidebarRenderer = () => {
   const { selection, playground, document } = useClientContext();
   const refresh = useRefresh();
   const handleClose = useCallback(() => {
-    setNodeId(undefined);
+    // Sidebar delayed closing
+    startTransition(() => {
+      setNodeId(undefined);
+    });
   }, []);
   const node = nodeId ? document.getNode(nodeId) : undefined;
   /**
