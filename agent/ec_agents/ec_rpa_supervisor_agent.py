@@ -9,7 +9,7 @@ from agent.a2a.common.types import TaskStatus, TaskState
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_rpa_supervisor_chat_task, create_ec_rpa_supervisor_daily_task, create_ec_rpa_supervisor_on_request_task
-from browser_use.llm import ChatOpenAI
+from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 
 from agent.tasks import Repeat_Types
 import traceback
@@ -41,8 +41,8 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         chatter_task = create_ec_rpa_supervisor_chat_task(mainwin)
         daily_task = create_ec_rpa_supervisor_daily_task(mainwin)
         on_request_task = create_ec_rpa_supervisor_on_request_task(mainwin)
-        model = ChatOpenAI(model='gpt-4.1-mini')
-        supervisor = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=[schedule_skill, serve_request_skill, chatter_skill], tasks=[daily_task, on_request_task, chatter_task])
+        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        supervisor = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[schedule_skill, serve_request_skill, chatter_skill], tasks=[daily_task, on_request_task, chatter_task])
 
     except Exception as e:
         # Get the traceback information
