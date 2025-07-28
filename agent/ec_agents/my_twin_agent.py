@@ -13,7 +13,7 @@ from agent.ec_agents.create_agent_tasks import create_my_twin_chat_task
 import traceback
 import socket
 import uuid
-from browser_use.llm import ChatOpenAI
+from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 
 
 def set_up_my_twin_agent(mainwin):
@@ -36,8 +36,8 @@ def set_up_my_twin_agent(mainwin):
         )
         print("agent card created:", agent_card.name, agent_card.url)
         chat_task = create_my_twin_chat_task(mainwin)
-        model = ChatOpenAI(model='gpt-4.1-mini')
-        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=model, task="", card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
+        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
 
     except Exception as e:
         # Get the traceback information

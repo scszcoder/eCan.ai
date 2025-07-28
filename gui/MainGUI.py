@@ -5,7 +5,6 @@ from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
 from common.models import VehicleModel
 from knowledge.lightrag_server import LightragServer
-from utils.server import HttpServer
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
 from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
@@ -29,7 +28,6 @@ import webbrowser
 from _csv import reader
 from os.path import exists
 import glob
-import threading
 
 from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent, QSize
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
@@ -73,7 +71,6 @@ import tzlocal
 from datetime import timedelta
 import platform
 from pynput.mouse import Controller
-from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
@@ -92,7 +89,6 @@ import psutil
 from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 from langchain_openai import ChatOpenAI
-from agent.ec_agent import EC_Agent
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
 from agent.ec_agents.create_agent_tasks import create_agent_tasks
