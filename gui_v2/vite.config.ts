@@ -33,7 +33,7 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: process.env.VITE_SOURCEMAP === 'true',
     // 确保资源文件名包含哈希值，并优化代码分割
     rollupOptions: {
       output: {

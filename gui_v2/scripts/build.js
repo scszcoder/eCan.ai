@@ -23,8 +23,12 @@ async function build() {
 
     // 构建项目
     console.log('Building project...');
-    // Skip TypeScript type checking during build
-    await execSync('vite build', { stdio: 'inherit' });
+    // 解析命令行参数
+    const args = process.argv.slice(2);
+    if (args.includes('--no-source-map')) {
+      process.env.VITE_SOURCEMAP = 'false';
+    }
+    await execSync('vite build', { stdio: 'inherit', env: process.env });
 
     console.log('Build completed successfully!');
   } catch (error) {
