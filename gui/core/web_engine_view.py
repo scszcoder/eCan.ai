@@ -1,11 +1,11 @@
 """
 WebEngine 核心模块，处理 Web 引擎相关的功能
 """
-from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QMainWindow)
 
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEngineSettings, QWebEnginePage, QWebEngineScript
-from PySide6.QtCore import QUrl, Qt, Slot, Signal, QObject
+from PySide6.QtCore import QUrl, Qt, Slot, Signal
 from PySide6.QtWebChannel import QWebChannel
 from utils.logger_helper import logger_helper as logger
 from gui.core.request_interceptor import RequestInterceptor

@@ -1,17 +1,6 @@
-import base64
-import json
-import re
-import uuid
-from datetime import datetime
-from PySide6.QtWidgets import (QVBoxLayout, QHBoxLayout, QPushButton, QTextBrowser, QListWidget, QWidget,
-                               QListWidgetItem, QLineEdit, QDialog, QFrame, QMenu, QFileDialog, QMainWindow,
-                               QMessageBox, QApplication)
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor, QAction, QTextBlockFormat, QImage, QPixmap, QIcon
+from PySide6.QtWidgets import (QVBoxLayout, QWidget, QMainWindow)
 
-from bot.Cloud import send_query_chat_request_to_cloud
 from PySide6.QtWebEngineWidgets import QWebEngineView
-
 
 class BrowserWindow(QMainWindow):
     def __init__(self, parent=None):
