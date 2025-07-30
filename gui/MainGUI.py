@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
         self.platform = platform.system().lower()[0:3]
 
         self.cpuinfo = self._get_cpu_info_safely()
+        logger.info(self.cpuinfo)
 
         self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
         self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
@@ -309,7 +310,7 @@ class MainWindow(QMainWindow):
         self.total_memory = self.virtual_memory.total / (1024 ** 3)  # Convert bytes to GB
 
         self.std_item_font = QFont('Arial', 10)
-        print("cpu memory init done....")
+        logger.info("cpu memory init done....")
         self.sellerInventoryJsonData = None
         self.botJsonData = None
         self.inventories = []
@@ -343,10 +344,10 @@ class MainWindow(QMainWindow):
         self.missionWin = None
         self.chatWin = None
         self.newGui = BrowserWindow(self)
-        print("newGui init done....")
+        logger.info("newGui init done....")
         self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"})
         self.lightrag_server.start()
-        print("lightrag_server init done....")
+        logger.info("lightrag_server init done....")
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
@@ -365,7 +366,7 @@ class MainWindow(QMainWindow):
         self.logConsoleLayout = QVBoxLayout()
         self.logConsole.verticalScrollBar().valueChanged.connect(self.onScrollBarValueChanged)
         self.isAutoScroll = False  # 初始化时默认不自动滚动
-        print("some vars init done1....")
+        logger.info("some vars init done1....")
         # self.toggle_button = QToolButton(
         #     text="log console", checkable=True, checked=False
         # )
@@ -410,7 +411,7 @@ class MainWindow(QMainWindow):
         self.debug_mode = True
         self.fetch_schedule_counter = 1
         self.readSellerInventoryJsonFile("")
-        print("some vars init done2....")
+        logger.info("some vars init done2....")
         self.showMsg("main window ip:" + self.ip)
         if "Commander" in self.machine_role:
             self.tcpServer = None
@@ -488,7 +489,7 @@ class MainWindow(QMainWindow):
         self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
         self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
 
-        print("some vars init done3....")
+        logger.info("some vars init done3....")
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
         self.showMsg("Debug Mode:" + str(self.debug_mode) + " Schedule Mode:" + str(self.schedule_mode))
         self.showMsg("self.platform==================================================>" + self.platform)
@@ -505,7 +506,7 @@ class MainWindow(QMainWindow):
         self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
         self.showMsg("HOME PATH is::" + self.homepath, "info")
         self.showMsg(self.dbfile)
-        print("some vars init done4....")
+        logger.info("some vars init done4....")
         if "Commander" in self.machine_role:
             engine = init_db(self.dbfile)
             session = get_session(engine)
@@ -521,7 +522,7 @@ class MainWindow(QMainWindow):
             self.skill_service = None
             self.vehicle_service = None
 
-        print("some vars init done5....")
+        logger.info("some vars init done5....")
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
         self.rpa_work_assigned_for_today = False

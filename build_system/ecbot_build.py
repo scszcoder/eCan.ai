@@ -132,9 +132,9 @@ class ECBotBuild:
 
         return True
 
-    def build_frontend(self, skip_frontend: bool = False) -> bool:
+    def build_frontend(self, skip_frontend: bool = False, force_frontend: bool = False) -> bool:
         """构建前端"""
-        if skip_frontend:
+        if skip_frontend and not force_frontend:
             print("⏭️  跳过前端构建 (使用 --skip-frontend 或 dev 模式默认)")
             # 检查是否存在已构建的前端文件
             gui_dist_path = self.project_root / "gui_v2" / "dist"
@@ -143,6 +143,16 @@ class ECBotBuild:
                 return True
             else:
                 print("⚠️  未找到前端构建文件，将强制构建前端")
+                force_frontend = True
+
+        # 检查前端是否需要重新构建
+        if not force_frontend and not skip_frontend:
+            frontend_changed = self._check_frontend_changes()
+            gui_dist_path = self.project_root / "gui_v2" / "dist"
+
+            if not frontend_changed and gui_dist_path.exists():
+                print("✅ 前端无变更，使用缓存的构建文件")
+                return True
 
         print("🔨 构建前端...")
 
@@ -192,7 +202,16 @@ class ECBotBuild:
                     return json.load(f)
             except:
                 pass
-        return {"files": {}, "last_build": 0, "last_success": False}
+        return {
+            "files": {},
+            "dependencies": {},
+            "frontend": {},
+            "last_build": 0,
+            "last_success": False,
+            "build_config_hash": "",
+            "pyinstaller_spec_hash": "",
+            "requirements_hash": ""
+        }
     
     def _save_cache(self):
         """保存构建缓存"""
@@ -206,42 +225,230 @@ class ECBotBuild:
                 return hashlib.md5(f.read()).hexdigest()
         except:
             return ""
+
+    def _get_directory_hash(self, dir_path: Path, extensions: List[str] = None) -> str:
+        """获取目录内容哈希"""
+        if not dir_path.exists():
+            return ""
+
+        if extensions is None:
+            extensions = ['.py', '.json', '.txt', '.md', '.yml', '.yaml']
+
+        file_hashes = []
+        try:
+            for file_path in sorted(dir_path.rglob('*')):
+                if file_path.is_file() and any(file_path.suffix == ext for ext in extensions):
+                    rel_path = file_path.relative_to(dir_path)
+                    file_hash = self._get_file_hash(file_path)
+                    file_hashes.append(f"{rel_path}:{file_hash}")
+
+            combined = "|".join(file_hashes)
+            return hashlib.md5(combined.encode()).hexdigest()
+        except:
+            return ""
+
+    def _get_config_hash(self) -> str:
+        """获取构建配置哈希"""
+        config_data = {
+            "mode": self.mode,
+            "base_config": self.base_config,
+            "platform": self.get_platform_info()
+        }
+        config_str = json.dumps(config_data, sort_keys=True)
+        return hashlib.md5(config_str.encode()).hexdigest()
+
+    def _get_requirements_hash(self) -> str:
+        """获取依赖文件哈希"""
+        req_files = ["requirements-base.txt", "requirements-macos.txt", "requirements-windows.txt"]
+        hashes = []
+        for req_file in req_files:
+            req_path = self.project_root / req_file
+            if req_path.exists():
+                hashes.append(self._get_file_hash(req_path))
+        return hashlib.md5("|".join(hashes).encode()).hexdigest()
     
-    def check_changes(self) -> bool:
-        """检查文件是否有变更"""
-        if self.mode == "prod":
-            return True  # 生产模式总是重建
-        
-        print("🔍 检查文件变更...")
-        
-        # 检查关键文件
-        key_files = [
-            Path("main.py"), Path("app_context.py"),
-            *[f for f in Path(".").glob("*.py") if f.is_file()],
-            *[f for f in Path("bot").glob("**/*.py") if f.is_file()],
-            *[f for f in Path("gui").glob("**/*.py") if f.is_file()],
-            *[f for f in Path("agent").glob("**/*.py") if f.is_file()]
-        ]
-        
+    def check_changes(self, force: bool = False) -> Dict[str, bool]:
+        """检查文件是否有变更，返回详细的变更信息"""
+        changes = {
+            "source_code": False,
+            "dependencies": False,
+            "config": False,
+            "frontend": False,
+            "any_change": False
+        }
+
+        if force:
+            print("🔄 强制重建模式，跳过变更检查")
+            changes["any_change"] = True
+            return changes
+
+        print("🔍 检查增量变更...")
+
+        # 1. 检查源代码变更
+        changes["source_code"] = self._check_source_changes()
+
+        # 2. 检查依赖变更
+        changes["dependencies"] = self._check_dependency_changes()
+
+        # 3. 检查配置变更
+        changes["config"] = self._check_config_changes()
+
+        # 4. 检查前端变更
+        changes["frontend"] = self._check_frontend_changes()
+
+        changes["any_change"] = any([
+            changes["source_code"],
+            changes["dependencies"],
+            changes["config"]
+        ])
+
+        return changes
+
+    def _check_source_changes(self) -> bool:
+        """检查源代码变更"""
+        print("  📝 检查源代码变更...")
+
+        # 检查关键目录
+        key_dirs = ["bot", "gui", "agent", "common", "utils", "config"]
+        key_files = ["main.py", "app_context.py"]
+
         changed = False
-        for file_path in key_files[:50]:  # 限制检查文件数量
-            if not file_path.exists():
-                continue
-                
-            current_hash = self._get_file_hash(file_path)
-            cached_hash = self.cache["files"].get(str(file_path), "")
-            
-            if current_hash != cached_hash:
-                changed = True
-                self.cache["files"][str(file_path)] = current_hash
-        
+
+        # 检查关键文件
+        for file_name in key_files:
+            file_path = self.project_root / file_name
+            if file_path.exists():
+                current_hash = self._get_file_hash(file_path)
+                cached_hash = self.cache["files"].get(str(file_path), "")
+                if current_hash != cached_hash:
+                    print(f"    🔄 文件变更: {file_name}")
+                    changed = True
+                    self.cache["files"][str(file_path)] = current_hash
+
+        # 检查关键目录
+        for dir_name in key_dirs:
+            dir_path = self.project_root / dir_name
+            if dir_path.exists():
+                current_hash = self._get_directory_hash(dir_path)
+                cached_hash = self.cache["files"].get(f"dir:{dir_name}", "")
+                if current_hash != cached_hash:
+                    print(f"    🔄 目录变更: {dir_name}/")
+                    changed = True
+                    self.cache["files"][f"dir:{dir_name}"] = current_hash
+
         if not changed:
-            print("✅ 未检测到变更，跳过构建")
-            return False
-        else:
-            print("📝 检测到文件变更，需要重新构建")
+            print("    ✅ 源代码无变更")
+
+        return changed
+
+    def _check_dependency_changes(self) -> bool:
+        """检查依赖变更"""
+        print("  📦 检查依赖变更...")
+
+        current_hash = self._get_requirements_hash()
+        cached_hash = self.cache.get("requirements_hash", "")
+
+        if current_hash != cached_hash:
+            print("    🔄 依赖文件变更")
+            self.cache["requirements_hash"] = current_hash
             return True
-    
+        else:
+            print("    ✅ 依赖无变更")
+            return False
+
+    def _check_config_changes(self) -> bool:
+        """检查配置变更"""
+        print("  ⚙️  检查配置变更...")
+
+        current_hash = self._get_config_hash()
+        cached_hash = self.cache.get("build_config_hash", "")
+
+        if current_hash != cached_hash:
+            print("    🔄 构建配置变更")
+            self.cache["build_config_hash"] = current_hash
+            return True
+        else:
+            print("    ✅ 配置无变更")
+            return False
+
+    def _check_frontend_changes(self) -> bool:
+        """检查前端变更"""
+        print("  🎨 检查前端变更...")
+
+        # 确保 frontend 缓存存在
+        if "frontend" not in self.cache:
+            self.cache["frontend"] = {}
+
+        frontend_dirs = ["gui_v2/src", "gui_v2/public"]
+        frontend_files = ["gui_v2/package.json", "gui_v2/vite.config.ts", "gui_v2/tsconfig.json"]
+
+        changed = False
+
+        # 检查前端目录
+        for dir_name in frontend_dirs:
+            dir_path = self.project_root / dir_name
+            if dir_path.exists():
+                current_hash = self._get_directory_hash(dir_path, ['.ts', '.tsx', '.js', '.jsx', '.css', '.scss', '.json', '.html'])
+                cached_hash = self.cache["frontend"].get(dir_name, "")
+                if current_hash != cached_hash:
+                    print(f"    🔄 前端目录变更: {dir_name}")
+                    changed = True
+                    self.cache["frontend"][dir_name] = current_hash
+
+        # 检查前端配置文件
+        for file_name in frontend_files:
+            file_path = self.project_root / file_name
+            if file_path.exists():
+                current_hash = self._get_file_hash(file_path)
+                cached_hash = self.cache["frontend"].get(file_name, "")
+                if current_hash != cached_hash:
+                    print(f"    🔄 前端配置变更: {file_name}")
+                    changed = True
+                    self.cache["frontend"][file_name] = current_hash
+
+        if not changed:
+            print("    ✅ 前端无变更")
+
+        return changed
+
+    def _check_build_artifacts(self) -> bool:
+        """检查构建产物是否存在"""
+        if self.is_macos:
+            # macOS 检查 .app 文件或目录
+            if self.mode == "dev":
+                app_path = self.dist_dir / "ECBot"
+            else:
+                app_path = self.dist_dir / "ECBot.app"
+        else:
+            # Windows/Linux 检查目录
+            app_path = self.dist_dir / "ECBot"
+
+        return app_path.exists()
+
+    def _show_change_summary(self, changes: Dict[str, bool]):
+        """显示变更摘要"""
+        print("📋 变更摘要:")
+
+        change_items = [
+            ("源代码", changes["source_code"]),
+            ("依赖包", changes["dependencies"]),
+            ("构建配置", changes["config"]),
+            ("前端代码", changes["frontend"])
+        ]
+
+        has_changes = False
+        for name, changed in change_items:
+            if changed:
+                print(f"  🔄 {name}: 有变更")
+                has_changes = True
+            else:
+                print(f"  ✅ {name}: 无变更")
+
+        if not has_changes:
+            print("  🎉 所有组件均无变更")
+
+        print()
+
     def clean_build(self):
         """清理构建目录"""
         if self.get_config()["clean"]:
@@ -254,16 +461,40 @@ class ECBotBuild:
                             shutil.rmtree(item)
                         else:
                             item.unlink()
-            
+
             if self.dist_dir.exists():
                 import shutil
-                shutil.rmtree(self.dist_dir)
+                # 先删除所有文件和子目录
+                for item in self.dist_dir.iterdir():
+                    try:
+                        if item.is_dir():
+                            shutil.rmtree(item)
+                        else:
+                            item.unlink()
+                    except Exception as e:
+                        print(f"⚠️  删除 {item} 时出错: {e}")
+
+                # 然后删除目录本身
+                try:
+                    self.dist_dir.rmdir()
+                except Exception as e:
+                    print(f"⚠️  删除 dist 目录时出错: {e}")
+                    # 如果删除失败，尝试强制删除
+                    try:
+                        shutil.rmtree(self.dist_dir, ignore_errors=True)
+                    except Exception as e2:
+                        print(f"⚠️  强制删除 dist 目录也失败: {e2}")
     
     def build(self, force: bool = False, skip_frontend: bool = None) -> bool:
         """执行完整构建流程"""
         platform_info = self.get_platform_info()
         print(f"🚀 ECBot 跨平台构建器 - {self.mode.upper()} 模式")
         print(f"🎯 目标平台: {platform_info['name']}")
+
+        if force:
+            print("🔄 强制重建模式")
+        else:
+            print("⚡ 增量构建模式")
         print("=" * 50)
 
         # 检查前提条件
@@ -271,46 +502,60 @@ class ECBotBuild:
             print("❌ 前提条件检查失败")
             return False
 
+        # 检查变更情况
+        changes = self.check_changes(force=force)
+
         # 决定是否跳过前端构建
         if skip_frontend is None:
             # dev 模式默认跳过前端构建
             skip_frontend = (self.mode == "dev")
 
-        # 构建前端
-        if not self.build_frontend(skip_frontend=skip_frontend):
+        # 构建前端 (根据变更情况决定是否强制重建)
+        force_frontend = force or changes["frontend"]
+        if not self.build_frontend(skip_frontend=skip_frontend, force_frontend=force_frontend):
             print("❌ 前端构建失败")
             return False
 
         # 检查是否需要构建后端
-        if not force and not self.check_changes():
-            print("✅ 无需重新构建后端")
-            return True
+        if not changes["any_change"]:
+            # 检查是否存在构建产物
+            if self._check_build_artifacts():
+                print("✅ 无变更且构建产物存在，跳过后端构建")
+                self._show_result()
+                return True
+            else:
+                print("⚠️  无变更但构建产物不存在，将重新构建")
+                changes["any_change"] = True
 
-        # 清理构建目录
-        self.clean_build()
+        # 显示变更摘要
+        self._show_change_summary(changes)
+
+        # 清理构建目录 (仅在有变更时)
+        if changes["any_change"]:
+            self.clean_build()
 
         # 开始构建后端
         print("🔨 开始构建后端...")
         start_time = time.time()
-        
+
         try:
             success = self._run_pyinstaller()
             build_time = time.time() - start_time
-            
+
             # 更新缓存
             self.cache["last_build"] = time.time()
             self.cache["last_success"] = success
             self.cache["last_duration"] = build_time
             self._save_cache()
-            
+
             if success:
                 print(f"✅ 构建完成 ({build_time:.1f}秒)")
                 self._show_result()
             else:
                 print("❌ 构建失败")
-            
+
             return success
-            
+
         except Exception as e:
             print(f"❌ 构建出错: {e}")
             return False
@@ -607,17 +852,46 @@ class ECBotBuild:
     def show_stats(self):
         """显示构建统计"""
         print("📊 构建统计:")
-        print(f"  模式: {self.mode}")
-        print(f"  缓存文件: {len(self.cache['files'])}")
-        
-        if self.cache["last_build"]:
+        print(f"  构建模式: {self.mode}")
+        print(f"  平台: {self.get_platform_info()['name']}")
+        print()
+
+        print("📁 缓存信息:")
+        print(f"  源代码文件: {len([k for k in self.cache.get('files', {}).keys() if not k.startswith('dir:')])}")
+        print(f"  监控目录: {len([k for k in self.cache.get('files', {}).keys() if k.startswith('dir:')])}")
+        print(f"  前端文件: {len(self.cache.get('frontend', {}))}")
+        print(f"  依赖哈希: {'已缓存' if self.cache.get('requirements_hash') else '未缓存'}")
+        print(f"  配置哈希: {'已缓存' if self.cache.get('build_config_hash') else '未缓存'}")
+        print()
+
+        if self.cache.get("last_build"):
             import datetime
             last_build = datetime.datetime.fromtimestamp(self.cache["last_build"])
-            print(f"  上次构建: {last_build.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"  构建耗时: {self.cache.get('last_duration', 0):.1f}秒")
-            print(f"  构建状态: {'成功' if self.cache['last_success'] else '失败'}")
+            print("🕒 上次构建:")
+            print(f"  时间: {last_build.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  耗时: {self.cache.get('last_duration', 0):.1f}秒")
+            print(f"  状态: {'✅ 成功' if self.cache.get('last_success') else '❌ 失败'}")
         else:
-            print("  上次构建: 从未构建")
+            print("🕒 上次构建: 从未构建")
+
+        print()
+
+        # 检查当前变更状态
+        print("🔍 当前状态检查:")
+        changes = self.check_changes(force=False)
+        if changes["any_change"]:
+            print("  📝 检测到变更，建议重新构建")
+        else:
+            if self._check_build_artifacts():
+                print("  ✅ 无变更且构建产物存在")
+            else:
+                print("  ⚠️  无变更但构建产物缺失")
+
+        print()
+        print("💡 提示:")
+        print("  - 使用 --force 强制完整重建")
+        print("  - 使用 --clean-cache 清理缓存")
+        print("  - 增量构建可大幅提升构建速度")
     
     def clean_cache(self):
         """清理缓存"""
@@ -631,14 +905,32 @@ def main():
     """主函数"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="ECBot 跨平台构建系统 v6.0")
+    parser = argparse.ArgumentParser(
+        description="ECBot 跨平台构建系统 v6.0 - 支持智能增量构建",
+        epilog="""
+增量构建说明:
+  默认情况下，构建系统会检查源代码、依赖、配置等变更，只在有变更时重新构建。
+  使用 --force 可以强制完整重建。
+
+示例:
+  python ecbot_build.py prod              # 生产模式增量构建
+  python ecbot_build.py dev --force       # 开发模式强制重建
+  python ecbot_build.py prod --stats      # 查看构建统计
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("mode", nargs="?", choices=["dev", "dev-debug", "prod"], default="prod",
                        help="构建模式: dev(开发) 或 dev-debug(调试) 或 prod(生产)")
-    parser.add_argument("--force", action="store_true", help="强制重新构建")
-    parser.add_argument("--skip-frontend", action="store_true", help="跳过前端构建")
-    parser.add_argument("--build-frontend", action="store_true", help="强制构建前端 (覆盖 dev 模式默认)")
-    parser.add_argument("--stats", action="store_true", help="显示构建统计")
-    parser.add_argument("--clean-cache", action="store_true", help="清理构建缓存")
+    parser.add_argument("--force", action="store_true",
+                       help="强制重新构建 (跳过增量检查)")
+    parser.add_argument("--skip-frontend", action="store_true",
+                       help="跳过前端构建")
+    parser.add_argument("--build-frontend", action="store_true",
+                       help="强制构建前端 (覆盖 dev 模式默认)")
+    parser.add_argument("--stats", action="store_true",
+                       help="显示构建统计信息")
+    parser.add_argument("--clean-cache", action="store_true",
+                       help="清理构建缓存并退出")
 
     args = parser.parse_args()
 

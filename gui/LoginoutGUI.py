@@ -1,5 +1,5 @@
 from app_context import AppContext
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
@@ -207,7 +207,7 @@ class Login(QDialog):
                     self.textPass.setText("")
                 self.lan = data["lan"]
         else:
-            logger_helper.info(f"acct file {ACCT_FILE} is not existed!")
+            logger.info(f"acct file {ACCT_FILE} is not existed!")
             self.show_visibility = True  # default
             localLan = self.get_locale()
             print(localLan)
@@ -314,7 +314,7 @@ class Login(QDialog):
                 self.machine_role = mr_data["machine_role"]
                 print("role file contents:", mr_data)
         else:
-            logger_helper.info(f"role file {ROLE_FILE} is not existed!")
+            logger.info(f"role file {ROLE_FILE} is not existed!")
 
     def get_role(self):
         # is function is for testing purpose only
@@ -629,7 +629,7 @@ class Login(QDialog):
             with open(ACCT_FILE, 'w') as jsonfile:
                 json.dump(data, jsonfile)
             self.hide()
-            print("hello hello hello")
+            logger.info("hello hello hello")
             main_key = self.scramble(self.textPass.text())
             self.current_user = self.textName.text()
             self.current_user_pw = self.textPass.text()
@@ -648,7 +648,7 @@ class Login(QDialog):
                 # self.new_main_win.loadURL(new_gui_url)
                 # self.new_main_win.show()        #coment this out if using old GUI
 
-                print("Running as a commander...", commanderServer)
+                logger.info("Running as a commander...", commanderServer)
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
@@ -660,7 +660,7 @@ class Login(QDialog):
                 self.main_win = MainWindow(self, main_key, self.tokens, self.mainLoop, self.ip,
                                            self.textName.text(), ecbhomepath,
                                            self.gui_net_msg_queue, self.machine_role, self.schedule_mode, self.lang)
-                print("Running as a platoon...", self.xport)
+                logger.info("Running as a platoon...", self.xport)
                 self.main_win.setOwner(self.textName.text())
                 self.main_win.setCog(self.cog)
                 self.main_win.setCogClient(self.aws_client)
@@ -678,7 +678,7 @@ class Login(QDialog):
         except Exception as e:
             # except ClientError as e:
             ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
-            print("Exception Error:", ex_stat)
+            logger.error("Exception Error:", ex_stat)
             msgBox = QMessageBox()
             if "UserNotConfirmedException" in str(e):
                 msgBox.setText(QApplication.translate("QMessageBox",
@@ -693,7 +693,7 @@ class Login(QDialog):
         except Exception as e:
             ex_stat = f"Error in handleLogin: {traceback.format_exc()} {str(e)}"
 
-            print("Exception Error:", ex_stat)
+            logger.error("Exception Error:", ex_stat)
             return str(e)
 
     async def refresh_tokens_periodically(self, refresh_token, interval=2700):
