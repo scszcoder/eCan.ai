@@ -107,89 +107,89 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         )
 
 
-@IPCHandlerRegistry.handler('get_vehicles')
-def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+# @IPCHandlerRegistry.handler('get_vehicles')
+# def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+#     """处理登录请求
 
-    验证用户凭据并返回访问令牌。
+#     验证用户凭据并返回访问令牌。
 
-    Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+#     Args:
+#         request: IPC 请求对象
+#         params: 请求参数，必须包含 'username' 和 'password' 字段
 
-    Returns:
-        str: JSON 格式的响应消息
-    """
-    try:
-        logger.debug(f"Get vehicles handler called with request: {request}")
+#     Returns:
+#         str: JSON 格式的响应消息
+#     """
+#     try:
+#         logger.debug(f"Get vehicles handler called with request: {request}")
 
-        # 验证参数
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for get vehicles: {error}")
-            return create_error_response(
-                request,
-                'INVALID_PARAMS',
-                error
-            )
+#         # 验证参数
+#         is_valid, data, error = validate_params(params, ['username'])
+#         if not is_valid:
+#             logger.warning(f"Invalid parameters for get vehicles: {error}")
+#             return create_error_response(
+#                 request,
+#                 'INVALID_PARAMS',
+#                 error
+#             )
 
-        # 获取用户名和密码
-        username = data['username']
+#         # 获取用户名和密码
+#         username = data['username']
 
-        # 简单的密码验证
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"Get vehicles successful for user: {username}")
-        ctx = AppContext()
-        login:Login = ctx.login
-        vehicles = login.main_win.vehicles
+#         # 简单的密码验证
+#         # 生成随机令牌
+#         token = str(uuid.uuid4()).replace('-', '')
+#         logger.info(f"Get vehicles successful for user: {username}")
+#         ctx = AppContext()
+#         login:Login = ctx.login
+#         vehicles = login.main_win.vehicles
 
-        resultJS = {
-            'token': token,
-            'vehicles': [vehicle.genJson() for vehicle in vehicles],
-            'message': 'Get all successful'
-        }
-        logger.debug('get vehicles resultJS:' + str(resultJS))
-        return create_success_response(request, resultJS)
+#         resultJS = {
+#             'token': token,
+#             'vehicles': [vehicle.genJson() for vehicle in vehicles],
+#             'message': 'Get all successful'
+#         }
+#         logger.debug('get vehicles resultJS:' + str(resultJS))
+#         return create_success_response(request, resultJS)
 
-    except Exception as e:
-        logger.error(f"Error in get vehicles handler: {e} {traceback.format_exc()}")
-        return create_error_response(
-            request,
-            'LOGIN_ERROR',
-            f"Error during get vehicles: {str(e)}"
-        )
+#     except Exception as e:
+#         logger.error(f"Error in get vehicles handler: {e} {traceback.format_exc()}")
+#         return create_error_response(
+#             request,
+#             'LOGIN_ERROR',
+#             f"Error during get vehicles: {str(e)}"
+#         )
 
 
-@IPCHandlerRegistry.handler('get_knowledges')
-def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理获取知识库请求
+# @IPCHandlerRegistry.handler('get_knowledges')
+# def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+#     """处理获取知识库请求
     
-    从知识库中获取条目。
+#     从知识库中获取条目。
     
-    Args:
-        request: IPC 请求对象
-        params: 请求参数，可以包含过滤条件
+#     Args:
+#         request: IPC 请求对象
+#         params: 请求参数，可以包含过滤条件
         
-    Returns:
-        str: JSON 格式的响应消息
-    """
-    try:
-        # 伪造一个知识库条目列表
-        knowledges = [
-            {'id': 'k1', 'title': 'How to setup environment', 'content': '...'},
-            {'id': 'k2', 'title': 'Troubleshooting guide', 'content': '...'}
-        ]
+#     Returns:
+#         str: JSON 格式的响应消息
+#     """
+#     try:
+#         # 伪造一个知识库条目列表
+#         knowledges = [
+#             {'id': 'k1', 'title': 'How to setup environment', 'content': '...'},
+#             {'id': 'k2', 'title': 'Troubleshooting guide', 'content': '...'}
+#         ]
         
-        logger.info("Knowledge base retrieved")
-        return create_success_response(request, knowledges)
-    except Exception as e:
-        logger.error(f"Error getting knowledges: {e} {traceback.format_exc()}")
-        return create_error_response(
-            request,
-            'KNOWLEDGE_ERROR',
-            f"Error getting knowledges: {str(e)}"
-        )
+#         logger.info("Knowledge base retrieved")
+#         return create_success_response(request, knowledges)
+#     except Exception as e:
+#         logger.error(f"Error getting knowledges: {e} {traceback.format_exc()}")
+#         return create_error_response(
+#             request,
+#             'KNOWLEDGE_ERROR',
+#             f"Error getting knowledges: {str(e)}"
+#         )
 
 
 @IPCHandlerRegistry.handler('save_all')

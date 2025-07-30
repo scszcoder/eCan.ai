@@ -155,9 +155,9 @@ export class IPCAPI {
         return this.executeRequest<T>('get_tools', {username, tool_ids });
     }
 
-    public async getKnowledges<T>(username: string, knowledge_ids: string[]): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_knowledges', {username, knowledge_ids });
-    }
+    // public async getKnowledges<T>(username: string, knowledge_ids: string[]): Promise<APIResponse<T>> {
+    //     return this.executeRequest<T>('get_knowledges', {username, knowledge_ids });
+    // }
 
     public async getSettings<T>(username: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_settings', {username});

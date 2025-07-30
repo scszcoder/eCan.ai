@@ -1,11 +1,12 @@
 // 只导出 public/assets/gifs 下的 webm 文件路径
+// 使用相对路径以支持 file:// 协议
 const agentGifs = [
-  '/assets/gifs/agent0.webm',
-  '/assets/gifs/agent1.webm',
-  '/assets/gifs/agent2.webm',
-  '/assets/gifs/agent3.webm',
-  '/assets/gifs/agent4.webm',
-  '/assets/gifs/agent5.webm',
+  './assets/gifs/agent0.webm',
+  './assets/gifs/agent1.webm',
+  './assets/gifs/agent2.webm',
+  './assets/gifs/agent3.webm',
+  './assets/gifs/agent4.webm',
+  './assets/gifs/agent5.webm',
 ];
 
 export default agentGifs;

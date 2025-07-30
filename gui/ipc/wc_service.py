@@ -135,9 +135,24 @@ class IPCWCService(QObject):
         if handler_type == 'sync':
             # 直接在主线程调用同步处理器
             logger.debug(f"Executing sync handler for method: {method}")
-            params = request.get('params')
-            sync_response = handler(request, params)
-            return json.dumps(sync_response)
+            try:
+                params = request.get('params')
+                sync_response = handler(request, params)
+                return json.dumps(sync_response)
+            except KeyboardInterrupt:
+                logger.warning(f"KeyboardInterrupt during sync handler execution for method: {method}")
+                return json.dumps(create_error_response(
+                    request,
+                    'INTERRUPTED',
+                    f"Operation '{method}' was interrupted by user"
+                ))
+            except Exception as e:
+                logger.error(f"Error in sync handler for method {method}: {e}")
+                return json.dumps(create_error_response(
+                    request,
+                    'HANDLER_ERROR',
+                    f"Error executing handler for '{method}': {str(e)}"
+                ))
         
         elif handler_type == 'background':
             # 为后台任务创建一个 Worker 并提交到线程池
