@@ -41,7 +41,13 @@ def set_up_ec_helper_agent(mainwin):
         chatter_task = create_ec_helper_chat_task(mainwin)
         worker_task = create_ec_helper_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+
+        # 尝试创建 EC_Agent，如果失败则使用备用方案
+        try:
+            helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+        except RuntimeError as re:
+            print(f"Warning: browser_use resource loading failed in PyInstaller environment: {re}")
+            print("Attempting to create EC_Agent without browser_use features...")
 
     except Exception as e:
         # Get the traceback information
