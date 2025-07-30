@@ -72,29 +72,49 @@ class LoggerHelper:
             file_handler.setFormatter(file_formatter)
             self.logger.addHandler(file_handler)
 
+    def _join_message_args(self, message, *args):
+        def safe_str(x):
+            try:
+                return str(x)
+            except Exception:
+                return f"<Unprintable {type(x).__name__}>"
+        # 如果 message 是字符串且 args 只有一个且包含 %，则用原生格式化
+        if isinstance(message, str) and args and "%" in message:
+            try:
+                return message % args
+            except Exception:
+                pass  # 格式化失败则退回拼接
+        return " ".join(safe_str(x) for x in (message,) + args)
+
     def trace(self, message, *args, **kwargs):
         if hasattr(self, 'logger'):
-            self.logger.trace(message, *args, **kwargs)
+            msg = self._join_message_args(message, *args)
+            self.logger.trace(msg, **kwargs)
 
     def debug(self, message, *args, **kwargs):
         if hasattr(self, 'logger'):
-            self.logger.debug(message, *args, **kwargs)
+            msg = self._join_message_args(message, *args)
+            self.logger.debug(msg, **kwargs)
 
     def info(self, message, *args, **kwargs):
         if hasattr(self, 'logger'):
-            self.logger.info(message, *args, **kwargs)
+            msg = self._join_message_args(message, *args)
+            self.logger.info(msg, **kwargs)
 
     def warning(self, message, *args, **kwargs):
         if hasattr(self, 'logger'):
-            self.logger.warning(message, *args, **kwargs)
+            msg = self._join_message_args(message, *args)
+            self.logger.warning(msg, **kwargs)
 
     def error(self, message, *args, **kwargs):
         if hasattr(self, 'logger'):
-            self.logger.error(message, *args, **kwargs)
+            msg = self._join_message_args(message, *args)
+            self.logger.error(msg, **kwargs)
 
     def critical(self, message, *args, **kwargs):
         if hasattr(self, 'logger'):
-            self.logger.critical(message, *args, **kwargs)
+            msg = self._join_message_args(message, *args)
+            self.logger.critical(msg, **kwargs)
 
 
 logger_helper = LoggerHelper()
