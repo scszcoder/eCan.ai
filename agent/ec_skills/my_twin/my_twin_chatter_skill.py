@@ -7,7 +7,7 @@ from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import MemorySaver
 from bot.Logger import *
 from agent.ec_skill import *
-from utils.logger_helper import get_agent_by_id
+from utils.logger_helper import get_agent_by_id, logger_helper as logger
 
 # this is simply an parrot agent, no thinking, no intelligent, simply pipe human message to agent
 # and pipe agent response back to human
@@ -40,7 +40,10 @@ def parrot(state: NodeState) -> NodeState:
             #     ipc_api = mainwin.top_gui.get_ipc_api()
             #     await ipc_api.update_chats({"chats": [chat], "agent": agent})
             recipient_agent = next((ag for ag in mainwin.agents if "Engineering Procurement Agent" == ag.card.name), None)
-            print("parrot recipient found:", recipient_agent.card.name)
+            if recipient_agent:
+                logger.info("parrot recipient found:", recipient_agent.card.name)
+            else:
+                logger.error("recipient agent not found!")
             # result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
             result = agent.a2a_send_chat_message(recipient_agent, {"chat": state})
 
@@ -53,7 +56,8 @@ def parrot(state: NodeState) -> NodeState:
             ex_stat = "ErrorCreateMyTwinChatterSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateMyTwinChatterSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        # mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
     return result_state
@@ -86,7 +90,7 @@ async def create_my_twin_chatter_skill(mainwin):
         else:
             ex_stat = "ErrorCreateMyTwinChatterSkill: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
-        print(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return chatter_skill
