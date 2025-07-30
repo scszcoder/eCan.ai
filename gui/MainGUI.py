@@ -1,5 +1,6 @@
 import ast
 import json
+from dotenv import load_dotenv
 
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
@@ -21,6 +22,8 @@ import base64
 
 import copy
 import math
+import sys
+import os
 import os.path
 import random
 import traceback
@@ -1134,6 +1137,19 @@ class MainWindow(QMainWindow):
             self.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
 
         self.browser_use_file_system = FileSystem(self.browser_use_file_system_path)
+        
+        # Load environment variables before initializing ChatOpenAI
+        # For PyInstaller bundled app, try to load .env from the executable directory
+        if getattr(sys, 'frozen', False):
+            # Running in a PyInstaller bundle
+            bundle_dir = sys._MEIPASS
+            env_path = os.path.join(bundle_dir, '.env')
+        else:
+            # Running in normal Python environment
+            env_path = '.env'
+        
+        load_dotenv(env_path)
+        
         self.llm = ChatOpenAI(model='gpt-4o')
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()

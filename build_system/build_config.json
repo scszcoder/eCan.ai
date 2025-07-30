@@ -16,7 +16,7 @@
     ],
     "files": [
       "app_context.py", "ECBot.ico", "ECBot.icns",
-      "ecbot.qm", "ecbot_zh.qm", "role.json", "uli.json"
+      "ecbot.qm", "ecbot_zh.qm", "role.json", "uli.json", ".env"
     ]
   },
   "pyinstaller": {
