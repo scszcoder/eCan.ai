@@ -24,8 +24,22 @@ def set_up_ec_rpa_operator_agent(mainwin):
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         worker_skill = next((sk for sk in agent_skills if "ecbot rpa operator" in sk.name), None)
-        print("agent_skill", worker_skill.name)
+        if worker_skill:
+            print("agent_skill", worker_skill.name)
+        else:
+            print("Warning: worker_skill not found")
         chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator chatter"),None)
+        if chatter_skill:
+            print("chatter_skill", chatter_skill.name)
+        else:
+            print("Warning: chatter_skill not found")
+
+        # 过滤掉 None 值
+        valid_skills = [skill for skill in [worker_skill, chatter_skill] if skill is not None]
+
+        if not valid_skills:
+            print("Error: No valid skills found for ECBot RPA Operator Agent")
+            return None
 
         agent_card = AgentCard(
             name="ECBot RPA Operator Agent",
@@ -35,14 +49,18 @@ def set_up_ec_rpa_operator_agent(mainwin):
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            skills=[worker_skill, chatter_skill],
+            skills=valid_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_rpa_operator_chat_task(mainwin)
         worker_task = create_ec_rpa_operator_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        operator = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+
+        # 过滤掉 None 值的任务列表
+        valid_tasks = [task for task in [worker_task, chatter_task] if task is not None]
+
+        operator = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=valid_skills, tasks=valid_tasks)
 
     except Exception as e:
         # Get the traceback information

@@ -880,9 +880,9 @@ async def os_connect_to_adspower(mainwin, args):
     try:
         url = args['input']["url"]
         # global ads_config, local_api_key, local_api_port, sk_work_settings
-        ads_port = mainwin.ads_settings['ads_port']
-        ads_api_key = mainwin.ads_settings['ads_api_key']
-        ads_chrome_version = mainwin.ads_settings['chrome_version']
+        ads_port = mainwin.ads_settings.get('ads_port', 0)
+        ads_api_key = mainwin.ads_settings.get('ads_api_key', '')
+        ads_chrome_version = mainwin.ads_settings.get('chrome_version', '')
         scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
         web_driver_options = ""
         print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:',

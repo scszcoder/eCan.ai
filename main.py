@@ -1,10 +1,62 @@
+import multiprocessing
+import sys
+import os
+
+# 多进程保护 - 必须在所有其他导入之前
+if __name__ == '__main__':
+    # 使用文件锁来防止多个主进程同时运行
+    import fcntl
+    import tempfile
+
+    lock_file_path = os.path.join(tempfile.gettempdir(), 'ecbot_main.lock')
+
+    try:
+        # 尝试创建并锁定文件
+        lock_file = open(lock_file_path, 'w')
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+        # 写入当前进程ID
+        lock_file.write(str(os.getpid()))
+        lock_file.flush()
+
+        # 注册退出时清理锁文件
+        import atexit
+        def cleanup_lock():
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+                os.unlink(lock_file_path)
+            except:
+                pass
+        atexit.register(cleanup_lock)
+
+    except (IOError, OSError):
+        # 锁文件已被其他进程占用，说明主进程已在运行
+        print("ECBot main process already running, exiting...")
+        sys.exit(0)
+
+    # 设置多进程启动方法为spawn，避免fork问题
+    if hasattr(multiprocessing, 'set_start_method'):
+        try:
+            multiprocessing.set_start_method('spawn', force=True)
+        except RuntimeError:
+            pass  # 已经设置过了
+
+    # 禁用资源跟踪器以避免重复启动问题
+    try:
+        import multiprocessing.resource_tracker
+        multiprocessing.resource_tracker._resource_tracker = None
+    except Exception:
+        pass  # 忽略任何错误
+else:
+    # 如果不是主模块，直接退出
+    sys.exit(0)
+
 from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " app start...")
 import asyncio
-import sys
 import traceback
-import os
 
 import qasync
 from PySide6.QtWidgets import QApplication

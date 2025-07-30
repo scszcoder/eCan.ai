@@ -296,7 +296,9 @@ class MainWindow(QMainWindow):
         self.os_info = f"{system} {release} ({architecture}), Version: {version}"
 
         self.platform = platform.system().lower()[0:3]
-        self.cpuinfo = cpuinfo.get_cpu_info()
+
+        self.cpuinfo = self._get_cpu_info_safely()
+
         self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
         self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
         self.cpu_threads = psutil.cpu_count(logical=True)  # Logical cores (including hyper-threading)
@@ -458,6 +460,29 @@ class MainWindow(QMainWindow):
                 self.schedule_engine = self.general_settings.get("schedule_engine", "wan")
                 self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
                 self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
+        else:
+            logger.warning("no general settings file." + self.general_settings_file)
+            # 如果配置文件不存在，使用默认值
+            self.general_settings = {}
+            self.debug_mode = False
+            self.schedule_mode = "auto"
+            self.default_wifi = ""
+            self.default_printer = ""
+            self.display_resolution = ""
+            self.default_webdriver_path = ""
+            self.build_dom_tree_script_path = ""
+            self.new_orders_dir = "c:/ding_dan/"
+            self.local_user_db_server = "127.0.0.1"
+            self.local_user_db_port = "5080"
+            self.local_agent_db_server = "192.168.0.16"
+            self.local_agent_db_port = "6668"
+            self.lan_api_endpoint = ""
+            self.wan_api_endpoint = ""
+            self.ws_api_endpoint = ""
+            self.img_engine = "lan"
+            self.schedule_engine = "wan"
+            self.local_agents_port_range = [3600, 3800]
+            self.browser_use_file_system_path = ""
 
         print("some vars init done3....")
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
@@ -467,8 +492,9 @@ class MainWindow(QMainWindow):
             with open(self.ads_settings_file, 'r') as ads_settings_f:
                 self.ads_settings = json.load(ads_settings_f)
                 if "ads_profile_dir" in self.ads_settings:
-                    if self.ads_settings["ads_profile_dir"]:
-                        self.ads_profile_dir = self.ads_settings["ads_profile_dir"]
+                    ads_profile_dir = self.ads_settings.get("ads_profile_dir", "")
+                    if ads_profile_dir:
+                        self.ads_profile_dir = ads_profile_dir
 
             ads_settings_f.close()
         self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
@@ -1264,7 +1290,7 @@ class MainWindow(QMainWindow):
         return save_agent_skills(self, [skill])
 
     def get_local_server_port(self):
-        return self.general_settings["local_server_port"]
+        return self.general_settings.get("local_server_port", "4668")
 
 
     def set_top_gui(self, top_gui):
@@ -1477,6 +1503,16 @@ class MainWindow(QMainWindow):
         else:
             self.logConsole.setVisible(False)
 
+    def _get_cpu_info_safely(self):
+        """
+        安全获取CPU信息，避免多进程问题
+
+        Returns:
+            dict: CPU信息字典，包含brand_raw和hz_advertised_friendly等字段
+        """
+        from utils.cpu_info_helper import get_cpu_info_safely
+        return get_cpu_info_safely()
+
     def getWifis(self):
         return self.wifis
 
@@ -1499,14 +1535,17 @@ class MainWindow(QMainWindow):
         return self.async_crawler
 
     def newWebCrawler(self):
-        self.crawler_browser_config = BrowserConfig(
-            headless=False,
-            verbose=True,
-            viewport_width=1920,
-            viewport_height=1080
-        )
-        self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
-
+        try:
+            self.crawler_browser_config = BrowserConfig(
+                headless=False,
+                verbose=True,
+                viewport_width=1920,
+                viewport_height=1080
+            )
+            self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
+        except Exception as e:
+            print(f"Warning: Failed to initialize web crawler with BrowserConfig: {e}")
+ 
     def setupBrowserSession(self):
         browser = self.async_crawler.crawler_strategy.browser_manager.browser
         self.browser_session = BrowserSession(browser=browser)
@@ -1727,25 +1766,25 @@ class MainWindow(QMainWindow):
         return self.user
 
     def getImageEngine(self):
-        return self.general_settings["img_engine"]
+        return self.general_settings.get("img_engine", "lan")
 
     def getLanImageEndpoint(self):
-        return self.general_settings["lan_api_endpoint"]
+        return self.general_settings.get("lan_api_endpoint", "")
 
     def getWanImageEndpoint(self):
-        return self.general_settings["wan_api_endpoint"]
+        return self.general_settings.get("wan_api_endpoint", "")
 
     def getWanApiEndpoint(self):
-        return self.general_settings["wan_api_endpoint"]
+        return self.general_settings.get("wan_api_endpoint", "")
 
     def getWanApiKey(self):
-        return self.general_settings["wan_api_key"]
+        return self.general_settings.get("wan_api_key", "")
 
     def getWSApiEndpoint(self):
-        return self.general_settings["ws_api_endpoint"]
+        return self.general_settings.get("ws_api_endpoint", "")
 
     def getLanApiEndpoint(self):
-        return self.general_settings["lan_api_endpoint"]
+        return self.general_settings.get("lan_api_endpoint", "")
 
     def setMILANServer(self, ip, port="8848"):
         self.general_settings["lan_api_host"] = ip
@@ -8774,6 +8813,8 @@ class MainWindow(QMainWindow):
         log3("just build cookie site list:"+json.dumps(self.bot_cookie_site_lists), "build_cookie_site_lists", self)
 
     def setADSBatchSize(self, batch_size):
+        if self.ads_settings is None:
+            self.ads_settings = {}
         self.ads_settings["batch_size"] = batch_size
 
     def getADSBatchSize(self):
