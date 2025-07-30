@@ -1,0 +1,22 @@
+{
+  "_comment": "ECBot 构建配置文件 - 修改此文件后立即生效",
+  "app_info": {
+    "name": "ECBot",
+    "main_script": "main.py", 
+    "icon": "ECBot.ico",
+    "description": "ECBot Desktop Application"
+  },
+  "data_files": {
+    "directories": ["resource", "config", "bot", "gui", "common", "utils", "agent", "tests", "knowledge", "settings", "skills", "telemetry", "gui_v2/dist", "ecbot-ui/dist"],
+    "files": ["app_context.py", "ECBot.ico", "ecbot.qm", "ecbot_zh.qm", "role.json", "uli.json"]
+  },
+  "pyinstaller": {
+    "excludes": ["matplotlib", "jupyter", "notebook", "ipython", "pytest", "django", "flask", "tornado", "bokeh", "plotly", "tensorflow", "keras", "test", "tests", "testing", "setuptools", "distutils", "pip"],
+    "hidden_imports": ["PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebChannel", "PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets", "PySide6.QtNetwork", "shiboken6", "unittest", "unittest.mock", "doctest", "qasync", "browser_use", "browser_use.agent", "browser_use.agent.service", "browser_use.agent.prompts", "browser_use.utils", "playwright", "crawl4ai", "crawl4ai.async_configs", "crawl4ai.user_agent_generator", "langchain", "tiktoken", "tiktoken_ext", "tiktoken.model", "tiktoken.registry", "tiktoken.core", "langchain_openai", "langchain_openai.chat_models", "langchain_openai.chat_models.base", "langchain_openai.chat_models.azure", "tkinter", "_tkinter", "idlelib", "idlelib.autocomplete", "idlelib.autocomplete_w", "scipy", "scipy.stats", "scipy.sparse", "scipy._lib", "scipy._lib._util", "scipy._lib._array_api", "scipy._lib.array_api_compat", "scipy._lib.array_api_compat._internal", "scipy._lib.array_api_compat.numpy", "scipy._lib.array_api_compat.numpy._info", "scipy._lib.array_api_compat.numpy._typing", "scipy._lib.array_api_compat.numpy._aliases", "scipy._lib.array_api_compat.numpy.fft", "scipy._lib.array_api_compat.numpy.linalg", "scipy.sparse._base", "scipy.sparse._sputils", "fake_useragent", "fake_useragent.data", "fake_useragent.utils", "fake_useragent.fake", "fake_useragent.errors"]
+  },
+  "build_modes": {
+    "dev": {"debug": false, "console": true, "clean": false, "optimize": false, "onefile": false},
+    "dev-debug": {"debug": true, "console": true, "clean": false, "optimize": false, "onefile": false},
+    "prod": {"debug": false, "console": false, "clean": true, "optimize": true, "onefile": false}
+  }
+}

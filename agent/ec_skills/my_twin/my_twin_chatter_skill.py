@@ -86,6 +86,7 @@ async def create_my_twin_chatter_skill(mainwin):
         else:
             ex_stat = "ErrorCreateMyTwinChatterSkill: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
+        print(ex_stat)
         return None
 
     return chatter_skill

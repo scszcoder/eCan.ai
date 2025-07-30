@@ -27,3 +27,6 @@ gui_v2/coverage/
 /knowledge/rag_storage
 /knowledge/*.log
 /lightrag_data
+/build_system/*.log
+.vscode/
+.DS_Store

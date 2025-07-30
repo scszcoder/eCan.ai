@@ -569,7 +569,7 @@ class Login(QDialog):
             self.aws_srp = AWSSRP(username=uname, password=pw, pool_id=USER_POOL_ID,
                                   client_id=CLIENT_ID, client=self.aws_client)
 
-            if not mrole:
+            if mrole is not None:
                 self.machine_role = mrole
 
             # self.tokens = self.aws_srp.authenticate_user()

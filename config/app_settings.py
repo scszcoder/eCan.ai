@@ -26,15 +26,21 @@ def copy_skills_file():
             print(f"delete appdata skills public dir {appdata_skills_public_dir}")
         except FileNotFoundError:
             print(f"Warning: some files in {appdata_skills_public_dir} already missing, ignore.")
+        except Exception as e:
+            print(f"Warning: failed to delete {appdata_skills_public_dir}: {e}")
     else:
-        print("appdata skills public dir existed")
+        print("appdata skills public dir not existed")
 
     # copy skills public files to appdata dir
     print(f"copy skills public files from {app_skills_public_dir} to {appdata_skills_public_dir}")
     try:
         shutil.copytree(app_skills_public_dir, appdata_skills_public_dir)
+    except FileExistsError:
+        print(f"Warning: {appdata_skills_public_dir} already exists, skipping copy")
     except FileNotFoundError as e:
         print(f"Warning: copytree failed, missing file: {e}")
+    except Exception as e:
+        print(f"Warning: copytree failed with error: {e}")
 
 
 def create_appdata_dirs():
