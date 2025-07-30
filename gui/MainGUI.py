@@ -474,15 +474,19 @@ class MainWindow(QMainWindow):
             self.new_orders_dir = "c:/ding_dan/"
             self.local_user_db_server = "127.0.0.1"
             self.local_user_db_port = "5080"
-            self.local_agent_db_server = "192.168.0.16"
-            self.local_agent_db_port = "6668"
-            self.lan_api_endpoint = ""
-            self.wan_api_endpoint = ""
-            self.ws_api_endpoint = ""
-            self.img_engine = "lan"
-            self.schedule_engine = "wan"
-            self.local_agents_port_range = [3600, 3800]
-            self.browser_use_file_system_path = ""
+
+        # 确保所有必需的配置项都存在
+        self._ensure_default_settings()
+
+        self.local_agent_db_server = self.general_settings.get("localAgentDB_host", "192.168.0.16")
+        self.local_agent_db_port = self.general_settings.get("localAgentDB_port", "6668")
+        self.lan_api_endpoint = self.general_settings.get("lan_api_endpoint", "")
+        self.wan_api_endpoint = self.general_settings.get("wan_api_endpoint", "")
+        self.ws_api_endpoint = self.general_settings.get("ws_api_endpoint", "")
+        self.img_engine = self.general_settings.get("img_engine", "lan")
+        self.schedule_engine = self.general_settings.get("schedule_engine", "wan")
+        self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
+        self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
 
         print("some vars init done3....")
         self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
@@ -1338,7 +1342,7 @@ class MainWindow(QMainWindow):
     # 3) regenerate psk files for each skill
     # 4) build up skill_table (a look up table)
     def dailySkillsetUpdate(self):
-        if self.general_settings["schedule_mode"] != "test":
+        if self.general_settings.get("schedule_mode", "auto") != "test":
             cloud_skills_results = self.SkillManagerWin.fetchMySkills()
             print("DAILY SKILL FETCH:", cloud_skills_results)
         else:
@@ -1582,26 +1586,56 @@ class MainWindow(QMainWindow):
         self.general_settings["schedule_mode"] = sm
 
     def get_schedule_mode(self):
-        return self.general_settings["schedule_mode"]
+        return self.general_settings.get("schedule_mode", "auto")
 
     def set_default_wifi(self, default_wifi):
         self.general_settings["default_wifi"] = default_wifi
 
     def get_default_wifi(self):
-        if "default_wifi" in self.general_settings:
-            return self.general_settings["default_wifi"]
-        else:
-            return "unknown"
+        return self.general_settings.get("default_wifi", "unknown")
 
     def set_default_printer(self, default_printer):
         self.general_settings["default_printer"] = default_printer
 
     def get_default_printer(self):
-        if "default_printer" in self.general_settings:
-            return self.general_settings["default_printer"]
-        else:
-            return "unknown"
+        return self.general_settings.get("default_printer", "unknown")
 
+    def _ensure_default_settings(self):
+        """确保所有必需的配置项都存在默认值"""
+        default_settings = {
+            "schedule_mode": "auto",
+            "debug_mode": False,
+            "default_wifi": "",
+            "default_printer": "",
+            "display_resolution": "",
+            "default_webdriver_path": "",
+            "build_dom_tree_script_path": "",
+            "new_orders_dir": "c:/ding_dan/",
+            "new_bots_file_path": "c:/ding_dan/",
+            "localUserDB_host": "127.0.0.1",
+            "localUserDB_port": "5080",
+            "localAgentDB_host": "192.168.0.16",
+            "localAgentDB_port": "6668",
+            "local_server_port": "4668",
+            "localAgent_ports": [3600, 3800],
+            "lan_api_endpoint": "",
+            "lan_api_host": "",
+            "wan_api_endpoint": "",
+            "ws_api_endpoint": "",
+            "img_engine": "lan",
+            "schedule_engine": "wan",
+            "browser_use_file_system_path": "",
+            "last_bots_file": "",
+            "last_bots_file_time": "",
+            "last_order_file": "",
+            "last_order_file_time": "",
+            "mids_forced_to_run": []
+        }
+
+        # 为缺失的配置项设置默认值
+        for key, default_value in default_settings.items():
+            if key not in self.general_settings:
+                self.general_settings[key] = default_value
 
     def saveSettings(self):
         try:
@@ -9822,7 +9856,7 @@ class MainWindow(QMainWindow):
             found_vehicle.setStatus("running_idle")       # this vehicle is ready to take more work if needed.
             vehicle_report = self.prepVehicleReportData(found_vehicle)
             log3("vehicle status report"+json.dumps(vehicle_report))
-            if self.general_settings["schedule_mode"] != "test":
+            if self.general_settings.get("schedule_mode", "auto") != "test":
                 resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
                                                  vehicle_report, self.getWanApiEndpoint())
             self.saveVehiclesJsonFile()

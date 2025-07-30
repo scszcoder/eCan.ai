@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot 极简构建系统 v5.0
+ECBot 跨平台构建系统 v6.0
+支持 macOS 和 Windows 双平台打包
 单文件解决方案，集成所有构建功能
 """
 
@@ -11,17 +12,23 @@ import json
 import time
 import hashlib
 import subprocess
+import platform
 from pathlib import Path
 from typing import Dict, Any, List
 
 
 class ECBotBuild:
-    """ECBot 极简构建器 - 单文件解决方案"""
-    
+    """ECBot 跨平台构建器 - 支持 macOS 和 Windows"""
+
     def __init__(self, mode: str = "prod"):
         self.mode = mode  # dev 或 prod
         self.project_root = Path.cwd()
         self.config_file = Path(__file__).parent / "build_config.json"
+
+        # 平台信息
+        self.platform_name = platform.system()
+        self.is_macos = self.platform_name == "Darwin"
+        self.is_windows = self.platform_name == "Windows"
 
         # 加载配置
         self.base_config = self._load_config()
@@ -47,12 +54,39 @@ class ECBotBuild:
             print(f"配置文件路径: {self.config_file}")
             sys.exit(1)
 
+    def get_platform_info(self) -> Dict[str, str]:
+        """获取平台信息"""
+        if self.is_macos:
+            return {
+                "name": "macOS",
+                "icon": self.base_config["app_info"]["icon_macos"],
+                "app_suffix": ".app",
+                "executable_suffix": ""
+            }
+        elif self.is_windows:
+            return {
+                "name": "Windows",
+                "icon": self.base_config["app_info"]["icon_windows"],
+                "app_suffix": ".exe",
+                "executable_suffix": ".exe"
+            }
+        else:
+            return {
+                "name": "Linux",
+                "icon": self.base_config["app_info"]["icon_windows"],
+                "app_suffix": "",
+                "executable_suffix": ""
+            }
+
     def get_config(self) -> Dict[str, Any]:
         """获取构建配置 - 从JSON文件读取"""
+        platform_info = self.get_platform_info()
+
         config = {
             "app_name": self.base_config["app_info"]["name"],
             "main_script": self.base_config["app_info"]["main_script"],
-            "icon": self.base_config["app_info"]["icon"],
+            "icon": platform_info["icon"],
+            "platform": platform_info,
 
             # 数据文件
             "data_dirs": self.base_config["data_files"]["directories"],
@@ -68,7 +102,88 @@ class ECBotBuild:
         config.update(mode_config)
 
         return config
-    
+
+    def check_prerequisites(self) -> bool:
+        """检查构建前提条件"""
+        print("🔍 检查构建前提条件...")
+
+        # 检查 Python 版本
+        if sys.version_info < (3, 8):
+            print("❌ Python 版本过低，需要 3.8 或更高版本")
+            return False
+
+        # 检查 PyInstaller
+        try:
+            import PyInstaller
+            print(f"✅ PyInstaller 版本: {PyInstaller.__version__}")
+        except ImportError:
+            print("❌ 未安装 PyInstaller，请运行: pip install pyinstaller")
+            return False
+
+        # 检查图标文件
+        platform_info = self.get_platform_info()
+        icon_path = self.project_root / platform_info["icon"]
+        if not icon_path.exists():
+            print(f"❌ 图标文件不存在: {icon_path}")
+            return False
+
+        print(f"✅ 平台: {platform_info['name']}")
+        print(f"✅ 图标文件: {platform_info['icon']}")
+
+        return True
+
+    def build_frontend(self, skip_frontend: bool = False) -> bool:
+        """构建前端"""
+        if skip_frontend:
+            print("⏭️  跳过前端构建 (使用 --skip-frontend 或 dev 模式默认)")
+            # 检查是否存在已构建的前端文件
+            gui_dist_path = self.project_root / "gui_v2" / "dist"
+            if gui_dist_path.exists():
+                print("✅ 使用现有前端构建文件")
+                return True
+            else:
+                print("⚠️  未找到前端构建文件，将强制构建前端")
+
+        print("🔨 构建前端...")
+
+        gui_v2_path = self.project_root / "gui_v2"
+        if not gui_v2_path.exists():
+            print("❌ gui_v2 目录不存在")
+            return False
+
+        try:
+            # 检查是否有 package.json
+            if not (gui_v2_path / "package.json").exists():
+                print("❌ gui_v2/package.json 不存在")
+                return False
+
+            print("📦 开始前端构建，这可能需要几分钟...")
+
+            # 构建前端，显示详细输出
+            result = subprocess.run(
+                ["npm", "run", "build"],
+                cwd=gui_v2_path,
+                text=True,
+                timeout=300
+            )
+
+            if result.returncode != 0:
+                print(f"❌ 前端构建失败，返回码: {result.returncode}")
+                return False
+
+            print("✅ 前端构建完成")
+            return True
+
+        except subprocess.TimeoutExpired:
+            print("❌ 前端构建超时 (5分钟)")
+            return False
+        except FileNotFoundError:
+            print("❌ npm 命令未找到，请确保安装了 Node.js")
+            return False
+        except Exception as e:
+            print(f"❌ 前端构建出错: {e}")
+            return False
+
     def _load_cache(self) -> Dict[str, Any]:
         """加载构建缓存"""
         if self.cache_file.exists():
@@ -144,20 +259,38 @@ class ECBotBuild:
                 import shutil
                 shutil.rmtree(self.dist_dir)
     
-    def build(self, force: bool = False) -> bool:
-        """执行构建"""
-        print(f"🚀 ECBot 构建器 - {self.mode.upper()} 模式")
+    def build(self, force: bool = False, skip_frontend: bool = None) -> bool:
+        """执行完整构建流程"""
+        platform_info = self.get_platform_info()
+        print(f"🚀 ECBot 跨平台构建器 - {self.mode.upper()} 模式")
+        print(f"🎯 目标平台: {platform_info['name']}")
         print("=" * 50)
-        
-        # 检查是否需要构建
+
+        # 检查前提条件
+        if not self.check_prerequisites():
+            print("❌ 前提条件检查失败")
+            return False
+
+        # 决定是否跳过前端构建
+        if skip_frontend is None:
+            # dev 模式默认跳过前端构建
+            skip_frontend = (self.mode == "dev")
+
+        # 构建前端
+        if not self.build_frontend(skip_frontend=skip_frontend):
+            print("❌ 前端构建失败")
+            return False
+
+        # 检查是否需要构建后端
         if not force and not self.check_changes():
+            print("✅ 无需重新构建后端")
             return True
-        
+
         # 清理构建目录
         self.clean_build()
-        
-        # 开始构建
-        print("🔨 开始构建...")
+
+        # 开始构建后端
+        print("🔨 开始构建后端...")
         start_time = time.time()
         
         try:
@@ -187,10 +320,11 @@ class ECBotBuild:
         config = self.get_config()
         
         # 构建PyInstaller命令
+        icon_path = str(self.project_root / config["icon"])
         cmd = [
             sys.executable, "-m", "PyInstaller",
             "--name", config["app_name"],
-            "--icon", config["icon"],
+            "--icon", icon_path,
             "--workpath", str(self.build_dir / "work"),
             "--distpath", str(self.dist_dir),
             "--specpath", str(self.build_dir),
@@ -200,10 +334,23 @@ class ECBotBuild:
         # 添加选项
         if config["debug"]:
             cmd.append("--debug=all")
-        if config["console"]:
-            cmd.append("--console")
+
+        # 根据平台和模式决定窗口类型
+        if self.is_macos:
+            if config["console"] and self.mode == "dev":
+                # dev 模式在 macOS 上使用 --console 以便调试
+                cmd.append("--console")
+                print("ℹ️  dev 模式使用 --console 以便调试 (生成目录而非 .app)")
+            else:
+                # 其他模式使用 --windowed 生成 .app 文件
+                cmd.append("--windowed")
+                if config["console"]:
+                    print("ℹ️  macOS 生产模式使用 --windowed 生成 .app 文件")
         else:
-            cmd.append("--windowed")
+            if config["console"]:
+                cmd.append("--console")
+            else:
+                cmd.append("--windowed")
         if config["onefile"]:
             cmd.append("--onefile")
         else:
@@ -282,7 +429,14 @@ class ECBotBuild:
         # 添加排除模块
         for module in config["excludes"]:
             cmd.extend(["--exclude-module", module])
-        
+
+        # macOS 特定配置
+        if self.is_macos and not (self.mode == "dev" and config["console"]):
+            # 为 .app 文件添加必要的配置
+            cmd.extend([
+                "--osx-bundle-identifier", "com.ecbot.app"
+            ])
+
         # 添加主脚本
         cmd.append(config["main_script"])
         
@@ -290,20 +444,145 @@ class ECBotBuild:
         
         # 执行构建
         result = subprocess.run(cmd, cwd=self.project_root)
+
+        # 如果构建成功且是 macOS .app 文件，进行后处理
+        if result.returncode == 0 and self.is_macos and not (self.mode == "dev" and config["console"]):
+            self._post_process_macos_app()
+
         return result.returncode == 0
-    
+
+    def _post_process_macos_app(self):
+        """macOS .app 文件后处理"""
+        app_path = self.dist_dir / "ECBot.app"
+        if not app_path.exists():
+            return
+
+        try:
+            # 1. 优化 Info.plist
+            self._optimize_info_plist(app_path)
+
+            # 2. 设置正确的权限
+            self._set_app_permissions(app_path)
+
+        except Exception as e:
+            print(f"⚠️  macOS .app 后处理失败: {e}")
+
+    def _optimize_info_plist(self, app_path: Path):
+        """优化 Info.plist 文件"""
+        plist_path = app_path / "Contents" / "Info.plist"
+        if not plist_path.exists():
+            return
+
+        try:
+            import plistlib
+
+            # 读取现有的 plist
+            with open(plist_path, 'rb') as f:
+                plist_data = plistlib.load(f)
+
+            # 添加必要的配置
+            plist_data.update({
+                'NSHighResolutionCapable': True,
+                'LSMinimumSystemVersion': '10.13.0',
+                'NSAppTransportSecurity': {
+                    'NSAllowsArbitraryLoads': True
+                },
+                'NSCameraUsageDescription': 'ECBot needs camera access for automation tasks',
+                'NSMicrophoneUsageDescription': 'ECBot needs microphone access for automation tasks',
+                'NSAppleEventsUsageDescription': 'ECBot needs to control other applications for automation',
+                'NSSystemAdministrationUsageDescription': 'ECBot needs system administration access for automation tasks'
+            })
+
+            # 写回 plist
+            with open(plist_path, 'wb') as f:
+                plistlib.dump(plist_data, f)
+
+        except Exception as e:
+            print(f"⚠️  Info.plist 优化失败: {e}")
+
+    def _set_app_permissions(self, app_path: Path):
+        """设置应用权限"""
+        try:
+            # 设置可执行文件权限
+            executable_path = app_path / "Contents" / "MacOS" / "ECBot"
+            if executable_path.exists():
+                os.chmod(executable_path, 0o755)
+
+            # 设置应用包权限
+            os.chmod(app_path, 0o755)
+
+        except Exception as e:
+            print(f"⚠️  权限设置失败: {e}")
+
     def _show_result(self):
         """显示构建结果"""
-        app_path = self.dist_dir / "ECBot.app"
-        if app_path.exists():
-            size = self._get_dir_size(app_path)
-            print(f"📱 应用包大小: {self._format_size(size)}")
+        config = self.get_config()
+
+        if self.is_macos:
+            # 在 macOS 上，根据构建模式决定输出格式
+            if self.mode == "dev" and config["console"]:
+                # dev 模式生成目录
+                app_path = self.dist_dir / "ECBot"
+                if app_path.exists():
+                    size = self._get_dir_size(app_path)
+                    print(f"📁 macOS 应用目录 (dev模式): {app_path}")
+                    print(f"📦 应用大小: {self._format_size(size)}")
+                    print("ℹ️  dev 模式生成目录格式，便于调试")
+                else:
+                    print("❌ macOS 应用目录未找到")
+            else:
+                # 生产模式生成 .app 文件
+                app_path = self.dist_dir / "ECBot.app"
+                if app_path.exists():
+                    size = self._get_dir_size(app_path)
+                    print(f"📱 macOS 应用包: {app_path}")
+                    print(f"📦 应用包大小: {self._format_size(size)}")
+                else:
+                    print("❌ macOS 应用包未找到")
         else:
+            # Windows/Linux
             exe_path = self.dist_dir / "ECBot"
             if exe_path.exists():
                 size = self._get_dir_size(exe_path)
-                print(f"📁 应用目录大小: {self._format_size(size)}")
-    
+                print(f"📁 应用目录: {exe_path}")
+                print(f"📦 应用大小: {self._format_size(size)}")
+            else:
+                print("❌ 应用程序未找到")
+
+        # 创建构建信息文件
+        self._create_build_info()
+
+    def _create_build_info(self):
+        """创建构建信息文件"""
+        try:
+            platform_info = self.get_platform_info()
+            build_info = {
+                "app_name": self.base_config["app_info"]["name"],
+                "version": "1.0.0",  # 可以从配置文件读取
+                "platform": {
+                    "name": platform_info["name"],
+                    "system": self.platform_name,
+                    "architecture": platform.machine()
+                },
+                "build": {
+                    "mode": self.mode,
+                    "python_version": platform.python_version(),
+                    "build_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "builder": "ECBot Build System v6.0"
+                }
+            }
+
+            build_info_path = self.dist_dir / "build_info.json"
+            with open(build_info_path, "w", encoding="utf-8") as f:
+                json.dump(build_info, f, indent=2, ensure_ascii=False)
+
+            print(f"📋 构建信息已保存: {build_info_path}")
+
+        except Exception as e:
+            print(f"⚠️  创建构建信息失败: {e}")
+
+
+
     def _get_dir_size(self, path: Path) -> int:
         """获取目录大小"""
         total = 0
@@ -351,28 +630,38 @@ class ECBotBuild:
 def main():
     """主函数"""
     import argparse
-    
-    parser = argparse.ArgumentParser(description="ECBot 极简构建系统 v5.0")
-    parser.add_argument("mode", nargs="?", choices=["dev", "prod"], default="prod",
-                       help="构建模式: dev(开发) 或 prod(生产)")
+
+    parser = argparse.ArgumentParser(description="ECBot 跨平台构建系统 v6.0")
+    parser.add_argument("mode", nargs="?", choices=["dev", "dev-debug", "prod"], default="prod",
+                       help="构建模式: dev(开发) 或 dev-debug(调试) 或 prod(生产)")
     parser.add_argument("--force", action="store_true", help="强制重新构建")
+    parser.add_argument("--skip-frontend", action="store_true", help="跳过前端构建")
+    parser.add_argument("--build-frontend", action="store_true", help="强制构建前端 (覆盖 dev 模式默认)")
     parser.add_argument("--stats", action="store_true", help="显示构建统计")
     parser.add_argument("--clean-cache", action="store_true", help="清理构建缓存")
-    
+
     args = parser.parse_args()
-    
+
     builder = ECBotBuild(args.mode)
-    
+
     if args.clean_cache:
         builder.clean_cache()
         return
-    
+
     if args.stats:
         builder.show_stats()
         return
-    
+
+    # 决定前端构建策略
+    skip_frontend = None
+    if args.skip_frontend:
+        skip_frontend = True
+    elif args.build_frontend:
+        skip_frontend = False
+    # 否则使用默认策略 (dev 模式跳过，其他模式构建)
+
     # 执行构建
-    success = builder.build(force=args.force)
+    success = builder.build(force=args.force, skip_frontend=skip_frontend)
     sys.exit(0 if success else 1)
 
 

@@ -10,6 +10,7 @@ from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_procurement_chat_task, create_ec_procurement_work_task
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+from utils.logger_helper import logger_helper as logger
 
 from agent.tasks import Repeat_Types
 import traceback
@@ -26,9 +27,15 @@ def set_up_ec_procurement_agent(mainwin):
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         worker_skill = next((sk for sk in agent_skills if "search digi-key" in sk.name), None)
-        print("ec_procurement skill:", worker_skill.name)
+        if worker_skill:
+            logger.info("ec_procurement skill:", worker_skill.name)
+        else:
+            logger.error("ec_procurement skill not found!")
         chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"),None)
-        print("chatter skill:", chatter_skill.name)
+        if chatter_skill:
+            logger.info("ec_procurement chatter skill:", chatter_skill.name)
+        else:
+            logger.error("ec_procurement chatter skill not found!")
 
         agent_card = AgentCard(
             name="Engineering Procurement Agent",
@@ -40,7 +47,7 @@ def set_up_ec_procurement_agent(mainwin):
             capabilities=capabilities,
             skills=[worker_skill, chatter_skill],
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("ec_procurement agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_procurement_chat_task(mainwin)
         worker_task = create_ec_procurement_work_task(mainwin)
@@ -55,6 +62,7 @@ def set_up_ec_procurement_agent(mainwin):
             ex_stat = "ErrorSetUpECProcurementAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECProcurementAgent: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        # mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
     return produrement_agent
