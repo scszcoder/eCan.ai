@@ -33,26 +33,40 @@ def show_help():
   --build-frontend  强制构建前端 (覆盖 dev 模式默认)
   --help            显示此帮助信息
 
+跨平台构建说明:
+  - macOS 平台: 构建 macOS app (.app)
+  - Windows 平台: 构建 Windows exe (.exe)
+  - Docker 容器: 根据容器内平台构建对应应用
+
 示例:
-  python build.py                      # 生产模式构建 (包含前端)
-  python build.py dev                  # 开发模式构建 (跳过前端)
-  python build.py dev --build-frontend # 开发模式但构建前端
+  python build.py                      # 生产模式构建
+  python build.py dev                  # 开发模式构建
   python build.py prod --force         # 强制生产模式构建
 
 输出:
-  - macOS: dist/ECBot.app
-  - Windows: dist/ECBot.exe
+  - macOS 平台: dist/ECBot.app
+  - Windows 平台: dist/ECBot.exe
   - 构建信息: dist/build_info.json
+
+Docker 构建 (macOS):
+  - 在 Docker 容器中运行 build.py 可构建 Windows exe
+  - 容器内平台检测自动选择构建目标
 """)
 
 
 def main():
-    """主函数 - 调用跨平台构建器"""
+    """主函数 - 跨平台构建"""
     # 检查帮助参数
     if "--help" in sys.argv or "-h" in sys.argv:
         show_help()
         sys.exit(0)
 
+    # 获取当前平台
+    current_platform = platform.system()
+    build_args = sys.argv[1:] if len(sys.argv) > 1 else ["prod"]
+    
+    print(f"🖥️  检测到平台: {current_platform}")
+    
     # 构建器路径
     builder_path = Path(__file__).parent / "build_system" / "ecbot_build.py"
 
@@ -61,8 +75,16 @@ def main():
         print(f"   期望路径: {builder_path}")
         sys.exit(1)
 
+    # 根据平台显示构建目标
+    if current_platform == "Darwin":
+        print("🍎 构建目标: macOS app (.app)")
+    elif current_platform == "Windows":
+        print("🪟 构建目标: Windows exe (.exe)")
+    else:
+        print(f"⚠️  未知平台: {current_platform}，尝试构建...")
+
     # 直接传递所有参数给构建器
-    cmd = [sys.executable, str(builder_path)] + sys.argv[1:]
+    cmd = [sys.executable, str(builder_path)] + build_args
 
     try:
         result = subprocess.run(cmd)

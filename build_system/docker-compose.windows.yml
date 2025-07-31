@@ -1,0 +1,20 @@
+services:
+  ecbot-windows-cibuilds:
+    build:
+      context: ..
+      dockerfile: build_system/Dockerfile.windows
+    container_name: ecbot-windows-cibuilds
+    volumes:
+      # 挂载项目目录
+      - .:/app
+      # 挂载构建输出目录
+      - ./dist:/app/dist
+      # 挂载缓存目录
+      - ./build:/app/build
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    working_dir: /app
+    command: ["python", "build.py", "prod"]
+    tty: true
+    stdin_open: true 
