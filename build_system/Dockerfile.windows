@@ -1,0 +1,81 @@
+# ECBot Windows 构建环境
+# 使用稳定的Python基础镜像进行Windows程序打包
+FROM python:3.11-slim
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV DEBIAN_FRONTEND=noninteractive
+ENV WINEARCH=win64
+ENV WINEPREFIX=/root/.wine64
+ENV DISPLAY=:99
+
+# 完全配置阿里云镜像源，删除所有默认源
+RUN rm -f /etc/apt/sources.list.d/* && \
+    echo "deb http://mirrors.aliyun.com/debian/ bookworm main" > /etc/apt/sources.list && \
+    echo "deb http://mirrors.aliyun.com/debian/ bookworm-updates main" >> /etc/apt/sources.list && \
+    echo "deb http://mirrors.aliyun.com/debian-security bookworm-security main" >> /etc/apt/sources.list && \
+    echo "deb http://mirrors.aliyun.com/debian/ bookworm main" > /etc/apt/sources.list.d/aliyun.list && \
+    echo "deb http://mirrors.aliyun.com/debian/ bookworm-updates main" >> /etc/apt/sources.list.d/aliyun.list && \
+    echo "deb http://mirrors.aliyun.com/debian-security bookworm-security main" >> /etc/apt/sources.list.d/aliyun.list
+
+# 配置pip使用阿里云镜像源
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip config set global.trusted-host mirrors.aliyun.com
+
+# 安装基础工具和依赖
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    git \
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    pkg-config \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Wine 依赖
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y \
+    wine \
+    wine32 \
+    wine64 \
+    libwine \
+    fonts-wine \
+    && rm -rf /var/lib/apt/lists/*
+
+# 初始化 Wine
+RUN winecfg /v win10
+
+# 复制依赖文件
+COPY requirements-base.txt /tmp/
+COPY requirements-windows.txt /tmp/
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r /tmp/requirements-windows.txt
+
+# 卸载冲突的pathlib包（PyInstaller兼容性）
+RUN pip uninstall -y pathlib
+
+# 安装 PyInstaller
+RUN pip install --no-cache-dir pyinstaller
+
+# 安装 Windows 构建工具
+RUN pip install --no-cache-dir pywin32-ctypes
+
+# 创建工作目录
+WORKDIR /app
+
+# 复制项目文件（通过.dockerignore过滤）
+COPY . /app/
+
+# 创建必要的目录
+RUN mkdir -p /app/build /app/dist
+
+# 设置构建脚本权限
+RUN chmod +x /app/build.py
+
+# 默认命令 - 使用 build.py 构建
+CMD ["python", "build.py", "prod"] 
