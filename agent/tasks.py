@@ -520,7 +520,7 @@ class TaskRunner(Generic[Context]):
         self.agent = agent
         self.tasks: Dict[str, ManagedTask] = {}
         self.running_tasks = []
-        self.save_dir = "./task_saves"
+        self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
         os.makedirs(self.save_dir, exist_ok=True)
         self.a2a_msg_queue = asyncio.Queue()
         self.chat_msg_queue = asyncio.Queue()
