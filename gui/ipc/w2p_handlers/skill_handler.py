@@ -44,7 +44,9 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
             'skills': [sk.to_dict() for sk in skills],
             'message': 'Get all successful'
         }
-        logger.debug('get skills resultJS:' + str(resultJS))
+        resultJS_str = str(resultJS)
+        truncated_resultJS = resultJS_str[:800] + "..." if len(resultJS_str) > 500 else resultJS_str
+        logger.debug('get skills resultJS:' + str(truncated_resultJS))
         return create_success_response(request, resultJS)
 
     except Exception as e:

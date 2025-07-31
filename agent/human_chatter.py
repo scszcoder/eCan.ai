@@ -16,7 +16,7 @@ class HumanChatter(Generic[Context]):
     def __init__(self, agent):  # includes persistence methods
         self.agent = agent
         self.history: str="chat_his"
-        self.save_dir = "./task_saves"
+        self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
         os.makedirs(self.save_dir, exist_ok=True)
         self.human_msg_queue = asyncio.Queue()            # queue for the message from agent to human.
 
