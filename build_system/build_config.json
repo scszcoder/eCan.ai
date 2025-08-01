@@ -1,12 +1,10 @@
 {
-  "_comment": "ECBot 跨平台构建配置文件 v6.0 - 支持 macOS 和 Windows",
   "app_info": {
     "name": "ECBot",
     "version": "1.0.0",
     "main_script": "main.py",
     "icon_macos": "ECBot.icns",
-    "icon_windows": "ECBot.ico",
-    "description": "ECBot Desktop Application - Cross Platform"
+    "icon_windows": "ECBot.ico"
   },
   "data_files": {
     "directories": [
@@ -53,13 +51,6 @@
       "optimize": false,
       "onefile": false
     },
-    "dev-debug": {
-      "debug": true,
-      "console": true,
-      "clean": false,
-      "optimize": false,
-      "onefile": false
-    },
     "prod": {
       "debug": false,
       "console": false,
@@ -67,5 +58,20 @@
       "optimize": true,
       "onefile": false
     }
+  },
+  "installer": {
+    "enabled": true,
+    "app_name": "ECBot",
+    "app_version": "1.0.0",
+    "app_publisher": "ECBot Team",
+    "app_publisher_url": "https://github.com/your-repo/ecbot",
+    "app_support_url": "https://github.com/your-repo/ecbot/issues",
+    "app_updates_url": "https://github.com/your-repo/ecbot/releases",
+    "default_dir": "{autopf}\\ECBot",
+    "default_group": "ECBot",
+    "compression": "lzma",
+    "solid_compression": true,
+    "wizard_style": "modern",
+    "privileges_required": "lowest"
   }
 }

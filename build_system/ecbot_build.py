@@ -596,7 +596,11 @@ class ECBotBuild:
                 cmd.append("--console")
             else:
                 cmd.append("--windowed")
-        if config["onefile"]:
+        # Windows 平台在生产模式下使用 --onedir 以便 Inno Setup 打包
+        if self.is_windows and self.mode == "prod":
+            cmd.append("--onedir")
+            print("ℹ️  Windows 生产模式使用 --onedir 以便 Inno Setup 打包")
+        elif config["onefile"]:
             cmd.append("--onefile")
         else:
             cmd.append("--onedir")
@@ -791,11 +795,159 @@ class ECBotBuild:
                 size = self._get_dir_size(exe_path)
                 print(f"📁 应用目录: {exe_path}")
                 print(f"📦 应用大小: {self._format_size(size)}")
+                
+                # Windows 平台尝试创建安装包
+                if self.is_windows and self.mode == "prod":
+                    self._create_installer()
             else:
                 print("❌ 应用程序未找到")
 
         # 创建构建信息文件
         self._create_build_info()
+
+    def _create_installer(self):
+        """创建 Windows 安装包"""
+        try:
+            print("🔧 开始创建 Windows 安装包...")
+            
+            # 检查是否启用安装包创建
+            installer_config = self.base_config.get("installer", {})
+            if not installer_config.get("enabled", True):
+                print("ℹ️  安装包创建已禁用，跳过")
+                return
+            
+            # 检查 Inno Setup 是否可用
+            if not self._check_inno_setup():
+                print("⚠️  Inno Setup 未安装，跳过安装包创建")
+                print("💡 请安装 Inno Setup: https://jrsoftware.org/isinfo.php")
+                return
+            
+            # 创建 Inno Setup 脚本
+            iss_file = self._create_inno_script()
+            if not iss_file:
+                print("❌ 创建 Inno Setup 脚本失败")
+                return
+            
+            # 运行 Inno Setup 编译
+            if self._run_inno_setup(iss_file):
+                print("✅ Windows 安装包创建成功")
+            else:
+                print("❌ Windows 安装包创建失败")
+                
+        except Exception as e:
+            print(f"⚠️  创建安装包时出错: {e}")
+
+    def _check_inno_setup(self) -> bool:
+        """检查 Inno Setup 是否可用"""
+        try:
+            # 检查 Inno Setup 编译器
+            result = subprocess.run(
+                ["iscc", "/?"], 
+                capture_output=True, 
+                text=True, 
+                timeout=10
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return False
+
+    def _create_inno_script(self) -> Path:
+        """创建 Inno Setup 脚本"""
+        try:
+            config = self.get_config()
+            app_name = config["app_name"]
+            installer_config = self.base_config.get("installer", {})
+            
+            # 准备路径
+            dist_dir_str = str(self.dist_dir).replace('/', '\\')
+            icon_path = str(self.project_root / config['icon']).replace('/', '\\')
+            
+            iss_content = f"""[Setup]
+AppName={installer_config.get('app_name', app_name)}
+AppVersion={installer_config.get('app_version', '1.0.0')}
+AppPublisher={installer_config.get('app_publisher', 'ECBot Team')}
+AppPublisherURL={installer_config.get('app_publisher_url', 'https://github.com/your-repo/ecbot')}
+AppSupportURL={installer_config.get('app_support_url', 'https://github.com/your-repo/ecbot/issues')}
+AppUpdatesURL={installer_config.get('app_updates_url', 'https://github.com/your-repo/ecbot/releases')}
+DefaultDirName={{autopf}}\\{app_name}
+DefaultGroupName={app_name}
+AllowNoIcons=yes
+OutputDir={dist_dir_str}
+OutputBaseFilename={app_name}-Setup
+SetupIconFile={icon_path}
+Compression={installer_config.get('compression', 'lzma')}
+SolidCompression=yes
+WizardStyle=modern
+PrivilegesRequired=lowest
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimp"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
+
+[Files]
+Source: "{dist_dir_str}\\{app_name}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{{group}}\\{app_name}"; Filename: "{{app}}\\{app_name}.exe"
+Name: "{{group}}\\Uninstall {app_name}"; Filename: "{{uninstallexe}}"
+Name: "{{commondesktop}}\\{app_name}"; Filename: "{{app}}\\{app_name}.exe"; Tasks: desktopicon
+
+[Run]
+Filename: "{{app}}\\{app_name}.exe"; Description: "{{cm:LaunchProgram,{app_name}}}"; Flags: nowait postinstall skipifsilent
+"""
+            
+            # 保存脚本文件
+            iss_file = self.dist_dir / f"{app_name}.iss"
+            with open(iss_file, "w", encoding="utf-8") as f:
+                f.write(iss_content)
+            
+            print(f"📝 Inno Setup 脚本已创建: {iss_file}")
+            return iss_file
+            
+        except Exception as e:
+            print(f"❌ 创建 Inno Setup 脚本失败: {e}")
+            return None
+
+    def _run_inno_setup(self, iss_file: Path) -> bool:
+        """运行 Inno Setup 编译"""
+        try:
+            print(f"🔨 正在编译安装包: {iss_file}")
+            
+            # 运行 Inno Setup 编译器
+            result = subprocess.run(
+                ["iscc", str(iss_file)],
+                cwd=self.dist_dir,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5分钟超时
+            )
+            
+            if result.returncode == 0:
+                # 查找生成的安装包
+                setup_files = list(self.dist_dir.glob("*-Setup.exe"))
+                if setup_files:
+                    setup_file = setup_files[0]
+                    size = setup_file.stat().st_size
+                    print(f"📦 安装包已创建: {setup_file}")
+                    print(f"📦 安装包大小: {self._format_size(size)}")
+                    return True
+                else:
+                    print("⚠️  编译成功但未找到安装包文件")
+                    return False
+            else:
+                print(f"❌ Inno Setup 编译失败:")
+                print(f"错误输出: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("❌ Inno Setup 编译超时")
+            return False
+        except Exception as e:
+            print(f"❌ Inno Setup 编译出错: {e}")
+            return False
 
     def _create_build_info(self):
         """创建构建信息文件"""
