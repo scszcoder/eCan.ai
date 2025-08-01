@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot 跨平台构建系统入口 v6.0
+ECBot 构建系统
 支持 macOS 和 Windows 双平台打包
 """
 
@@ -16,27 +16,19 @@ def show_help():
     platform_name = "macOS" if platform.system() == "Darwin" else "Windows" if platform.system() == "Windows" else "Linux"
 
     print(f"""
-🚀 ECBot 跨平台构建系统 v6.0
+🚀 ECBot 构建系统
 当前平台: {platform_name}
 
 用法:
   python build.py [模式] [选项]
 
 构建模式:
-  dev        开发模式 (显示控制台，跳过前端构建，快速构建)
-  dev-debug  调试模式 (显示控制台，包含调试信息)
-  prod       生产模式 (无控制台，完整构建，优化) [默认]
+  dev        开发模式 (快速构建，显示控制台)
+  prod       生产模式 (优化构建，无控制台) [默认]
 
 选项:
   --force           强制重新构建
-  --skip-frontend   跳过前端构建
-  --build-frontend  强制构建前端 (覆盖 dev 模式默认)
   --help            显示此帮助信息
-
-跨平台构建说明:
-  - macOS 平台: 构建 macOS app (.app)
-  - Windows 平台: 构建 Windows exe (.exe)
-  - Docker 容器: 根据容器内平台构建对应应用
 
 示例:
   python build.py                      # 生产模式构建
@@ -44,13 +36,8 @@ def show_help():
   python build.py prod --force         # 强制生产模式构建
 
 输出:
-  - macOS 平台: dist/ECBot.app
-  - Windows 平台: dist/ECBot.exe
-  - 构建信息: dist/build_info.json
-
-Docker 构建 (macOS):
-  - 在 Docker 容器中运行 build.py 可构建 Windows exe
-  - 容器内平台检测自动选择构建目标
+  - macOS: dist/ECBot.app
+  - Windows: dist/ECBot.exe + dist/ECBot-Setup.exe
 """)
 
 
@@ -61,11 +48,8 @@ def main():
         show_help()
         sys.exit(0)
 
-    # 获取当前平台
-    current_platform = platform.system()
+    # 获取构建参数
     build_args = sys.argv[1:] if len(sys.argv) > 1 else ["prod"]
-    
-    print(f"🖥️  检测到平台: {current_platform}")
     
     # 构建器路径
     builder_path = Path(__file__).parent / "build_system" / "ecbot_build.py"
@@ -74,14 +58,6 @@ def main():
         print("❌ 构建器不存在，请检查文件路径")
         print(f"   期望路径: {builder_path}")
         sys.exit(1)
-
-    # 根据平台显示构建目标
-    if current_platform == "Darwin":
-        print("🍎 构建目标: macOS app (.app)")
-    elif current_platform == "Windows":
-        print("🪟 构建目标: Windows exe (.exe)")
-    else:
-        print(f"⚠️  未知平台: {current_platform}，尝试构建...")
 
     # 直接传递所有参数给构建器
     cmd = [sys.executable, str(builder_path)] + build_args
