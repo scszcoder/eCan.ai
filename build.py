@@ -16,7 +16,7 @@ def show_help():
     platform_name = "macOS" if platform.system() == "Darwin" else "Windows" if platform.system() == "Windows" else "Linux"
 
     print(f"""
-🚀 ECBot 构建系统
+[BUILD] ECBot 构建系统
 当前平台: {platform_name}
 
 用法:
@@ -55,7 +55,7 @@ def main():
     builder_path = Path(__file__).parent / "build_system" / "ecbot_build.py"
 
     if not builder_path.exists():
-        print("❌ 构建器不存在，请检查文件路径")
+        print("[ERROR] 构建器不存在，请检查文件路径")
         print(f"   期望路径: {builder_path}")
         sys.exit(1)
 
@@ -66,10 +66,10 @@ def main():
         result = subprocess.run(cmd)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
-        print("\n⚠️  构建被用户中断")
+        print("\n[WARNING]  构建被用户中断")
         sys.exit(1)
     except Exception as e:
-        print(f"❌ 构建出错: {e}")
+        print(f"[ERROR] 构建出错: {e}")
         sys.exit(1)
 
 
