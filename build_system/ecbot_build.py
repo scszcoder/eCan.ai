@@ -169,6 +169,21 @@ class ECBotBuild:
 
             print("Start frontend build, this may take a few minutes...")
 
+            # 首先安装依赖
+            print("[BUILD] Installing frontend dependencies...")
+            install_result = subprocess.run(
+                ["npm", "install", "--legacy-peer-deps"],
+                cwd=gui_v2_path,
+                text=True,
+                timeout=300
+            )
+
+            if install_result.returncode != 0:
+                print(f"[ERROR] Frontend dependency installation failed, return code: {install_result.returncode}")
+                return False
+
+            print("[SUCCESS] Frontend dependencies installed")
+
             # Build frontend，显示详细输出
             result = subprocess.run(
                 ["npm", "run", "build"],
