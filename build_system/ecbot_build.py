@@ -176,8 +176,67 @@ class ECBotBuild:
             print("Start frontend build, this may take a few minutes...")
 
             # Build frontend，显示详细输出
+            # 尝试使用完整路径的 npm
+            npm_cmd = "npm"
+            npm_found = False
+            
+            # 首先尝试检查 npm 是否在 PATH 中
+            try:
+                npm_check = subprocess.run(["npm", "--version"], capture_output=True, text=True)
+                if npm_check.returncode == 0:
+                    npm_found = True
+                    print(f"[DEBUG] Found npm version: {npm_check.stdout.strip()}")
+            except FileNotFoundError:
+                pass
+            
+            # 如果 npm 没找到，尝试 npm.cmd (Windows)
+            if not npm_found:
+                try:
+                    npm_cmd_check = subprocess.run(["npm.cmd", "--version"], capture_output=True, text=True)
+                    if npm_cmd_check.returncode == 0:
+                        npm_cmd = "npm.cmd"
+                        npm_found = True
+                        print(f"[DEBUG] Found npm.cmd version: {npm_cmd_check.stdout.strip()}")
+                except FileNotFoundError:
+                    pass
+            
+            # 如果还是没找到，尝试从 Node.js 安装目录查找
+            if not npm_found:
+                try:
+                    # 获取 node 的安装路径
+                    node_result = subprocess.run(["node", "--version"], capture_output=True, text=True)
+                    if node_result.returncode == 0:
+                        print(f"[DEBUG] Node.js version: {node_result.stdout.strip()}")
+                        
+                        # 尝试从环境变量获取 Node.js 路径
+                        node_path = None
+                        for env_var in ["NODE_PATH", "NODE_HOME", "PATH"]:
+                            if env_var in os.environ:
+                                paths = os.environ[env_var].split(os.pathsep)
+                                for path in paths:
+                                    if "node" in path.lower() or "npm" in path.lower():
+                                        potential_npm = os.path.join(path, "npm.cmd" if self.is_windows else "npm")
+                                        if os.path.exists(potential_npm):
+                                            npm_cmd = potential_npm
+                                            npm_found = True
+                                            print(f"[DEBUG] Found npm at: {npm_cmd}")
+                                            break
+                                    if npm_found:
+                                        break
+                            if npm_found:
+                                break
+                except Exception as e:
+                    print(f"[DEBUG] Error checking Node.js path: {e}")
+            
+            if not npm_found:
+                print("[ERROR] npm not found in PATH or Node.js installation")
+                print("[DEBUG] Please ensure Node.js is properly installed and npm is available")
+                return False
+
+            print(f"[DEBUG] Using npm command: {npm_cmd}")
+
             result = subprocess.run(
-                ["npm", "run", "build"],
+                [npm_cmd, "run", "build"],
                 cwd=gui_v2_path,
                 text=True,
                 timeout=300
@@ -201,10 +260,37 @@ class ECBotBuild:
                 node_result = subprocess.run(["node", "--version"], capture_output=True, text=True)
                 if node_result.returncode == 0:
                     print(f"[DEBUG] Node.js version: {node_result.stdout.strip()}")
+                    
+                    # 检查 PATH 环境变量
+                    print(f"[DEBUG] PATH environment variable:")
+                    path_parts = os.environ.get("PATH", "").split(os.pathsep)
+                    for i, path in enumerate(path_parts):
+                        if "node" in path.lower() or "npm" in path.lower():
+                            print(f"  [{i}] {path}")
+                    
+                    # 尝试检查 npm.cmd
+                    try:
+                        npm_cmd_result = subprocess.run(["npm.cmd", "--version"], capture_output=True, text=True)
+                        if npm_cmd_result.returncode == 0:
+                            print(f"[DEBUG] npm.cmd version: {npm_cmd_result.stdout.strip()}")
+                        else:
+                            print("[DEBUG] npm.cmd not found")
+                    except FileNotFoundError:
+                        print("[DEBUG] npm.cmd not found")
+                        
+                    # 尝试检查 npm
+                    try:
+                        npm_result = subprocess.run(["npm", "--version"], capture_output=True, text=True)
+                        if npm_result.returncode == 0:
+                            print(f"[DEBUG] npm version: {npm_result.stdout.strip()}")
+                        else:
+                            print("[DEBUG] npm not found")
+                    except FileNotFoundError:
+                        print("[DEBUG] npm not found")
                 else:
                     print("[DEBUG] Node.js not found")
-            except:
-                print("[DEBUG] Cannot check Node.js version")
+            except Exception as e:
+                print(f"[DEBUG] Cannot check Node.js/npm version: {e}")
             return False
         except Exception as e:
             print(f"[ERROR] Frontend build error: {e}")
