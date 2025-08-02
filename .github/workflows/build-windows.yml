@@ -1,10 +1,10 @@
 name: Build Windows EXE
 
 on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
+  # push:
+  #   branches: [ main, gui-v2 ]
+  # pull_request:
+  #   branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -87,8 +87,5 @@ jobs:
       with:
         name: ECBot-Windows
         path: |
-          dist/ECBot.exe
-          dist/ECBot/ECBot.exe
           dist/ECBot-Setup.exe
-          dist/build_info.json
         retention-days: 30 
