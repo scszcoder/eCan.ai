@@ -733,6 +733,28 @@ class ECBotBuild:
                     print("[DEBUG] Using subprocess fallback for short paths")
                 except Exception:
                     print("[DEBUG] All short path methods failed, using original paths")
+            
+            # 强制使用ASCII路径
+            try:
+                # 检查路径是否包含非ASCII字符
+                for path_name, path_value in [("work_path", work_path), ("dist_path", dist_path), 
+                                            ("spec_path", spec_path), ("icon_path", icon_path)]:
+                    try:
+                        path_value.encode('ascii')
+                    except UnicodeEncodeError:
+                        print(f"[WARNING] {path_name} contains non-ASCII characters: {path_value}")
+                        # 尝试使用相对路径
+                        if path_name == "work_path":
+                            work_path = "build\\work"
+                        elif path_name == "dist_path":
+                            dist_path = "dist"
+                        elif path_name == "spec_path":
+                            spec_path = "build"
+                        elif path_name == "icon_path":
+                            icon_path = "ECBot.ico"
+                        print(f"[DEBUG] Using relative path for {path_name}: {path_value}")
+            except Exception as e:
+                print(f"[DEBUG] Path encoding check failed: {e}")
         
         cmd = [
             sys.executable, "-m", "PyInstaller",
@@ -974,6 +996,27 @@ class ECBotBuild:
             except Exception as e:
                 print(f"[DEBUG] Failed to create spec file: {e}, using original command")
         
+        # 在Windows上，保持所有配置但使用spec文件来避免命令行编码问题
+        if self.is_windows:
+            print("[DEBUG] Using spec file approach to preserve all configurations while avoiding encoding issues")
+            try:
+                # 创建完整的spec文件，包含所有配置
+                spec_content = self._generate_complete_spec_content(config)
+                spec_file = self.build_dir / "ecbot_complete.spec"
+                with open(spec_file, 'w', encoding='utf-8') as f:
+                    f.write(spec_content)
+                
+                # 使用spec文件构建，保持所有配置
+                spec_cmd = [
+                    sys.executable, "-m", "PyInstaller",
+                    str(spec_file),
+                    "--noconfirm"
+                ]
+                print("[DEBUG] Using complete spec file for Windows build")
+                cmd = spec_cmd
+            except Exception as e:
+                print(f"[DEBUG] Failed to create complete spec file: {e}, using original command")
+        
         # 执行构建
         # 设置环境变量以处理编码问题
         env = os.environ.copy()
@@ -1017,12 +1060,30 @@ class ECBotBuild:
             print("[DEBUG] Command sanitized")
         
         try:
+            print(f"[DEBUG] Executing command with {len(cmd)} arguments")
+            print(f"[DEBUG] First 5 arguments: {cmd[:5]}")
             result = subprocess.run(cmd, cwd=self.project_root, encoding='utf-8', errors='replace', env=env)
         except UnicodeEncodeError as e:
             print(f"[ERROR] Unicode encoding error: {e}")
             print("[DEBUG] Trying with different encoding...")
             # 尝试使用系统默认编码
-            result = subprocess.run(cmd, cwd=self.project_root, env=env)
+            try:
+                result = subprocess.run(cmd, cwd=self.project_root, env=env)
+            except Exception as e2:
+                print(f"[ERROR] Default encoding also failed: {e2}")
+                # 尝试使用最简化的命令
+                try:
+                    minimal_cmd = [
+                        sys.executable, "-m", "PyInstaller",
+                        "--name", config["app_name"],
+                        "--onedir",
+                        config["main_script"]
+                    ]
+                    print("[DEBUG] Using minimal build command")
+                    result = subprocess.run(minimal_cmd, cwd=self.project_root, env=env)
+                except Exception as e3:
+                    print(f"[ERROR] Minimal build also failed: {e3}")
+                    return False
         except Exception as e:
             print(f"[ERROR] Build execution error: {e}")
             print("[DEBUG] Trying simplified build command...")
@@ -1042,7 +1103,19 @@ class ECBotBuild:
                 result = subprocess.run(simple_cmd, cwd=self.project_root, env=env)
             except Exception as e2:
                 print(f"[ERROR] Simplified build also failed: {e2}")
-                return False
+                # 最后尝试最简化的命令
+                try:
+                    minimal_cmd = [
+                        sys.executable, "-m", "PyInstaller",
+                        "--name", config["app_name"],
+                        "--onedir",
+                        config["main_script"]
+                    ]
+                    print("[DEBUG] Using minimal build command as last resort")
+                    result = subprocess.run(minimal_cmd, cwd=self.project_root, env=env)
+                except Exception as e3:
+                    print(f"[ERROR] All build attempts failed: {e3}")
+                    return False
 
         # 如果构建Success且是 macOS .app 文件，进行后处理
         if result.returncode == 0 and self.is_macos and not (self.mode == "dev" and config["console"]):
@@ -1050,8 +1123,167 @@ class ECBotBuild:
 
         return result.returncode == 0
 
+    def _generate_complete_spec_content(self, config):
+        """Generate complete PyInstaller spec file content with all configurations"""
+        icon_path = str(self.project_root / config["icon"])
+        work_path = str(self.build_dir / "work")
+        dist_path = str(self.dist_dir)
+        spec_path = str(self.build_dir)
+        
+        # 在Windows上处理路径编码
+        if self.is_windows:
+            try:
+                import win32api
+                icon_path = win32api.GetShortPathName(icon_path)
+                work_path = win32api.GetShortPathName(work_path)
+                dist_path = win32api.GetShortPathName(dist_path)
+                spec_path = win32api.GetShortPathName(spec_path)
+            except (ImportError, Exception):
+                pass
+        
+        # 构建数据文件列表
+        datas_list = []
+        
+        # 添加数据目录
+        for data_dir in config["data_dirs"]:
+            src_path = self.project_root / data_dir
+            if src_path.exists():
+                datas_list.append(f"('{src_path}', '{data_dir}')")
+        
+        # 添加数据文件
+        for data_file in config["data_files"]:
+            src_path = self.project_root / data_file
+            if src_path.exists():
+                datas_list.append(f"('{src_path}', '.')")
+        
+        # 添加特殊包的数据文件
+        special_datas = self._get_special_package_datas()
+        datas_list.extend(special_datas)
+        
+        datas_str = ",\n        ".join(datas_list) if datas_list else "# No data files"
+        
+        # 构建隐藏导入列表
+        hidden_imports_str = ",\n    ".join([f"'{imp}'" for imp in config["hidden_imports"]])
+        
+        # 构建排除模块列表
+        excludes_str = ",\n    ".join([f"'{exc}'" for exc in config["excludes"]])
+        
+        spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+# Complete ECBot spec file with all configurations
+
+block_cipher = None
+
+a = Analysis(
+    ['{config["main_script"]}'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        {datas_str}
+    ],
+    hiddenimports=[
+        {hidden_imports_str}
+    ],
+    hookspath=[],
+    hooksconfig={{}},
+    runtime_hooks=[],
+    excludes=[
+        {excludes_str}
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='{config["app_name"]}',
+    debug={str(config.get("debug", False)).lower()},
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console={str(config["console"]).lower()},
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='{icon_path}',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='{config["app_name"]}',
+)
+'''
+        return spec_content
+
+    def _get_special_package_datas(self):
+        """Get special package data files for spec file"""
+        datas = []
+        
+        # 特殊处理：添加tiktoken_ext包
+        try:
+            import tiktoken_ext
+            tiktoken_ext_path = os.path.dirname(tiktoken_ext.__file__ or '') if tiktoken_ext.__file__ else ''
+            if tiktoken_ext_path and os.path.exists(tiktoken_ext_path):
+                datas.append(f"('{tiktoken_ext_path}', 'tiktoken_ext')")
+        except ImportError:
+            pass
+
+        # 特殊处理：添加scipy._lib.array_api_compat包
+        try:
+            import scipy._lib.array_api_compat
+            scipy_compat_path = os.path.dirname(scipy._lib.array_api_compat.__file__)
+            if scipy_compat_path and os.path.exists(scipy_compat_path):
+                datas.append(f"('{scipy_compat_path}', 'scipy/_lib/array_api_compat')")
+        except ImportError:
+            pass
+
+        # 特殊处理：添加fake_useragent.data包
+        try:
+            import fake_useragent
+            fake_useragent_path = os.path.dirname(fake_useragent.__file__ or '') if fake_useragent.__file__ else ''
+            if fake_useragent_path and os.path.exists(fake_useragent_path):
+                # 查找data目录
+                data_path = os.path.join(fake_useragent_path, 'data')
+                if os.path.exists(data_path):
+                    datas.append(f"('{data_path}', 'fake_useragent/data')")
+                else:
+                    # 如果没有data目录，添加整个fake_useragent包
+                    datas.append(f"('{fake_useragent_path}', 'fake_useragent')")
+        except ImportError:
+            pass
+
+        # 特殊处理：添加browser_use资源文件
+        try:
+            import browser_use
+            browser_use_path = os.path.dirname(browser_use.__file__ or '') if browser_use.__file__ else ''
+            if browser_use_path and os.path.exists(browser_use_path):
+                # 查找prompts目录
+                prompts_path = os.path.join(browser_use_path, 'agent', 'prompts')
+                if os.path.exists(prompts_path):
+                    datas.append(f"('{prompts_path}', 'browser_use/agent/prompts')")
+                # 添加整个browser_use包以确保所有资源文件都被包含
+                datas.append(f"('{browser_use_path}', 'browser_use')")
+        except ImportError:
+            pass
+        
+        return datas
+
     def _generate_spec_content(self, config):
-        """Generate PyInstaller spec file content"""
+        """Generate basic PyInstaller spec file content (fallback)"""
         icon_path = str(self.project_root / config["icon"])
         work_path = str(self.build_dir / "work")
         dist_path = str(self.dist_dir)
