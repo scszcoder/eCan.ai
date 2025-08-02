@@ -26,7 +26,6 @@ jobs:
       with:
         node-version: '18'
         cache: 'npm'
-        cache-dependency-path: gui_v2/package-lock.json
     
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -42,15 +41,7 @@ jobs:
         pip install -r requirements-windows.txt
         pip install pyinstaller pywin32-ctypes
     
-    - name: Install Node.js dependencies
-      run: |
-        cd gui_v2
-        npm ci
-    
-    # - name: Build frontend
-    #   run: |
-    #     cd gui_v2
-    #     npm run build
+    # Frontend dependencies and build will be handled by ecbot_build.py
     
     - name: Install Inno Setup
       run: |
