@@ -50,7 +50,7 @@ jobs:
     
     - name: Create build directories
       run: |
-        mkdir -p build dist
+        New-Item -ItemType Directory -Force -Path build, dist
     
     - name: Build Windows EXE
       run: |
