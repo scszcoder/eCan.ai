@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot 跨平台构建系统 v6.0
-支持 macOS 和 Windows 双平台打包
-单文件解决方案，集成所有构建功能
+ECBot Cross-Platform Build System v6.0
+Supports macOS and Windows dual-platform packaging
+Single file solution, integrates all build features
 """
 
 import os
@@ -18,44 +18,44 @@ from typing import Dict, Any, List
 
 
 class ECBotBuild:
-    """ECBot 跨平台构建器 - 支持 macOS 和 Windows"""
+    """ECBot Cross-Platform Builder - Supports macOS and Windows"""
 
     def __init__(self, mode: str = "prod"):
-        self.mode = mode  # dev 或 prod
+        self.mode = mode  # dev or prod
         self.project_root = Path.cwd()
         self.config_file = Path(__file__).parent / "build_config.json"
 
-        # 平台信息
+        # Platform Info
         self.platform_name = platform.system()
         self.is_macos = self.platform_name == "Darwin"
         self.is_windows = self.platform_name == "Windows"
 
-        # 加载配置
+        # Load Config
         self.base_config = self._load_config()
 
-        # 设置路径
+        # Set Paths
         self.build_dir = self.project_root / "build"
         self.dist_dir = self.project_root / "dist"
         self.cache_file = self.build_dir / "build_cache.json"
 
-        # 确保目录存在
+        # Ensure directories exist
         self.build_dir.mkdir(exist_ok=True)
 
-        # 加载缓存
+        # Load Cache
         self.cache = self._load_cache()
     
     def _load_config(self) -> Dict[str, Any]:
-        """从JSON文件加载配置"""
+        """Load Config from JSON file"""
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[ERROR] 加载配置文件失败: {e}")
-            print(f"配置文件路径: {self.config_file}")
+            print(f"[ERROR] Load Config file failed: {e}")
+            print(f"Config file path: {self.config_file}")
             sys.exit(1)
 
     def get_platform_info(self) -> Dict[str, str]:
-        """获取平台信息"""
+        """Get Platform Info"""
         if self.is_macos:
             return {
                 "name": "macOS",
@@ -79,7 +79,7 @@ class ECBotBuild:
             }
 
     def get_config(self) -> Dict[str, Any]:
-        """获取构建配置 - 从JSON文件读取"""
+        """Get build config - read from JSON file"""
         platform_info = self.get_platform_info()
 
         config = {
@@ -104,45 +104,45 @@ class ECBotBuild:
         return config
 
     def check_prerequisites(self) -> bool:
-        """检查构建前提条件"""
-        print("🔍 检查构建前提条件...")
+        """Check build prerequisites"""
+        print("Check build prerequisites...")
 
-        # 检查 Python 版本
+        # Check Python version
         if sys.version_info < (3, 8):
-            print("[ERROR] Python 版本过低，需要 3.8 或更高版本")
+            print("[ERROR] Python version too low, requires 3.8 or higher")
             return False
 
-        # 检查 PyInstaller
+        # Check PyInstaller
         try:
             import PyInstaller
-            print(f"[SUCCESS] PyInstaller 版本: {PyInstaller.__version__}")
+            print(f"[SUCCESS] PyInstaller version: {PyInstaller.__version__}")
         except ImportError:
-            print("[ERROR] 未安装 PyInstaller，请运行: pip install pyinstaller")
+            print("[ERROR] PyInstaller not installed, please run: pip install pyinstaller")
             return False
 
-        # 检查图标文件
+        # 检查Icon file
         platform_info = self.get_platform_info()
         icon_path = self.project_root / platform_info["icon"]
         if not icon_path.exists():
-            print(f"[ERROR] 图标文件不存在: {icon_path}")
+            print(f"[ERROR] Icon file does not exist: {icon_path}")
             return False
 
-        print(f"[SUCCESS] 平台: {platform_info['name']}")
-        print(f"[SUCCESS] 图标文件: {platform_info['icon']}")
+        print(f"[SUCCESS] Platform: {platform_info['name']}")
+        print(f"[SUCCESS] Icon file: {platform_info['icon']}")
 
         return True
 
     def build_frontend(self, skip_frontend: bool = False, force_frontend: bool = False) -> bool:
-        """构建前端"""
+        """Build frontend"""
         if skip_frontend and not force_frontend:
-            print("⏭️  跳过前端构建 (使用 --skip-frontend 或 dev 模式默认)")
+            print("Skip frontend build (use --skip-frontend or dev mode default)")
             # 检查是否存在已构建的前端文件
             gui_dist_path = self.project_root / "gui_v2" / "dist"
             if gui_dist_path.exists():
-                print("[SUCCESS] 使用现有前端构建文件")
+                print("[SUCCESS] Using existing frontend build files")
                 return True
             else:
-                print("[WARNING]  未找到前端构建文件，将强制构建前端")
+                print("[WARNING]  Frontend build files not found, will force frontend build")
                 force_frontend = True
 
         # 检查前端是否需要重新构建
@@ -151,25 +151,25 @@ class ECBotBuild:
             gui_dist_path = self.project_root / "gui_v2" / "dist"
 
             if not frontend_changed and gui_dist_path.exists():
-                print("[SUCCESS] 前端无变更，使用缓存的构建文件")
+                print("[SUCCESS] Frontend unchanged, using cached build files")
                 return True
 
-        print("[BUILD] 构建前端...")
+        print("[BUILD] Build frontend...")
 
         gui_v2_path = self.project_root / "gui_v2"
         if not gui_v2_path.exists():
-            print("[ERROR] gui_v2 目录不存在")
+            print("[ERROR] gui_v2 directory does not exist")
             return False
 
         try:
             # 检查是否有 package.json
             if not (gui_v2_path / "package.json").exists():
-                print("[ERROR] gui_v2/package.json 不存在")
+                print("[ERROR] gui_v2/package.json does not exist")
                 return False
 
-            print("📦 开始前端构建，这可能需要几分钟...")
+            print("Start frontend build, this may take a few minutes...")
 
-            # 构建前端，显示详细输出
+            # Build frontend，显示详细输出
             result = subprocess.run(
                 ["npm", "run", "build"],
                 cwd=gui_v2_path,
@@ -178,24 +178,24 @@ class ECBotBuild:
             )
 
             if result.returncode != 0:
-                print(f"[ERROR] 前端构建失败，返回码: {result.returncode}")
+                print(f"[ERROR] Frontend build failed, return code: {result.returncode}")
                 return False
 
-            print("[SUCCESS] 前端构建完成")
+            print("[SUCCESS] Frontend build completed")
             return True
 
         except subprocess.TimeoutExpired:
-            print("[ERROR] 前端构建超时 (5分钟)")
+            print("[ERROR] Frontend build timeout (5 minutes)")
             return False
         except FileNotFoundError:
-            print("[ERROR] npm 命令未找到，请确保安装了 Node.js")
+            print("[ERROR] npm command not found, please ensure Node.js is installed")
             return False
         except Exception as e:
-            print(f"[ERROR] 前端构建出错: {e}")
+            print(f"[ERROR] Frontend build error: {e}")
             return False
 
     def _load_cache(self) -> Dict[str, Any]:
-        """加载构建缓存"""
+        """Load build cache"""
         if self.cache_file.exists():
             try:
                 with open(self.cache_file, 'r') as f:
@@ -214,12 +214,12 @@ class ECBotBuild:
         }
     
     def _save_cache(self):
-        """保存构建缓存"""
+        """Save build cache"""
         with open(self.cache_file, 'w') as f:
             json.dump(self.cache, f, indent=2)
     
     def _get_file_hash(self, file_path: Path) -> str:
-        """获取文件哈希"""
+        """Get file hash"""
         try:
             with open(file_path, 'rb') as f:
                 return hashlib.md5(f.read()).hexdigest()
@@ -248,7 +248,7 @@ class ECBotBuild:
             return ""
 
     def _get_config_hash(self) -> str:
-        """获取构建配置哈希"""
+        """Get build config hash"""
         config_data = {
             "mode": self.mode,
             "base_config": self.base_config,
@@ -258,7 +258,7 @@ class ECBotBuild:
         return hashlib.md5(config_str.encode()).hexdigest()
 
     def _get_requirements_hash(self) -> str:
-        """获取依赖文件哈希"""
+        """Get dependency file hash"""
         req_files = ["requirements-base.txt", "requirements-macos.txt", "requirements-windows.txt"]
         hashes = []
         for req_file in req_files:
@@ -268,7 +268,7 @@ class ECBotBuild:
         return hashlib.md5("|".join(hashes).encode()).hexdigest()
     
     def check_changes(self, force: bool = False) -> Dict[str, bool]:
-        """检查文件是否有变更，返回详细的变更信息"""
+        """Check if files have changes, return detailed change information"""
         changes = {
             "source_code": False,
             "dependencies": False,
@@ -278,22 +278,22 @@ class ECBotBuild:
         }
 
         if force:
-            print("[FORCE] 强制重建模式，跳过变更检查")
+            print("[FORCE] Force rebuild mode, skip change check")
             changes["any_change"] = True
             return changes
 
-        print("🔍 检查增量变更...")
+        print("Check incremental changes...")
 
-        # 1. 检查源代码变更
+        # 1. Check source code changes
         changes["source_code"] = self._check_source_changes()
 
-        # 2. 检查依赖变更
+        # 2. Check dependency changes
         changes["dependencies"] = self._check_dependency_changes()
 
-        # 3. 检查配置变更
+        # 3. Check config changes
         changes["config"] = self._check_config_changes()
 
-        # 4. 检查前端变更
+        # 4. Check frontend changes
         changes["frontend"] = self._check_frontend_changes()
 
         changes["any_change"] = any([
@@ -305,8 +305,8 @@ class ECBotBuild:
         return changes
 
     def _check_source_changes(self) -> bool:
-        """检查源代码变更"""
-        print("  📝 检查源代码变更...")
+        """Check source code changes"""
+        print("  Check source code changes...")
 
         # 检查关键目录
         key_dirs = ["bot", "gui", "agent", "common", "utils", "config"]
@@ -321,7 +321,7 @@ class ECBotBuild:
                 current_hash = self._get_file_hash(file_path)
                 cached_hash = self.cache["files"].get(str(file_path), "")
                 if current_hash != cached_hash:
-                    print(f"    [FORCE] 文件变更: {file_name}")
+                    print(f"    [FORCE] File changed: {file_name}")
                     changed = True
                     self.cache["files"][str(file_path)] = current_hash
 
@@ -332,48 +332,48 @@ class ECBotBuild:
                 current_hash = self._get_directory_hash(dir_path)
                 cached_hash = self.cache["files"].get(f"dir:{dir_name}", "")
                 if current_hash != cached_hash:
-                    print(f"    [FORCE] 目录变更: {dir_name}/")
+                    print(f"    [FORCE] Directory changed: {dir_name}/")
                     changed = True
                     self.cache["files"][f"dir:{dir_name}"] = current_hash
 
         if not changed:
-            print("    [SUCCESS] 源代码无变更")
+            print("    [SUCCESS] Source code unchanged")
 
         return changed
 
     def _check_dependency_changes(self) -> bool:
-        """检查依赖变更"""
-        print("  📦 检查依赖变更...")
+        """Check dependency changes"""
+        print("  Check dependency changes...")
 
         current_hash = self._get_requirements_hash()
         cached_hash = self.cache.get("requirements_hash", "")
 
         if current_hash != cached_hash:
-            print("    [FORCE] 依赖文件变更")
+            print("    [FORCE] Dependency file changed")
             self.cache["requirements_hash"] = current_hash
             return True
         else:
-            print("    [SUCCESS] 依赖无变更")
+            print("    [SUCCESS] Dependencies unchanged")
             return False
 
     def _check_config_changes(self) -> bool:
-        """检查配置变更"""
-        print("  ⚙️  检查配置变更...")
+        """Check config changes"""
+        print("  Check config changes...")
 
         current_hash = self._get_config_hash()
         cached_hash = self.cache.get("build_config_hash", "")
 
         if current_hash != cached_hash:
-            print("    [FORCE] 构建配置变更")
+            print("    [FORCE] Build config changed")
             self.cache["build_config_hash"] = current_hash
             return True
         else:
-            print("    [SUCCESS] 配置无变更")
+            print("    [SUCCESS] Config unchanged")
             return False
 
     def _check_frontend_changes(self) -> bool:
-        """检查前端变更"""
-        print("  🎨 检查前端变更...")
+        """Check frontend changes"""
+        print("  Check frontend changes...")
 
         # 确保 frontend 缓存存在
         if "frontend" not in self.cache:
@@ -391,7 +391,7 @@ class ECBotBuild:
                 current_hash = self._get_directory_hash(dir_path, ['.ts', '.tsx', '.js', '.jsx', '.css', '.scss', '.json', '.html'])
                 cached_hash = self.cache["frontend"].get(dir_name, "")
                 if current_hash != cached_hash:
-                    print(f"    [FORCE] 前端目录变更: {dir_name}")
+                    print(f"    [FORCE] Frontend directory changed: {dir_name}")
                     changed = True
                     self.cache["frontend"][dir_name] = current_hash
 
@@ -402,17 +402,17 @@ class ECBotBuild:
                 current_hash = self._get_file_hash(file_path)
                 cached_hash = self.cache["frontend"].get(file_name, "")
                 if current_hash != cached_hash:
-                    print(f"    [FORCE] 前端配置变更: {file_name}")
+                    print(f"    [FORCE] Frontend config changed: {file_name}")
                     changed = True
                     self.cache["frontend"][file_name] = current_hash
 
         if not changed:
-            print("    [SUCCESS] 前端无变更")
+            print("    [SUCCESS] Frontend unchanged")
 
         return changed
 
     def _check_build_artifacts(self) -> bool:
-        """检查构建产物是否存在"""
+        """Check build artifacts exist"""
         if self.is_macos:
             # macOS 检查 .app 文件或目录
             if self.mode == "dev":
@@ -426,33 +426,33 @@ class ECBotBuild:
         return app_path.exists()
 
     def _show_change_summary(self, changes: Dict[str, bool]):
-        """显示变更摘要"""
-        print("📋 变更摘要:")
+        """Show change summary"""
+        print("Change summary:")
 
         change_items = [
-            ("源代码", changes["source_code"]),
-            ("依赖包", changes["dependencies"]),
-            ("构建配置", changes["config"]),
-            ("前端代码", changes["frontend"])
+            ("Source code", changes["source_code"]),
+            ("Dependencies", changes["dependencies"]),
+            ("Build config", changes["config"]),
+            ("Frontend code", changes["frontend"])
         ]
 
         has_changes = False
         for name, changed in change_items:
             if changed:
-                print(f"  [FORCE] {name}: 有变更")
+                print(f"  [FORCE] {name}: has changes")
                 has_changes = True
             else:
-                print(f"  [SUCCESS] {name}: 无变更")
+                print(f"  [SUCCESS] {name}: no changes")
 
         if not has_changes:
-            print("  🎉 所有组件均无变更")
+            print("  All components have no changes")
 
         print()
 
     def clean_build(self):
-        """清理构建目录"""
+        """Clean build directory"""
         if self.get_config()["clean"]:
-            print("[CLEAN] 清理构建目录...")
+            print("[CLEAN] Clean build directory...")
             if self.build_dir.exists():
                 import shutil
                 for item in self.build_dir.iterdir():
@@ -464,7 +464,7 @@ class ECBotBuild:
 
             if self.dist_dir.exists():
                 import shutil
-                # 先删除所有文件和子目录
+                # 先Delete所有文件和子目录
                 for item in self.dist_dir.iterdir():
                     try:
                         if item.is_dir():
@@ -472,99 +472,99 @@ class ECBotBuild:
                         else:
                             item.unlink()
                     except Exception as e:
-                        print(f"[WARNING]  删除 {item} 时出错: {e}")
+                        print(f"[WARNING]  Delete {item} error: {e}")
 
-                # 然后删除目录本身
+                # 然后Delete目录本身
                 try:
                     self.dist_dir.rmdir()
                 except Exception as e:
-                    print(f"[WARNING]  删除 dist 目录时出错: {e}")
-                    # 如果删除失败，尝试强制删除
+                    print(f"[WARNING]  Delete dist 目录error: {e}")
+                    # 如果DeleteFailed，尝试强制Delete
                     try:
                         shutil.rmtree(self.dist_dir, ignore_errors=True)
                     except Exception as e2:
-                        print(f"[WARNING]  强制删除 dist 目录也失败: {e2}")
+                        print(f"[WARNING]  Force delete dist directory also failed: {e2}")
     
     def build(self, force: bool = False, skip_frontend: bool = None) -> bool:
-        """执行完整构建流程"""
+        """Execute complete build process"""
         platform_info = self.get_platform_info()
-        print(f"[BUILD] ECBot 跨平台构建器 - {self.mode.upper()} 模式")
-        print(f"[TARGET] 目标平台: {platform_info['name']}")
+        print(f"[BUILD] ECBot Cross-Platform Builder - {self.mode.upper()} Mode")
+        print(f"[TARGET] Platform: {platform_info['name']}")
 
         if force:
-            print("[FORCE] 强制重建模式")
+            print("[FORCE] Force Rebuild Mode")
         else:
-            print("[INCREMENTAL] 增量构建模式")
+            print("[INCREMENTAL] Incremental Build Mode")
         print("=" * 50)
 
-        # 检查前提条件
+        # Check prerequisites
         if not self.check_prerequisites():
-            print("[ERROR] 前提条件检查失败")
+            print("[ERROR] Prerequisites Check Failed")
             return False
 
-        # 检查变更情况
+        # Check changes
         changes = self.check_changes(force=force)
 
-        # 决定是否跳过前端构建
+        # Decide whether to skip frontend build
         if skip_frontend is None:
-            # dev 模式默认跳过前端构建
+            # dev mode skips frontend build by default
             skip_frontend = (self.mode == "dev")
 
-        # 构建前端 (根据变更情况决定是否强制重建)
+        # Build frontend (根据变更情况决定是否强制重建)
         force_frontend = force or changes["frontend"]
         if not self.build_frontend(skip_frontend=skip_frontend, force_frontend=force_frontend):
-            print("[ERROR] 前端构建失败")
+            print("[ERROR] Frontend Build Failed")
             return False
 
-        # 检查是否需要构建后端
+        # Check if backend build is needed
         if not changes["any_change"]:
-            # 检查是否存在构建产物
+            # Check if build artifacts exist
             if self._check_build_artifacts():
-                print("[SUCCESS] 无变更且构建产物存在，跳过后端构建")
+                print("[SUCCESS] No changes and build artifacts exist, skipping backend build")
                 self._show_result()
                 return True
             else:
-                print("[WARNING]  无变更但构建产物不存在，将重新构建")
+                print("[WARNING]  No changes but build artifacts missing, will rebuild")
                 changes["any_change"] = True
 
-        # 显示变更摘要
+        # Show change summary
         self._show_change_summary(changes)
 
-        # 清理构建目录 (仅在有变更时)
+        # Clean build directory (仅在has changes时)
         if changes["any_change"]:
             self.clean_build()
 
-        # 开始构建后端
-        print("[BUILD] 开始构建后端...")
+        # Start backend build
+        print("[BUILD] Starting backend build...")
         start_time = time.time()
 
         try:
             success = self._run_pyinstaller()
             build_time = time.time() - start_time
 
-            # 更新缓存
+            # Update cache
             self.cache["last_build"] = time.time()
             self.cache["last_success"] = success
             self.cache["last_duration"] = build_time
             self._save_cache()
 
             if success:
-                print(f"[SUCCESS] 构建完成 ({build_time:.1f}秒)")
+                print(f"[SUCCESS] Build completed ({build_time:.1f}s)")
                 self._show_result()
             else:
-                print("[ERROR] 构建失败")
+                print("[ERROR] Build failed")
 
             return success
 
         except Exception as e:
-            print(f"[ERROR] 构建出错: {e}")
+            print(f"[ERROR] Build error: {e}")
             return False
     
     def _run_pyinstaller(self) -> bool:
-        """运行PyInstaller"""
+        """Run PyInstaller"""
         config = self.get_config()
         
-        # 构建PyInstaller命令
+        # Build PyInstaller command
         icon_path = str(self.project_root / config["icon"])
         cmd = [
             sys.executable, "-m", "PyInstaller",
@@ -573,39 +573,39 @@ class ECBotBuild:
             "--workpath", str(self.build_dir / "work"),
             "--distpath", str(self.dist_dir),
             "--specpath", str(self.build_dir),
-            "--noconfirm"  # 自动确认，不需要手动输入yes
+            "--noconfirm"  # Auto confirm, no manual yes input needed
         ]
         
-        # 添加选项
+        # Add options
         if config["debug"]:
             cmd.append("--debug=all")
 
-        # 根据平台和模式决定窗口类型
+        # 根据Platform和模式决定窗口类型
         if self.is_macos:
             if config["console"] and self.mode == "dev":
-                # dev 模式在 macOS 上使用 --console 以便调试
+                # dev mode uses --console on macOS for debugging
                 cmd.append("--console")
-                print("[INFO]  dev 模式使用 --console 以便调试 (生成目录而非 .app)")
+                print("[INFO]  dev mode uses --console for debugging (Generate directory instead of .app)")
             else:
-                # 其他模式使用 --windowed 生成 .app 文件
+                # Other modes use --windowed to generate .app file
                 cmd.append("--windowed")
                 if config["console"]:
-                    print("[INFO]  macOS 生产模式使用 --windowed 生成 .app 文件")
+                    print("[INFO]  macOS production mode uses --windowed to generate .app file")
         else:
             if config["console"]:
                 cmd.append("--console")
             else:
                 cmd.append("--windowed")
-        # Windows 平台在生产模式下使用 --onedir 以便 Inno Setup 打包
+        # Windows Platform在生产模式下使用 --onedir 以便 Inno Setup 打包
         if self.is_windows and self.mode == "prod":
             cmd.append("--onedir")
-            print("[INFO]  Windows 生产模式使用 --onedir 以便 Inno Setup 打包")
+            print("[INFO]  Windows production mode uses --onedir for Inno Setup packaging")
         elif config["onefile"]:
             cmd.append("--onefile")
         else:
             cmd.append("--onedir")
         
-        # 添加数据文件
+        # Add data files
         for data_dir in config["data_dirs"]:
             src_path = self.project_root / data_dir
             if src_path.exists():
@@ -616,11 +616,11 @@ class ECBotBuild:
             if src_path.exists():
                 cmd.extend(["--add-data", f"{src_path}{os.pathsep}."])
         
-        # 添加隐藏导入
+        # Add hidden imports
         for module in config["hidden_imports"]:
             cmd.extend(["--hidden-import", module])
 
-        # 特殊处理：添加tiktoken_ext包
+        # Special handling: add tiktoken_ext package
         try:
             import tiktoken_ext
             tiktoken_ext_path = os.path.dirname(tiktoken_ext.__file__ or '') if tiktoken_ext.__file__ else ''
@@ -694,14 +694,14 @@ class ECBotBuild:
         # 执行构建
         result = subprocess.run(cmd, cwd=self.project_root)
 
-        # 如果构建成功且是 macOS .app 文件，进行后处理
+        # 如果构建Success且是 macOS .app 文件，进行后处理
         if result.returncode == 0 and self.is_macos and not (self.mode == "dev" and config["console"]):
             self._post_process_macos_app()
 
         return result.returncode == 0
 
     def _post_process_macos_app(self):
-        """macOS .app 文件后处理"""
+        """macOS .app file post-processing"""
         app_path = self.dist_dir / "ECBot.app"
         if not app_path.exists():
             return
@@ -714,10 +714,10 @@ class ECBotBuild:
             self._set_app_permissions(app_path)
 
         except Exception as e:
-            print(f"[WARNING]  macOS .app 后处理失败: {e}")
+            print(f"[WARNING]  macOS .app post-processing failed: {e}")
 
     def _optimize_info_plist(self, app_path: Path):
-        """优化 Info.plist 文件"""
+        """Optimize Info.plist file"""
         plist_path = app_path / "Contents" / "Info.plist"
         if not plist_path.exists():
             return
@@ -747,10 +747,10 @@ class ECBotBuild:
                 plistlib.dump(plist_data, f)
 
         except Exception as e:
-            print(f"[WARNING]  Info.plist 优化失败: {e}")
+            print(f"[WARNING]  Info.plist optimization failed: {e}")
 
     def _set_app_permissions(self, app_path: Path):
-        """设置应用权限"""
+        """Set application permissions"""
         try:
             # 设置可执行文件权限
             executable_path = app_path / "Contents" / "MacOS" / "ECBot"
@@ -761,10 +761,10 @@ class ECBotBuild:
             os.chmod(app_path, 0o755)
 
         except Exception as e:
-            print(f"[WARNING]  权限设置失败: {e}")
+            print(f"[WARNING]  Permission setting failed: {e}")
 
     def _show_result(self):
-        """显示构建结果"""
+        """Show build result"""
         config = self.get_config()
 
         if self.is_macos:
@@ -774,73 +774,73 @@ class ECBotBuild:
                 app_path = self.dist_dir / "ECBot"
                 if app_path.exists():
                     size = self._get_dir_size(app_path)
-                    print(f"📁 macOS 应用目录 (dev模式): {app_path}")
-                    print(f"📦 应用大小: {self._format_size(size)}")
-                    print("[INFO]  dev 模式生成目录格式，便于调试")
+                    print(f"macOS app directory (dev mode): {app_path}")
+                    print(f"App size: {self._format_size(size)}")
+                    print("[INFO]  dev mode generates directory format for debugging")
                 else:
-                    print("[ERROR] macOS 应用目录未找到")
+                    print("[ERROR] macOS app directory not found")
             else:
                 # 生产模式生成 .app 文件
                 app_path = self.dist_dir / "ECBot.app"
                 if app_path.exists():
                     size = self._get_dir_size(app_path)
-                    print(f"📱 macOS 应用包: {app_path}")
-                    print(f"📦 应用包大小: {self._format_size(size)}")
+                    print(f"macOS app package: {app_path}")
+                    print(f"App package size: {self._format_size(size)}")
                 else:
-                    print("[ERROR] macOS 应用包未找到")
+                    print("[ERROR] macOS app package not found")
         else:
             # Windows/Linux
             exe_path = self.dist_dir / "ECBot"
             if exe_path.exists():
                 size = self._get_dir_size(exe_path)
-                print(f"📁 应用目录: {exe_path}")
-                print(f"📦 应用大小: {self._format_size(size)}")
+                print(f"📁 Application directory: {exe_path}")
+                print(f"📦 Application size: {self._format_size(size)}")
                 
-                # Windows 平台尝试创建安装包
+                # Windows Platform尝试Create installer
                 if self.is_windows and self.mode == "prod":
                     self._create_installer()
             else:
-                print("[ERROR] 应用程序未找到")
+                print("[ERROR] Application not found")
 
-        # 创建构建信息文件
+        # Create build info文件
         self._create_build_info()
 
     def _create_installer(self):
-        """创建 Windows 安装包"""
+        """Create Windows installer"""
         try:
-            print("🔧 开始创建 Windows 安装包...")
+            print("🔧 Start creating Windows installer...")
             
             # 检查是否启用安装包创建
             installer_config = self.base_config.get("installer", {})
             if not installer_config.get("enabled", True):
-                print("[INFO]  安装包创建已禁用，跳过")
+                print("[INFO]  Installer creation disabled, skipping")
                 return
             
-            # 检查 Inno Setup 是否可用
+            # Check if Inno Setup is available
             if not self._check_inno_setup():
-                print("[WARNING]  Inno Setup 未安装，跳过安装包创建")
-                print("💡 请安装 Inno Setup: https://jrsoftware.org/isinfo.php")
+                print("[WARNING]  Inno Setup not installed, skip installer creation")
+                print("Please install Inno Setup: https://jrsoftware.org/isinfo.php")
                 return
             
-            # 创建 Inno Setup 脚本
+            # Create Inno Setup script
             iss_file = self._create_inno_script()
             if not iss_file:
-                print("[ERROR] 创建 Inno Setup 脚本失败")
+                print("[ERROR] Failed to create Inno Setup script")
                 return
             
-            # 运行 Inno Setup 编译
+            # Run Inno Setup 编译
             if self._run_inno_setup(iss_file):
-                print("[SUCCESS] Windows 安装包创建成功")
+                print("[SUCCESS] Windows installer created successfully")
             else:
-                print("[ERROR] Windows 安装包创建失败")
+                print("[ERROR] Windows installer creation failed")
                 
         except Exception as e:
-            print(f"[WARNING]  创建安装包时出错: {e}")
+            print(f"[WARNING]  Create installererror: {e}")
 
     def _check_inno_setup(self) -> bool:
-        """检查 Inno Setup 是否可用"""
+        """Check if Inno Setup is available"""
         try:
-            # 检查 Inno Setup 编译器
+            # Check Inno Setup 编译器
             result = subprocess.run(
                 ["iscc", "/?"], 
                 capture_output=True, 
@@ -852,7 +852,7 @@ class ECBotBuild:
             return False
 
     def _create_inno_script(self) -> Path:
-        """创建 Inno Setup 脚本"""
+        """Create Inno Setup script"""
         try:
             config = self.get_config()
             app_name = config["app_name"]
@@ -904,19 +904,19 @@ Filename: "{{app}}\\{app_name}.exe"; Description: "{{cm:LaunchProgram,{app_name}
             with open(iss_file, "w", encoding="utf-8") as f:
                 f.write(iss_content)
             
-            print(f"📝 Inno Setup 脚本已创建: {iss_file}")
+            print(f"Inno Setup script created: {iss_file}")
             return iss_file
             
         except Exception as e:
-            print(f"[ERROR] 创建 Inno Setup 脚本失败: {e}")
+            print(f"[ERROR] Failed to create Inno Setup script: {e}")
             return None
 
     def _run_inno_setup(self, iss_file: Path) -> bool:
-        """运行 Inno Setup 编译"""
+        """Run Inno Setup compilation"""
         try:
-            print(f"[BUILD] 正在编译安装包: {iss_file}")
+            print(f"[BUILD] Compiling installer: {iss_file}")
             
-            # 运行 Inno Setup 编译器
+            # Run Inno Setup 编译器
             result = subprocess.run(
                 ["iscc", str(iss_file)],
                 cwd=self.dist_dir,
@@ -931,26 +931,26 @@ Filename: "{{app}}\\{app_name}.exe"; Description: "{{cm:LaunchProgram,{app_name}
                 if setup_files:
                     setup_file = setup_files[0]
                     size = setup_file.stat().st_size
-                    print(f"📦 安装包已创建: {setup_file}")
-                    print(f"📦 安装包大小: {self._format_size(size)}")
+                    print(f"Installer created: {setup_file}")
+                    print(f"Installer size: {self._format_size(size)}")
                     return True
                 else:
-                    print("[WARNING]  编译成功但未找到安装包文件")
+                    print("[WARNING]  Compilation successful but installer file not found")
                     return False
             else:
-                print(f"[ERROR] Inno Setup 编译失败:")
-                print(f"错误输出: {result.stderr}")
+                print(f"[ERROR] Inno Setup compilation failed:")
+                print(f"Error output: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            print("[ERROR] Inno Setup 编译超时")
+            print("[ERROR] Inno Setup compilation timeout")
             return False
         except Exception as e:
-            print(f"[ERROR] Inno Setup 编译出错: {e}")
+            print(f"[ERROR] Inno Setup compilation error: {e}")
             return False
 
     def _create_build_info(self):
-        """创建构建信息文件"""
+        """Create build info file"""
         try:
             platform_info = self.get_platform_info()
             build_info = {
@@ -973,15 +973,15 @@ Filename: "{{app}}\\{app_name}.exe"; Description: "{{cm:LaunchProgram,{app_name}
             with open(build_info_path, "w", encoding="utf-8") as f:
                 json.dump(build_info, f, indent=2, ensure_ascii=False)
 
-            print(f"📋 构建信息已保存: {build_info_path}")
+            print(f"Build info saved: {build_info_path}")
 
         except Exception as e:
-            print(f"[WARNING]  创建构建信息失败: {e}")
+            print(f"[WARNING]  Failed to create build info: {e}")
 
 
 
     def _get_dir_size(self, path: Path) -> int:
-        """获取目录大小"""
+        """Get directory size"""
         total = 0
         try:
             for dirpath, _, filenames in os.walk(path):
@@ -994,7 +994,7 @@ Filename: "{{app}}\\{app_name}.exe"; Description: "{{cm:LaunchProgram,{app_name}
         return total
     
     def _format_size(self, size: int) -> str:
-        """格式化大小"""
+        """Format size"""
         for unit in ['B', 'KB', 'MB', 'GB']:
             if size < 1024:
                 return f"{size:.1f} {unit}"
@@ -1002,87 +1002,87 @@ Filename: "{{app}}\\{app_name}.exe"; Description: "{{cm:LaunchProgram,{app_name}
         return f"{size:.1f} TB"
     
     def show_stats(self):
-        """显示构建统计"""
-        print("📊 构建统计:")
-        print(f"  构建模式: {self.mode}")
-        print(f"  平台: {self.get_platform_info()['name']}")
+        """Show Build Statistics"""
+        print("Build Statistics:")
+        print(f"  Build mode: {self.mode}")
+        print(f"  Platform: {self.get_platform_info()['name']}")
         print()
 
-        print("📁 缓存信息:")
-        print(f"  源代码文件: {len([k for k in self.cache.get('files', {}).keys() if not k.startswith('dir:')])}")
-        print(f"  监控目录: {len([k for k in self.cache.get('files', {}).keys() if k.startswith('dir:')])}")
-        print(f"  前端文件: {len(self.cache.get('frontend', {}))}")
-        print(f"  依赖哈希: {'已缓存' if self.cache.get('requirements_hash') else '未缓存'}")
-        print(f"  配置哈希: {'已缓存' if self.cache.get('build_config_hash') else '未缓存'}")
+        print("Cache info:")
+        print(f"  Source code files: {len([k for k in self.cache.get('files', {}).keys() if not k.startswith('dir:')])}")
+        print(f"  Monitor directory: {len([k for k in self.cache.get('files', {}).keys() if k.startswith('dir:')])}")
+        print(f"  Frontend files: {len(self.cache.get('frontend', {}))}")
+        print(f"  Dependencies hash: {'Cached' if self.cache.get('requirements_hash') else 'Not cached'}")
+        print(f"  Build config hash: {'Cached' if self.cache.get('build_config_hash') else 'Not cached'}")
         print()
 
         if self.cache.get("last_build"):
             import datetime
             last_build = datetime.datetime.fromtimestamp(self.cache["last_build"])
-            print("🕒 上次构建:")
-            print(f"  时间: {last_build.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"  耗时: {self.cache.get('last_duration', 0):.1f}秒")
-            print(f"  状态: {'[SUCCESS] 成功' if self.cache.get('last_success') else '[ERROR] 失败'}")
+            print("Last build:")
+            print(f"  Time: {last_build.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  Duration: {self.cache.get('last_duration', 0):.1f}秒")
+            print(f"  Status: {'[SUCCESS] Success' if self.cache.get('last_success') else '[ERROR] Failed'}")
         else:
-            print("🕒 上次构建: 从未构建")
+            print("Last build: Never built")
 
         print()
 
-        # 检查当前变更状态
-        print("🔍 当前状态检查:")
+        # 检查当前变更Status
+        print("Current status check:")
         changes = self.check_changes(force=False)
         if changes["any_change"]:
-            print("  📝 检测到变更，建议重新构建")
+            print("  Changes detected, suggest rebuilding")
         else:
             if self._check_build_artifacts():
-                print("  [SUCCESS] 无变更且构建产物存在")
+                print("  [SUCCESS] no changes and build artifacts exist")
             else:
-                print("  [WARNING]  无变更但构建产物缺失")
+                print("  [WARNING]  no changes but build artifacts missing")
 
         print()
-        print("💡 提示:")
-        print("  - 使用 --force 强制完整重建")
-        print("  - 使用 --clean-cache 清理缓存")
-        print("  - 增量构建可大幅提升构建速度")
+        print("Tips:")
+        print("  - Use --force to force a complete rebuild")
+        print("  - Use --clean-cache to clean cache")
+        print("  - Incremental build can significantly improve build speed")
     
     def clean_cache(self):
-        """清理缓存"""
-        print("[CLEAN] 清理构建缓存...")
+        """Clean cache"""
+        print("[CLEAN] Clean build cache...")
         self.cache = {"files": {}, "last_build": 0, "last_success": False}
         self._save_cache()
-        print("[SUCCESS] 缓存已清理")
+        print("[SUCCESS] Cache cleaned")
 
 
 def main():
-    """主函数"""
+    """Main function"""
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="ECBot 跨平台构建系统 v6.0 - 支持智能增量构建",
+        description="ECBot Cross-Platform Build System v6.0 - Support smart incremental build",
         epilog="""
-增量构建说明:
-  默认情况下，构建系统会检查源代码、依赖、配置等变更，只在有变更时重新构建。
-  使用 --force 可以强制完整重建。
+Incremental build instructions:
+  By default, the build system checks for changes in source code, dependencies, and configuration. It only rebuilds when changes are detected.
+  Use --force to force a complete rebuild.
 
-示例:
-  python ecbot_build.py prod              # 生产模式增量构建
-  python ecbot_build.py dev --force       # 开发模式强制重建
-  python ecbot_build.py prod --stats      # 查看构建统计
+Examples:
+  python ecbot_build.py prod              # Incremental build in production mode
+  python ecbot_build.py dev --force       # Force rebuild in development mode
+  python ecbot_build.py prod --stats      # View Build Statistics
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("mode", nargs="?", choices=["dev", "dev-debug", "prod"], default="prod",
-                       help="构建模式: dev(开发) 或 dev-debug(调试) 或 prod(生产)")
+                       help="Build mode: dev(development) or dev-debug(debug) or prod(production)")
     parser.add_argument("--force", action="store_true",
-                       help="强制重新构建 (跳过增量检查)")
+                       help="Force rebuild (skip incremental check)")
     parser.add_argument("--skip-frontend", action="store_true",
-                       help="跳过前端构建")
+                       help="Skip frontend build")
     parser.add_argument("--build-frontend", action="store_true",
-                       help="强制构建前端 (覆盖 dev 模式默认)")
+                       help="Force build frontend (override dev mode default)")
     parser.add_argument("--stats", action="store_true",
-                       help="显示构建统计信息")
+                       help="Show Build Statistics information")
     parser.add_argument("--clean-cache", action="store_true",
-                       help="清理构建缓存并退出")
+                       help="Clean build cache and exit")
 
     args = parser.parse_args()
 
