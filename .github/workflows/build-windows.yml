@@ -31,6 +31,8 @@ jobs:
         node --version
         npm --version
         echo "Node.js installation verified"
+        echo "NPM_PATH: $env:NPM_PATH"
+        echo "PATH: $env:PATH"
     
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -49,7 +51,7 @@ jobs:
     - name: Install frontend dependencies
       run: |
         cd gui_v2
-        npm install --legacy-peer-deps
+        npm install --legacy-peer-deps --verbose
     
     # - name: Build frontend
     #   run: |
