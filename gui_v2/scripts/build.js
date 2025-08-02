@@ -1,10 +1,4 @@
-import fs from 'fs-extra';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 async function build() {
   try {
@@ -28,7 +22,16 @@ async function build() {
     if (args.includes('--no-source-map')) {
       process.env.VITE_SOURCEMAP = 'false';
     }
-    await execSync('vite build', { stdio: 'inherit', env: process.env });
+    // Set Node.js memory options for large builds
+    const nodeOptions = process.env.NODE_OPTIONS || '';
+    const memoryOptions = '--max-old-space-size=8192';
+
+    // Only add memory options if not already present
+    if (!nodeOptions.includes('--max-old-space-size')) {
+      process.env.NODE_OPTIONS = nodeOptions ? `${nodeOptions} ${memoryOptions}` : memoryOptions;
+    }
+
+    execSync('vite build', { stdio: 'inherit', env: process.env });
 
     console.log('Build completed successfully!');
   } catch (error) {
