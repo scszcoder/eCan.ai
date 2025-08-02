@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot 构建系统
-支持 macOS 和 Windows 双平台打包
+ECBot Cross-Platform Build System v6.0
+Supports macOS and Windows dual-platform packaging
 """
 
 import sys
@@ -12,37 +12,37 @@ from pathlib import Path
 
 
 def show_help():
-    """显示帮助信息"""
+    """Show help information"""
     platform_name = "macOS" if platform.system() == "Darwin" else "Windows" if platform.system() == "Windows" else "Linux"
 
     print(f"""
-[BUILD] ECBot 构建系统
-当前平台: {platform_name}
+[BUILD] ECBot Cross-Platform Build System v6.0
+Current platform: {platform_name}
 
-用法:
-  python build.py [模式] [选项]
+Usage:
+  python build.py [mode] [options]
 
-构建模式:
-  dev        开发模式 (快速构建，显示控制台)
-  prod       生产模式 (优化构建，无控制台) [默认]
+Build mode:
+  dev        Development mode (fast build, show console)
+  prod       Production mode (optimized build, no console) [default]
 
-选项:
-  --force           强制重新构建
-  --help            显示此帮助信息
+Options:
+  --force            Force rebuild
+  --help             Show this help information
 
-示例:
-  python build.py                      # 生产模式构建
-  python build.py dev                  # 开发模式构建
-  python build.py prod --force         # 强制生产模式构建
+Examples:
+  python build.py                      # Production mode build
+  python build.py dev                  # Development mode build
+  python build.py prod --force         # Force production mode build
 
-输出:
+Output:
   - macOS: dist/ECBot.app
   - Windows: dist/ECBot.exe + dist/ECBot-Setup.exe
 """)
 
 
 def main():
-    """主函数 - 跨平台构建"""
+    """Main function - cross-platform build"""
     # 检查帮助参数
     if "--help" in sys.argv or "-h" in sys.argv:
         show_help()
@@ -55,8 +55,8 @@ def main():
     builder_path = Path(__file__).parent / "build_system" / "ecbot_build.py"
 
     if not builder_path.exists():
-        print("[ERROR] 构建器不存在，请检查文件路径")
-        print(f"   期望路径: {builder_path}")
+        print("[ERROR] Builder not found, please check file path")
+        print(f"    Expected path: {builder_path}")
         sys.exit(1)
 
     # 直接传递所有参数给构建器
@@ -66,10 +66,10 @@ def main():
         result = subprocess.run(cmd)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
-        print("\n[WARNING]  构建被用户中断")
+        print("\n[WARNING] Build interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"[ERROR] 构建出错: {e}")
+        print(f"[ERROR] Build error: {e}")
         sys.exit(1)
 
 
