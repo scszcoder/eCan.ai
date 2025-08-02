@@ -26,6 +26,12 @@ jobs:
       with:
         node-version: '18'
     
+    - name: Verify Node.js installation
+      run: |
+        node --version
+        npm --version
+        echo "Node.js installation verified"
+    
     - name: Cache pip dependencies
       uses: actions/cache@v3
       with:
