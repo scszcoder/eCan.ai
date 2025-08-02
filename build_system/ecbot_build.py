@@ -127,6 +127,14 @@ class ECBotBuild:
             print(f"[ERROR] Icon file does not exist: {icon_path}")
             return False
 
+        # 检查项目路径是否包含非ASCII字符
+        project_path_str = str(self.project_root)
+        try:
+            project_path_str.encode('ascii')
+        except UnicodeEncodeError:
+            print(f"[WARNING] Project path contains non-ASCII characters: {project_path_str}")
+            print("[WARNING] This may cause encoding issues on Windows. Consider moving the project to a path with only ASCII characters.")
+
         print(f"[SUCCESS] Platform: {platform_info['name']}")
         print(f"[SUCCESS] Icon file: {platform_info['icon']}")
 
@@ -677,13 +685,62 @@ class ECBotBuild:
         
         # Build PyInstaller command
         icon_path = str(self.project_root / config["icon"])
+        
+        # 确保路径使用正确的编码
+        work_path = str(self.build_dir / "work")
+        dist_path = str(self.dist_dir)
+        spec_path = str(self.build_dir)
+        
+        # 在Windows上处理路径编码问题
+        if self.is_windows:
+            try:
+                # 尝试使用短路径名来避免编码问题
+                import win32api
+                work_path = win32api.GetShortPathName(work_path)
+                dist_path = win32api.GetShortPathName(dist_path)
+                spec_path = win32api.GetShortPathName(spec_path)
+                icon_path = win32api.GetShortPathName(icon_path)
+                print("[DEBUG] Using short paths for Windows compatibility")
+            except ImportError:
+                print("[DEBUG] win32api not available, using original paths")
+                # 尝试使用subprocess调用Windows命令
+                try:
+                    import subprocess
+                    work_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + work_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    dist_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + dist_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    spec_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + spec_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    icon_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + icon_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    print("[DEBUG] Using subprocess to get short paths")
+                except Exception:
+                    print("[DEBUG] Failed to get short paths, using original paths")
+            except Exception as e:
+                print(f"[DEBUG] Failed to get short paths: {e}")
+                # 尝试使用subprocess调用Windows命令作为备选
+                try:
+                    import subprocess
+                    work_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + work_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    dist_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + dist_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    spec_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + spec_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    icon_path = subprocess.check_output(['cmd', '/c', 'for %I in ("' + icon_path + '") do @echo %~sI'], 
+                                                     text=True, stderr=subprocess.DEVNULL).strip()
+                    print("[DEBUG] Using subprocess fallback for short paths")
+                except Exception:
+                    print("[DEBUG] All short path methods failed, using original paths")
+        
         cmd = [
             sys.executable, "-m", "PyInstaller",
             "--name", config["app_name"],
             "--icon", icon_path,
-            "--workpath", str(self.build_dir / "work"),
-            "--distpath", str(self.dist_dir),
-            "--specpath", str(self.build_dir),
+            "--workpath", work_path,
+            "--distpath", dist_path,
+            "--specpath", spec_path,
             "--noconfirm"  # Auto confirm, no manual yes input needed
         ]
         
@@ -720,12 +777,36 @@ class ECBotBuild:
         for data_dir in config["data_dirs"]:
             src_path = self.project_root / data_dir
             if src_path.exists():
-                cmd.extend(["--add-data", f"{src_path}{os.pathsep}{data_dir}"])
+                try:
+                    # 在Windows上处理路径编码
+                    if self.is_windows:
+                        try:
+                            import win32api
+                            short_src_path = win32api.GetShortPathName(str(src_path))
+                            cmd.extend(["--add-data", f"{short_src_path}{os.pathsep}{data_dir}"])
+                        except (ImportError, Exception):
+                            cmd.extend(["--add-data", f"{src_path}{os.pathsep}{data_dir}"])
+                    else:
+                        cmd.extend(["--add-data", f"{src_path}{os.pathsep}{data_dir}"])
+                except Exception as e:
+                    print(f"[WARNING] Failed to add data directory {data_dir}: {e}")
 
         for data_file in config["data_files"]:
             src_path = self.project_root / data_file
             if src_path.exists():
-                cmd.extend(["--add-data", f"{src_path}{os.pathsep}."])
+                try:
+                    # 在Windows上处理路径编码
+                    if self.is_windows:
+                        try:
+                            import win32api
+                            short_src_path = win32api.GetShortPathName(str(src_path))
+                            cmd.extend(["--add-data", f"{short_src_path}{os.pathsep}."])
+                        except (ImportError, Exception):
+                            cmd.extend(["--add-data", f"{src_path}{os.pathsep}."])
+                    else:
+                        cmd.extend(["--add-data", f"{src_path}{os.pathsep}."])
+                except Exception as e:
+                    print(f"[WARNING] Failed to add data file {data_file}: {e}")
         
         # Add hidden imports
         for module in config["hidden_imports"]:
@@ -736,8 +817,19 @@ class ECBotBuild:
             import tiktoken_ext
             tiktoken_ext_path = os.path.dirname(tiktoken_ext.__file__ or '') if tiktoken_ext.__file__ else ''
             if tiktoken_ext_path and os.path.exists(tiktoken_ext_path):
-                cmd.extend(["--add-data", f"{tiktoken_ext_path}{os.pathsep}tiktoken_ext"])
-                print(f"Added tiktoken_ext from: {tiktoken_ext_path}")
+                # 在Windows上处理路径编码
+                if self.is_windows:
+                    try:
+                        import win32api
+                        short_path = win32api.GetShortPathName(tiktoken_ext_path)
+                        cmd.extend(["--add-data", f"{short_path}{os.pathsep}tiktoken_ext"])
+                        print(f"Added tiktoken_ext from: {short_path}")
+                    except (ImportError, Exception):
+                        cmd.extend(["--add-data", f"{tiktoken_ext_path}{os.pathsep}tiktoken_ext"])
+                        print(f"Added tiktoken_ext from: {tiktoken_ext_path}")
+                else:
+                    cmd.extend(["--add-data", f"{tiktoken_ext_path}{os.pathsep}tiktoken_ext"])
+                    print(f"Added tiktoken_ext from: {tiktoken_ext_path}")
         except ImportError:
             print("Warning: tiktoken_ext not found, skipping...")
 
@@ -746,8 +838,19 @@ class ECBotBuild:
             import scipy._lib.array_api_compat
             scipy_compat_path = os.path.dirname(scipy._lib.array_api_compat.__file__)
             if scipy_compat_path and os.path.exists(scipy_compat_path):
-                cmd.extend(["--add-data", f"{scipy_compat_path}{os.pathsep}scipy/_lib/array_api_compat"])
-                print(f"Added scipy array_api_compat from: {scipy_compat_path}")
+                # 在Windows上处理路径编码
+                if self.is_windows:
+                    try:
+                        import win32api
+                        short_path = win32api.GetShortPathName(scipy_compat_path)
+                        cmd.extend(["--add-data", f"{short_path}{os.pathsep}scipy/_lib/array_api_compat"])
+                        print(f"Added scipy array_api_compat from: {short_path}")
+                    except (ImportError, Exception):
+                        cmd.extend(["--add-data", f"{scipy_compat_path}{os.pathsep}scipy/_lib/array_api_compat"])
+                        print(f"Added scipy array_api_compat from: {scipy_compat_path}")
+                else:
+                    cmd.extend(["--add-data", f"{scipy_compat_path}{os.pathsep}scipy/_lib/array_api_compat"])
+                    print(f"Added scipy array_api_compat from: {scipy_compat_path}")
         except ImportError:
             print("Warning: scipy._lib.array_api_compat not found, skipping...")
 
@@ -756,15 +859,40 @@ class ECBotBuild:
             import fake_useragent
             fake_useragent_path = os.path.dirname(fake_useragent.__file__ or '') if fake_useragent.__file__ else ''
             if fake_useragent_path and os.path.exists(fake_useragent_path):
-                # 查找data目录
-                data_path = os.path.join(fake_useragent_path, 'data')
-                if os.path.exists(data_path):
-                    cmd.extend(["--add-data", f"{data_path}{os.pathsep}fake_useragent/data"])
-                    print(f"Added fake_useragent data from: {data_path}")
+                # 在Windows上处理路径编码
+                if self.is_windows:
+                    try:
+                        import win32api
+                        short_path = win32api.GetShortPathName(fake_useragent_path)
+                        # 查找data目录
+                        data_path = os.path.join(short_path, 'data')
+                        if os.path.exists(data_path):
+                            cmd.extend(["--add-data", f"{data_path}{os.pathsep}fake_useragent/data"])
+                            print(f"Added fake_useragent data from: {data_path}")
+                        else:
+                            # 如果没有data目录，添加整个fake_useragent包
+                            cmd.extend(["--add-data", f"{short_path}{os.pathsep}fake_useragent"])
+                            print(f"Added fake_useragent package from: {short_path}")
+                    except (ImportError, Exception):
+                        # 查找data目录
+                        data_path = os.path.join(fake_useragent_path, 'data')
+                        if os.path.exists(data_path):
+                            cmd.extend(["--add-data", f"{data_path}{os.pathsep}fake_useragent/data"])
+                            print(f"Added fake_useragent data from: {data_path}")
+                        else:
+                            # 如果没有data目录，添加整个fake_useragent包
+                            cmd.extend(["--add-data", f"{fake_useragent_path}{os.pathsep}fake_useragent"])
+                            print(f"Added fake_useragent package from: {fake_useragent_path}")
                 else:
-                    # 如果没有data目录，添加整个fake_useragent包
-                    cmd.extend(["--add-data", f"{fake_useragent_path}{os.pathsep}fake_useragent"])
-                    print(f"Added fake_useragent package from: {fake_useragent_path}")
+                    # 查找data目录
+                    data_path = os.path.join(fake_useragent_path, 'data')
+                    if os.path.exists(data_path):
+                        cmd.extend(["--add-data", f"{data_path}{os.pathsep}fake_useragent/data"])
+                        print(f"Added fake_useragent data from: {data_path}")
+                    else:
+                        # 如果没有data目录，添加整个fake_useragent包
+                        cmd.extend(["--add-data", f"{fake_useragent_path}{os.pathsep}fake_useragent"])
+                        print(f"Added fake_useragent package from: {fake_useragent_path}")
         except ImportError:
             print("Warning: fake_useragent not found, skipping...")
 
@@ -773,14 +901,37 @@ class ECBotBuild:
             import browser_use
             browser_use_path = os.path.dirname(browser_use.__file__ or '') if browser_use.__file__ else ''
             if browser_use_path and os.path.exists(browser_use_path):
-                # 查找prompts目录
-                prompts_path = os.path.join(browser_use_path, 'agent', 'prompts')
-                if os.path.exists(prompts_path):
-                    cmd.extend(["--add-data", f"{prompts_path}{os.pathsep}browser_use/agent/prompts"])
-                    print(f"Added browser_use prompts from: {prompts_path}")
-                # 添加整个browser_use包以确保所有资源文件都被包含
-                cmd.extend(["--add-data", f"{browser_use_path}{os.pathsep}browser_use"])
-                print(f"Added browser_use package from: {browser_use_path}")
+                # 在Windows上处理路径编码
+                if self.is_windows:
+                    try:
+                        import win32api
+                        short_path = win32api.GetShortPathName(browser_use_path)
+                        # 查找prompts目录
+                        prompts_path = os.path.join(short_path, 'agent', 'prompts')
+                        if os.path.exists(prompts_path):
+                            cmd.extend(["--add-data", f"{prompts_path}{os.pathsep}browser_use/agent/prompts"])
+                            print(f"Added browser_use prompts from: {prompts_path}")
+                        # 添加整个browser_use包以确保所有资源文件都被包含
+                        cmd.extend(["--add-data", f"{short_path}{os.pathsep}browser_use"])
+                        print(f"Added browser_use package from: {short_path}")
+                    except (ImportError, Exception):
+                        # 查找prompts目录
+                        prompts_path = os.path.join(browser_use_path, 'agent', 'prompts')
+                        if os.path.exists(prompts_path):
+                            cmd.extend(["--add-data", f"{prompts_path}{os.pathsep}browser_use/agent/prompts"])
+                            print(f"Added browser_use prompts from: {prompts_path}")
+                        # 添加整个browser_use包以确保所有资源文件都被包含
+                        cmd.extend(["--add-data", f"{browser_use_path}{os.pathsep}browser_use"])
+                        print(f"Added browser_use package from: {browser_use_path}")
+                else:
+                    # 查找prompts目录
+                    prompts_path = os.path.join(browser_use_path, 'agent', 'prompts')
+                    if os.path.exists(prompts_path):
+                        cmd.extend(["--add-data", f"{prompts_path}{os.pathsep}browser_use/agent/prompts"])
+                        print(f"Added browser_use prompts from: {prompts_path}")
+                    # 添加整个browser_use包以确保所有资源文件都被包含
+                    cmd.extend(["--add-data", f"{browser_use_path}{os.pathsep}browser_use"])
+                    print(f"Added browser_use package from: {browser_use_path}")
         except ImportError:
             print("Warning: browser_use not found, skipping...")
 
@@ -802,14 +953,176 @@ class ECBotBuild:
         
         print(f"执行命令: {' '.join(cmd[:5])} ... (共{len(cmd)}个参数)")
         
+        # 在Windows上，如果命令太长或包含非ASCII字符，尝试使用spec文件
+        if self.is_windows and len(cmd) > 50:
+            print("[DEBUG] Command too long, attempting to use spec file approach...")
+            try:
+                # 创建临时spec文件
+                spec_content = self._generate_spec_content(config)
+                spec_file = self.build_dir / "temp_ecbot.spec"
+                with open(spec_file, 'w', encoding='utf-8') as f:
+                    f.write(spec_content)
+                
+                # 使用spec文件构建
+                spec_cmd = [
+                    sys.executable, "-m", "PyInstaller",
+                    str(spec_file),
+                    "--noconfirm"
+                ]
+                print("[DEBUG] Using spec file for build")
+                cmd = spec_cmd
+            except Exception as e:
+                print(f"[DEBUG] Failed to create spec file: {e}, using original command")
+        
         # 执行构建
-        result = subprocess.run(cmd, cwd=self.project_root)
+        # 设置环境变量以处理编码问题
+        env = os.environ.copy()
+        if self.is_windows:
+            # 在Windows上设置编码环境变量
+            env['PYTHONIOENCODING'] = 'utf-8'
+            env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
+            env['PYTHONUTF8'] = '1'
+            print("[DEBUG] Set Windows encoding environment variables")
+        
+        # 检查命令中是否有非ASCII字符
+        cmd_str = ' '.join(cmd)
+        try:
+            cmd_str.encode('ascii')
+            print("[DEBUG] Command contains only ASCII characters")
+        except UnicodeEncodeError as e:
+            print(f"[WARNING] Command contains non-ASCII characters: {e}")
+            print("[DEBUG] Attempting to sanitize command...")
+            # 尝试清理命令中的非ASCII字符
+            sanitized_cmd = []
+            for arg in cmd:
+                try:
+                    arg.encode('ascii')
+                    sanitized_cmd.append(arg)
+                except UnicodeEncodeError:
+                    # 尝试使用短路径或移除非ASCII字符
+                    if self.is_windows:
+                        try:
+                            import win32api
+                            short_arg = win32api.GetShortPathName(arg)
+                            sanitized_cmd.append(short_arg)
+                        except (ImportError, Exception):
+                            # 移除非ASCII字符
+                            clean_arg = ''.join(c for c in arg if ord(c) < 128)
+                            sanitized_cmd.append(clean_arg)
+                    else:
+                        # 移除非ASCII字符
+                        clean_arg = ''.join(c for c in arg if ord(c) < 128)
+                        sanitized_cmd.append(clean_arg)
+            cmd = sanitized_cmd
+            print("[DEBUG] Command sanitized")
+        
+        try:
+            result = subprocess.run(cmd, cwd=self.project_root, encoding='utf-8', errors='replace', env=env)
+        except UnicodeEncodeError as e:
+            print(f"[ERROR] Unicode encoding error: {e}")
+            print("[DEBUG] Trying with different encoding...")
+            # 尝试使用系统默认编码
+            result = subprocess.run(cmd, cwd=self.project_root, env=env)
+        except Exception as e:
+            print(f"[ERROR] Build execution error: {e}")
+            print("[DEBUG] Trying simplified build command...")
+            # 尝试使用简化的构建命令
+            try:
+                simple_cmd = [
+                    sys.executable, "-m", "PyInstaller",
+                    "--name", config["app_name"],
+                    "--icon", icon_path,
+                    "--workpath", work_path,
+                    "--distpath", dist_path,
+                    "--specpath", spec_path,
+                    "--noconfirm",
+                    config["main_script"]
+                ]
+                print("[DEBUG] Using simplified build command")
+                result = subprocess.run(simple_cmd, cwd=self.project_root, env=env)
+            except Exception as e2:
+                print(f"[ERROR] Simplified build also failed: {e2}")
+                return False
 
         # 如果构建Success且是 macOS .app 文件，进行后处理
         if result.returncode == 0 and self.is_macos and not (self.mode == "dev" and config["console"]):
             self._post_process_macos_app()
 
         return result.returncode == 0
+
+    def _generate_spec_content(self, config):
+        """Generate PyInstaller spec file content"""
+        icon_path = str(self.project_root / config["icon"])
+        work_path = str(self.build_dir / "work")
+        dist_path = str(self.dist_dir)
+        spec_path = str(self.build_dir)
+        
+        # 在Windows上处理路径编码
+        if self.is_windows:
+            try:
+                import win32api
+                icon_path = win32api.GetShortPathName(icon_path)
+                work_path = win32api.GetShortPathName(work_path)
+                dist_path = win32api.GetShortPathName(dist_path)
+                spec_path = win32api.GetShortPathName(spec_path)
+            except (ImportError, Exception):
+                pass
+        
+        spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+
+block_cipher = None
+
+a = Analysis(
+    ['{config["main_script"]}'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        # Add your data files here
+    ],
+    hiddenimports={config["hidden_imports"]},
+    hookspath=[],
+    hooksconfig={{}},
+    runtime_hooks=[],
+    excludes={config["excludes"]},
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='{config["app_name"]}',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console={'True' if config["console"] else 'False'},
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='{icon_path}',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='{config["app_name"]}',
+)
+'''
+        return spec_content
 
     def _post_process_macos_app(self):
         """macOS .app file post-processing"""
