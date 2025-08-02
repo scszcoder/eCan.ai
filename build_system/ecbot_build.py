@@ -204,6 +204,16 @@ class ECBotBuild:
             return False
         except FileNotFoundError:
             print("[ERROR] npm command not found, please ensure Node.js is installed")
+            print("[DEBUG] Checking Node.js installation...")
+            try:
+                # 尝试检查 node 是否可用
+                node_result = subprocess.run(["node", "--version"], capture_output=True, text=True)
+                if node_result.returncode == 0:
+                    print(f"[DEBUG] Node.js version: {node_result.stdout.strip()}")
+                else:
+                    print("[DEBUG] Node.js not found")
+            except:
+                print("[DEBUG] Cannot check Node.js version")
             return False
         except Exception as e:
             print(f"[ERROR] Frontend build error: {e}")
