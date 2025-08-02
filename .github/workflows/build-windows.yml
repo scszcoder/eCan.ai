@@ -46,7 +46,15 @@ jobs:
         pip install -r requirements-windows.txt
         pip install pyinstaller pywin32-ctypes
     
-    # Frontend dependencies and build will be handled by ecbot_build.py
+    - name: Install frontend dependencies
+      run: |
+        cd gui_v2
+        npm install --legacy-peer-deps
+    
+    # - name: Build frontend
+    #   run: |
+    #     cd gui_v2
+    #     npm run build
     
     - name: Install Inno Setup
       run: |
