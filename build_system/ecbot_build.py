@@ -235,11 +235,20 @@ class ECBotBuild:
 
             print(f"[DEBUG] Using npm command: {npm_cmd}")
 
+            # Set environment variables for Node.js memory optimization
+            env = os.environ.copy()
+            node_options = env.get('NODE_OPTIONS', '')
+            if '--max-old-space-size' not in node_options:
+                env['NODE_OPTIONS'] = f"{node_options} --max-old-space-size=8192".strip()
+
+            print("[DEBUG] Setting NODE_OPTIONS for memory optimization")
+
             result = subprocess.run(
                 [npm_cmd, "run", "build"],
                 cwd=gui_v2_path,
                 text=True,
-                timeout=300
+                timeout=600,  # Increase timeout to 10 minutes for large builds
+                env=env
             )
 
             if result.returncode != 0:

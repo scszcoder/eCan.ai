@@ -34,26 +34,53 @@ export default defineConfig({
     assetsDir: 'assets',
     emptyOutDir: true,
     sourcemap: process.env.VITE_SOURCEMAP === 'true',
+    // 减少内存使用的构建选项
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
     // 确保资源文件名包含哈希值，并优化代码分割
     rollupOptions: {
+      // 减少内存使用的 Rollup 选项
+      maxParallelFileOps: 2,
       output: {
+        // 更细粒度的代码分割以减少单个 chunk 大小
         manualChunks: (id) => {
           // 将 Monaco Editor 相关代码分离到单独的 chunk
           if (id.includes('monaco-editor') || id.includes('@monaco-editor')) {
             return 'monaco';
           }
-          // 将 React 相关代码分离到 vendor chunk
+          // 将 React 相关代码分离到单独的 chunk
           if (id.includes('react') || id.includes('react-dom')) {
-            return 'vendor';
+            return 'react-vendor';
+          }
+          // 将 Ant Design 相关代码分离
+          if (id.includes('antd') || id.includes('@ant-design')) {
+            return 'antd-vendor';
+          }
+          // 将 Semi UI 相关代码分离
+          if (id.includes('@douyinfe/semi')) {
+            return 'semi-vendor';
+          }
+          // 将 Flowgram 相关代码分离
+          if (id.includes('@flowgram.ai')) {
+            return 'flowgram-vendor';
           }
           // 其他第三方库
           if (id.includes('node_modules')) {
             return 'vendor';
           }
+        },
+        // 限制 chunk 大小
+        chunkFileNames: () => {
+          return `assets/[name]-[hash].js`;
         }
       }
     },
-    chunkSizeWarningLimit: 5000 // 增加警告阈值，避免大文件警告
+    chunkSizeWarningLimit: 2000 // 降低警告阈值，鼓励更小的 chunk
   },
   resolve: {
     alias: {
