@@ -2,5 +2,5 @@
 -r requirements-base.txt
 
 # Windows specific packages
-pywin32==306; platform_system == "Windows"
+pywin32>=310; platform_system == "Windows"
 pywin32-ctypes==0.2.2; platform_system == "Windows"

@@ -1,16 +1,16 @@
 name: Build Windows EXE
 
 on:
-  push:
-    branches: [ gui-v2 ]
-  pull_request:
-    branches: [ gui-v2 ]
+  # push:
+  #   branches: [ gui-v2 ]
+  # pull_request:
+  #   branches: [ gui-v2 ]
   workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     
     steps:
     - name: Checkout code
@@ -25,14 +25,8 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-    
-    - name: Verify Node.js installation
-      run: |
-        node --version
-        npm --version
-        echo "Node.js installation verified"
-        echo "NPM_PATH: $env:NPM_PATH"
-        echo "PATH: $env:PATH"
+        cache: 'npm'
+        # cache-dependency-path: gui_v2/package-lock.json
     
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -44,71 +38,128 @@ jobs:
     
     - name: Install Python dependencies
       run: |
+        echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
         pip install -r requirements-windows.txt
         pip install pyinstaller pywin32-ctypes
+        
+        echo "=== Verifying pywin32 installation ==="
+        python -c "import win32api; print('pywin32 installed successfully')"
     
     - name: Install frontend dependencies
       run: |
+        echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
-        npm install --legacy-peer-deps --verbose
-    
-    # - name: Build frontend
-    #   run: |
-    #     cd gui_v2
-    #     npm run build
+        npm ci --legacy-peer-deps
     
     - name: Install Inno Setup
       run: |
+        echo "=== Installing Inno Setup ==="
         $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
         $DownloadPath = "$env:TEMP\innosetup-6.2.2.exe"
         
-        Write-Host "📥 下载 Inno Setup..."
+        Write-Host "📥 Downloading Inno Setup..."
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
         
-        Write-Host "🔨 安装 Inno Setup..."
+        Write-Host "🔨 Installing Inno Setup..."
         Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
         
-        Write-Host "✅ Inno Setup 安装完成"
+        Write-Host "✅ Inno Setup installation completed"
+        
+        # Verify installation
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (Test-Path $innoPath) {
+            Write-Host "✅ Inno Setup verified at: $innoPath"
+        } else {
+            Write-Host "❌ Inno Setup not found at expected location"
+            exit 1
+        }
     
     - name: Create build directories
       run: |
+        echo "=== Creating Build Directories ==="
         New-Item -ItemType Directory -Force -Path build, dist
+    
+    - name: Check build environment
+      run: |
+        echo "=== Checking Build Environment ==="
+        python build.py --check-env
     
     - name: Build Windows EXE
       run: |
-        python build.py prod --force
-      env:
-        PYTHONPATH: ${{ github.workspace }}
+        echo "=== Starting Windows Build ==="
+        echo "Command: python build.py prod --force"
+        
+        # Set environment variables
+        $env:PYTHONPATH = "$PWD"
+        $env:PYTHONUNBUFFERED = "1"
+        
+        # Run build with detailed output
+        python build.py prod --force 2>&1 | Tee-Object -FilePath "build.log"
+        
+        # Check exit code
+        if ($LASTEXITCODE -ne 0) {
+            echo "❌ Build failed with exit code: $LASTEXITCODE"
+            echo "=== Build Log ==="
+            Get-Content "build.log"
+            exit 1
+        }
+        
+        echo "✅ Build completed successfully"
     
     - name: Check build result
       run: |
-        echo "=== 构建结果检查 ==="
-        ls -la dist/
+        echo "=== Build Result Check ==="
+        echo "Dist directory contents:"
+        Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
         
-        if (Test-Path "dist/ECBot.exe") {
-          $exe = Get-Item "dist/ECBot.exe"
-          echo "✅ Windows EXE 构建成功"
-          echo "文件大小: $($exe.Length / 1MB) MB"
-        } elseif (Test-Path "dist/ECBot/ECBot.exe") {
-          $exe = Get-Item "dist/ECBot/ECBot.exe"
-          echo "✅ Windows EXE 构建成功"
-          echo "文件大小: $($exe.Length / 1MB) MB"
+        $exeFound = $false
+        $setupFound = $false
+        
+        if (Test-Path "dist/ECBot/ECBot.exe") {
+            $exe = Get-Item "dist/ECBot/ECBot.exe"
+            echo "✅ Windows EXE found: dist/ECBot/ECBot.exe"
+            echo "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
+            echo "   Created: $($exe.CreationTime)"
+            $exeFound = $true
         } else {
-          echo "❌ Windows EXE 构建失败"
-          exit 1
+            echo "❌ Windows EXE not found"
+            echo "Searching for .exe files..."
+            Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" | ForEach-Object {
+                echo "   Found: $($_.FullName)"
+            }
         }
         
         if (Test-Path "dist/ECBot-Setup.exe") {
-          $setup = Get-Item "dist/ECBot-Setup.exe"
-          echo "✅ 安装包构建成功"
-          echo "安装包大小: $($setup.Length / 1MB) MB"
+            $setup = Get-Item "dist/ECBot-Setup.exe"
+            echo "✅ Installer found: dist/ECBot-Setup.exe"
+            echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
+            echo "   Created: $($setup.CreationTime)"
+            $setupFound = $true
+        } else {
+            echo "⚠️  Installer not found"
         }
+        
+        if (-not $exeFound) {
+            echo "❌ Build validation failed - no executable found"
+            exit 1
+        }
+        
+        echo "✅ Build validation passed"
     
-    - name: Upload artifacts
+    - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ECBot-Windows
+        name: ECBot-Windows-Build
         path: |
-          dist/ECBot-Setup.exe
+          dist/
+          build.log
+        retention-days: 30
+    
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v4
+      if: hashFiles('dist/ECBot-Setup.exe') != ''
+      with:
+        name: ECBot-Windows-Installer
+        path: dist/ECBot-Setup.exe
         retention-days: 30 
