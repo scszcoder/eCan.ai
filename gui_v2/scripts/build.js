@@ -2,36 +2,35 @@ import { execSync } from 'child_process';
 
 async function build() {
   try {
-    // // 确保monaco-editor文件存在
-    // console.log('Copying Monaco Editor files...');
-    // const monacoSource = path.join(__dirname, '../node_modules/monaco-editor/min/vs');
-    // const monacoDest = path.join(__dirname, '../public/monaco-editor/vs');
-    
-    // if (await fs.pathExists(monacoSource)) {
-    //   await fs.ensureDir(path.dirname(monacoDest));
-    //   await fs.copy(monacoSource, monacoDest);
-    //   console.log('Monaco Editor files copied successfully!');
-    // } else {
-    //   console.warn('Monaco Editor files not found in node_modules, skipping copy...');
-    // }
-
     // 构建项目
     console.log('Building project...');
+    
     // 解析命令行参数
     const args = process.argv.slice(2);
     if (args.includes('--no-source-map')) {
       process.env.VITE_SOURCEMAP = 'false';
+    } else {
+      process.env.VITE_SOURCEMAP = 'true'; // 启用 sourcemap 以便调试
     }
-    // Set Node.js memory options for large builds
+    
+    // 设置环境变量以优化构建性能
+    process.env.NODE_ENV = 'production';
+    
+    // 增加内存使用以避免内存不足
     const nodeOptions = process.env.NODE_OPTIONS || '';
-    const memoryOptions = '--max-old-space-size=8192';
+    const memoryOptions = '--max-old-space-size=6144'; // 增加到 6GB
 
-    // Only add memory options if not already present
+    // 只有没有设置内存选项时才添加
     if (!nodeOptions.includes('--max-old-space-size')) {
       process.env.NODE_OPTIONS = nodeOptions ? `${nodeOptions} ${memoryOptions}` : memoryOptions;
     }
 
-    execSync('vite build', { stdio: 'inherit', env: process.env });
+    // 使用更高效的构建命令
+    execSync('vite build', { 
+      stdio: 'inherit', 
+      env: process.env,
+      cwd: process.cwd()
+    });
 
     console.log('Build completed successfully!');
   } catch (error) {
