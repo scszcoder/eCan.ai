@@ -75,9 +75,24 @@
     "app_updates_url": "https://github.com/your-repo/ecbot/releases",
     "default_dir": "{autopf}\\\\ECBot",
     "default_group": "ECBot",
-    "compression": "lzma",
-    "solid_compression": true,
     "wizard_style": "modern",
-    "privileges_required": "lowest"
+    "privileges_required": "lowest",
+    "compression_modes": {
+      "fast": {
+        "compression": "zip",
+        "solid_compression": false,
+        "internal_compress_level": "fast"
+      },
+      "dev": {
+        "compression": "zip",
+        "solid_compression": false,
+        "internal_compress_level": "fast"
+      },
+      "prod": {
+        "compression": "lzma",
+        "solid_compression": true,
+        "internal_compress_level": "max"
+      }
+    }
   }
 }

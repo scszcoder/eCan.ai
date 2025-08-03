@@ -1,0 +1,84 @@
+{
+  "app_info": {
+    "name": "ECBot",
+    "version": "1.0.0",
+    "main_script": "main.py",
+    "icon_macos": "ECBot.icns",
+    "icon_windows": "ECBot.ico"
+  },
+  "data_files": {
+    "directories": [
+      "gui_v2/dist",
+      "resource",
+      "config"
+    ],
+    "files": [
+      "ECBot.ico",
+      "ECBot.icns"
+    ]
+  },
+  "pyinstaller": {
+    "excludes": [
+      "tkinter",
+      "matplotlib",
+      "scipy.tests",
+      "numpy.tests",
+      "pandas.tests",
+      "torch.test",
+      "test",
+      "testing",
+      "unittest",
+      "doctest",
+      "pdb",
+      "IPython",
+      "jupyter",
+      "notebook",
+      "qtconsole",
+      "spyder",
+      "idle",
+      "lib2to3",
+      "distutils",
+      "setuptools",
+      "pip",
+      "wheel",
+      "pkg_resources"
+    ],
+    "hidden_imports": [
+      "PySide6.QtCore",
+      "PySide6.QtGui", 
+      "PySide6.QtWidgets",
+      "PySide6.QtNetwork",
+      "PySide6.QtWebEngineWidgets",
+      "shiboken6",
+      "sqlalchemy.dialects.sqlite",
+      "uvicorn.protocols.http.auto",
+      "uvicorn.protocols.websockets.auto",
+      "uvicorn.lifespan.on"
+    ]
+  },
+  "build_modes": {
+    "fast": {
+      "console": true,
+      "debug": true,
+      "optimize": false,
+      "strip": false,
+      "upx": false
+    },
+    "prod": {
+      "console": false,
+      "debug": false,
+      "optimize": true,
+      "strip": true,
+      "upx": true
+    }
+  },
+  "installer": {
+    "app_name": "ECBot",
+    "app_version": "1.0.0",
+    "app_publisher": "ECBot Team",
+    "compression": "zip",
+    "solid_compression": false,
+    "internal_compress_level": "fast",
+    "privileges_required": "lowest"
+  }
+}
