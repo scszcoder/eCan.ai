@@ -94,8 +94,30 @@ class LightragServer:
 
     def build_env(self):
         env = os.environ.copy()
+
+        # 强力修复 Windows 编码问题
+        env['PYTHONIOENCODING'] = 'utf-8'
+        env['PYTHONUTF8'] = '1'
+        env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
+        env['LANG'] = 'en_US.UTF-8'
+        env['LC_ALL'] = 'en_US.UTF-8'
+
+        # 设置默认值
+        env.setdefault('HOST', '0.0.0.0')
+        env.setdefault('PORT', '9621')
+        env.setdefault('MAX_RESTARTS', '3')
+        env.setdefault('RESTART_COOLDOWN', '5')
+
         if self.extra_env:
             env.update({str(k): str(v) for k, v in self.extra_env.items()})
+
+        # 设置路径相关的环境变量
+        if 'APP_DATA_PATH' in env:
+            app_data_path = env['APP_DATA_PATH']
+            env.setdefault('INPUT_DIR', os.path.join(app_data_path, 'inputs'))
+            env.setdefault('WORKING_DIR', os.path.join(app_data_path, 'rag_storage'))
+            env.setdefault('LOG_DIR', os.path.join(app_data_path, 'runlogs'))
+
         return env
 
     def _monitor_parent(self):
@@ -231,6 +253,8 @@ class LightragServer:
                     stdout=stdout_log,
                     stderr=stderr_log,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') else 0
                 )
                 try:
@@ -248,6 +272,8 @@ class LightragServer:
                     stdout=stdout_log,
                     stderr=stderr_log,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                     preexec_fn=os.setsid if hasattr(os, 'setsid') else None
                 )
 
