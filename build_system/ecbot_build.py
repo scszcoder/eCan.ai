@@ -624,12 +624,13 @@ app = BUNDLE(
 
 class InstallerBuilder:
     """安装包构建器"""
-    
-    def __init__(self, config: BuildConfig, env: BuildEnvironment, project_root: Path):
+
+    def __init__(self, config: BuildConfig, env: BuildEnvironment, project_root: Path, mode: str = "prod"):
         self.config = config
         self.env = env
         self.project_root = project_root
         self.dist_dir = project_root / "dist"
+        self.mode = mode
     
     def build(self) -> bool:
         """构建安装包"""
@@ -689,7 +690,7 @@ AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0')
 AppPublisher={installer_config.get('app_publisher', 'ECBot Team')}
 DefaultDirName={{autopf}}\\ECBot
 DefaultGroupName=ECBot
-OutputDir=dist
+OutputDir=..\\dist
 OutputBaseFilename=ECBot-Setup
 Compression={compression}
 SolidCompression={solid_compression}
@@ -753,14 +754,8 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
 
-                # 构建 Inno Setup 命令，添加性能优化参数
-                cmd = [iscc_path]
-
-                # 添加性能优化参数
-                if self.mode != "prod":
-                    cmd.append("/O-")  # 禁用优化以提高速度
-
-                cmd.append(str(iss_file))
+                # 构建 Inno Setup 命令
+                cmd = [iscc_path, str(iss_file)]
 
                 try:
                     result = subprocess.run(
@@ -785,10 +780,24 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                 )
             
             if result.returncode != 0:
-                print(f"[ERROR] Inno Setup compilation failed: {result.stderr}")
+                print(f"[ERROR] Inno Setup compilation failed:")
+                print(f"[ERROR] Return code: {result.returncode}")
+                print(f"[ERROR] STDOUT: {result.stdout}")
+                print(f"[ERROR] STDERR: {result.stderr}")
                 return False
-            
+
             print("[SUCCESS] Windows installer created")
+            print(f"[INFO] Inno Setup output: {result.stdout}")
+
+            # 检查输出文件是否存在
+            expected_output = self.dist_dir / "ECBot-Setup.exe"
+            if expected_output.exists():
+                size_mb = expected_output.stat().st_size / (1024 * 1024)
+                print(f"[INFO] Installer file: {expected_output}")
+                print(f"[INFO] File size: {size_mb:.1f} MB")
+            else:
+                print(f"[WARNING] Expected installer file not found: {expected_output}")
+
             return True
             
         except Exception as e:
@@ -814,7 +823,7 @@ class ECBotBuild:
         self.env = BuildEnvironment()
         self.frontend_builder = FrontendBuilder(self.project_root)
         self.pyinstaller_builder = PyInstallerBuilder(self.config, self.env, self.project_root)
-        self.installer_builder = InstallerBuilder(self.config, self.env, self.project_root)
+        self.installer_builder = InstallerBuilder(self.config, self.env, self.project_root, self.mode)
     
     def build(self, force: bool = False, skip_frontend: bool = None, skip_installer: bool = False) -> bool:
         """执行构建"""

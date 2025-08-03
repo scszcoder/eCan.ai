@@ -7,6 +7,8 @@ from PySide6.QtGui import QPixmap  # Add this import
 from PySide6.QtGui import QIcon  # Add this import
 from PySide6.QtCore import Qt  # For high quality scaling
 
+from PySide6.QtWidgets import QApplication
+
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
@@ -115,31 +117,75 @@ class WebGUI(QMainWindow):
             self.load_local_html()
     
     def closeEvent(self, event):
-        """窗口关闭事件"""
-        # 创建自定义对话框
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle('Confirm Exit')
-        msg_box.setText('Are you sure you want to exit the program?')
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg_box.setDefaultButton(QMessageBox.No)
-        # Set custom icon
-        logo_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
-        pixmap = QPixmap(logo_path)
-        if not pixmap.isNull():
-            # 保持比例并高质量缩放
-            scaled_pixmap = pixmap.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            msg_box.setIconPixmap(scaled_pixmap)
-        else:
-            msg_box.setIcon(QMessageBox.Question)
-        reply = msg_box.exec()
-        if reply == QMessageBox.Yes:
-            # 接受关闭事件
-            event.accept()
-            from PySide6.QtWidgets import QApplication
-            QApplication.quit()
-        else:
-            # 忽略关闭事件
+        """窗口关闭事件 - 调试版本"""
+        print("🔔 [DEBUG] closeEvent 被调用")
+        logger.info("closeEvent triggered")
+
+        try:
+            print("🔔 [DEBUG] 创建确认对话框")
+            # 创建自定义对话框
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle('Confirm Exit')
+            msg_box.setText('Are you sure you want to exit the program?')
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.No)
+
+            # 尝试设置图标，如果失败就使用默认图标
+            try:
+                logo_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
+                pixmap = QPixmap(logo_path)
+                if not pixmap.isNull():
+                    scaled_pixmap = pixmap.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    msg_box.setIconPixmap(scaled_pixmap)
+                else:
+                    msg_box.setIcon(QMessageBox.Question)
+            except:
+                msg_box.setIcon(QMessageBox.Question)
+
+            print("🔔 [DEBUG] 显示对话框")
+            reply = msg_box.exec()
+            print(f"🔔 [DEBUG] 用户选择: {reply}")
+
+            if reply == QMessageBox.Yes:
+                print("🔔 [DEBUG] 用户确认退出")
+                logger.info("User confirmed exit")
+                event.accept()
+
+                print("🔔 [DEBUG] 开始退出流程")
+
+                # 停止 LightragServer
+                try:
+                    print("🔔 [DEBUG] 停止 LightragServer")
+                    from app_context import AppContext
+                    ctx = AppContext()
+                    if ctx.main_window and hasattr(ctx.main_window, 'lightrag_server'):
+                        print("🔔 [DEBUG] 找到 LightragServer，正在停止...")
+                        ctx.main_window.lightrag_server.stop()
+                        print("🔔 [DEBUG] LightragServer 已停止")
+                    else:
+                        print("🔔 [DEBUG] 未找到 LightragServer 或 MainWindow")
+                except Exception as e:
+                    print(f"🔔 [DEBUG] 停止 LightragServer 时出错: {e}")
+                    logger.warning(f"Error stopping LightragServer: {e}")
+
+                # 强制退出
+                import os
+                print("🔔 [DEBUG] 调用 os._exit(0)")
+                logger.info("Force exiting with os._exit(0)")
+                os._exit(0)
+
+            else:
+                print("🔔 [DEBUG] 用户取消退出")
+                logger.info("User cancelled exit")
+                event.ignore()
+
+        except Exception as e:
+            print(f"🔔 [DEBUG] closeEvent 异常: {e}")
+            logger.error(f"closeEvent exception: {e}")
+            import traceback
+            traceback.print_exc()
             event.ignore()
+
 
  
     def get_ipc_api(self):
