@@ -11,6 +11,8 @@ from config.app_settings import app_settings
 from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
+import time
+
 
 # 配置日志以抑制 macOS IMK 警告
 if sys.platform == 'darwin':
@@ -37,6 +39,8 @@ class WebGUI(QMainWindow):
         # 创建开发者工具管理器
         self.dev_tools_manager = DevToolsManager(self)
 
+        # 获取 IPC API
+        self._ipc_api = None
         
         # 获取 Web URL
         web_url = app_settings.get_web_url()
@@ -143,4 +147,41 @@ class WebGUI(QMainWindow):
 
  
     def get_ipc_api(self):
-        return IPCAPI.get_instance()
+        self._ipc_api = IPCAPI.get_instance()
+        return self._ipc_api
+
+    # Message
+    # {
+    #     role: 'user' | 'assistant' | 'system' | 'agent';
+    # id: string;
+    # createAt: number;
+    # content: string | Content | Content[]; // 支持字符串、单个Content对象或Content数组
+    # status: MessageStatus; // 使用枚举类型
+    # attachments?: Attachment[]; // 统一使用
+    # attachments
+    # 字段，匹配后端数据结构
+    #
+    #      // 以下字段为应用内部使用，不是Semi
+    # Chat组件必需的
+    # chatId?: string;
+    # senderId?: string;
+    # senderName?: string;
+    # time?: number;
+    # isRead?: boolean; // 新增，表示消息是否已读
+    # }
+    def receive_new_chat_message(self, sender_agent, chatId, msg_data):
+        # chatId: str, message: dict
+        if not self._ipc_api:
+            self._ipc_api = IPCAPI.get_instance()
+
+        print("about to send chat mesg::", chatId, msg_data)
+        response = self._ipc_api.push_chat_message(chatId, msg_data)
+        print("receive_new_chat_message response::", response)
+
+    def receive_new_chat_notification(self, sender_agent, chatId, content, uid):
+        isRead = True
+        timestamp = int(time.time())
+
+        # chatId: str, content: dict, isRead: bool = False, timestamp: int = None, uid: str = None,
+        response = self._ipc_api.push_chat_notification(chatId, content, isRead, timestamp, uid)
+        print("receive_new_chat_message response::", response)

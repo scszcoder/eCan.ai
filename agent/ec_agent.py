@@ -259,15 +259,18 @@ class EC_Agent(Agent):
 			# new_thread = self.new_thread(task.id)
 			print(f"{self.card.name} Starting task {task.name} with trigger {task.trigger}")
 			if task.trigger == "schedule":
+				print(" scheduled task name:", task.name)
 				self.running_tasks.submit(self.runner.launch_scheduled_run,task)
 				# await self.runner.launch_scheduled_run(task)
 				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
 			elif task.trigger == "message":
+				print(" message task name:", task.name)
 				self.running_tasks.submit(self.runner.launch_reacted_run,task)
 
 				# await self.runner.launch_reacted_run(task)
 				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
 			elif task.trigger == "interaction":
+				print(" interaction task name:", task.name)
 				self.running_tasks.submit(self.runner.launch_interacted_run,task)
 
 				# await self.runner.launch_interacted_run(task)
@@ -356,7 +359,7 @@ class EC_Agent(Agent):
 
 			print("client payload:", payload)
 			# response = await self.a2a_client.send_task(payload)
-			response = self.a2a_client.sync_send_task(payload)
+			response = self.a2a_client.sync_send_task(payload.model_dump())
 			print("A2A RESPONSE:", response)
 			return response
 		except Exception as e:

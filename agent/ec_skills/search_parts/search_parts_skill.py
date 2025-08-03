@@ -57,8 +57,8 @@ def go_to_next_site_node(state: NodeState) -> NodeState:
 
             return state
         except Exception as e:
-            state.error = get_traceback(e, "ErrorGoToSiteNode0")
-            logger.debug(state.error)
+            state["error"] = get_traceback(e, "ErrorGoToSiteNode0")
+            logger.debug(state["error"])
             return state
         finally:
             loop.close()
@@ -78,8 +78,8 @@ def go_to_next_site_node(state: NodeState) -> NodeState:
 
             return state
         except Exception as e:
-            state.error = get_traceback(e, "ErrorGoToSiteNode1")
-            logger.debug(state.error)
+            state["error"] = get_traceback(e, "ErrorGoToSiteNode1")
+            logger.debug(state["error"])
             return state
 
 
@@ -172,8 +172,8 @@ def check_captcha_node(state: NodeState) -> NodeState:
         return {**state, "result": result}
 
     except Exception as e:
-        state.error = get_traceback(e, "ErrorCheckCaptchaNode")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorCheckCaptchaNode")
+        logger.debug(state["error"])
         return state
 
 
@@ -267,8 +267,8 @@ def solve_captcha_node(state: NodeState) -> NodeState:
         return {**state, "result": result}
 
     except Exception as e:
-        state.error = get_traceback(e, "ErrorSolveCaptchaNode")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorSolveCaptchaNode")
+        logger.debug(state["error"])
         return state
 
 
@@ -297,8 +297,8 @@ def search_parametric_filters_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        state.error = get_traceback(e, "ErrorFillUserParametricNode")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorFillUserParametricNode")
+        logger.debug(state["error"])
         return state
 
 
@@ -325,8 +325,8 @@ def collect_search_results_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        state.error = get_traceback(e, "ErrorObtainSearchResultsNode")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorObtainSearchResultsNode")
+        logger.debug(state["error"])
         return state
 
 
@@ -349,8 +349,8 @@ def final_select_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        state.error = get_traceback(e, "ErrorFinalSelectNode")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorFinalSelectNode")
+        logger.debug(state["error"])
         return state
 
 
@@ -375,8 +375,8 @@ def check_goals_node(state: NodeState) -> NodeState:
 
         return result_state
     except Exception as e:
-        state.error = get_traceback(e, "ErrorCheckGoalsNode")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorCheckGoalsNode")
+        logger.debug(state["error"])
         return state
 
 
@@ -399,8 +399,8 @@ def send_results_node(state: NodeState) -> NodeState:
 
         return state
     except Exception as e:
-        state.error = get_traceback(e, "ErrorSendResultsNode")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorSendResultsNode")
+        logger.debug(state["error"])
         return state
 
 
@@ -410,8 +410,8 @@ def check_done_logic(state: NodeState) -> str:
         return "final_select" if not state.condition else "go_to_next_site"
 
     except Exception as e:
-        state.error = get_traceback(e, "ErrorCheckDoneLogic")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorCheckDoneLogic")
+        logger.debug(state["error"])
         return "Error"
 
 
@@ -420,8 +420,8 @@ def check_captcha_logic(state: NodeState) -> str:
         return "solve_captcha" if state.condition else "search_parametric_filters"
 
     except Exception as e:
-        state.error = get_traceback(e, "ErrorCheckCaptchaLogic")
-        logger.debug(state.error)
+        state["error"] = get_traceback(e, "ErrorCheckCaptchaLogic")
+        logger.debug(state["error"])
         return "error"
 
 async def create_search_parts_skill(mainwin):
@@ -548,7 +548,7 @@ async def create_search_parts_skill(mainwin):
         searcher_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
          # type: ignore[attr-defined]
-        print("search_digi_key_skill build is done!")
+        print("search_parts_skill build is done!")
         return searcher_skill
     except Exception as e:
         err_trace = get_traceback(e, "ErrorCreateSearchPartsSkill")
