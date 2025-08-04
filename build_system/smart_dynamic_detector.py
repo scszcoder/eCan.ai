@@ -330,6 +330,23 @@ class SmartDynamicDetector:
             "certifi",
             "charset_normalizer",
             "idna",
+            
+            # Pydantic 相关模块
+            "pydantic",
+            "pydantic.deprecated",
+            "pydantic.deprecated.decorator",
+            "pydantic_core",
+            "pydantic._internal",
+            "pydantic._migration",
+            "pydantic._internal._validators",
+            
+            # LangChain 相关模块
+            "langchain",
+            "langchain_core",
+            "langchain_openai",
+            "langchain_core.tools",
+            "langchain_core._import_utils",
+            "langchain_core.tools.base",
         ]
         
         print(f"   检测 {len(critical_patterns)} 个关键动态导入模式...")
@@ -618,7 +635,27 @@ class SmartDynamicDetector:
         # 只保留最核心的模块
         essential_modules = [
             # 项目核心
-            'main', 'app_context', 'config', 'gui', 'bot', 'agent', 'common', 'utils'
+            'main', 'app_context', 'config', 'gui', 'bot', 'agent', 'common', 'utils',
+            
+            # 关键第三方库
+            'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets',
+            'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineCore',
+            'PySide6.QtWebChannel', 'PySide6.QtWebEngine',
+            'requests', 'urllib3', 'certifi', 'charset_normalizer',
+            'pandas', 'numpy', 'scipy', 'sklearn',
+            'transformers', 'torch', 'tensorflow',
+            'fastapi', 'starlette', 'uvicorn',
+            'sqlalchemy', 'sqlite3', 'PIL', 'opencv',
+            'cryptography', 'bcrypt', 'jwt', 'playwright',
+            'langmem', 'faiss',
+            
+            # Pydantic 相关模块
+            'pydantic', 'pydantic.deprecated', 'pydantic.deprecated.decorator',
+            'pydantic_core', 'pydantic._internal', 'pydantic._migration',
+            
+            # LangChain 相关模块
+            'langchain', 'langchain_core', 'langchain_openai',
+            'langchain_core.tools', 'langchain_core._import_utils',
         ]
         
         # 从原始列表中筛选出存在的核心模块
@@ -641,6 +678,12 @@ class SmartDynamicDetector:
             'pandas', 'numpy', 'scipy', 'sklearn',
             'transformers', 'torch', 'tensorflow',
             'fastapi', 'starlette', 'uvicorn',
-            'sqlalchemy', 'sqlite3', 'PIL', 'opencv'
+            'sqlalchemy', 'sqlite3', 'PIL', 'opencv',
+            # 添加pydantic相关模块
+            'pydantic', 'pydantic.deprecated', 'pydantic.deprecated.decorator',
+            'pydantic_core', 'pydantic._internal', 'pydantic._migration',
+            # 添加langchain相关模块
+            'langchain', 'langchain_core', 'langchain_openai',
+            'langchain_core.tools', 'langchain_core._import_utils'
         ]
         return any(module.startswith(lib) for lib in critical_libs) 
