@@ -188,11 +188,11 @@ sample_search_result0 = {
   "Items": [
     {
       "product_id": "mcu",
-      "product_name": "product1",
-      "brand": "brand1",
-      "model": "model1",
-      "main_image": "img_url",
-      "url": "web_site_page_url",
+      "product_name": "pic16f17555",
+      "brand": "Microchip",
+      "model": "PIC16F17555",
+      "main_image": "https://media.microchip.com/silicon-devices/medium/pic16f17555-n2x.png",
+      "url": "https://www.microchip.com/en-us/product/PIC16F17555",
       "rank": 1,
       "score": 99.01,
       "highlights": [
@@ -215,11 +215,38 @@ sample_search_result0 = {
     },
     {
       "product_id": "mcu",
-      "product_name": "product2",
-      "brand": "brand2",
-      "model": "model2",
-      "main_image": "img_url",
-      "url": "web_site_page_url",
+      "product_name": "avr32du32",
+      "brand": "Microchip",
+      "model": "AVR32DU32",
+      "main_image": "https://media.microchip.com/silicon-devices/medium/avr32du32-t5x.png",
+      "url": "https://www.microchip.com/en-us/product/AVR32DU32",
+      "rank": 1,
+      "score": 99.01,
+      "highlights": [
+        { "label": "size", "value": "0201", "unit": "size" },
+        { "label": "price", "value": "0.01", "unit": "size" },
+        { "label": "precision", "value": "100", "unit": "ppm" }
+      ],
+      "app_specific": [
+        {
+          "app": "oil_diffuser",
+          "needed_criterias": [
+            {
+              "criteria1": "spec1",
+              "required_value": "100",
+              "matched_value": "120"
+            }
+          ]
+        }
+      ]
+    },
+{
+      "product_id": "mcu",
+      "product_name": "EFM32PG28B200F512IM68",
+      "brand": "Silicon Labs",
+      "model": "EFM32PG28B200F512IM68",
+      "main_image": "https://silabs.scene7.com/is/image/siliconlabs/qfn68?$TransparentPNG$",
+      "url": "https://www.silabs.com/mcu/32-bit-microcontrollers/efm32pg28-series-2/device.efm32pg28b200f512im68?tab=specs",
       "rank": 1,
       "score": 99.01,
       "highlights": [
