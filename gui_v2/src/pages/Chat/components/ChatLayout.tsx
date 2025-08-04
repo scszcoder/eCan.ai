@@ -162,16 +162,23 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
     if (rightCollapsed) {
       setSplitSize('100%');
     } else {
-      setSplitSize('70%');
+      setSplitSize('40%'); // 修改为40%，使ChatNotification占60%，聊天框占40%
     }
-    
+
     // 调用父组件的回调函数
     onRightPanelToggle?.(rightCollapsed);
   }, [rightCollapsed, onRightPanelToggle]);
 
   // 处理右侧面板的折叠/展开
   const handleRightPanelToggle = () => {
-    setRightCollapsed((c) => !c);
+    setRightCollapsed((c) => {
+      const newRightCollapsed = !c;
+      // 当展开右侧面板时，自动折叠左侧面板
+      if (!newRightCollapsed) {
+        setLeftCollapsed(true);
+      }
+      return newRightCollapsed;
+    });
   };
 
   // 中间卡片的 title 区域，包含左右折叠按钮和聊天名
@@ -220,7 +227,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
         <SplitPane
           split="vertical"
           minSize={300}
-          maxSize={rightCollapsed ? "100%" : "80%"}
+          maxSize={rightCollapsed ? "100%" : "50%"}
           size={splitSize}
           onChange={(size) => setSplitSize(size)}
           allowResize={!rightCollapsed}
