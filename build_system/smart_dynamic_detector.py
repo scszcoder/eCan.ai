@@ -657,10 +657,10 @@ class SmartDynamicDetector:
             'requests', 'urllib3', 'certifi', 'charset_normalizer',
             'pandas', 'numpy', 'scipy', 'sklearn',
             'transformers', 'torch', 'tensorflow',
-            'fastapi', 'starlette', 'uvicorn',
+            'fastapi', 'starlette', 'uvicorn', 'flask', 'openai',
             'sqlalchemy', 'sqlite3', 'PIL', 'opencv',
             'cryptography', 'bcrypt', 'jwt', 'playwright',
-            'langmem', 'faiss',
+            'langmem', 'faiss', 'browser-use', 'crawl4ai', 'langmem',
             
             # Pydantic 相关模块
             'pydantic', 'pydantic.deprecated', 'pydantic.deprecated.decorator',
@@ -668,7 +668,7 @@ class SmartDynamicDetector:
             
             # LangChain 相关模块
             'langchain', 'langchain_core', 'langchain_openai',
-            'langchain_core.tools', 'langchain_core._import_utils',
+            'langchain_core.tools', 'langchain_core._import_utils', 
             
             # setuptools 和 jaraco 相关模块
             'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
