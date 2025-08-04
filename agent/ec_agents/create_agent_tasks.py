@@ -239,7 +239,7 @@ def create_ec_marketing_work_task(mainwin):
     agent_tasks = mainwin.agent_tasks
 
     worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa marketing"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "MECA Marketing Director"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "E-Commerce Marketing Work"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -258,7 +258,7 @@ def create_ec_marketing_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="MECA Marketing Director",
+            name="E-Commerce Marketing Work",
             description="Help fix errors/failures during e-commerce RPA run",
             status=status,  # or whatever default status you need
             sessionId=session_id,
@@ -277,8 +277,8 @@ def create_ec_procurement_chat_task(mainwin):
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"), None)
     chatter_task = next((task for task in agent_tasks if task.name == "eCan.ai Procurement Chatter Task"), None)
-    print("chatter skill name:", chatter_skill.name)
-    print("chatter skill:", chatter_skill)
+    print("ec_procurement chatter skill name:", chatter_skill.name)
+    print("ec_procurement chatter skill:", chatter_skill)
     if not chatter_task:
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,
@@ -314,8 +314,8 @@ def create_ec_procurement_work_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    worker_skill = next((sk for sk in agent_skills if "search digi-key" in sk.name), None)
-    worker_task = next((task for task in agent_tasks if task.name == "ECBot Part Procurement Task"), None)
+    worker_skill = next((sk for sk in agent_skills if "search parts" in sk.name and "chatter" not in sk.name), None)
+    worker_task = next((task for task in agent_tasks if task.name == "E-Commerce Part Procurement Task"), None)
 
     if not worker_task:
         task_schedule = TaskSchedule(
@@ -334,7 +334,7 @@ def create_ec_procurement_work_task(mainwin):
         status = TaskStatus(state=TaskState.SUBMITTED)
         worker_task = ManagedTask(
             id=task_id,
-            name="ECBot Part Procurement Task",
+            name="E-Commerce Part Procurement Task",
             description="Help sourcing products/parts for product development",
             status=status,  # or whatever default status you need
             sessionId=session_id,

@@ -223,6 +223,7 @@ class ChatService(metaclass=SingletonMeta):
         ext: dict = None,
         attachments: list = None
     ) -> Dict[str, Any]:
+        print(f"chat_service.add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
         """向会话添加消息及附件，必传 chat_id、role、content、senderId、createAt，返回标准化结构"""
         if not chatId or not role or content is None or not senderId or not createAt:
             return {
@@ -277,6 +278,7 @@ class ChatService(metaclass=SingletonMeta):
             chat.lastMsgTime = createAt
             # 新增消息未读，chat.unread +1
             chat.unread = (chat.unread or 0) + 1
+            print(f"chat.unread: {message}")
             chat.messages.append(message)
             session.add(message)
             session.flush()
@@ -291,6 +293,7 @@ class ChatService(metaclass=SingletonMeta):
     def add_text_message(self, chatId: str, role: str, text: str, senderId: str, createAt: int = None, **kwargs):
         """添加纯文本消息的便捷方法"""
         content = ContentSchema.create_text(text)
+        print(f"chat_service.add_text_message: {chatId}, {role}, {text}, {content}, {senderId}, {createAt}, {kwargs}")
         return self.add_message(
             chatId=chatId, 
             role=role, 
@@ -342,11 +345,12 @@ class ChatService(metaclass=SingletonMeta):
                                senderId: str = "system", createAt: int = None, **kwargs):
         """添加通知消息的便捷方法"""
         notification_content = ContentSchema.create_notification(title, content, level)
+        print(f"add_notification_message: {notification_content}")
         return self.add_message(
             chatId=chatId, 
             role="system", 
             content=notification_content, 
-            senderId=senderId, 
+            senderId=senderId,
             createAt=createAt or int(time.time()*1000), 
             **kwargs
         )

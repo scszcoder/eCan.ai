@@ -9,7 +9,8 @@ def init_search_parts_chatter_skill(agent, msg, file_names=[]):
         if part.type == "text":
             msg_txt = part.text
         elif part.type == "file":
-            attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType, "file_data": part.file.bytes})
+            attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
+                                "file_data": part.file.bytes})
 
     init_state = {
         "messages": [agent.card.id, msg_txt],

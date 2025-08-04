@@ -179,7 +179,7 @@ async def os_wait(mainwin, args):
 async def in_browser_wait_for_element(mainwin, args):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             wait = WebDriverWait(web_driver, args["input"]["timeout"])
@@ -199,7 +199,7 @@ async def in_browser_wait_for_element(mainwin, args):
 # Element Interaction Actions
 async def in_browser_click_element_by_index(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             raise Exception(f"Element with index {args['input']['index']} without crawler not implemented")
@@ -217,7 +217,7 @@ async def in_browser_click_element_by_index(mainwin, args):
 
 async def in_browser_click_element_by_selector(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             if web_driver:
@@ -240,7 +240,7 @@ async def in_browser_click_element_by_selector(mainwin, args):
 
 async def in_browser_click_element_by_xpath(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             if web_driver:
@@ -264,7 +264,7 @@ async def in_browser_click_element_by_xpath(mainwin, args):
 
 async def in_browser_click_element_by_text(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
@@ -294,7 +294,7 @@ async def in_browser_click_element_by_text(mainwin, args):
 
 async def in_browser_input_text(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
 
@@ -329,7 +329,7 @@ async def in_browser_input_text(mainwin, args):
 # Tab Management Actions
 async def in_browser_switch_tab(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
@@ -349,7 +349,7 @@ async def in_browser_switch_tab(mainwin, args):
 async def in_browser_open_tab(mainwin, args):
 
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             url = args['input']["url"]
@@ -365,6 +365,7 @@ async def in_browser_open_tab(mainwin, args):
                 web_driver.get(url)  # Replace with the new URL
                 print("open URL: " + url)
         else:
+            print('browser_use: in_browser_open_tab:', args["input"]["url"])
             bu_result = await browser_use_go_to_url(mainwin, args["input"]["url"])
 
         msg = f'completed openning tab and go to site:{args["input"]["url"]}.'
@@ -379,7 +380,7 @@ async def in_browser_open_tab(mainwin, args):
 
 async def in_browser_close_tab(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             if args['input']["tab_title"]:
@@ -403,7 +404,7 @@ async def in_browser_close_tab(mainwin, args):
 # Content Actions
 async def in_browser_scrape_content(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.web_driver
             dom_service = mainwin.dom_service
@@ -424,7 +425,7 @@ async def in_browser_scrape_content(mainwin, args):
 
 async def in_browser_execute_javascript(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             result = execute_js_script(web_driver, args['input']["script"], args['input']["target"])
@@ -442,7 +443,7 @@ async def in_browser_execute_javascript(mainwin, args):
 
 async def in_browser_build_dom_tree(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             webdriver = mainwin.getWebDriver()
             script = mainwin.load_build_dom_tree_script()
@@ -480,7 +481,7 @@ async def in_browser_build_dom_tree(mainwin, args):
 async def in_browser_save_href_to_file(mainwin, args) -> CallToolResult:
     """Retrieves and returns the full HTML content of the current page to a file"""
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
 
@@ -499,7 +500,7 @@ async def in_browser_save_href_to_file(mainwin, args) -> CallToolResult:
 
 async def in_browser_scroll(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
 
@@ -525,7 +526,7 @@ async def in_browser_scroll(mainwin, args):
 # send keys
 async def in_browser_send_keys(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
             browser_context = login.main_win.getBrowserContextById(args["context_id"])
@@ -550,7 +551,7 @@ async def in_browser_send_keys(mainwin, args):
 
 async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
 
@@ -572,7 +573,7 @@ async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
 
 async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
         else:
@@ -592,7 +593,7 @@ async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
 
 async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
         else:
@@ -609,7 +610,7 @@ async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
 
 async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
         else:
@@ -631,7 +632,7 @@ async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
 
 async def in_browser_multi_actions(mainwin, args):
     try:
-        crawler = mainwin.getCrawler()
+        crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
         else:
