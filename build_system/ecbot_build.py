@@ -402,8 +402,9 @@ class PyInstallerBuilder:
         
         # 获取必要的包作为hidden_imports
         essential_packages = self._get_essential_packages()
-        manual_imports = pyinstaller_config.get("hidden_imports", [])
-        hidden_imports = essential_packages + manual_imports
+        hidden_imports = essential_packages
+        
+
         
         # 简化的spec内容 - 包含所有依赖，只排除特定包
         spec_content = f"""
@@ -494,53 +495,45 @@ app = BUNDLE(
         return spec_content
     
     def _get_essential_packages(self) -> List[str]:
-        """获取必要的包，而不是所有包"""
-        # 只包含ECBot实际需要的核心包
-        essential_packages = [
-            # GUI框架
-            'PySide6', 'shiboken6',
+        """使用智能动态导入检测器获取包列表"""
+        print("[PYINSTALLER] 使用智能动态导入检测器...")
+        
+        try:
+            # 导入智能检测器 - 修复导入路径
+            import sys
+            build_system_path = str(self.project_root / "build_system")
+            if build_system_path not in sys.path:
+                sys.path.insert(0, build_system_path)
+            
+            from smart_dynamic_detector import SmartDynamicDetector
+            
+            # 创建检测器实例
+            detector = SmartDynamicDetector(self.project_root)
+            
+            # 检测智能动态导入
+            all_packages = detector.detect_smart_imports()
+            
+            print(f"[PYINSTALLER] 智能检测器发现 {len(all_packages)} 个包")
+            
+            return all_packages
+            
+        except ImportError as e:
+            self._handle_package_manager_error(f"智能检测器文件不存在: {e}")
+            return []
+        except Exception as e:
+            self._handle_package_manager_error(f"智能检测器错误: {e}")
+            return []
+    
+    def _handle_package_manager_error(self, error_msg: str):
+        """处理智能检测器错误"""
+        print(f"[ERROR] {error_msg}")
+        print("[ERROR] 智能动态导入检测器配置错误，构建失败")
+        print("[ERROR] 请检查以下文件:")
+        print("  - build_system/smart_dynamic_detector.py")
+        print("[ERROR] 或者运行以下命令测试检测器:")
+        print("  python build_system/smart_dynamic_detector.py")
+    
 
-            # 核心依赖
-            'requests', 'urllib3', 'certifi', 'charset_normalizer',
-            'pydantic', 'pydantic_core',
-            'fastapi', 'uvicorn', 'starlette',
-            'sqlalchemy', 'sqlite3',
-
-            # AI/ML相关
-            'openai', 'langchain', 'langchain_core', 'langchain_community',
-            'transformers', 'torch', 'numpy', 'pandas',
-
-            # 数据处理
-            'json', 'yaml', 'toml', 'csv',
-            'lxml', 'beautifulsoup4', 'html5lib',
-
-            # 网络和异步
-            'aiohttp', 'asyncio', 'websockets',
-            'httpx', 'anyio',
-
-            # 工具库
-            'click', 'typer', 'rich', 'colorama',
-            'python_dateutil', 'pytz', 'tzdata',
-            'pathlib', 'os', 'sys', 'logging',
-
-            # 加密和安全
-            'cryptography', 'bcrypt', 'jwt',
-
-            # 文件处理
-            'openpyxl', 'xlsxwriter', 'pypdf2',
-            'pillow', 'opencv_python',
-
-            # 标准库模块
-            'collections', 'collections.abc', 'contextlib', 'dataclasses',
-            'decimal', 'functools', 'importlib', 'importlib.metadata',
-            'importlib.resources', 'inspect', 'itertools', 'json',
-            'logging', 'pathlib', 'pickle', 're', 'tempfile',
-            'threading', 'time', 'traceback', 'typing', 'typing_extensions',
-            'uuid', 'weakref', 'zipfile'
-        ]
-
-        print(f"[PYINSTALLER] Including {len(essential_packages)} essential packages")
-        return essential_packages
     
     def _format_data_files(self, data_files: Dict[str, Any]) -> str:
         """格式化数据文件"""
