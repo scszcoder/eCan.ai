@@ -236,15 +236,22 @@ def main():
         print("🎉 构建完成!")
         print("=" * 60)
 
-        # 根据操作系统确定可执行文件名
+        # 根据操作系统确定可执行文件名和安装包信息
         if platform.system() == "Windows":
             exe_name = "ECBot.exe"
+            installer_info = f"📦 安装包: {Path.cwd()}/dist/ECBot-Setup.exe"
+        elif platform.system() == "Darwin":
+            exe_name = "ECBot"  # macOS
+            installer_info = f"📦 安装包: {Path.cwd()}/dist/ECBot-1.0.0.pkg"
         else:
-            exe_name = "ECBot"  # macOS 和 Linux
+            exe_name = "ECBot"  # Linux
+            installer_info = "📦 安装包: 暂不支持Linux安装包"
 
         print(f"📁 可执行文件: {Path.cwd()}/dist/ECBot/{exe_name}")
         if not args.skip_frontend:
             print(f"🌐 前端文件: {Path.cwd()}/gui_v2/dist/")
+        if not args.skip_installer:
+            print(installer_info)
         print("=" * 60)
 
         return 0
