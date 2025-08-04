@@ -26,6 +26,7 @@ import sys
 import os
 import os.path
 import random
+import subprocess
 import traceback
 import webbrowser
 from _csv import reader
@@ -133,7 +134,7 @@ class Expander(QWidget):
             # Adapted from c++ version
             https://stackoverflow.com/a/37119983/386398
         """
-        super(Expander, self).__init__(parent=parent)
+        super().__init__(parent=parent)
         self.animationDuration = animationDuration
         self.toggleAnimation = QParallelAnimationGroup()
         self.contentArea = QScrollArea()
@@ -221,7 +222,7 @@ class AsyncInterface:
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self, loginout_gui, main_key, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
-        super(MainWindow, self).__init__()
+        super().__init__()
         self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
@@ -943,30 +944,61 @@ class MainWindow(QMainWindow):
         self.showMsg("Checking Wifi on OS platform: "+self.platform)
         wifi_info = None
         if self.platform == "win":
-            wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'])
+            try:
+                wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'],
+                                                  stderr=subprocess.DEVNULL,
+                                                  timeout=10)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                logger.warning(f"Failed to get WiFi info using netsh: {str(e)}")
+                print(f"WiFi detection failed: {str(e)}")
+                # Try alternative method for Windows
+                try:
+                    # Get network interfaces (psutil is already imported globally)
+                    interfaces = psutil.net_if_stats()
+                    wifi_interfaces = [name for name in interfaces.keys() if 'wi-fi' in name.lower() or 'wireless' in name.lower() or 'wlan' in name.lower()]
+                    if wifi_interfaces:
+                        logger.info(f"Found WiFi interfaces: {wifi_interfaces}")
+                        # Create a mock wifi_info to indicate WiFi is available but SSID unknown
+                        wifi_info = b"    SSID                   : Unknown\n"
+                    else:
+                        logger.info("No WiFi interfaces found")
+                        wifi_info = None
+                except Exception as e2:
+                    logger.warning(f"Alternative WiFi detection failed: {str(e2)}")
+                    wifi_info = None
         elif self.platform == 'dar':
             # Try to find the airport command
             airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
             if not os.path.exists(airport_path):
                 airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport'
-            
+
             if os.path.exists(airport_path):
-                wifi_info = subprocess.check_output([airport_path, '-I'])
-                # Convert macOS output to match Windows format
-                if wifi_info:
-                    try:
-                        wifi_data = wifi_info.decode('utf-8')
-                        # Parse macOS output and format it like Windows
-                        formatted_output = ""
-                        for line in wifi_data.split('\n'):
-                            if ' SSID' in line:
-                                # Extract SSID and format like Windows
-                                ssid = line.split(':')[1].strip()
-                                formatted_output += f"    SSID                   : {ssid}\n"
-                        wifi_info = formatted_output.encode('utf-8')
-                    except Exception as e:
-                        print(f"Error formatting WiFi info: {str(e)}")
-                        wifi_info = None
+                try:
+                    wifi_info = subprocess.check_output([airport_path, '-I'],
+                                                      stderr=subprocess.DEVNULL,
+                                                      timeout=10)
+                    # Convert macOS output to match Windows format
+                    if wifi_info:
+                        try:
+                            wifi_data = wifi_info.decode('utf-8')
+                            # Parse macOS output and format it like Windows
+                            formatted_output = ""
+                            for line in wifi_data.split('\n'):
+                                if ' SSID' in line:
+                                    # Extract SSID and format like Windows
+                                    ssid = line.split(':')[1].strip()
+                                    formatted_output += f"    SSID                   : {ssid}\n"
+                            wifi_info = formatted_output.encode('utf-8')
+                        except Exception as e:
+                            logger.warning(f"Error formatting WiFi info: {str(e)}")
+                            wifi_info = None
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    logger.warning(f"Failed to get WiFi info using airport: {str(e)}")
+                    print(f"macOS WiFi detection failed: {str(e)}")
+                    wifi_info = None
+            else:
+                logger.warning("Airport command not found on macOS")
+                wifi_info = None
 
         logger.info(f"wifi_info:{wifi_info}")
         if wifi_info:

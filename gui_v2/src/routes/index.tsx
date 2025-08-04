@@ -1,24 +1,44 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
-import Login from '../pages/Login/index';
-import Dashboard from '../pages/Dashboard/Dashboard';
-import Vehicles from '../pages/Vehicles/Vehicles';
-import Schedule from '../pages/Schedule/Schedule';
-import Chat from '../pages/Chat/index';
-import Skills from '../pages/Skills/Skills';
-import SkillEditor from '../pages/SkillEditor/SkillEditor';
-import Agents from '../pages/Agents/Agents';
-import Analytics from '../pages/Analytics/Analytics';
-import Apps from '../pages/Apps/Apps';
-import Tasks from '../pages/Tasks/Tasks';
-import Tools from '../pages/Tools/Tools';
-import Settings from '../pages/Settings/Settings';
-import Console from '../pages/Console/Console';
-import KnowledgePlatform from '../pages/Knowledge/index';
-import Tests from '../pages/Tests/Tests';
-import VirtualPlatform from '../pages/Agents/VirtualPlatform';
-import DepartmentRoom from '../pages/Agents/DepartmentRoom';
+import { Spin } from 'antd';
+
+// 页面组件懒加载
+const Login = React.lazy(() => import('../pages/Login/index'));
+const Dashboard = React.lazy(() => import('../pages/Dashboard/Dashboard'));
+const Vehicles = React.lazy(() => import('../pages/Vehicles/Vehicles'));
+const Schedule = React.lazy(() => import('../pages/Schedule/Schedule'));
+const Chat = React.lazy(() => import('../pages/Chat/index'));
+const Skills = React.lazy(() => import('../pages/Skills/Skills'));
+const SkillEditor = React.lazy(() => import('../pages/SkillEditor/SkillEditor'));
+const Agents = React.lazy(() => import('../pages/Agents/Agents'));
+const Analytics = React.lazy(() => import('../pages/Analytics/Analytics'));
+const Apps = React.lazy(() => import('../pages/Apps/Apps'));
+const Tasks = React.lazy(() => import('../pages/Tasks/Tasks'));
+const Tools = React.lazy(() => import('../pages/Tools/Tools'));
+const Settings = React.lazy(() => import('../pages/Settings/Settings'));
+const Console = React.lazy(() => import('../pages/Console/Console'));
+const KnowledgePlatform = React.lazy(() => import('../pages/Knowledge/index'));
+const Tests = React.lazy(() => import('../pages/Tests/Tests'));
+const VirtualPlatform = React.lazy(() => import('../pages/Agents/VirtualPlatform'));
+const DepartmentRoom = React.lazy(() => import('../pages/Agents/DepartmentRoom'));
+
+// 加载组件包装器
+const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <Suspense fallback={
+        <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            height: '200px',
+            background: 'var(--bg-primary, #0f172a)'
+        }}>
+            <Spin size="large" />
+        </div>
+    }>
+        {children}
+    </Suspense>
+);
 
 // 路由配置类型
 export interface RouteConfig {
@@ -45,7 +65,7 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
 export const publicRoutes: RouteConfig[] = [
     {
         path: '/login',
-        element: isAuthenticated() ? <Navigate to="/" replace /> : <Login />,
+        element: isAuthenticated() ? <Navigate to="/" replace /> : <LazyWrapper><Login /></LazyWrapper>,
     },
 ];
 
@@ -61,71 +81,71 @@ export const protectedRoutes: RouteConfig[] = [
             },
             {
                 path: 'dashboard',
-                element: <Dashboard />,
+                element: <LazyWrapper><Dashboard /></LazyWrapper>,
             },
             {
                 path: 'vehicles',
-                element: <Vehicles />,
+                element: <LazyWrapper><Vehicles /></LazyWrapper>,
             },
             {
                 path: 'schedule',
-                element: <Schedule />,
+                element: <LazyWrapper><Schedule /></LazyWrapper>,
             },
             {
                 path: 'chat',
-                element: <Chat />,
+                element: <LazyWrapper><Chat /></LazyWrapper>,
             },
             {
                 path: 'skills',
-                element: <Skills />,
+                element: <LazyWrapper><Skills /></LazyWrapper>,
             },
             {
                 path: 'skill_editor',
-                element: <SkillEditor />,
+                element: <LazyWrapper><SkillEditor /></LazyWrapper>,
             },
             {
                 path: 'agents',
-                element: <Agents />,
+                element: <LazyWrapper><Agents /></LazyWrapper>,
             },
             {
                 path: 'agents/virtual',
-                element: <VirtualPlatform />,
+                element: <LazyWrapper><VirtualPlatform /></LazyWrapper>,
             },
             {
                 path: 'agents/room/:departmentId',
-                element: <DepartmentRoom />,
+                element: <LazyWrapper><DepartmentRoom /></LazyWrapper>,
             },
             {
                 path: 'analytics',
-                element: <Analytics />,
+                element: <LazyWrapper><Analytics /></LazyWrapper>,
             },
             {
                 path: 'apps',
-                element: <Apps />,
+                element: <LazyWrapper><Apps /></LazyWrapper>,
             },
             {
                 path: 'tasks',
-                element: <Tasks />,
+                element: <LazyWrapper><Tasks /></LazyWrapper>,
             },
             {
                 path: 'tools',
-                element: <Tools />,
+                element: <LazyWrapper><Tools /></LazyWrapper>,
             },
             {
                 path: 'settings',
-                element: <Settings />,
+                element: <LazyWrapper><Settings /></LazyWrapper>,
             },
             {
                 path: 'console',
-                element: <Console />,
+                element: <LazyWrapper><Console /></LazyWrapper>,
             },
             {
                 path: 'knowledge',
-                element: <KnowledgePlatform />,
+                element: <LazyWrapper><KnowledgePlatform /></LazyWrapper>,
             },
             {
                 path: 'tests',
-                element: <Tests />,
+                element: <LazyWrapper><Tests /></LazyWrapper>,
             },
         ],
     },

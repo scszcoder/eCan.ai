@@ -255,8 +255,8 @@ pytest-cov>=4.1.0
 pytest==8.2.2
 pytest-asyncio==1.0.0
 langmem==0.0.27
-lightrag-hku==1.4.4
-faiss-cpu==1.11.0.post1
+lightrag-hku>=1.4.6
+faiss-cpu>=1.11.0.post1
 browser-use==0.5.5
 playwright==1.54.0
 crawl4ai==0.7.1
