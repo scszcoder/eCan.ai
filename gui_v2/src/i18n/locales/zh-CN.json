@@ -483,6 +483,7 @@
     },
     "tools": {
       "title": "工具",
+      "details": "工具详情",
       "addTool": "添加工具",
       "editTool": "编辑工具",
       "deleteTool": "删除工具",
