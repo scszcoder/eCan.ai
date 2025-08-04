@@ -22,7 +22,7 @@ const useLinkClickHandler = () => {
           }
         }
       });
-      console.log('Link click handler injected');
+      //console.log('Link click handler injected');
     `;
     
     // 延迟执行，确保 DOM 已经加载
@@ -31,7 +31,7 @@ const useLinkClickHandler = () => {
         const scriptElement = document.createElement('script');
         scriptElement.textContent = script;
         document.head.appendChild(scriptElement);
-        console.log('Link click handler script injected');
+        //console.log('Link click handler script injected');
       } catch (error) {
         console.error('Failed to inject link click handler:', error);
       }
@@ -50,7 +50,7 @@ const NotificationCard = styled(Card)`
 `;
 
 const SectionTitle = styled.div`
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   color: #a0aec0;
   margin-bottom: 10px;
@@ -69,12 +69,12 @@ const SummaryTable: React.FC<{ summary: any }> = ({ summary }) => {
   return (
     <Card size="small" style={{ borderRadius: 12, background: 'rgba(255,255,255,0.08)', marginTop: 8 }}>
       <SectionTitle>{summaryTitle}</SectionTitle>
-      <table style={{ width: '100%', color: '#fff', fontSize: 13, borderCollapse: 'collapse' }}>
+      <table style={{ width: '100%', color: '#fff', fontSize: 15, borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.10)' }}>
-            <th style={{ textAlign: 'left', padding: 8, fontWeight: 600 }}>Product</th>
+            <th style={{ textAlign: 'left', padding: 8, fontWeight: 600, fontSize: '15px' }}>Product</th>
             {columns.map((k) => (
-              <th key={k} style={{ textAlign: 'left', padding: 8, fontWeight: 600 }}>{k}</th>
+                              <th key={k} style={{ textAlign: 'left', padding: 8, fontWeight: 600, fontSize: '15px' }}>{k}</th>
             ))}
           </tr>
         </thead>
@@ -83,10 +83,10 @@ const SummaryTable: React.FC<{ summary: any }> = ({ summary }) => {
             const row = (criterias ?? {}) as Record<string, any>;
             return (
               <tr key={product} style={{ background: idx % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'rgba(255,255,255,0.07)' }}>
-                <td style={{ padding: 8 }}>{product}</td>
-                {columns.map((col, i) => (
-                  <td key={i} style={{ padding: 8 }}>{row[col]}</td>
-                ))}
+                <td style={{ padding: 8, fontSize: '15px' }}>{product}</td>
+                                  {columns.map((col, i) => (
+                    <td key={i} style={{ padding: 8, fontSize: '15px' }}>{row[col]}</td>
+                  ))}
               </tr>
             );
           })}
@@ -102,11 +102,11 @@ const getI18nLabel = (t: (s: string) => string, key: string) => {
 };
 
 const renderHighlights = (highlights: any[], t: (s: string) => string) => (
-  <div style={{ minWidth: 120, background: 'rgba(0, 123, 255, 0.06)', borderRadius: 6, padding: 6 }}>
-    <div style={{ fontWeight: 600, color: '#1677ff', marginBottom: 2 }}>{t('agentnotify.highlights')}</div>
+          <div style={{ minWidth: 140, background: 'rgba(0, 123, 255, 0.06)', borderRadius: 6, padding: 8 }}>
+            <div style={{ fontWeight: 600, color: '#1677ff', marginBottom: 2, fontSize: '16px' }}>{t('agentnotify.highlights')}</div>
     <Space wrap>
       {highlights?.map((h, idx) => (
-        <Tag key={idx} color="blue" style={{ marginBottom: 2 }}>
+        <Tag key={idx} color="#fff" style={{ marginBottom: 2, fontSize: '14px' }}>
           <b>{h.label}</b>: {h.value} {h.unit}
         </Tag>
       ))}
@@ -115,13 +115,13 @@ const renderHighlights = (highlights: any[], t: (s: string) => string) => (
 );
 
 const renderNeededCriterias = (criterias: any[], t: (s: string) => string) => (
-  <ol style={{ margin: 0, paddingLeft: 18, background: 'rgba(255, 193, 7, 0.06)', borderRadius: 6 }}>
+      <ol style={{ margin: 0, paddingLeft: 18, background: 'rgba(255, 193, 7, 0.06)', borderRadius: 6, padding: '8px 0' }}>
     {criterias?.map((c, idx) => (
-      <li key={idx} style={{ marginBottom: 2 }}>
+              <li key={idx} style={{ marginBottom: 2, fontSize: '14px' }}>
         <Space size={4}>
-          {Object.entries(c).map(([k, v]) => (
-            <span key={k}><b>{getI18nLabel(t, k)}:</b> {String(v)}</span>
-          ))}
+                      {Object.entries(c).map(([k, v]) => (
+              <span key={k} style={{ fontSize: '14px' }}><b>{getI18nLabel(t, k)}:</b> {String(v)}</span>
+            ))}
         </Space>
       </li>
     ))}
@@ -129,13 +129,31 @@ const renderNeededCriterias = (criterias: any[], t: (s: string) => string) => (
 );
 
 const renderAppSpecific = (apps: any[], t: (s: string) => string) => (
-  <div style={{ minWidth: 120 }}>
+  <div style={{ minWidth: 140 }}>
     {apps?.map((app, idx) => (
-      <div key={idx} style={{ background: 'rgba(120,120,255,0.08)', borderRadius: 6, padding: 6, marginBottom: 4 }}>
-        <div style={{ fontWeight: 600, color: '#6f42c1', marginBottom: 2 }}>
-          <Tag color="purple" style={{ fontWeight: 600 }}>{app.app}</Tag>
+      <div
+        key={idx}
+        style={{
+          background: 'rgba(120,120,255,0.06)',
+          borderRadius: 6,
+          padding: 8,
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ fontWeight: 600, color: '#6f42c1', marginBottom: 2, fontSize: '16px' }}>
+          <Tag color="purple" style={{ fontWeight: 600, fontSize: 14 }}>{app.app}</Tag>
         </div>
-        {app.needed_criterias && renderNeededCriterias(app.needed_criterias, t)}
+        {Array.isArray(app.needed_criterias) && (
+          <Space wrap>
+            {app.needed_criterias.map((c: any, i: number) =>
+              Object.entries(c).map(([k, v], j) => (
+                <Tag key={i + '-' + j} color="#fff" style={{ marginBottom: 2, fontSize: 14 }}>
+                  <b>{getI18nLabel(t, k)}:</b> {String(v)}
+                </Tag>
+              ))
+            )}
+          </Space>
+        )}
       </div>
     ))}
   </div>
@@ -193,7 +211,7 @@ const renderCell = (value: any, key: string, t: (s: string) => string, onImageCl
             console.error('Failed to open link:', error);
           }
         }}
-        style={{ color: '#1890ff', textDecoration: 'underline', cursor: 'pointer' }}
+        style={{ color: '#1890ff', textDecoration: 'underline', cursor: 'pointer', fontSize: '14px' }}
       >
         {t('agentnotify.view_details')}
       </a>
@@ -205,14 +223,14 @@ const renderCell = (value: any, key: string, t: (s: string) => string, onImageCl
       <Space wrap>
         {value.map((v, idx) =>
           typeof v === 'object'
-            ? <Tooltip key={idx} title={JSON.stringify(v)}><Tag color="geekblue">{idx + 1}</Tag></Tooltip>
-            : <Tag key={idx}>{String(v)}</Tag>
+            ? <Tooltip key={idx} title={JSON.stringify(v)}><Tag color="geekblue" style={{ fontSize: '14px' }}>{idx + 1}</Tag></Tooltip>
+            : <Tag key={idx} style={{ fontSize: '14px' }}>{String(v)}</Tag>
         )}
       </Space>
     );
   }
   if (typeof value === 'object' && value !== null) {
-    return <Tooltip title={JSON.stringify(value)}><Tag color="orange">{t('agentnotify.object')}</Tag></Tooltip>;
+    return <Tooltip title={JSON.stringify(value)}><Tag color="orange" style={{ fontSize: '14px' }}>{t('agentnotify.object')}</Tag></Tooltip>;
   }
   if (typeof value === 'string' && value.startsWith('http')) {
     return (
@@ -231,7 +249,7 @@ const renderCell = (value: any, key: string, t: (s: string) => string, onImageCl
             console.error('Failed to open link:', error);
           }
         }}
-        style={{ color: '#1890ff', textDecoration: 'underline', cursor: 'pointer' }}
+        style={{ color: '#1890ff', textDecoration: 'underline', cursor: 'pointer', fontSize: '14px' }}
       >
         {t('agentnotify.view_details')}
       </a>
@@ -287,18 +305,18 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
   const otherFields = keys.filter(k => !['main_image', ...mainFields, 'highlights', 'app_specific', 'url'].includes(k));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, margin: '16px 0' }}>
-      {items.map((item, idx) => (
-        <Card
-          key={idx}
-          size="small"
-          style={{ borderRadius: 16, background: 'rgba(255,255,255,0.10)', color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}
-          styles={{ body: { padding: 20 } }}
-        >
-          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-            {/* 左侧主图 */}
-            {item.main_image && (
-              <div style={{ minWidth: 90, maxWidth: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24, margin: '20px 0' }}>
+                {items.map((item: any, idx) => (
+                  <Card
+            key={idx}
+            size="small"
+            style={{ borderRadius: 16, background: 'rgba(255,255,255,0.10)', color: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.10)' }}
+            styles={{ body: { padding: 24 } }}
+          >
+                      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
+                          {/* 左侧主图 */}
+              {item.main_image && (
+                <div style={{ minWidth: 100, maxWidth: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div 
                   style={{ 
                     cursor: 'pointer',
@@ -312,10 +330,10 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
                     src={item.main_image} 
                     alt={item.product_name || 'product'} 
                     style={{ 
-                      width: 80, 
-                      height: 80, 
+                      width: 90, 
+                      height: 90, 
                       objectFit: 'contain', 
-                      borderRadius: 8, 
+                      borderRadius: 10, 
                       background: '#fff',
                       border: '1px solid #d9d9d9'
                     }} 
@@ -326,19 +344,19 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
             {/* 右侧内容 */}
             <div style={{ flex: 1, minWidth: 0 }}>
               {/* 主字段 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
-                <span style={{ fontWeight: 700, fontSize: 18, color: '#fff' }}>{item.product_name}</span>
-                {item.brand && <Tag color="blue" style={{ fontWeight: 500 }}>{item.brand}</Tag>}
-                {item.model && <Tag color="geekblue" style={{ fontWeight: 500 }}>{item.model}</Tag>}
-                {item.score !== undefined && <Tag color="gold" style={{ fontWeight: 600 }}>{t('agentnotify.score')}: {item.score}</Tag>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 20, color: '#fff' }}>{item.product_name}</span>
+                {item.brand && <Tag color="blue" style={{ fontWeight: 500, fontSize: '14px' }}>{item.brand}</Tag>}
+                {item.model && <Tag color="geekblue" style={{ fontWeight: 500, fontSize: '14px' }}>{item.model}</Tag>}
+                {item.score !== undefined && <Tag color="gold" style={{ fontWeight: 600, fontSize: '14px' }}>{t('agentnotify.score')}: {item.score}</Tag>}
               </div>
               {/* 其他字段 */}
               {otherFields.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
                   {otherFields.map((key) => (
                     item[key] !== undefined && item[key] !== null && item[key] !== '' && (
-                      <div key={key} style={{ minWidth: 100 }}>
-                        <span style={{ color: '#a0aec0', fontWeight: 500 }}>{getI18nLabel(t, key)}: </span>
+                      <div key={key} style={{ minWidth: 120 }}>
+                        <span style={{ color: '#a0aec0', fontWeight: 500, fontSize: '14px' }}>{getI18nLabel(t, key)}: </span>
                         {renderCell(item[key], key, t, onImageClick)}
                       </div>
                     )
@@ -346,7 +364,7 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
                 </div>
               )}
               {/* 高亮/标签/应用特定/详情链接 */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginTop: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginTop: 10 }}>
                 {item.highlights && renderHighlights(item.highlights, t)}
                 {item.app_specific && renderAppSpecific(item.app_specific, t)}
                 {item.url && typeof item.url === 'string' && item.url.startsWith('http') && (
@@ -365,7 +383,7 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
                         console.error('Failed to open link:', error);
                       }
                     }}
-                    style={{ color: '#1890ff', fontWeight: 500, marginLeft: 8, textDecoration: 'underline', cursor: 'pointer' }}
+                    style={{ color: '#1890ff', fontWeight: 500, marginLeft: 8, textDecoration: 'underline', cursor: 'pointer', fontSize: '15px' }}
                   >
                     {t('agentnotify.view_details')}
                   </a>
@@ -416,7 +434,7 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
       <NotificationCard>
         {/* 标题和切换视图按钮 */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-          <Title level={4} style={{ color: '#fff', margin: 0 }}>{safeTitle}</Title>
+          <Title level={4} style={{ color: '#fff', margin: 0, fontSize: '22px' }}>{safeTitle}</Title>
           {Array.isArray(Items) && Items.length > 0 && (
             <Button
               icon={viewMode === 'table' ? <TableOutlined /> : <UnorderedListOutlined />}
@@ -428,15 +446,15 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
         </div>
         {/* 统计信息独立一行 */}
         {safeStatistics && (
-          <div style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 12 }}>
             <Space wrap>
               {Object.entries(safeStatistics).map(([k, v]) => (
-                <Tag key={k} color="blue" style={{ fontSize: 12 }}>{getI18nLabel(t, k)}: {String(v)}</Tag>
+                <Tag key={k} color="blue" style={{ fontSize: 14 }}>{getI18nLabel(t, k)}: {String(v)}</Tag>
               ))}
             </Space>
           </div>
         )}
-        <Divider style={{ margin: '12px 0', borderColor: 'rgba(255,255,255,0.13)' }} />
+        <Divider style={{ margin: '16px 0', borderColor: 'rgba(255,255,255,0.13)' }} />
 
         {/* 产品表格/列表分区 */}
         {Array.isArray(Items) && Items.length > 0 && (
@@ -451,19 +469,19 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
 
         {/* Summary 区域 */}
         {summary && (
-          <div style={{ margin: '24px 0 0 0' }}>
+          <div style={{ margin: '28px 0 0 0' }}>
             <SummaryTable summary={summary} />
           </div>
         )}
 
         {/* Comments 区域 */}
         {safeComments.length > 0 && (
-          <div style={{ margin: '24px 0 0 0' }}>
+          <div style={{ margin: '28px 0 0 0' }}>
             <Card size="small" style={{ borderRadius: 12, background: 'rgba(255,255,255,0.08)' }}>
               <SectionTitle>{t('agentnotify.comments')}</SectionTitle>
-              <ul style={{ margin: 0, padding: '8px 0 0 18px', color: '#fff' }}>
+              <ul style={{ margin: 0, padding: '8px 0 0 18px', color: '#fff', fontSize: '15px' }}>
                 {safeComments.map((c: any, idx: number) => (
-                  <li key={idx}>{typeof c === 'string' ? c : JSON.stringify(c)}</li>
+                  <li key={idx} style={{ fontSize: '15px' }}>{typeof c === 'string' ? c : JSON.stringify(c)}</li>
                 ))}
               </ul>
             </Card>
@@ -472,11 +490,11 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
 
         {/* Behind the Scene/Feedback */}
         {(safeBehindTheScene || safeShowFeedback) && (
-          <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.10)', paddingTop: 16 }}>
-            {safeBehindTheScene && <a href={safeBehindTheScene} onClick={(e) => { e.preventDefault(); console.log('Behind the scene link clicked:', safeBehindTheScene); try { window.open(safeBehindTheScene, '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#aaa', fontSize: 13, cursor: 'pointer' }}>{t('agentnotify.behind_the_scene')}</a>}
-            {safeShowFeedback && <Tag color="red">{t('agentnotify.feedback')}</Tag>}
+          <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.10)', paddingTop: 18 }}>
+            {safeBehindTheScene && <a href={safeBehindTheScene} onClick={(e) => { e.preventDefault(); console.log('Behind the scene link clicked:', safeBehindTheScene); try { window.open(safeBehindTheScene, '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#aaa', fontSize: 15, cursor: 'pointer' }}>{t('agentnotify.behind_the_scene')}</a>}
+                          {safeShowFeedback && <Tag color="red" style={{ fontSize: '14px' }}>{t('agentnotify.feedback')}</Tag>}
             {/* 测试链接 */}
-            <a href="https://www.google.com" onClick={(e) => { e.preventDefault(); console.log('Test link clicked: https://www.google.com'); try { window.open('https://www.google.com', '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#1890ff', fontSize: 13, cursor: 'pointer' }}>Test Link (Google)</a>
+            <a href="https://www.google.com" onClick={(e) => { e.preventDefault(); console.log('Test link clicked: https://www.google.com'); try { window.open('https://www.google.com', '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#1890ff', fontSize: 15, cursor: 'pointer' }}>Test Link (Google)</a>
           </div>
         )}
       </NotificationCard>
