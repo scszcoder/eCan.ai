@@ -19,9 +19,7 @@
   },
   "pyinstaller": {
     "excludes": [
-      "jupyter", "pytest", "tornado", "bokeh", "plotly", "test",
-      "pip", "wheel", "IPython", "ipykernel", "notebook", "jupyter_client", "jupyter_core",
-      "matplotlib", "seaborn", "dash", "django", "turtledemo"
+      "jupyter", "pytest", "test", "pip", "wheel", "jupyter_client", "jupyter_core", "django"
     ]
   },
   "build_modes": {
