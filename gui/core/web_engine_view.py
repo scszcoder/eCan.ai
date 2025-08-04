@@ -15,6 +15,7 @@ from typing import Optional, Callable, Any, Dict, Union
 from pathlib import Path
 import os
 import shutil
+import webbrowser
 
 class CustomWebEnginePage(QWebEnginePage):
     def __init__(self, profile=None, parent=None):
@@ -28,6 +29,44 @@ class CustomWebEnginePage(QWebEnginePage):
         self.setFeaturePermission(
             url, feature, QWebEnginePage.PermissionPolicy.PermissionGrantedByUser
         )
+
+    def acceptNavigationRequest(self, url, _type, isMainFrame):
+        url_str = url.toString()
+        logger.info(f"Navigation request: {url_str}, type: {_type}, isMainFrame: {isMainFrame}")
+
+        # 只拦截用户点击的外部链接，且不是主页面
+        MAIN_URLS = {"http://localhost:3000", "http://localhost:3000/"}
+        if (
+            _type == QWebEnginePage.NavigationTypeLinkClicked
+            and url_str.startswith(('http://', 'https://'))
+            and url_str not in MAIN_URLS
+        ):
+            logger.info(f"External link detected: {url_str}")
+            try:
+                webbrowser.open(url_str)
+                logger.info(f"Successfully opened external link in system browser: {url_str}")
+                return False  # 阻止在 WebEngine 中打开
+            except Exception as e:
+                logger.error(f"Failed to open external link '{url_str}' in system browser: {e}")
+                logger.info(f"Falling back to WebEngine for external link: {url_str}")
+                return True
+
+        # 其他情况允许 WebEngine 正常导航
+        logger.debug(f"Allowing navigation: {url_str}")
+        return True
+
+    def createWindow(self, _type):
+        """处理 JavaScript window.open 调用"""
+        logger.debug(f"Window creation requested, type: {_type}")
+        
+        # 创建一个新的页面实例，这样 acceptNavigationRequest 才能被触发
+        # 注意：这里需要确保新页面也有正确的 acceptNavigationRequest 处理
+        new_page = CustomWebEnginePage(self.profile(), self)
+        
+        # 连接新页面的信号
+        new_page.loadFinished.connect(lambda success: logger.debug(f"New page load finished: {success}"))
+        
+        return new_page
 
 
 class WebEngineView(QWebEngineView):

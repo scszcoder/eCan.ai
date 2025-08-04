@@ -68,6 +68,16 @@
         "solid_compression": false,
         "internal_compress_level": "fast"
       }
+    },
+    "macos": {
+      "bundle_identifier": "com.ecbot.app",
+      "install_location": "/Applications",
+      "create_desktop_shortcut": false,
+      "sign_package": false,
+      "developer_id": "",
+      "entitlements": "",
+      "postinstall_script": true,
+      "preinstall_script": false
     }
   }
 }
