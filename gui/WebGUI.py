@@ -11,6 +11,8 @@ from config.app_settings import app_settings
 from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
+from app_context import AppContext
+from agent.chats.chat_service import ChatService
 import time
 
 
@@ -20,9 +22,10 @@ if sys.platform == 'darwin':
 
 
 class WebGUI(QMainWindow):
-    def __init__(self):
+    def __init__(self, parent=None):
         super().__init__()
         self.setWindowTitle("eCan.ai")
+        self.parent = parent
         # Set window icon
         icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
         self.setWindowIcon(QIcon(icon_path))
@@ -63,6 +66,9 @@ class WebGUI(QMainWindow):
         
         # 设置快捷键
         self._setup_shortcuts()
+
+    def set_parent(self, parent):
+        self.parent = parent
 
     def load_local_html(self):
         """加载本地 HTML 文件"""
@@ -169,13 +175,98 @@ class WebGUI(QMainWindow):
     # time?: number;
     # isRead?: boolean; // 新增，表示消息是否已读
     # }
-    def receive_new_chat_message(self, sender_agent, chatId, msg_data):
-        # chatId: str, message: dict
-        if not self._ipc_api:
-            self._ipc_api = IPCAPI.get_instance()
+    def push_message_to_chat(self, chatId, msg):
+        """类型分发，自动调用 chat_service.add_xxx_message，推送到前端，并记录数据库写入结果"""
+        main_window = self.parent
+        logger.info(f"push_message echo_msg: {msg}")
+        chat_service: ChatService = main_window.chat_service
+        content = msg.get('content')
+        role = msg.get('role')
+        senderId = msg.get('senderId')
+        createAt = msg.get('createAt')
+        senderName = msg.get('senderName')
+        status = msg.get('status')
+        ext = msg.get('ext')
+        attachments = msg.get('attachments')
+        # 类型分发
+        db_result = None
+        if isinstance(content, dict):
+            msg_type = content.get('type')
+            if msg_type == 'text':
+                print("pushing text message", content)
+                db_result = chat_service.add_text_message(
+                    chatId=chatId, role=role, text=content.get('text', ''), senderId=senderId, createAt=createAt,
+                    senderName=senderName, status=status, ext=ext, attachments=attachments)
+            elif msg_type == 'form':
+                form = content.get('form', {})
+                db_result = chat_service.add_form_message(
+                    chatId=chatId, role=role, form=form, senderId=senderId,
+                    createAt=createAt, senderName=senderName, status=status, ext=ext, attachments=attachments)
+            elif msg_type == 'code':
+                code = content.get('code', {})
+                db_result = chat_service.add_code_message(
+                    chatId=chatId, role=role, code=code.get('value', ''), language=code.get('lang', 'python'),
+                    senderId=senderId, createAt=createAt, senderName=senderName, status=status, ext=ext,
+                    attachments=attachments)
+            elif msg_type == 'system':
+                system = content.get('system', {})
+                db_result = chat_service.add_system_message(
+                    chatId=chatId, text=system.get('text', ''), level=system.get('level', 'info'),
+                    senderId=senderId, createAt=createAt, status=status, ext=ext, attachments=attachments)
+            elif msg_type == 'notification':
+                print("pushing notification message", content)
+                notification = content.get('notification', {})
+                db_result = chat_service.add_notification_message(
+                    chatId=chatId, title=notification.get('title', ''), content=notification,
+                    level=notification.get('level', 'info'), senderId=senderId, createAt=createAt, status=status,
+                    ext=ext, attachments=attachments)
+            elif msg_type == 'card':
+                card = content.get('card', {})
+                db_result = chat_service.add_card_message(
+                    chatId=chatId, role=role, title=card.get('title', ''), content=card.get('content', ''),
+                    actions=card.get('actions', []), senderId=senderId, createAt=createAt, senderName=senderName,
+                    status=status, ext=ext, attachments=attachments)
+            elif msg_type == 'markdown':
+                db_result = chat_service.add_markdown_message(
+                    chatId=chatId, role=role, markdown=content.get('markdown', ''), senderId=senderId,
+                    createAt=createAt,
+                    senderName=senderName, status=status, ext=ext, attachments=attachments)
+            elif msg_type == 'table':
+                table = content.get('table', {})
+                db_result = chat_service.add_table_message(
+                    chatId=chatId, role=role, headers=table.get('headers', []), rows=table.get('rows', []),
+                    senderId=senderId, createAt=createAt, senderName=senderName, status=status, ext=ext,
+                    attachments=attachments)
+            else:
+                db_result = chat_service.add_message(
+                    chatId=chatId, role=role, content=content, senderId=senderId, createAt=createAt,
+                    senderName=senderName, status=status, ext=ext, attachments=attachments)
+        else:
+            db_result = chat_service.add_text_message(
+                chatId=chatId, role=role, text=str(content), senderId=senderId, createAt=createAt,
+                senderName=senderName, status=status, ext=ext, attachments=attachments)
+        logger.info(f"push_message db_result: {db_result}")
+        print("push_message db_result:", db_result)
+        # 推送到前端
+        app_ctx = AppContext()
+        web_gui = app_ctx.web_gui
+        # 推送写入数据库后的真实数据
+        if db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type != "notification":
+            print("push_message db_result['data']:", db_result['data'])
+            web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
+        elif db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type == "notification":
+            uid = msg.get('id')
+            web_gui.get_ipc_api().push_chat_notification(chatId, content.get('notification', {}), True, createAt, uid)
+        else:
+            logger.error(f"message insert db failed{chatId}, {msg.id}")
+            # web_gui.get_ipc_api().push_chat_message(chatId, msg)
 
-        print("about to send chat mesg::", chatId, msg_data)
-        response = self._ipc_api.push_chat_message(chatId, msg_data)
+    def receive_new_chat_message(self, sender_agent, chatId, content, uid):
+        isRead = True
+        timestamp = int(time.time())
+
+        # chatId: str, content: dict, isRead: bool = False, timestamp: int = None, uid: str = None,
+        response = self._ipc_api.push_chat_message(chatId, content, isRead, timestamp, uid)
         print("receive_new_chat_message response::", response)
 
     def receive_new_chat_notification(self, sender_agent, chatId, content, uid):
