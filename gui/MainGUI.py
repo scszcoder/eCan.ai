@@ -134,7 +134,7 @@ class Expander(QWidget):
             # Adapted from c++ version
             https://stackoverflow.com/a/37119983/386398
         """
-        super(Expander, self).__init__(parent=parent)
+        super().__init__(parent=parent)
         self.animationDuration = animationDuration
         self.toggleAnimation = QParallelAnimationGroup()
         self.contentArea = QScrollArea()
@@ -222,7 +222,7 @@ class AsyncInterface:
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self, loginout_gui, main_key, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
-        super(MainWindow, self).__init__()
+        super().__init__()
         self.loginout_gui = loginout_gui
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
