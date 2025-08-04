@@ -41,11 +41,23 @@ const Login: React.FC = () => {
 	useEffect(() => {
 		const initialize = async () => {
 			try {
+				// 设置超时，避免长时间等待
+				const timeoutPromise = new Promise((_, reject) => {
+					setTimeout(() => reject(new Error('IPC initialization timeout')), 5000);
+				});
+
 				// 加载登录信息
 				const api = get_ipc_api();
-				if (!api) return;
+				if (!api) {
+					console.warn('[Login] IPC API not available, skipping login info load');
+					return;
+				}
 
-				const response: APIResponse<any> = await api.getLastLoginInfo();
+				const response = await Promise.race([
+					api.getLastLoginInfo(),
+					timeoutPromise
+				]) as APIResponse<any>;
+
 				console.log('[Login] Last login info', response.data);
 				if (response?.data?.last_login) {
 					const { username, password, machine_role } = response.data.last_login;
@@ -54,11 +66,14 @@ const Login: React.FC = () => {
 					updateFormWithRole(username, password, machine_role);
 				}
 			} catch (error) {
-				console.error('Failed to initialize:', error);
+				console.warn('[Login] Failed to load last login info:', error);
+				// 不阻塞登录页面显示，继续正常流程
 			}
 		};
 
-		initialize();
+		// 延迟初始化，让页面先渲染
+		const timer = setTimeout(initialize, 100);
+		return () => clearTimeout(timer);
 	}, []); // 只在组件挂载时执行一次
 
 	// 监听语言变化，更新角色选择框的显示
