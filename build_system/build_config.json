@@ -24,29 +24,6 @@
       "IPython", "ipykernel", "notebook", "jupyter_client", "jupyter_core",
       "matplotlib", "seaborn", "dash", "streamlit",
       "django", "gunicorn", "turtle", "turtledemo"
-    ],
-    "hidden_imports": [
-        "pydantic.deprecated.decorator",
-        "langchain_openai",
-        "langchain_core",
-        "tiktoken",
-        "tiktoken_ext",
-        "PySide6.QtWebEngineCore",
-        "PySide6.QtWebEngineWidgets",
-        "PySide6.QtWebChannel",
-        "PySide6.QtCore",
-        "PySide6.QtGui",
-        "PySide6.QtWidgets",
-        "PySide6.QtNetwork",
-        "qasync",
-        "playwright",
-        "browser_use",
-        "crawl4ai",
-        "tkinter",
-        "_tkinter",
-        "idlelib",
-        "scipy",
-        "fake_useragent"
     ]
   },
   "build_modes": {
@@ -70,19 +47,12 @@
     "app_name": "ECBot",
     "app_version": "1.0.0",
     "app_publisher": "ECBot Team",
-    "app_publisher_url": "https://github.com/your-repo/ecbot",
-    "app_support_url": "https://github.com/your-repo/ecbot/issues",
-    "app_updates_url": "https://github.com/your-repo/ecbot/releases",
     "default_dir": "{autopf}\\\\ECBot",
     "default_group": "ECBot",
-    "wizard_style": "modern",
     "privileges_required": "lowest",
+    "compression": "zip",
+    "solid_compression": false,
     "compression_modes": {
-      "fast": {
-        "compression": "zip",
-        "solid_compression": false,
-        "internal_compress_level": "fast"
-      },
       "dev": {
         "compression": "zip",
         "solid_compression": false,
@@ -92,6 +62,11 @@
         "compression": "lzma",
         "solid_compression": true,
         "internal_compress_level": "max"
+      },
+      "fast": {
+        "compression": "zip",
+        "solid_compression": false,
+        "internal_compress_level": "fast"
       }
     }
   }
