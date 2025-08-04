@@ -699,6 +699,13 @@ Compression={compression}
 SolidCompression={solid_compression}
 PrivilegesRequired=lowest
 InternalCompressLevel={internal_compress_level}
+; 改进的安装配置以避免COM错误
+SetupIconFile=..\\ECBot.ico
+UninstallDisplayIcon={{app}}\\ECBot.exe
+CreateUninstallRegKey=true
+; 处理权限问题
+AllowNoIcons=true
+DisableProgramGroupPage=auto
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -711,7 +718,7 @@ Source: "..\\dist\\ECBot\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesu
 
 [Icons]
 Name: "{{group}}\\ECBot"; Filename: "{{app}}\\ECBot.exe"
-Name: "{{commondesktop}}\\ECBot"; Filename: "{{app}}\\ECBot.exe"; Tasks: desktopicon
+Name: "{{userdesktop}}\\ECBot"; Filename: "{{app}}\\ECBot.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags: nowait postinstall skipifsilent
