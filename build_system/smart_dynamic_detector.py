@@ -331,6 +331,19 @@ class SmartDynamicDetector:
             "charset_normalizer",
             "idna",
             
+            # setuptools 和 jaraco 相关模块
+            "setuptools",
+            "jaraco",
+            "jaraco.text",
+            "jaraco.classes",
+            "jaraco.functools",
+            "jaraco.context",
+            "jaraco.collections",
+            "jaraco.stream",
+            "jaraco.itertools",
+            "jaraco.logging",
+            "jaraco.path",
+            
             # Pydantic 相关模块
             "pydantic",
             "pydantic.deprecated",
@@ -656,6 +669,11 @@ class SmartDynamicDetector:
             # LangChain 相关模块
             'langchain', 'langchain_core', 'langchain_openai',
             'langchain_core.tools', 'langchain_core._import_utils',
+            
+            # setuptools 和 jaraco 相关模块
+            'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
+            'jaraco.functools', 'jaraco.context', 'jaraco.collections',
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', 'jaraco.path',
         ]
         
         # 从原始列表中筛选出存在的核心模块
@@ -684,6 +702,10 @@ class SmartDynamicDetector:
             'pydantic_core', 'pydantic._internal', 'pydantic._migration',
             # 添加langchain相关模块
             'langchain', 'langchain_core', 'langchain_openai',
-            'langchain_core.tools', 'langchain_core._import_utils'
+            'langchain_core.tools', 'langchain_core._import_utils',
+            # 添加setuptools和jaraco相关模块
+            'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
+            'jaraco.functools', 'jaraco.context', 'jaraco.collections',
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', 'jaraco.path'
         ]
         return any(module.startswith(lib) for lib in critical_libs) 
