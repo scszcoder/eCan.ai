@@ -27,13 +27,18 @@
 }
 
 /* 全局样式 */
-body {
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
+html, body {
+    background-color: var(--bg-primary, #0f172a) !important;
+    color: var(--text-primary, #f8fafc) !important;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     line-height: 1.5;
     margin: 0;
     padding: 0;
+}
+
+#root {
+    background-color: var(--bg-primary, #0f172a) !important;
+    min-height: 100vh;
 }
 
 /* 布局样式 */

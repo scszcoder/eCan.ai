@@ -81,8 +81,11 @@ def main():
     ctx.set_app_info(app_info)
 
     # 设置应用程序图标（在 QApplication 创建之后）
-    from utils.app_icon_helper import set_app_icon
+    from utils.app_icon_helper import set_app_icon, set_app_icon_delayed
+    # 立即设置基本图标
     set_app_icon(app, logger)
+    # 延迟设置 Windows 任务栏图标（等待主窗口创建）
+    set_app_icon_delayed(app, logger)
 
     # app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)

@@ -25,7 +25,7 @@ interface AppState {
 }
 
 const defaultSettings: AppSettings = {
-    theme: 'light',
+    theme: 'dark',
     language: 'zh-CN',
     autoStart: false,
 };

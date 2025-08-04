@@ -1,3 +1,4 @@
+import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
 import { routes, RouteConfig } from './routes';
@@ -124,8 +125,10 @@ const AppContent = () => {
 };
 
 function App() {
-    // 初始化应用
-    initializeApp();
+    // 异步初始化应用，不阻塞首次渲染
+    React.useEffect(() => {
+        initializeApp();
+    }, []);
 
     return (
         <ThemeProvider>
