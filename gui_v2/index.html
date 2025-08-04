@@ -5,9 +5,80 @@
     <link rel="icon" type="image/png" href="/src/assets/logoWhite22.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>eCan.ai</title>
+    <style>
+      /* 预设深色主题背景，避免加载时的白色闪烁 */
+      html, body {
+        background-color: #0f172a !important;
+        color: #f8fafc !important;
+        margin: 0;
+        padding: 0;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      #root {
+        background-color: #0f172a !important;
+        min-height: 100vh;
+      }
+      /* 加载动画样式 */
+      .initial-loading {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: #0f172a;
+        color: #f8fafc;
+        font-size: 16px;
+      }
+      .loading-spinner {
+        border: 3px solid #334155;
+        border-top: 3px solid #3b82f6;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        animation: spin 1s linear infinite;
+        margin-right: 12px;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="initial-loading">
+        <div class="loading-spinner"></div>
+        <span id="loading-text">Loading...</span>
+      </div>
+    </div>
+    <script>
+      // 根据系统语言设置加载文本
+      (function() {
+        const getLoadingText = () => {
+          // 首先检查 localStorage 中保存的语言设置
+          const savedLanguage = localStorage.getItem('i18nextLng');
+          if (savedLanguage) {
+            return savedLanguage === 'zh-CN' ? '加载中...' : 'Loading...';
+          }
+
+          // 如果没有保存的语言设置，检查浏览器语言
+          const browserLanguage = navigator.language || navigator.languages[0];
+
+          // 检查是否为中文
+          if (browserLanguage.startsWith('zh')) {
+            return '加载中...';
+          }
+
+          // 默认返回英文
+          return 'Loading...';
+        };
+
+        // 设置加载文本
+        const loadingTextElement = document.getElementById('loading-text');
+        if (loadingTextElement) {
+          loadingTextElement.textContent = getLoadingText();
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
