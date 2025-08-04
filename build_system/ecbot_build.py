@@ -488,6 +488,14 @@ app = BUNDLE(
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
         'NSHighResolutionCapable': True,
+        'LSMinimumSystemVersion': '10.14',
+        'NSPrincipalClass': 'NSApplication',
+        'CFBundleDocumentTypes': [],
+        'CFBundleURLTypes': [],
+        'LSApplicationCategoryType': 'public.app-category.productivity',
+        'NSAppTransportSecurity': {{
+            'NSAllowsArbitraryLoads': True
+        }}
     }},
 )
 """
@@ -816,22 +824,15 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                 print("[ERROR] Please build the app first using PyInstaller")
                 return False
             
-            # 创建pkgbuild脚本
-            pkgbuild_script = self._create_pkgbuild_script()
-            if not pkgbuild_script:
+            
+            # 创建组件包
+            component_pkg = self._create_component_package(app_path)
+            if not component_pkg:
                 return False
             
-            # 创建productbuild脚本
-            productbuild_script = self._create_productbuild_script()
-            if not productbuild_script:
-                return False
-            
-            # 运行pkgbuild
-            if not self._run_pkgbuild(pkgbuild_script):
-                return False
-            
-            # 运行productbuild
-            if not self._run_productbuild(productbuild_script):
+            # 创建最终安装包
+            final_pkg = self._create_final_package(component_pkg)
+            if not final_pkg:
                 return False
             
             print("[SUCCESS] macOS pkg installer created")
@@ -868,82 +869,44 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
             print(f"[ERROR] Failed to check macOS tools: {e}")
             return False
     
-    def _create_pkgbuild_script(self) -> Optional[Path]:
-        """创建pkgbuild脚本"""
+
+
+    def _create_component_package(self, app_path: Path) -> Optional[Path]:
+        """创建组件包"""
         try:
-            app_info = self.config.get_app_info()
-            installer_config = self.config.config.get("installer", {})
+            print("[MACOS] Creating component package...")
             
-            # 创建临时目录
-            temp_dir = self.project_root / "build" / "macos_pkg"
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            # 创建构建目录
+            build_dir = self.project_root / "build" / "macos_pkg"
+            build_dir.mkdir(parents=True, exist_ok=True)
             
-            # 创建pkgbuild脚本
-            pkgbuild_script = temp_dir / "build_pkg.sh"
-            
-            script_content = f"""#!/bin/bash
-set -e
-
-# macOS pkg 构建脚本
-echo "Building macOS pkg..."
-
-# 设置变量
-APP_NAME="{app_info.get('name', 'ECBot')}"
-APP_VERSION="{installer_config.get('app_version', app_info.get('version', '1.0.0'))}"
-BUNDLE_ID="com.ecbot.app"
-APP_PATH="{self.dist_dir}/ECBot.app"
-PKG_PATH="{self.dist_dir}/ECBot-{installer_config.get('app_version', app_info.get('version', '1.0.0'))}.pkg"
-COMPONENT_PKG="{temp_dir}/ECBot-component.pkg"
-
-# 检查.app文件
-if [ ! -d "$APP_PATH" ]; then
-    echo "Error: App bundle not found at $APP_PATH"
-    exit 1
-fi
-
-echo "App bundle found at: $APP_PATH"
-
-# 使用pkgbuild创建组件包
-echo "Creating component package..."
-pkgbuild \\
-    --component "$APP_PATH" \\
-    --install-location "/Applications" \\
-    --identifier "$BUNDLE_ID" \\
-    --version "$APP_VERSION" \\
-    --scripts "{temp_dir}/scripts" \\
-    "$COMPONENT_PKG"
-
-if [ $? -eq 0 ]; then
-    echo "Component package created successfully: $COMPONENT_PKG"
-else
-    echo "Error: Failed to create component package"
-    exit 1
-fi
-
-echo "macOS pkg build completed: $PKG_PATH"
-"""
-            
-            with open(pkgbuild_script, 'w', encoding='utf-8') as f:
-                f.write(script_content)
-            
-            # 设置执行权限
-            pkgbuild_script.chmod(0o755)
-            
-            # 创建scripts目录（用于安装脚本）
-            scripts_dir = temp_dir / "scripts"
+            # 创建 postinstall 脚本
+            scripts_dir = build_dir / "scripts"
             scripts_dir.mkdir(exist_ok=True)
             
-            # 创建postinstall脚本
             postinstall_script = scripts_dir / "postinstall"
             postinstall_content = """#!/bin/bash
 # 安装后脚本
 echo "Installing ECBot..."
 
-# 设置权限
+# 设置应用权限
 chmod -R 755 "/Applications/ECBot.app"
 
-# 创建桌面快捷方式（可选）
-# ln -sf "/Applications/ECBot.app" "/Users/$USER/Desktop/ECBot.app"
+# 创建桌面快捷方式
+if [ -d "/Users/$USER/Desktop" ]; then
+    ln -sf "/Applications/ECBot.app" "/Users/$USER/Desktop/ECBot.app"
+    echo "Desktop shortcut created"
+fi
+
+# 创建应用程序文件夹快捷方式
+if [ -d "/Applications" ]; then
+    # 确保应用在应用程序文件夹中可见
+    touch "/Applications/ECBot.app"
+fi
+
+# 刷新 Finder 和 Dock
+killall Finder 2>/dev/null || true
+killall Dock 2>/dev/null || true
 
 echo "ECBot installation completed"
 exit 0
@@ -954,186 +917,98 @@ exit 0
             
             postinstall_script.chmod(0o755)
             
-            print(f"[PKGBUILD] Script created: {pkgbuild_script}")
-            return pkgbuild_script
+            # 创建组件包
+            component_pkg = build_dir / "ECBot-component.pkg"
+            cmd = [
+                "pkgbuild",
+                "--component", str(app_path),
+                "--install-location", "/Applications",
+                "--identifier", "com.ecbot.app",
+                "--version", "1.0.0",
+                "--scripts", str(scripts_dir),
+                str(component_pkg)
+            ]
             
-        except Exception as e:
-            print(f"[ERROR] Failed to create pkgbuild script: {e}")
-            return None
-    
-    def _create_productbuild_script(self) -> Optional[Path]:
-        """创建productbuild脚本"""
-        try:
-            app_info = self.config.get_app_info()
-            installer_config = self.config.config.get("installer", {})
-            
-            temp_dir = self.project_root / "build" / "macos_pkg"
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            
-            # 创建productbuild脚本
-            productbuild_script = temp_dir / "build_product.sh"
-            
-            script_content = f"""#!/bin/bash
-set -e
-
-# macOS productbuild 脚本
-echo "Building macOS product installer..."
-
-# 设置变量
-APP_NAME="{app_info.get('name', 'ECBot')}"
-APP_VERSION="{installer_config.get('app_version', app_info.get('version', '1.0.0'))}"
-BUNDLE_ID="com.ecbot.app"
-COMPONENT_PKG="{temp_dir}/ECBot-component.pkg"
-FINAL_PKG="{self.dist_dir}/ECBot-{installer_config.get('app_version', app_info.get('version', '1.0.0'))}.pkg"
-DISTRIBUTION_XML="{temp_dir}/distribution.xml"
-
-# 创建distribution.xml
-cat > "$DISTRIBUTION_XML" << EOF
-<?xml version="1.0" encoding="utf-8"?>
-<installer-gui-script minSpecVersion="1">
-    <title>$APP_NAME</title>
-    <organization>com.ecbot</organization>
-    <domains enable_localSystem="true"/>
-    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
-    <pkg-ref id="$BUNDLE_ID"/>
-    <choices-outline>
-        <line choice="$BUNDLE_ID"/>
-    </choices-outline>
-    <choice id="$BUNDLE_ID" title="$APP_NAME">
-        <pkg-ref id="$BUNDLE_ID"/>
-    </choice>
-    <pkg-ref id="$BUNDLE_ID" version="$APP_VERSION" onConclusion="none">$COMPONENT_PKG</pkg-ref>
-</installer-gui-script>
-EOF
-
-echo "Distribution XML created: $DISTRIBUTION_XML"
-
-# 使用productbuild创建最终安装包
-echo "Creating final installer package..."
-productbuild \\
-    --distribution "$DISTRIBUTION_XML" \\
-    --package-path "{temp_dir}" \\
-    --resources "{temp_dir}/resources" \\
-    "$FINAL_PKG"
-
-if [ $? -eq 0 ]; then
-    echo "Final installer package created successfully: $FINAL_PKG"
-    
-    # 显示文件信息
-    if [ -f "$FINAL_PKG" ]; then
-        SIZE_MB=$(echo "scale=1; $(stat -f%z "$FINAL_PKG") / 1024 / 1024" | bc)
-        echo "Installer size: $SIZE_MB MB"
-    fi
-else
-    echo "Error: Failed to create final installer package"
-    exit 1
-fi
-
-echo "macOS product installer build completed"
-"""
-            
-            with open(productbuild_script, 'w', encoding='utf-8') as f:
-                f.write(script_content)
-            
-            # 设置执行权限
-            productbuild_script.chmod(0o755)
-            
-            # 创建resources目录
-            resources_dir = temp_dir / "resources"
-            resources_dir.mkdir(exist_ok=True)
-            
-            print(f"[PRODUCTBUILD] Script created: {productbuild_script}")
-            return productbuild_script
-            
-        except Exception as e:
-            print(f"[ERROR] Failed to create productbuild script: {e}")
-            return None
-    
-    def _run_pkgbuild(self, script_path: Path) -> bool:
-        """运行pkgbuild"""
-        try:
-            print(f"[PKGBUILD] Running pkgbuild script: {script_path}")
-            
-            # 设置环境变量
-            env = os.environ.copy()
-            env['LC_ALL'] = 'en_US.UTF-8'
-            env['LANG'] = 'en_US.UTF-8'
-            
-            # 运行脚本
-            result = subprocess.run(
-                [str(script_path)],
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=300  # 5分钟超时
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
                 print(f"[ERROR] pkgbuild failed:")
-                print(f"[ERROR] Return code: {result.returncode}")
-                print(f"[ERROR] STDOUT: {result.stdout}")
-                print(f"[ERROR] STDERR: {result.stderr}")
-                return False
+                print(f"STDOUT: {result.stdout}")
+                print(f"STDERR: {result.stderr}")
+                return None
             
-            print("[SUCCESS] pkgbuild completed successfully")
-            print(f"[INFO] pkgbuild output: {result.stdout}")
-            return True
+            print(f"[MACOS] Component package created: {component_pkg}")
+            return component_pkg
             
-        except subprocess.TimeoutExpired:
-            print("[ERROR] pkgbuild timed out (5 minutes)")
-            return False
         except Exception as e:
-            print(f"[ERROR] Failed to run pkgbuild: {e}")
-            return False
-    
-    def _run_productbuild(self, script_path: Path) -> bool:
-        """运行productbuild"""
+            print(f"[ERROR] Failed to create component package: {e}")
+            return None
+
+    def _create_final_package(self, component_pkg: Path) -> Optional[Path]:
+        """创建最终安装包"""
         try:
-            print(f"[PRODUCTBUILD] Running productbuild script: {script_path}")
+            print("[MACOS] Creating final package...")
             
-            # 设置环境变量
-            env = os.environ.copy()
-            env['LC_ALL'] = 'en_US.UTF-8'
-            env['LANG'] = 'en_US.UTF-8'
+            # 创建 distribution.xml
+            build_dir = self.project_root / "build" / "macos_pkg"
+            dist_xml = build_dir / "distribution.xml"
             
-            # 运行脚本
-            result = subprocess.run(
-                [str(script_path)],
-                cwd=self.project_root,
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=300  # 5分钟超时
-            )
+            distribution_content = f"""<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>ECBot</title>
+    <organization>com.ecbot</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+    <pkg-ref id="com.ecbot.app"/>
+    <choices-outline>
+        <line choice="com.ecbot.app"/>
+    </choices-outline>
+    <choice id="com.ecbot.app" title="ECBot">
+        <pkg-ref id="com.ecbot.app"/>
+    </choice>
+    <pkg-ref id="com.ecbot.app" version="1.0.0" onConclusion="none">{component_pkg.name}</pkg-ref>
+</installer-gui-script>
+"""
+            
+            with open(dist_xml, 'w', encoding='utf-8') as f:
+                f.write(distribution_content)
+            
+            # 创建 resources 目录
+            resources_dir = build_dir / "resources"
+            resources_dir.mkdir(exist_ok=True)
+            
+            # 创建最终安装包
+            final_pkg = self.dist_dir / "ECBot-1.0.0.pkg"
+            cmd = [
+                "productbuild",
+                "--distribution", str(dist_xml),
+                "--package-path", str(component_pkg.parent),
+                "--resources", str(resources_dir),
+                str(final_pkg)
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
             if result.returncode != 0:
                 print(f"[ERROR] productbuild failed:")
-                print(f"[ERROR] Return code: {result.returncode}")
-                print(f"[ERROR] STDOUT: {result.stdout}")
-                print(f"[ERROR] STDERR: {result.stderr}")
-                return False
+                print(f"STDOUT: {result.stdout}")
+                print(f"STDERR: {result.stderr}")
+                return None
             
-            print("[SUCCESS] productbuild completed successfully")
-            print(f"[INFO] productbuild output: {result.stdout}")
-            
-            # 检查输出文件
-            expected_pkg = self.dist_dir / f"ECBot-{self.config.get_app_info().get('version', '1.0.0')}.pkg"
-            if expected_pkg.exists():
-                size_mb = expected_pkg.stat().st_size / (1024 * 1024)
-                print(f"[INFO] Installer package: {expected_pkg}")
-                print(f"[INFO] Package size: {size_mb:.1f} MB")
+            # 检查文件大小
+            if final_pkg.exists():
+                size_mb = final_pkg.stat().st_size / (1024 * 1024)
+                print(f"[MACOS] Final package created: {final_pkg} ({size_mb:.1f} MB)")
+                return final_pkg
             else:
-                print(f"[WARNING] Expected package not found: {expected_pkg}")
+                print("[ERROR] Final package file not found")
+                return None
             
-            return True
-            
-        except subprocess.TimeoutExpired:
-            print("[ERROR] productbuild timed out (5 minutes)")
-            return False
         except Exception as e:
-            print(f"[ERROR] Failed to run productbuild: {e}")
-            return False
+            print(f"[ERROR] Failed to create final package: {e}")
+            return None
+    
+
 
 
 class ECBotBuild:
