@@ -945,26 +945,35 @@ class MainWindow(QMainWindow):
         wifi_info = None
         if self.platform == "win":
             try:
-                wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'],
-                                                  stderr=subprocess.DEVNULL,
-                                                  timeout=10)
+                # Use subprocess.run instead of check_output for better error handling
+                result = subprocess.run(['netsh', 'WLAN', 'show', 'interfaces'],
+                                      capture_output=True,
+                                      text=False,
+                                      timeout=10,
+                                      check=False)  # Don't raise exception on non-zero exit
+
+                if result.returncode == 0:
+                    wifi_info = result.stdout
+                else:
+                    logger.info(f"netsh WLAN command returned code {result.returncode}, trying alternative method")
+                    raise subprocess.CalledProcessError(result.returncode, 'netsh')
+
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                logger.warning(f"Failed to get WiFi info using netsh: {str(e)}")
-                print(f"WiFi detection failed: {str(e)}")
+                logger.info(f"Primary WiFi detection method failed (this is normal on some systems): {type(e).__name__}")
                 # Try alternative method for Windows
                 try:
                     # Get network interfaces (psutil is already imported globally)
                     interfaces = psutil.net_if_stats()
                     wifi_interfaces = [name for name in interfaces.keys() if 'wi-fi' in name.lower() or 'wireless' in name.lower() or 'wlan' in name.lower()]
                     if wifi_interfaces:
-                        logger.info(f"Found WiFi interfaces: {wifi_interfaces}")
+                        logger.info(f"Found WiFi interfaces using alternative method: {wifi_interfaces}")
                         # Create a mock wifi_info to indicate WiFi is available but SSID unknown
                         wifi_info = b"    SSID                   : Unknown\n"
                     else:
-                        logger.info("No WiFi interfaces found")
+                        logger.info("No WiFi interfaces found using alternative method")
                         wifi_info = None
                 except Exception as e2:
-                    logger.warning(f"Alternative WiFi detection failed: {str(e2)}")
+                    logger.info(f"Alternative WiFi detection also failed: {str(e2)}")
                     wifi_info = None
         elif self.platform == 'dar':
             # Try to find the airport command
