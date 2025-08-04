@@ -680,7 +680,7 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
     处理聊天表单提交请求，参数包括 chatId, messageId, formId, formData。
     """
     try:
-        logger.info(f"handle_chat_form_submit called with params: {params}")
+        logger.info(f"handle_chat_form_submit called with params: {request} {params}")
         chatId = params.get('chatId')
         messageId = params.get('messageId')
         formId = params.get('formId')
@@ -698,6 +698,27 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
             if not result.get('success'):
                 return create_error_response(request, 'CHAT_FORM_SUBMIT_ERROR', result.get('error', 'Unknown error'))
             # TODO add call agent
+            if ECHO_REPLY_ENABLED:
+                chat_args = {
+                    'chatId': chatId,
+                    'role': "role",
+                    'content': "content",
+                    'senderId': "senderId",
+                    'createAt': 123456,
+                    'id': "messageId",
+                    'status': "status",
+                    'senderName': "senderName",
+                    'time': 123456,
+                    'ext': "ext",
+                    'attachments': [],
+                    'receiverId': "receiverId",
+                    'receiverName': "receiverName"
+                }
+                echo_and_push_message_async(chatId, chat_args)
+            else:
+                form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=int(time.time() * 1000) )
+                print("a2a_send_chat form submit:", form_submit_req)
+                a2a_send_chat(main_window, form_submit_req)
             return create_success_response(request, result.get('data'))
         else:
             # 如果没有 submit_form 方法，简单记录表单数据，可自定义扩展

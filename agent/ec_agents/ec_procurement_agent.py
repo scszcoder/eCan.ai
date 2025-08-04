@@ -52,7 +52,7 @@ def set_up_ec_procurement_agent(mainwin):
         chatter_task = create_ec_procurement_chat_task(mainwin)
         worker_task = create_ec_procurement_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task])
+        produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[chatter_task, worker_task])
 
     except Exception as e:
         # Get the traceback information

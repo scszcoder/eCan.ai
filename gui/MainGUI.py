@@ -1348,6 +1348,7 @@ class MainWindow(QMainWindow):
 
     def set_top_gui(self, top_gui):
         self.top_gui = top_gui
+        self.top_gui.set_parent(self)
 
 
     def get_vehicle_ecbot_op_agent(self, v):

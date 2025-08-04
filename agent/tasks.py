@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from calendar import monthrange
 from langgraph.types import interrupt, Command
 from utils.logger_helper import logger_helper as logger
- 
+from agent.chats.tests.test_notifications import *
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
@@ -473,7 +473,7 @@ def time_to_run(agent):
 
     for task in agent.tasks:
         # 🚨 Skip tasks without schedule or non-time-based tasks
-        if not task.schedule or task.schedule.repeat_type == Repeat_Types.NONE:
+        if not task.schedule or task.schedule.repeat_type == Repeat_Types.NONE or task.trigger != "schedule":
             continue
 
         last_runtime, next_runtime = get_runtime_bounds(task.schedule)
@@ -650,20 +650,72 @@ class TaskRunner(Generic[Context]):
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))
         await self.resume_task(task_id)
 
-    def sendChatToGUI(self, sender_agent, chatId, msg):
-        print("sendChatToGUI::", msg)
+    def sendChatMessageToGUI(self, sender_agent, chatId, msg):
+        print("sendChatMessageToGUI::", msg)
         try:
-            msg_data = {
-                "from": "",
-                "to": "",
-                "message": msg,
-                "time": ""
-            }
-            resp = self.agent.mainwin.top_gui.receive_new_chat_message(sender_agent, chatId,msg_data)
+            if isinstance(msg, str):
+                mid = str(uuid.uuid4())
+                msg_data = {
+                    "role": 'agent',
+                    "id":  mid,
+                    "senderId": sender_agent.card.id,
+                    "senderName": sender_agent.card.name,
+                    "createAt": int(time.time() * 1000),
+                    "content": {"type": "text", "text": msg},         # string | Content | Content[] 支持字符串、单个Content对象或Content数组
+                    "status": "sent"        # 使用枚举类型
+                }
+
+                resp = self.agent.mainwin.top_gui.push_message_to_chat(chatId, msg_data)
+
+            else:
+                msg = "WARNING: Chat is supposed to be a string!"
+                print(msg)
             # ipc_api.update_chats([msg])
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
+
+    def sendChatFormToGUI(self, sender_agent, chatId, chatData):
+        print("sendChatFormToGUI::", chatData)
+        try:
+            mid = str(uuid.uuid4())
+            msg_data = {
+                "role": 'agent',
+                "id": mid,
+                "senderId": sender_agent.card.id,
+                "senderName": sender_agent.card.name,
+                "createAt": int(time.time() * 1000),
+                "content": {"type": "form", "form": chatData},         # string | Content | Content[] 支持字符串、单个Content对象或Content数组
+                "status": "sent"        # 使用枚举类型
+            }
+
+            resp = self.agent.mainwin.top_gui.push_message_to_chat(chatId, msg_data)
+            # ipc_api.update_chats([msg])
+        except Exception as e:
+            ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
+    def sendChatNotificationToGUI(self, sender_agent, chatId, chatData):
+        print("sendChatNotificationToGUI::", chatData)
+        try:
+            mid = str(uuid.uuid4())
+            msg_data = {
+                "role": 'agent',
+                "id": mid,
+                "senderId": sender_agent.card.id,
+                "senderName": sender_agent.card.name,
+                "createAt": int(time.time() * 1000),
+                "content": {"type": "notification", "notification": chatData},         # string | Content | Content[] 支持字符串、单个Content对象或Content数组
+                "status": "sent"        # 使用枚举类型
+
+            }
+
+            resp = self.agent.mainwin.top_gui.push_message_to_chat(chatId, msg_data)
+            # ipc_api.update_chats([msg])
+        except Exception as e:
+            ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
 
     def find_chatter_tasks(self):
         # for now, for the simplicity just find the task that's not scheduled.
@@ -706,12 +758,14 @@ class TaskRunner(Generic[Context]):
         while not self._stop_event.is_set():
             try:
                 logger.trace("checking scheduled task...." + self.agent.card.name)
-
+                print("checking agent scheduled task...." + self.agent.card.name)
                 # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
                 logger.trace("Checking schedule.....")
                 task2run = time_to_run(self.agent)
+                print("task2run:", task2run)
                 logger.trace(f"len task2run, {task2run}, {self.agent.card.name}")
                 if task2run:
+                    print("setting up scheduled task to run", task2run.name)
                     logger.debug("scheduled task2run skill name" + task2run.skill.name)
                     task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
 
@@ -724,6 +778,7 @@ class TaskRunner(Generic[Context]):
                     else:
                         self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
                 else:
+                    print("schedule task not reached scheduled time yet....")
                     logger.debug("nothing 2 run")
 
             except Exception as e:
@@ -768,7 +823,7 @@ class TaskRunner(Generic[Context]):
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
                                     chatId = msg.params.metadata['chatId']
-                                    self.sendChatToGUI(chatId, prompt)
+                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
 
                             task_id = msg.params.id
                             self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
@@ -802,7 +857,7 @@ class TaskRunner(Generic[Context]):
         while chatNotDone:
             try:
                 logger.trace("checking chat queue...." + self.agent.card.name)
-                # chatResponse = self.sendChatToGUI("User (q/Q to quit): ")
+                # chatResponse = self.sendChatMessageToGUI("User (q/Q to quit): ")
                 thread_config = {"configurable": {"thread_id": uuid.uuid4()}}
                 if not self.chat_msg_queue.empty():
                     try:
@@ -832,15 +887,14 @@ class TaskRunner(Generic[Context]):
                                 print("sending interrupt prompt1")
                                 if '__interrupt__' in response['step']:
                                     print("sending interrupt prompt2")
-                                    interrupt_obj = response["step"]["__interrupt__"][
-                                        0]  # [0] because it's a tuple with one item
+                                    interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
                                     print("prompt to human:", prompt)
                                     chatId = msg.params.metadata['chatId']
                                     task_id = msg.params.metadata['msgId']
                                     print("chatId in the message", chatId)
-                                    self.sendChatToGUI(self.agent, chatId, prompt)
+                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
                                     print("prompt sent to GUI<<<<<<<<<<<")
 
                                 if not isinstance(msg, dict):
@@ -858,30 +912,38 @@ class TaskRunner(Generic[Context]):
                                 print("no longer initial run", msg)
                                 task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
 
-                                print("interactedtask2run current state", task2run.metadata["state"])
+                                print("NI interacted task2run current state", task2run.metadata["state"])
                                 # print("ready to run the right task", task2run.name, msg)
 
-                                print("interacted task2run current response", response)
+                                print("NI interacted task2run current response", response)
 
                                 if '__interrupt__' in response['step']:
                                     response = task2run.stream_run(Command(resume=True), stream_mode="updates",)
-                                    print("interacted  task resume response:", response)
+                                    print("NI interacted  task resume response:", response)
                                 else:
                                     response = task2run.stream_run()
-                                    print("interacted task re-run response:", response)
+                                    print("NI interacted task re-run response:", response)
 
                                 if '__interrupt__' in response['step']:
-                                    print("sending interrupt prompt2")
+                                    print("NI sending interrupt prompt2")
                                     interrupt_obj = response["step"]["__interrupt__"][
                                         0]  # [0] because it's a tuple with one item
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
-                                    print("prompt to human:", prompt)
+                                    print("NI prompt to human:", prompt)
                                     chatId = msg.params.metadata['chatId']
                                     task_id = msg.params.metadata['msgId']
-                                    print("chatId in the message", chatId)
-                                    self.sendChatToGUI(self.agent, chatId, prompt)
-                                    print("prompt sent to GUI<<<<<<<<<<<")
+                                    print("NI chatId in the message", chatId)
+
+                                    hilData = sample_search_result0
+                                    hilData = sample_parameters_0
+                                    # hilData = sample_metrics_0
+                                    # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
+                                    self.sendChatFormToGUI(self.agent, chatId, hilData)
+                                    # self.sendChatMessageToGUI(self.agent, chatId, hilData)
+                                    # self.agent.mainwin.top_gui.push_message_to_chat(chatId, hilData)
+                                    # self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                    print("NI prompt sent to GUI<<<<<<<<<<<")
 
                                 if not isinstance(msg, dict):
                                     task_id = msg.params.id

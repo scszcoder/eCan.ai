@@ -69,7 +69,7 @@ async def browser_use_search_google(mainwin, query):
     SearchGoogleAction = create_model(
         'SearchGoogleAction',
         __base__=ActionModel,
-        query=query
+        query=(str, query)
     )
 
     action = SearchGoogleAction()
@@ -87,7 +87,7 @@ async def browser_use_go_to_url(mainwin, url):
     GoToUrlAction = create_model(
         'GoToUrlAction',
         __base__=ActionModel,
-        url=url
+        url=(str, url)
     )
 
     action = GoToUrlAction()
@@ -123,7 +123,7 @@ async def browser_use_click_element_by_index(mainwin, index):
     ClickElementAction = create_model(
         'ClickElementAction',
         __base__=ActionModel,
-        index=index
+        index=(int, index)
     )
 
     action = ClickElementAction()
@@ -143,7 +143,7 @@ async def browser_use_input_text(mainwin, index, text):
         'InputTextAction',
         __base__=ActionModel,
         index=index,
-        text=text
+        text=(str, text)
     )
 
     action = InputTextAction()
@@ -162,7 +162,7 @@ async def browser_use_upload_file(mainwin, index, path):
         'UploadFileAction',
         __base__=ActionModel,
         index=index,
-        path=path
+        path=(str, path)
     )
 
     action = UploadFileAction()
@@ -183,7 +183,7 @@ async def browser_use_switch_tab(mainwin, page_id, url):
         'SwitchTabAction',
         __base__=ActionModel,
         page_id=page_id,
-        url=url
+        url=(str, url)
     )
 
     action = SwitchTabAction()
@@ -202,7 +202,7 @@ async def browser_use_close_tab(mainwin, page_id, url):
             'CloseTabAction',
             __base__=ActionModel,
             page_id=page_id,
-            url=url
+            url=(str, url)
         )
 
     action = CloseTabAction()
@@ -273,9 +273,9 @@ async def browser_use_scroll(mainwin, down, num_pages, index):
     ScrollAction = create_model(
         'ScrollAction',
         __base__=ActionModel,
-        down = down,
-        num_pages = num_pages,
-        index = index
+        down = (bool, down),
+        num_pages = (int, num_pages),
+        index = (int, index)
     )
 
     action = ScrollAction()
