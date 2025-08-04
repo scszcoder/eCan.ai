@@ -1,11 +1,43 @@
 import React from 'react';
-import { Card, Tag, Typography, Space, Divider, Table, Tooltip } from 'antd';
+import { Card, Tag, Typography, Space, Divider, Table, Tooltip, Modal } from 'antd';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { Button } from 'antd';
 
 const { Title } = Typography;
+
+
+// 注入链接点击监听器的 hook
+const useLinkClickHandler = () => {
+  React.useEffect(() => {
+    // 注入 JavaScript 来确保链接点击能够被正确捕获
+    const script = `
+      document.addEventListener('click', function(e) {
+        if (e.target.tagName === 'A' && e.target.href) {
+          var url = e.target.href;
+          if (url.startsWith('http://') || url.startsWith('https://')) {
+            console.log('External link clicked:', url);
+            // 不阻止默认行为，让 Qt WebEngine 处理
+          }
+        }
+      });
+      console.log('Link click handler injected');
+    `;
+    
+    // 延迟执行，确保 DOM 已经加载
+    setTimeout(() => {
+      try {
+        const scriptElement = document.createElement('script');
+        scriptElement.textContent = script;
+        document.head.appendChild(scriptElement);
+        console.log('Link click handler script injected');
+      } catch (error) {
+        console.error('Failed to inject link click handler:', error);
+      }
+    }, 1000);
+  }, []);
+};
 
 const NotificationCard = styled(Card)`
   margin-bottom: 40px;
@@ -109,9 +141,65 @@ const renderAppSpecific = (apps: any[], t: (s: string) => string) => (
   </div>
 );
 
-const renderCell = (value: any, key: string, t: (s: string) => string) => {
+const renderCell = (value: any, key: string, t: (s: string) => string, onImageClick?: (url: string) => void) => {
   if (key === 'highlights' && Array.isArray(value)) return renderHighlights(value, t);
   if (key === 'app_specific' && Array.isArray(value)) return renderAppSpecific(value, t);
+  
+  // Handle main_image field - display image with click to enlarge
+  if (key === 'main_image' && typeof value === 'string' && value.startsWith('http')) {
+    return (
+      <div 
+        style={{ 
+          cursor: 'pointer', 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          width: '100%',
+          height: '100%'
+        }}
+        onClick={() => onImageClick?.(value)}
+      >
+        <img 
+          src={value} 
+          alt="product" 
+          style={{ 
+            width: 50, 
+            height: 50, 
+            objectFit: 'contain', 
+            borderRadius: 4, 
+            background: '#fff',
+            border: '1px solid #d9d9d9'
+          }} 
+        />
+      </div>
+    );
+  }
+  
+  // Handle url field - make it clickable
+  if (key === 'url' && typeof value === 'string' && value.startsWith('http')) {
+    return (
+      <a 
+        href={value} 
+        onClick={(e) => {
+          e.preventDefault();
+          console.log('URL link clicked:', value);
+          // 直接调用系统浏览器
+          try {
+            const newWindow = window.open(value, '_blank');
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+              console.warn('window.open failed, trying alternative method');
+            }
+          } catch (error) {
+            console.error('Failed to open link:', error);
+          }
+        }}
+        style={{ color: '#1890ff', textDecoration: 'underline', cursor: 'pointer' }}
+      >
+        {t('agentnotify.view_details')}
+      </a>
+    );
+  }
+  
   if (Array.isArray(value)) {
     return (
       <Space wrap>
@@ -127,7 +215,27 @@ const renderCell = (value: any, key: string, t: (s: string) => string) => {
     return <Tooltip title={JSON.stringify(value)}><Tag color="orange">{t('agentnotify.object')}</Tag></Tooltip>;
   }
   if (typeof value === 'string' && value.startsWith('http')) {
-    return <a href={value} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>{t('agentnotify.detail')}</a>;
+    return (
+      <a 
+        href={value} 
+        onClick={(e) => {
+          e.preventDefault();
+          console.log('Generic link clicked:', value);
+          // 直接调用系统浏览器
+          try {
+            const newWindow = window.open(value, '_blank');
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+              console.warn('window.open failed, trying alternative method');
+            }
+          } catch (error) {
+            console.error('Failed to open link:', error);
+          }
+        }}
+        style={{ color: '#1890ff', textDecoration: 'underline', cursor: 'pointer' }}
+      >
+        {t('agentnotify.view_details')}
+      </a>
+    );
   }
   return String(value ?? '');
 };
@@ -143,15 +251,15 @@ const getAllKeys = (items: any[]) => {
   return [...main.filter(k => keys.has(k)), ...rest];
 };
 
-const ProductTable: React.FC<{ items: any[] }> = ({ items }) => {
+const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => void }> = ({ items, onImageClick }) => {
   const { t } = useTranslation();
   const keys = getAllKeys(items);
   const columns = keys.map(key => ({
     title: getI18nLabel(t, key),
     dataIndex: key,
     key,
-    render: (value: any) => renderCell(value, key, t),
-    width: key === 'main_image' ? 60 : undefined,
+    render: (value: any) => renderCell(value, key, t, onImageClick),
+    width: key === 'main_image' ? 80 : undefined,
     align: key === 'main_image' ? ('center' as const) : undefined,
   }));
 
@@ -169,7 +277,7 @@ const ProductTable: React.FC<{ items: any[] }> = ({ items }) => {
 };
 
 // 新增 ProductList 组件
-const ProductList: React.FC<{ items: any[] }> = ({ items }) => {
+const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void }> = ({ items, onImageClick }) => {
   const { t } = useTranslation();
   if (!Array.isArray(items) || items.length === 0) return null;
   const keys = getAllKeys(items);
@@ -191,7 +299,28 @@ const ProductList: React.FC<{ items: any[] }> = ({ items }) => {
             {/* 左侧主图 */}
             {item.main_image && (
               <div style={{ minWidth: 90, maxWidth: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <img src={item.main_image} alt={item.product_name || 'product'} style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: 8, background: '#fff' }} />
+                <div 
+                  style={{ 
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  onClick={() => onImageClick?.(item.main_image)}
+                >
+                  <img 
+                    src={item.main_image} 
+                    alt={item.product_name || 'product'} 
+                    style={{ 
+                      width: 80, 
+                      height: 80, 
+                      objectFit: 'contain', 
+                      borderRadius: 8, 
+                      background: '#fff',
+                      border: '1px solid #d9d9d9'
+                    }} 
+                  />
+                </div>
               </div>
             )}
             {/* 右侧内容 */}
@@ -210,7 +339,7 @@ const ProductList: React.FC<{ items: any[] }> = ({ items }) => {
                     item[key] !== undefined && item[key] !== null && item[key] !== '' && (
                       <div key={key} style={{ minWidth: 100 }}>
                         <span style={{ color: '#a0aec0', fontWeight: 500 }}>{getI18nLabel(t, key)}: </span>
-                        {renderCell(item[key], key, t)}
+                        {renderCell(item[key], key, t, onImageClick)}
                       </div>
                     )
                   ))}
@@ -221,7 +350,25 @@ const ProductList: React.FC<{ items: any[] }> = ({ items }) => {
                 {item.highlights && renderHighlights(item.highlights, t)}
                 {item.app_specific && renderAppSpecific(item.app_specific, t)}
                 {item.url && typeof item.url === 'string' && item.url.startsWith('http') && (
-                  <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff', fontWeight: 500, marginLeft: 8 }}>{t('agentnotify.detail')}</a>
+                  <a 
+                    href={item.url} 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      console.log('List view link clicked:', item.url);
+                      // 直接调用系统浏览器
+                      try {
+                        const newWindow = window.open(item.url, '_blank');
+                        if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                          console.warn('window.open failed, trying alternative method');
+                        }
+                      } catch (error) {
+                        console.error('Failed to open link:', error);
+                      }
+                    }}
+                    style={{ color: '#1890ff', fontWeight: 500, marginLeft: 8, textDecoration: 'underline', cursor: 'pointer' }}
+                  >
+                    {t('agentnotify.view_details')}
+                  </a>
                 )}
               </div>
             </div>
@@ -235,6 +382,12 @@ const ProductList: React.FC<{ items: any[] }> = ({ items }) => {
 const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
   const { t } = useTranslation();
   const [viewMode, setViewMode] = React.useState<'table' | 'list'>('table');
+  const [imageModalVisible, setImageModalVisible] = React.useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = React.useState('');
+  
+  // 使用链接点击处理器
+  useLinkClickHandler();
+  
   if (!content) return null;
   // 只处理业务内容部分，不解构 isRead、time、uid
   const {
@@ -253,69 +406,103 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
   const safeBehindTheScene = typeof behind_the_scene === 'string' ? behind_the_scene : '';
   const safeShowFeedback = !!show_feedback_options;
 
+  const handleImageClick = (imageUrl: string) => {
+    setSelectedImageUrl(imageUrl);
+    setImageModalVisible(true);
+  };
+
   return (
-    <NotificationCard>
-      {/* 标题和切换视图按钮 */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-        <Title level={4} style={{ color: '#fff', margin: 0 }}>{safeTitle}</Title>
-        {Array.isArray(Items) && Items.length > 0 && (
-          <Button
-            icon={viewMode === 'table' ? <TableOutlined /> : <UnorderedListOutlined />}
-            onClick={() => setViewMode(viewMode === 'table' ? 'list' : 'table')}
-            size="small"
-            title={viewMode === 'table' ? t('agentnotify.table_view') : t('agentnotify.list_view')}
-          />
-        )}
-      </div>
-      {/* 统计信息独立一行 */}
-      {safeStatistics && (
-        <div style={{ marginBottom: 8 }}>
-          <Space wrap>
-            {Object.entries(safeStatistics).map(([k, v]) => (
-              <Tag key={k} color="blue" style={{ fontSize: 12 }}>{getI18nLabel(t, k)}: {String(v)}</Tag>
-            ))}
-          </Space>
+    <>
+      <NotificationCard>
+        {/* 标题和切换视图按钮 */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+          <Title level={4} style={{ color: '#fff', margin: 0 }}>{safeTitle}</Title>
+          {Array.isArray(Items) && Items.length > 0 && (
+            <Button
+              icon={viewMode === 'table' ? <TableOutlined /> : <UnorderedListOutlined />}
+              onClick={() => setViewMode(viewMode === 'table' ? 'list' : 'table')}
+              size="small"
+              title={viewMode === 'table' ? t('agentnotify.table_view') : t('agentnotify.list_view')}
+            />
+          )}
         </div>
-      )}
-      <Divider style={{ margin: '12px 0', borderColor: 'rgba(255,255,255,0.13)' }} />
-
-      {/* 产品表格/列表分区 */}
-      {Array.isArray(Items) && Items.length > 0 && (
-        <>
-          <SectionTitle>{t('agentnotify.result')}</SectionTitle>
-          {viewMode === 'table' ? <ProductTable items={Items} /> : <ProductList items={Items} />}
-        </>
-      )}
-
-      {/* Summary 区域 */}
-      {summary && (
-        <div style={{ margin: '24px 0 0 0' }}>
-          <SummaryTable summary={summary} />
-        </div>
-      )}
-
-      {/* Comments 区域 */}
-      {safeComments.length > 0 && (
-        <div style={{ margin: '24px 0 0 0' }}>
-          <Card size="small" style={{ borderRadius: 12, background: 'rgba(255,255,255,0.08)' }}>
-            <SectionTitle>{t('agentnotify.comments')}</SectionTitle>
-            <ul style={{ margin: 0, padding: '8px 0 0 18px', color: '#fff' }}>
-              {safeComments.map((c: any, idx: number) => (
-                <li key={idx}>{typeof c === 'string' ? c : JSON.stringify(c)}</li>
+        {/* 统计信息独立一行 */}
+        {safeStatistics && (
+          <div style={{ marginBottom: 8 }}>
+            <Space wrap>
+              {Object.entries(safeStatistics).map(([k, v]) => (
+                <Tag key={k} color="blue" style={{ fontSize: 12 }}>{getI18nLabel(t, k)}: {String(v)}</Tag>
               ))}
-            </ul>
-          </Card>
-        </div>
-      )}
+            </Space>
+          </div>
+        )}
+        <Divider style={{ margin: '12px 0', borderColor: 'rgba(255,255,255,0.13)' }} />
 
-      {/* Behind the Scene/Feedback */}
-      {(safeBehindTheScene || safeShowFeedback) && (
-        <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.10)', paddingTop: 16 }}>
-          {safeBehindTheScene && <a href={safeBehindTheScene} target="_blank" rel="noopener noreferrer" style={{ color: '#aaa', fontSize: 13 }}>{t('agentnotify.behind_the_scene')}</a>}
-          {safeShowFeedback && <Tag color="red">{t('agentnotify.feedback')}</Tag>}
+        {/* 产品表格/列表分区 */}
+        {Array.isArray(Items) && Items.length > 0 && (
+          <>
+            <SectionTitle>{t('agentnotify.result')}</SectionTitle>
+            {viewMode === 'table' ? 
+              <ProductTable items={Items} onImageClick={handleImageClick} /> : 
+              <ProductList items={Items} onImageClick={handleImageClick} />
+            }
+          </>
+        )}
+
+        {/* Summary 区域 */}
+        {summary && (
+          <div style={{ margin: '24px 0 0 0' }}>
+            <SummaryTable summary={summary} />
+          </div>
+        )}
+
+        {/* Comments 区域 */}
+        {safeComments.length > 0 && (
+          <div style={{ margin: '24px 0 0 0' }}>
+            <Card size="small" style={{ borderRadius: 12, background: 'rgba(255,255,255,0.08)' }}>
+              <SectionTitle>{t('agentnotify.comments')}</SectionTitle>
+              <ul style={{ margin: 0, padding: '8px 0 0 18px', color: '#fff' }}>
+                {safeComments.map((c: any, idx: number) => (
+                  <li key={idx}>{typeof c === 'string' ? c : JSON.stringify(c)}</li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+        )}
+
+        {/* Behind the Scene/Feedback */}
+        {(safeBehindTheScene || safeShowFeedback) && (
+          <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.10)', paddingTop: 16 }}>
+            {safeBehindTheScene && <a href={safeBehindTheScene} onClick={(e) => { e.preventDefault(); console.log('Behind the scene link clicked:', safeBehindTheScene); try { window.open(safeBehindTheScene, '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#aaa', fontSize: 13, cursor: 'pointer' }}>{t('agentnotify.behind_the_scene')}</a>}
+            {safeShowFeedback && <Tag color="red">{t('agentnotify.feedback')}</Tag>}
+            {/* 测试链接 */}
+            <a href="https://www.google.com" onClick={(e) => { e.preventDefault(); console.log('Test link clicked: https://www.google.com'); try { window.open('https://www.google.com', '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#1890ff', fontSize: 13, cursor: 'pointer' }}>Test Link (Google)</a>
+          </div>
+        )}
+      </NotificationCard>
+
+      {/* Image Modal */}
+      <Modal
+        title={t('agentnotify.product_image')}
+        open={imageModalVisible}
+        onCancel={() => setImageModalVisible(false)}
+        footer={null}
+        width={800}
+        centered
+      >
+        <div style={{ textAlign: 'center' }}>
+          <img 
+            src={selectedImageUrl} 
+            alt="product" 
+            style={{ 
+              maxWidth: '100%', 
+              maxHeight: '600px', 
+              objectFit: 'contain' 
+            }} 
+          />
         </div>
-      )}
-    </NotificationCard>
+      </Modal>
+    </>
   );
 };
 
