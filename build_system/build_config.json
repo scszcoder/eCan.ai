@@ -20,10 +20,8 @@
   "pyinstaller": {
     "excludes": [
       "jupyter", "pytest", "tornado", "bokeh", "plotly", "test",
-      "setuptools", "distutils", "pip", "wheel", "setuptools_scm",
-      "IPython", "ipykernel", "notebook", "jupyter_client", "jupyter_core",
-      "matplotlib", "seaborn", "dash", "streamlit",
-      "django", "gunicorn", "turtle", "turtledemo"
+      "pip", "wheel", "IPython", "ipykernel", "notebook", "jupyter_client", "jupyter_core",
+      "matplotlib", "seaborn", "dash", "django", "turtledemo"
     ]
   },
   "build_modes": {
