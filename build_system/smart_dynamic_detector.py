@@ -674,7 +674,7 @@ class SmartDynamicDetector:
             # setuptools 和 jaraco 相关模块
             'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
             'jaraco.functools', 'jaraco.context', 'jaraco.collections',
-            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging',
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', "jaraco.path",
         ]
         
         # 从原始列表中筛选出存在的核心模块
@@ -707,6 +707,6 @@ class SmartDynamicDetector:
             # 添加setuptools和jaraco相关模块
             'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
             'jaraco.functools', 'jaraco.context', 'jaraco.collections',
-            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging'
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', "jaraco.path",
         ]
         return any(module.startswith(lib) for lib in critical_libs) 
