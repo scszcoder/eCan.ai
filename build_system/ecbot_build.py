@@ -996,23 +996,11 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                     timeout_seconds = int(1800 * base_timeout_multiplier)  # 并行: 21分钟, 串行: 30分钟
                 elif compression == "lzma" and solid_compression:
                     timeout_seconds = int(1200 * base_timeout_multiplier)  # 并行: 14分钟, 串行: 20分钟
-                elif compression == "lzma" and internal_compress_level in ["max", "ultra"]:
-                    timeout_seconds = int(900 * base_timeout_multiplier)   # 并行: 10.5分钟, 串行: 15分钟
-                elif compression == "lzma":
-                    timeout_seconds = int(600 * base_timeout_multiplier)   # 并行: 7分钟, 串行: 10分钟
                 else:
-                    timeout_seconds = int(300 * base_timeout_multiplier)   # 并行: 3.5分钟, 串行: 5分钟
+                    timeout_seconds = int(1000 * base_timeout_multiplier)   # 并行: 7分钟, 串行: 10分钟
             else:
                 # 开发模式：速度优先
-                base_timeout_multiplier = 0.6 if use_parallel else 1.0
-                if compression == "lzma" and solid_compression and internal_compress_level == "max":
-                    timeout_seconds = int(900 * base_timeout_multiplier)   # 并行: 9分钟, 串行: 15分钟
-                elif compression == "lzma" and internal_compress_level in ["max", "ultra"]:
-                    timeout_seconds = int(600 * base_timeout_multiplier)   # 并行: 6分钟, 串行: 10分钟
-                elif compression == "lzma":
-                    timeout_seconds = int(450 * base_timeout_multiplier)   # 并行: 4.5分钟, 串行: 7.5分钟
-                else:
-                    timeout_seconds = int(300 * base_timeout_multiplier)   # 并行: 3分钟, 串行: 5分钟
+                timeout_seconds = int(10000)
 
             print(f"[INSTALLER] Running Inno Setup: {iscc_path}")
             print(f"[INSTALLER] Script file: {iss_file}")

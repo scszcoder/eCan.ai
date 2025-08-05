@@ -8,13 +8,29 @@
   },
   "data_files": {
     "directories": [
-      "resource", "config", "bot", "gui", "common", "utils",
-      "agent", "tests", "knowledge", "settings", "skills",
-      "telemetry", "gui_v2/dist", "resource"
+      "resource",
+      "config",
+      "bot",
+      "gui",
+      "common",
+      "utils",
+      "agent",
+      "tests",
+      "knowledge",
+      "settings",
+      "skills",
+      "telemetry",
+      "gui_v2/dist",
+      "resource"
     ],
     "files": [
-      "app_context.py", "ECBot.ico", "ECBot.icns",
-      "ecbot.qm", "ecbot_zh.qm", "role.json", ".env"
+      "app_context.py",
+      "ECBot.ico",
+      "ECBot.icns",
+      "ecbot.qm",
+      "ecbot_zh.qm",
+      "role.json",
+      ".env"
     ]
   },
   "pyinstaller": {
@@ -43,7 +59,7 @@
       "langchain",
       "langchain_core",
       "sentence_transformers",
-      "browser_use", 
+      "browser_use",
       "fake_useragent"
     ],
     "collect_binaries": [
@@ -61,9 +77,21 @@
       "pydantic"
     ],
     "excludes": [
-      "jupyter", "pytest", "test", "pip", "wheel", "jupyter_client", "jupyter_core", "django",
-      "pysqlite2", "MySQLdb", "psycopg2", "tkinter", "matplotlib", "numpy.tests",
-      "pandas.tests", "sklearn.tests", "PIL.tests", "email.test"
+      "jupyter",
+      "pytest",
+      "test",
+      "pip",
+      "wheel",
+      "jupyter_client",
+      "jupyter_core",
+      "django",
+      "pysqlite2",
+      "MySQLdb",
+      "numpy.tests",
+      "pandas.tests",
+      "sklearn.tests",
+      "PIL.tests",
+      "email.test"
     ]
   },
   "build_modes": {
@@ -78,7 +106,39 @@
       "strip_debug": true,
       "collect_data": "all",
       "collect_binaries": "all",
-      "collect_submodules": "all"
+      "collect_submodules": "all",
+      "excludes": [
+        "jupyter",
+        "pytest",
+        "test",
+        "pip",
+        "wheel",
+        "jupyter_client",
+        "jupyter_core",
+        "django",
+        "pysqlite2",
+        "MySQLdb",
+        "psycopg2",
+        "tkinter",
+        "matplotlib",
+        "numpy.tests",
+        "pandas.tests",
+        "sklearn.tests",
+        "PIL.tests",
+        "email.test",
+        "matplotlib.tests",
+        "numpy.tests",
+        "pandas.tests",
+        "sklearn.tests",
+        "PIL.tests",
+        "test",
+        "tests",
+        "unittest",
+        "doctest",
+        "pdb",
+        "profile",
+        "pstats"
+      ]
     },
     "fast": {
       "debug": true,
@@ -151,4 +211,4 @@
       "preinstall_script": false
     }
   }
-}
+  }
