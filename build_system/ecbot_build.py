@@ -437,23 +437,79 @@ class PyInstallerBuilder:
         console_mode = mode_config.get("console", mode == "dev")
         debug_mode = mode_config.get("debug", mode == "dev")
         use_parallel = mode_config.get("parallel", pyinstaller_config.get("parallel", False))
+
+        # 获取 collect 配置
+        def get_collect_packages(collect_type):
+            mode_packages = mode_config.get(collect_type, [])
+            global_packages = pyinstaller_config.get(collect_type, [])
+
+            if mode_packages == "all":
+                return global_packages
+            elif isinstance(mode_packages, list) and mode_packages:
+                return mode_packages
+            elif isinstance(global_packages, list):
+                return global_packages
+            else:
+                return []
+
+        collect_data_packages = get_collect_packages("collect_data")
+        collect_binaries_packages = get_collect_packages("collect_binaries")
+        collect_submodules_packages = get_collect_packages("collect_submodules")
         
 
         
+        # 生成 collect 导入语句和数据收集代码
+        collect_imports = []
+        collect_code = []
+
+        if collect_data_packages:
+            collect_imports.append("from PyInstaller.utils.hooks import collect_data_files")
+            data_collections = [f"collect_data_files('{pkg}')" for pkg in collect_data_packages]
+            collect_code.append(f"collected_datas = [{', '.join(data_collections)}]")
+            collect_code.append("collected_datas = [item for sublist in collected_datas for item in sublist]")
+
+        if collect_binaries_packages:
+            collect_imports.append("from PyInstaller.utils.hooks import collect_dynamic_libs")
+            binary_collections = [f"collect_dynamic_libs('{pkg}')" for pkg in collect_binaries_packages]
+            collect_code.append(f"collected_binaries = [{', '.join(binary_collections)}]")
+            collect_code.append("collected_binaries = [item for sublist in collected_binaries for item in sublist]")
+
+        if collect_submodules_packages:
+            collect_imports.append("from PyInstaller.utils.hooks import collect_submodules")
+            submodule_collections = [f"collect_submodules('{pkg}')" for pkg in collect_submodules_packages]
+            collect_code.append(f"collected_submodules = [{', '.join(submodule_collections)}]")
+            collect_code.append("collected_submodules = [item for sublist in collected_submodules for item in sublist]")
+
+        collect_imports_str = "\n".join(collect_imports)
+        collect_code_str = "\n".join(collect_code)
+
+        # 构建 Analysis 参数
+        binaries_param = "collected_binaries" if collect_binaries_packages else "[]"
+        datas_param = f"collected_datas + {data_files_str}" if collect_data_packages else data_files_str
+        hiddenimports_param = f"collected_submodules + {hidden_imports}" if collect_submodules_packages else hidden_imports
+
         # 简化的spec内容 - 包含所有依赖，只排除特定包
         parallel_comment = "# Parallel compilation enabled via environment variables" if use_parallel else ""
+        collect_comment = f"# Auto-collecting from {len(collect_data_packages + collect_binaries_packages + collect_submodules_packages)} packages" if any([collect_data_packages, collect_binaries_packages, collect_submodules_packages]) else ""
+
         spec_content = f"""
 # -*- mode: python ; coding: utf-8 -*-
 {parallel_comment}
+{collect_comment}
+
+{collect_imports_str}
 
 block_cipher = None
+
+# Collect additional data, binaries, and submodules
+{collect_code_str}
 
 a = Analysis(
     [r'{main_script_path}'],
     pathex=[r'{self.project_root}'],
-    binaries=[],
-    datas={data_files_str},
-    hiddenimports={hidden_imports},
+    binaries={binaries_param},
+    datas={datas_param},
+    hiddenimports={hiddenimports_param},
     hookspath=[],
     hooksconfig={{}},
     runtime_hooks=[],
@@ -631,16 +687,16 @@ app = BUNDLE(
 
             print(f"[OPTIMIZATION] Precompiling {len(filtered_files)} Python files...")
 
-            def compile_file(file_path):
-                try:
-                    py_compile.compile(file_path, doraise=True, optimize=1)
-                    return True
-                except:
-                    return False
-
-            # 使用多进程并行编译
+            # 使用多线程而不是多进程（避免pickle问题）
             max_workers = min(multiprocessing.cpu_count(), 8)
-            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                def compile_file(file_path):
+                    try:
+                        py_compile.compile(file_path, doraise=True, optimize=1)
+                        return True
+                    except:
+                        return False
+
                 results = list(executor.map(compile_file, filtered_files))
 
             success_count = sum(results)
@@ -739,37 +795,8 @@ app = BUNDLE(
             if strip_debug:
                 print("[PYINSTALLER] Debug symbols will be stripped (configured in spec file)")
 
-            # 添加 collect 参数（优先使用模式配置，然后是全局配置）
-            def get_collect_packages(collect_type):
-                mode_packages = mode_config.get(collect_type, [])
-                global_packages = pyinstaller_config.get(collect_type, [])
-
-                if mode_packages == "all":
-                    return global_packages
-                elif isinstance(mode_packages, list) and mode_packages:
-                    return mode_packages
-                elif isinstance(global_packages, list):
-                    return global_packages
-                else:
-                    return []
-
-            collect_data_packages = get_collect_packages("collect_data")
-            if collect_data_packages:
-                for package in collect_data_packages:
-                    cmd.extend(["--collect-data", package])
-                print(f"[PYINSTALLER] Auto-collecting data from {len(collect_data_packages)} packages")
-
-            collect_binaries_packages = get_collect_packages("collect_binaries")
-            if collect_binaries_packages:
-                for package in collect_binaries_packages:
-                    cmd.extend(["--collect-binaries", package])
-                print(f"[PYINSTALLER] Auto-collecting binaries from {len(collect_binaries_packages)} packages")
-
-            collect_submodules_packages = get_collect_packages("collect_submodules")
-            if collect_submodules_packages:
-                for package in collect_submodules_packages:
-                    cmd.extend(["--collect-submodules", package])
-                print(f"[PYINSTALLER] Auto-collecting submodules from {len(collect_submodules_packages)} packages")
+            # 注意：当使用spec文件时，collect参数必须在spec文件中定义，不能在命令行中添加
+            # collect配置将在spec文件生成时处理
 
             cmd.append(str(spec_file))
 
