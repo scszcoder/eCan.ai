@@ -936,7 +936,7 @@ exit 0
                 str(component_pkg)
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             
             if result.returncode != 0:
                 print(f"[ERROR] pkgbuild failed:")
@@ -947,6 +947,9 @@ exit 0
             print(f"[MACOS] Component package created: {component_pkg}")
             return component_pkg
             
+        except subprocess.TimeoutExpired:
+            print("[ERROR] Component package creation timed out after 600 seconds")
+            return None
         except Exception as e:
             print(f"[ERROR] Failed to create component package: {e}")
             return None
@@ -994,7 +997,7 @@ exit 0
                 str(final_pkg)
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             
             if result.returncode != 0:
                 print(f"[ERROR] productbuild failed:")
@@ -1011,6 +1014,9 @@ exit 0
                 print("[ERROR] Final package file not found")
                 return None
             
+        except subprocess.TimeoutExpired:
+            print("[ERROR] Final package creation timed out after 600 seconds")
+            return None
         except Exception as e:
             print(f"[ERROR] Failed to create final package: {e}")
             return None

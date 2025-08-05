@@ -42,7 +42,7 @@
     }
   },
   "installer": {
-    "enabled": false,
+    "enabled": true,
     "app_name": "ECBot",
     "app_version": "1.0.0",
     "app_publisher": "ECBot Team",
