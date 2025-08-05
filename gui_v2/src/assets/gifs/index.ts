@@ -11,7 +11,8 @@ const agentGifs = [
 
 export default agentGifs;
 
-function logVideoSupport() {
+// 导出视频支持检测函数，供需要时调用
+export function logVideoSupport() {
   const video = document.createElement('video');
   const formats = [
     { type: 'video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"', label: 'MP4 (H.264/AAC)' },
@@ -24,5 +25,3 @@ function logVideoSupport() {
     console.log(`${f.label}: ${canPlay}`);
   });
 }
-
-logVideoSupport(); 

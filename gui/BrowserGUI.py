@@ -21,5 +21,8 @@ class BrowserWindow(QMainWindow):
         # Set the central widget of the browser window
         self.setCentralWidget(central_widget)
 
+        # 默认隐藏窗口，避免闪现
+        self.setVisible(False)
+
     def loadURL(self, url):
         self.browser.setUrl(url)

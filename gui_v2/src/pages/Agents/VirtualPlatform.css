@@ -5,6 +5,9 @@
   font-family: var(--ant-font-family, inherit);
   width: 100%;
   height: 100%;
+  /* 添加平滑过渡效果 */
+  opacity: 1;
+  transition: opacity 0.3s ease-in-out;
 }
 .virtual-bg-svg {
   position: absolute;
