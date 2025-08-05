@@ -10,18 +10,11 @@
     "directories": [
       "resource", "config", "bot", "gui", "common", "utils",
       "agent", "tests", "knowledge", "settings", "skills",
-      "telemetry", "gui_v2/dist", "resource"
+      "telemetry", "gui_v2/dist", "resource", "browser_use"
     ],
     "files": [
       "app_context.py", "ECBot.ico", "ECBot.icns",
       "ecbot.qm", "ecbot_zh.qm", "role.json", "uli.json", ".env"
-    ],
-    "package_data": [
-      {
-        "package": "browser_use",
-        "source_pattern": "agent/*.md",
-        "destination": "browser_use/agent"
-      }
     ]
   },
   "pyinstaller": {
