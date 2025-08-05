@@ -10,7 +10,7 @@
     "directories": [
       "resource", "config", "bot", "gui", "common", "utils",
       "agent", "tests", "knowledge", "settings", "skills",
-      "telemetry", "gui_v2/dist", "resource", "browser_use"
+      "telemetry", "gui_v2/dist", "resource", "browser_use", "fake_useragent"
     ],
     "files": [
       "app_context.py", "ECBot.ico", "ECBot.icns",
