@@ -831,16 +831,22 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                 print("[ERROR] Please build the app first using PyInstaller")
                 return False
             
-            
             # 创建组件包
             component_pkg = self._create_component_package(app_path)
             if not component_pkg:
                 return False
             
-            # 创建最终安装包
-            final_pkg = self._create_final_package(component_pkg)
-            if not final_pkg:
-                return False
+            # 直接使用组件包作为最终安装包（简化流程）
+            final_pkg = self.dist_dir / "ECBot-1.0.0.pkg"
+            import shutil
+            shutil.copy2(component_pkg, final_pkg)
+            
+            # 确保文件权限正确
+            import os
+            os.chmod(final_pkg, 0o644)
+            
+            size_mb = final_pkg.stat().st_size / (1024 * 1024)
+            print(f"[MACOS] Final package created: {final_pkg} ({size_mb:.1f} MB)")
             
             print("[SUCCESS] macOS pkg installer created")
             return True
@@ -924,7 +930,7 @@ exit 0
             
             postinstall_script.chmod(0o755)
             
-            # 创建组件包
+            # 创建组件包 - 使用更简单的参数避免超时
             component_pkg = build_dir / "ECBot-component.pkg"
             cmd = [
                 "pkgbuild",
@@ -936,7 +942,8 @@ exit 0
                 str(component_pkg)
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            print(f"[MACOS] Running pkgbuild: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # 增加超时时间到15分钟
             
             if result.returncode != 0:
                 print(f"[ERROR] pkgbuild failed:")
@@ -948,7 +955,7 @@ exit 0
             return component_pkg
             
         except subprocess.TimeoutExpired:
-            print("[ERROR] Component package creation timed out after 600 seconds")
+            print("[ERROR] Component package creation timed out after 900 seconds")
             return None
         except Exception as e:
             print(f"[ERROR] Failed to create component package: {e}")
@@ -997,7 +1004,7 @@ exit 0
                 str(final_pkg)
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
             
             if result.returncode != 0:
                 print(f"[ERROR] productbuild failed:")
