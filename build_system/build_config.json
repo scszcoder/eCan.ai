@@ -99,51 +99,19 @@
       "debug": true,
       "console": true,
       "clean": false,
-      "optimize": false,
+      "optimize": true,
       "onefile": false,
       "use_cache": false,
       "parallel": true,
       "strip_debug": true,
       "collect_data": "all",
       "collect_binaries": "all",
-      "collect_submodules": "all",
-      "excludes": [
-        "jupyter",
-        "pytest",
-        "test",
-        "pip",
-        "wheel",
-        "jupyter_client",
-        "jupyter_core",
-        "django",
-        "pysqlite2",
-        "MySQLdb",
-        "psycopg2",
-        "tkinter",
-        "matplotlib",
-        "numpy.tests",
-        "pandas.tests",
-        "sklearn.tests",
-        "PIL.tests",
-        "email.test",
-        "matplotlib.tests",
-        "numpy.tests",
-        "pandas.tests",
-        "sklearn.tests",
-        "PIL.tests",
-        "test",
-        "tests",
-        "unittest",
-        "doctest",
-        "pdb",
-        "profile",
-        "pstats"
-      ]
+      "collect_submodules": "all"
     },
     "fast": {
       "debug": true,
       "console": true,
-      "clean": false,
+      "clean": true,
       "optimize": false,
       "onefile": false,
       "use_cache": true,
@@ -182,22 +150,17 @@
       "dev": {
         "compression": "zip",
         "solid_compression": false,
-        "internal_compress_level": "fast"
+        "internal_compress_level": "normal"
       },
       "prod": {
         "compression": "lzma",
         "solid_compression": true,
-        "internal_compress_level": "normal"
+        "internal_compress_level": "max"
       },
       "fast": {
         "compression": "zip",
         "solid_compression": false,
         "internal_compress_level": "fast"
-      },
-      "release": {
-        "compression": "lzma",
-        "solid_compression": true,
-        "internal_compress_level": "max"
       }
     },
     "macos": {
