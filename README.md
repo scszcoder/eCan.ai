@@ -667,3 +667,38 @@ print(template)
 2. 确保升级脚本的正确性和可回滚性
 3. 在测试环境中验证升级脚本
 4. 记录所有数据库结构变更
+
+## 🔨 Building ECBot
+
+ECBot supports multiple build modes for different use cases:
+
+### Quick Build (Recommended for Development)
+```bash
+python build.py fast                    # Fast build with caching and parallel compilation
+python build.py fast --force           # Force rebuild (ignore cache)
+python build.py fast --skip-frontend   # Skip frontend build
+python build.py fast --skip-installer  # Generate executable only
+```
+
+### Other Build Modes
+```bash
+python build.py dev                     # Development build (with console)
+python build.py prod                    # Production build (fully optimized)
+```
+
+### Build Features
+- **Parallel Compilation**: Uses multiple CPU cores for faster builds (all modes)
+- **Parallel Installer Creation**: Multi-threaded compression for Windows installers
+- **Smart Caching**: Incremental builds that only recompile changed files (fast mode only)
+- **Auto Data Collection**: Automatically collects data files, binaries, and submodules from key packages
+- **Cross-platform**: Works on Windows, macOS, and Linux
+- **Optimized Packaging**: Excludes unnecessary dependencies to reduce size
+
+### Build Mode Differences
+- **fast**: Enables caching and parallel compilation for fastest builds (~2-5 min)
+- **dev**: Parallel compilation with console output for debugging (~5-10 min)
+- **prod**: Parallel compilation with full optimization and clean builds (~8-15 min)
+
+### Build Output
+- Executable files are generated in the `dist/` directory
+- Installation packages (if enabled) are created as `ECBot-Setup.exe` (Windows) or equivalent for other platforms

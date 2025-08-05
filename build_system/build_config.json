@@ -14,13 +14,59 @@
     ],
     "files": [
       "app_context.py", "ECBot.ico", "ECBot.icns",
-      "ecbot.qm", "ecbot_zh.qm", "role.json", "uli.json", ".env"
+      "ecbot.qm", "ecbot_zh.qm", "role.json", ".env"
     ]
   },
   "pyinstaller": {
+    "parallel": true,
+    "workers": 0,
+    "cache_dir": "build/pyinstaller_cache",
+    "collect_data": [
+      "transformers",
+      "torch",
+      "sklearn",
+      "pandas",
+      "numpy",
+      "PIL",
+      "cv2",
+      "selenium",
+      "pydantic",
+      "fastapi",
+      "uvicorn",
+      "jinja2",
+      "certifi",
+      "charset_normalizer",
+      "urllib3",
+      "requests",
+      "openai",
+      "anthropic",
+      "langchain",
+      "langchain_community",
+      "langchain_core",
+      "chromadb",
+      "sentence_transformers",
+      "browser_use", 
+      "fake_useragent"
+    ],
+    "collect_binaries": [
+      "torch",
+      "cv2",
+      "sklearn",
+      "scipy",
+      "numpy"
+    ],
+    "collect_submodules": [
+      "transformers",
+      "langchain",
+      "langchain_community",
+      "langchain_core",
+      "pydantic"
+    ],
     "excludes": [
       "jupyter", "pytest", "test", "pip", "wheel", "jupyter_client", "jupyter_core", "django",
-      "pysqlite2", "MySQLdb", "psycopg2"
+      "pysqlite2", "MySQLdb", "psycopg2", "tkinter", "matplotlib", "numpy.tests",
+      "pandas.tests", "sklearn.tests", "PIL.tests", "email.test",
+      "unittest", "cProfile", "turtledemo"
     ]
   },
   "build_modes": {
@@ -29,14 +75,36 @@
       "console": true,
       "clean": false,
       "optimize": false,
-      "onefile": false
+      "onefile": false,
+      "use_cache": false,
+      "parallel": true,
+      "strip_debug": false
+    },
+    "fast": {
+      "debug": false,
+      "console": false,
+      "clean": false,
+      "optimize": false,
+      "onefile": false,
+      "use_cache": true,
+      "parallel": true,
+      "strip_debug": true,
+      "collect_data": ["transformers", "torch", "sklearn", "certifi"],
+      "collect_binaries": ["torch", "cv2"],
+      "collect_submodules": ["transformers"]
     },
     "prod": {
       "debug": false,
       "console": false,
       "clean": true,
       "optimize": true,
-      "onefile": false
+      "onefile": false,
+      "use_cache": false,
+      "parallel": true,
+      "strip_debug": true,
+      "collect_data": "all",
+      "collect_binaries": "all",
+      "collect_submodules": "all"
     }
   },
   "installer": {
