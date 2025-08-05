@@ -90,7 +90,7 @@ import keyboard
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
 import cpuinfo
 import psutil
-from gui.BrowserGUI import BrowserWindow
+# from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 from langchain_openai import ChatOpenAI
 from agent.ec_skills.build_agent_skills import build_agent_skills
@@ -348,8 +348,9 @@ class MainWindow(QMainWindow):
         self.BotNewWin = None
         self.missionWin = None
         self.chatWin = None
-        self.newGui = BrowserWindow(self)
-        logger.info("newGui init done....")
+        # self.newGui = BrowserWindow(self)
+        # self.newGui.hide()  # 确保窗口在后台创建，不显示
+        # logger.info("newGui init done....")
         self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"})
         self.lightrag_server.start()
         logger.info("lightrag_server init done....")
@@ -386,8 +387,10 @@ class MainWindow(QMainWindow):
         self.logConsoleBox.setContentLayout(self.logConsoleLayout)
 
         self.SkillManagerWin = SkillManagerWindow(self)
+        self.SkillManagerWin.hide()  # 确保窗口在后台创建，不显示
 
         self.netLogWin = CommanderLogWin(self)
+        self.netLogWin.hide()  # 确保窗口在后台创建，不显示
         self.machine_name = myname
         self.commander_name = ""
         self.system = platform.system()
@@ -929,6 +932,7 @@ class MainWindow(QMainWindow):
         self.websocket = None
         self.setWindowTitle("My E-Commerce Agents ("+self.user+") - "+self.machine_role)
         self.vehicleMonitor = VehicleMonitorWin(self)
+        self.vehicleMonitor.hide()  # 确保窗口在后台创建，不显示
         self.showMsg("================= DONE with GUI Setup ==============================")
 
 
@@ -1229,6 +1233,9 @@ class MainWindow(QMainWindow):
         # asyncio.create_task(self.async_agents_init())
         # 异步初始化浏览器组件
         asyncio.create_task(self.async_init_browser_components())
+
+        # 确保 MainWindow 在初始化时不显示，避免闪现
+        self.setVisible(False)
 
     async def async_init_browser_components(self):
         """异步初始化浏览器组件"""

@@ -101,6 +101,9 @@ class VehicleMonitorWin(QMainWindow):
 
         self.addVehicles()
 
+        # 默认隐藏窗口，避免闪现
+        self.setVisible(False)
+
     def selectVehicle(self, item):
         """Switch view when a vehicle is selected."""
         vehicle_name = item.text()

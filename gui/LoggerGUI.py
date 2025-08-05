@@ -28,6 +28,9 @@ class CommanderLogWin(QMainWindow):
         self.mainWidget.setLayout(self.logconsoleLayout)
         self.setCentralWidget(self.mainWidget)
 
+        # 默认隐藏窗口，避免闪现
+        self.setVisible(False)
+
 
     def appendLogs(self, logs):
         # File actions
