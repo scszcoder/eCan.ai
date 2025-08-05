@@ -260,4 +260,5 @@ faiss-cpu>=1.11.0.post1
 browser-use==0.5.5
 playwright==1.54.0
 crawl4ai==0.7.1
+fake-useragent==2.2.0
 asteval==1.0.6

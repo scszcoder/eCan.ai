@@ -546,20 +546,18 @@ app = BUNDLE(
     def _format_data_files(self, data_files: Dict[str, Any]) -> str:
         """格式化数据文件"""
         files = []
-        
+
         # 添加目录
         for directory in data_files.get("directories", []):
             dir_path = self.project_root / directory
             if dir_path.exists():
                 files.append(f"(r'{dir_path}', '{directory}')")
-        
+
         # 添加文件
         for file_path in data_files.get("files", []):
             file_path_obj = self.project_root / file_path
             if file_path_obj.exists():
                 files.append(f"(r'{file_path_obj}', '.')")
-        
-        return f"[{', '.join(files)}]"
     
     def _run_pyinstaller(self, spec_file: Path) -> bool:
         """运行PyInstaller"""
@@ -754,9 +752,30 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                 print("[ERROR] Inno Setup compiler not found")
                 return False
             
+            # 根据压缩模式动态设置超时时间
+            installer_config = self.config.config.get("installer", {})
+            compression_modes = installer_config.get("compression_modes", {})
+            mode_config = compression_modes.get(self.mode, {})
+
+            compression = mode_config.get("compression", installer_config.get("compression", "lzma"))
+            solid_compression = mode_config.get("solid_compression", installer_config.get("solid_compression", False))
+            internal_compress_level = mode_config.get("internal_compress_level", "normal")
+
+            # 根据压缩设置计算超时时间
+            if compression == "lzma" and solid_compression and internal_compress_level == "max":
+                timeout_seconds = 1800  # 30分钟 - 最高压缩
+            elif compression == "lzma" and internal_compress_level in ["max", "ultra"]:
+                timeout_seconds = 1200  # 20分钟 - 高压缩
+            elif compression == "lzma":
+                timeout_seconds = 900   # 15分钟 - 中等压缩
+            else:
+                timeout_seconds = 600   # 10分钟 - 快速压缩
+
             print(f"[INSTALLER] Running Inno Setup: {iscc_path}")
             print(f"[INSTALLER] Script file: {iss_file}")
-            print(f"[INSTALLER] Build mode: {self.mode} (compression optimized)")
+            print(f"[INSTALLER] Build mode: {self.mode}")
+            print(f"[INSTALLER] Compression: {compression}, Solid: {solid_compression}, Level: {internal_compress_level}")
+            print(f"[INSTALLER] Timeout: {timeout_seconds//60} minutes")
 
             # Windows环境下的编码处理
             if self.env.is_windows:
@@ -776,10 +795,10 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                         env=env,
                         encoding='utf-8',
                         errors='replace',
-                        timeout=600  # 10分钟超时
+                        timeout=timeout_seconds
                     )
                 except subprocess.TimeoutExpired:
-                    print("[ERROR] Inno Setup compilation timed out (5 minutes)")
+                    print(f"[ERROR] Inno Setup compilation timed out ({timeout_seconds//60} minutes)")
                     return False
             else:
                 result = subprocess.run(
