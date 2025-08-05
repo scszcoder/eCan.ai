@@ -74,7 +74,7 @@ import openpyxl
 import tzlocal
 from datetime import timedelta
 import platform
-from pynput.mouse import Controller
+from pynput.mouse import Controller as MouseController
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
@@ -110,6 +110,7 @@ from crawl4ai import JsonCssExtractionStrategy
 from crawl4ai.script.c4a_compile import C4ACompiler
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.controller.service import Controller as BrowserUseController
 from langchain_openai import ChatOpenAI
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
@@ -1226,9 +1227,19 @@ class MainWindow(QMainWindow):
         # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
-        self.newWebCrawler()
-        self.setupBrowserSession()
-        self.setupBrowserUseController()
+        # 异步初始化浏览器组件
+        asyncio.create_task(self.async_init_browser_components())
+
+    async def async_init_browser_components(self):
+        """异步初始化浏览器组件"""
+        try:
+            await self.newWebCrawler()
+            self.setupBrowserSession()
+            self.setupBrowserUseController()
+            logger.info("Browser components initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize browser components: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
     async def initialize_mcp(self):
         local_server_port = 4668
@@ -1597,7 +1608,7 @@ class MainWindow(QMainWindow):
     def getWebCrawler(self):
         return self.async_crawler
 
-    def newWebCrawler(self):
+    async def newWebCrawler(self):
         try:
             self.crawler_browser_config = BrowserConfig(
                 headless=False,
@@ -1606,16 +1617,28 @@ class MainWindow(QMainWindow):
                 viewport_height=1080
             )
             self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
+            # 启动 crawler 以初始化内部组件
+            await self.async_crawler.start()
+            logger.info("Web crawler initialized and started successfully")
         except Exception as e:
-            print(f"Warning: Failed to initialize web crawler with BrowserConfig: {e}")
+            logger.error(f"Failed to initialize web crawler with BrowserConfig: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            self.async_crawler = None
  
     def setupBrowserSession(self):
-        browser = self.async_crawler.crawler_strategy.browser_manager.browser
-        self.browser_session = BrowserSession(browser=browser)
+        if self.async_crawler is None:
+            logger.error("async_crawler is None, cannot setup browser session")
+            return
+        try:
+            browser = self.async_crawler.crawler_strategy.browser_manager.browser
+            self.browser_session = BrowserSession(browser=browser)
+        except Exception as e:
+            logger.error(f"Failed to setup browser session: {e}")
+            self.browser_session = None
 
     def setupBrowserUseController(self):
         display_files_in_done_text = True
-        self.browser_use_controller = Controller(display_files_in_done_text=display_files_in_done_text)
+        self.browser_use_controller = BrowserUseController(display_files_in_done_text=display_files_in_done_text)
 
     def getBrowserSession(self):
         return self.browser_session
@@ -2255,7 +2278,7 @@ class MainWindow(QMainWindow):
         return self.display_resolution
 
     def test_scroll(self):
-        mouse = Controller()
+        mouse = MouseController()
         self.showMsg("testing scrolling....")
         url = 'https://www.amazon.com/s?k=yoga+mats&crid=2Y3M8P4537BWF&sprefix=%2Caps%2C331&ref=nb_sb_ss_recent_1_0_recent'
         webbrowser.open(url, new=0, autoraise=True)
@@ -8805,6 +8828,19 @@ class MainWindow(QMainWindow):
 
             if not task.done():
                 task.cancel()
+
+        # 清理 async_crawler
+        if self.async_crawler:
+            try:
+                # 创建一个新的事件循环来关闭 crawler
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.async_crawler.close())
+                loop.close()
+                logger.info("AsyncWebCrawler closed successfully")
+            except Exception as e:
+                logger.error(f"Failed to close AsyncWebCrawler: {e}")
+
         if self.loginout_gui:
             self.loginout_gui.show()
         event.accept()
