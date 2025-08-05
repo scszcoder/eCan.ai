@@ -983,21 +983,45 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
             solid_compression = mode_config.get("solid_compression", installer_config.get("solid_compression", False))
             internal_compress_level = mode_config.get("internal_compress_level", "normal")
 
-            # 根据压缩设置计算超时时间
-            if compression == "lzma" and solid_compression and internal_compress_level == "max":
-                timeout_seconds = 1800  # 30分钟 - 最高压缩
-            elif compression == "lzma" and internal_compress_level in ["max", "ultra"]:
-                timeout_seconds = 1200  # 20分钟 - 高压缩
-            elif compression == "lzma":
-                timeout_seconds = 900   # 15分钟 - 中等压缩
+            # 根据压缩设置和并行处理计算超时时间
+            build_modes = self.config.get_build_modes()
+            build_mode_config = build_modes.get(self.mode, {})
+            use_parallel = build_mode_config.get("parallel", False)
+
+            # 根据构建模式和并行处理调整超时时间
+            if self.mode == "prod":
+                # 生产模式：质量优先，给予充足时间
+                base_timeout_multiplier = 0.7 if use_parallel else 1.0
+                if compression == "lzma" and solid_compression and internal_compress_level == "max":
+                    timeout_seconds = int(1800 * base_timeout_multiplier)  # 并行: 21分钟, 串行: 30分钟
+                elif compression == "lzma" and solid_compression:
+                    timeout_seconds = int(1200 * base_timeout_multiplier)  # 并行: 14分钟, 串行: 20分钟
+                elif compression == "lzma" and internal_compress_level in ["max", "ultra"]:
+                    timeout_seconds = int(900 * base_timeout_multiplier)   # 并行: 10.5分钟, 串行: 15分钟
+                elif compression == "lzma":
+                    timeout_seconds = int(600 * base_timeout_multiplier)   # 并行: 7分钟, 串行: 10分钟
+                else:
+                    timeout_seconds = int(300 * base_timeout_multiplier)   # 并行: 3.5分钟, 串行: 5分钟
             else:
-                timeout_seconds = 600   # 10分钟 - 快速压缩
+                # 开发模式：速度优先
+                base_timeout_multiplier = 0.6 if use_parallel else 1.0
+                if compression == "lzma" and solid_compression and internal_compress_level == "max":
+                    timeout_seconds = int(900 * base_timeout_multiplier)   # 并行: 9分钟, 串行: 15分钟
+                elif compression == "lzma" and internal_compress_level in ["max", "ultra"]:
+                    timeout_seconds = int(600 * base_timeout_multiplier)   # 并行: 6分钟, 串行: 10分钟
+                elif compression == "lzma":
+                    timeout_seconds = int(450 * base_timeout_multiplier)   # 并行: 4.5分钟, 串行: 7.5分钟
+                else:
+                    timeout_seconds = int(300 * base_timeout_multiplier)   # 并行: 3分钟, 串行: 5分钟
 
             print(f"[INSTALLER] Running Inno Setup: {iscc_path}")
             print(f"[INSTALLER] Script file: {iss_file}")
             print(f"[INSTALLER] Build mode: {self.mode}")
             print(f"[INSTALLER] Compression: {compression}, Solid: {solid_compression}, Level: {internal_compress_level}")
-            print(f"[INSTALLER] Timeout: {timeout_seconds//60} minutes")
+            print(f"[INSTALLER] Parallel compression: {'enabled' if use_parallel else 'disabled'}")
+            print(f"[INSTALLER] Timeout: {timeout_seconds//60:.1f} minutes ({timeout_seconds} seconds)")
+            print(f"[INSTALLER] Starting compression... (this may take several minutes)")
+            print("=" * 60)
 
             # Windows环境下的编码处理
             if self.env.is_windows:
@@ -1041,7 +1065,14 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                         timeout=timeout_seconds
                     )
                 except subprocess.TimeoutExpired:
-                    print(f"[ERROR] Inno Setup compilation timed out ({timeout_seconds//60} minutes)")
+                    print(f"[ERROR] Inno Setup compilation timed out ({timeout_seconds//60:.1f} minutes)")
+                    print("[INFO] This usually happens with large files or high compression settings")
+                    print("[INFO] Suggestions to reduce build time:")
+                    print("  - Use 'fast' mode: python build.py fast")
+                    print("  - Use ZIP compression instead of LZMA")
+                    print("  - Disable solid compression")
+                    print("  - Reduce internal compression level")
+                    print(f"[INFO] Current settings: {compression} compression, solid={solid_compression}, level={internal_compress_level}")
                     return False
             else:
                 # 非Windows平台（通过Wine运行Inno Setup）
