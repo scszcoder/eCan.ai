@@ -418,7 +418,7 @@ a = Analysis(
     binaries=[],
     datas={data_files_str},
     hiddenimports={hidden_imports},
-    hookspath=[],
+    hookspath=[r'{self.project_root / "build_system" / "hooks"}'],
     hooksconfig={{}},
     runtime_hooks=[],
     excludes={pyinstaller_config.get("excludes", [])},
@@ -546,19 +546,45 @@ app = BUNDLE(
     def _format_data_files(self, data_files: Dict[str, Any]) -> str:
         """格式化数据文件"""
         files = []
-        
+
         # 添加目录
         for directory in data_files.get("directories", []):
             dir_path = self.project_root / directory
             if dir_path.exists():
                 files.append(f"(r'{dir_path}', '{directory}')")
-        
+
         # 添加文件
         for file_path in data_files.get("files", []):
             file_path_obj = self.project_root / file_path
             if file_path_obj.exists():
                 files.append(f"(r'{file_path_obj}', '.')")
-        
+
+        # 处理包数据文件
+        for package_data in data_files.get("package_data", []):
+            package_name = package_data.get("package")
+            source_pattern = package_data.get("source_pattern")
+            destination = package_data.get("destination")
+
+            if package_name and source_pattern and destination:
+                try:
+                    import importlib.util
+                    import glob
+
+                    # 找到包的位置
+                    spec = importlib.util.find_spec(package_name)
+                    if spec and spec.origin:
+                        package_path = Path(spec.origin).parent
+                        pattern_path = package_path / source_pattern
+
+                        # 使用glob查找匹配的文件
+                        for file_path in glob.glob(str(pattern_path)):
+                            file_path = Path(file_path)
+                            if file_path.exists():
+                                files.append(f"(r'{file_path}', '{destination}')")
+                                print(f"   添加包数据文件: {file_path.name} -> {destination}")
+                except Exception as e:
+                    print(f"   警告: 处理包数据文件失败 {package_name}: {e}")
+
         return f"[{', '.join(files)}]"
     
     def _run_pyinstaller(self, spec_file: Path) -> bool:

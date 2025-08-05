@@ -15,6 +15,13 @@
     "files": [
       "app_context.py", "ECBot.ico", "ECBot.icns",
       "ecbot.qm", "ecbot_zh.qm", "role.json", "uli.json", ".env"
+    ],
+    "package_data": [
+      {
+        "package": "browser_use",
+        "source_pattern": "agent/*.md",
+        "destination": "browser_use/agent"
+      }
     ]
   },
   "pyinstaller": {
