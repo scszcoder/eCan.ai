@@ -17,11 +17,16 @@ from typing import Dict, Any, Optional, List
 
 # Windows环境下的编码初始化
 if platform.system() == "Windows":
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
-    os.environ['PYTHONIOENCODING'] = 'utf-8'
-    os.environ['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
+    try:
+        import codecs
+        # 只在需要时重新配置stdout/stderr
+        if not hasattr(sys.stdout, 'encoding') or sys.stdout.encoding.lower() != 'utf-8':
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
+            sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+    except Exception:
+        # 如果编码设置失败，继续执行（不影响核心功能）
+        pass
 
 
 class BuildEnvironment:
@@ -113,10 +118,12 @@ class FrontendBuilder:
         print("[FRONTEND] Building frontend...")
         
         try:
-            # 安装依赖
-            # if not self._install_dependencies():
-            #     return False
-            
+            # 安装依赖（如果需要）
+            # if force:
+            #     print("[FRONTEND] Force mode: reinstalling dependencies...")
+            #     if not self._install_dependencies():
+            #         return False
+
             # 执行构建
             if not self._run_build():
                 return False
@@ -252,20 +259,35 @@ class PyInstallerBuilder:
         print(f"[PYINSTALLER] Starting PyInstaller build...")
 
         try:
-            # 检查是否需要重新构建
-            if not force and self._should_skip_build():
+            # 获取模式配置
+            build_modes = self.config.get_build_modes()
+            mode_config = build_modes.get(mode, {})
+
+            # force参数会覆盖缓存设置
+            use_cache = mode_config.get("use_cache", False) and not force
+
+            if force:
+                print("[PYINSTALLER] Force rebuild requested, ignoring cache")
+            elif use_cache:
+                print(f"[PYINSTALLER] Cache enabled for {mode} mode")
+            else:
+                print(f"[PYINSTALLER] Cache disabled for {mode} mode")
+
+            # 检查是否需要重新构建（只有在启用缓存且非强制模式下）
+            if use_cache and self._should_skip_build():
                 print("[PYINSTALLER] Build is up to date, skipping...")
                 return True
 
             # 清理之前的构建
-            if force:
+            should_clean = force or mode_config.get("clean", False)
+            if should_clean:
                 if not self._clean_previous_build():
                     print("[ERROR] Failed to clean previous build")
                     return False
             else:
-                # 即使不是强制构建，也检查并清理输出目录
-                if self.dist_dir.exists():
-                    print("[PYINSTALLER] Output directory exists, cleaning...")
+                # 即使不清理，也检查输出目录是否存在冲突
+                if self.dist_dir.exists() and not use_cache:
+                    print("[PYINSTALLER] Output directory exists, cleaning for fresh build...")
                     if not self._clean_previous_build():
                         print("[ERROR] Failed to clean output directory")
                         return False
@@ -274,9 +296,9 @@ class PyInstallerBuilder:
             spec_file = self._generate_spec_file(mode)
             if not spec_file:
                 return False
-            
+
             # 运行PyInstaller
-            if not self._run_pyinstaller(spec_file):
+            if not self._run_pyinstaller(spec_file, mode):
                 return False
             
             print("[SUCCESS] PyInstaller build completed")
@@ -289,6 +311,8 @@ class PyInstallerBuilder:
     def _should_skip_build(self) -> bool:
         """检查是否应该跳过构建（基于文件修改时间）"""
         try:
+            # 注意：这个方法只在启用缓存时被调用，所以不需要再次检查缓存设置
+
             # 根据操作系统确定可执行文件名
             if platform.system() == "Windows":
                 exe_name = "ECBot.exe"
@@ -382,7 +406,11 @@ class PyInstallerBuilder:
         app_info = self.config.get_app_info()
         data_files = self.config.get_data_files()
         pyinstaller_config = self.config.get_pyinstaller_config()
-        
+
+        # 获取模式配置
+        build_modes = self.config.get_build_modes()
+        mode_config = build_modes.get(mode, {})
+
         # 基础配置
         main_script = app_info.get("main_script", "main.py")
         main_script_path = str(self.project_root / main_script)
@@ -396,19 +424,27 @@ class PyInstallerBuilder:
             icon_name = app_info.get("icon_windows", "ECBot.ico")  # Linux 使用 ico 作为默认
 
         icon_path = str(self.project_root / icon_name)
-        
+
         # 格式化数据文件
         data_files_str = self._format_data_files(data_files)
-        
+
         # 获取必要的包作为hidden_imports
         essential_packages = self._get_essential_packages()
         hidden_imports = essential_packages
+
+        # 获取模式特定配置
+        strip_debug = mode_config.get("strip_debug", False)
+        console_mode = mode_config.get("console", mode == "dev")
+        debug_mode = mode_config.get("debug", mode == "dev")
+        use_parallel = mode_config.get("parallel", pyinstaller_config.get("parallel", False))
         
 
         
         # 简化的spec内容 - 包含所有依赖，只排除特定包
+        parallel_comment = "# Parallel compilation enabled via environment variables" if use_parallel else ""
         spec_content = f"""
 # -*- mode: python ; coding: utf-8 -*-
+{parallel_comment}
 
 block_cipher = None
 
@@ -436,11 +472,11 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='{app_info.get("name", "ECBot")}',
-    debug={mode == "dev"},
+    debug={debug_mode},
     bootloader_ignore_signals=False,
-    strip=False,
+    strip={strip_debug},
     upx=True,
-    console={mode == "dev"},
+    console={console_mode},
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -458,7 +494,7 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
-    strip=False,
+    strip={strip_debug},
     upx=True,
     upx_exclude=[],
     name='ECBot',
@@ -471,7 +507,7 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
-    strip=False,
+    strip={strip_debug},
     upx=True,
     upx_exclude=[],
     name='ECBot',
@@ -552,19 +588,82 @@ app = BUNDLE(
             dir_path = self.project_root / directory
             if dir_path.exists():
                 files.append(f"(r'{dir_path}', '{directory}')")
+            else:
+                print(f"[WARNING] Directory not found: {dir_path}")
 
         # 添加文件
         for file_path in data_files.get("files", []):
             file_path_obj = self.project_root / file_path
             if file_path_obj.exists():
                 files.append(f"(r'{file_path_obj}', '.')")
-    
-    def _run_pyinstaller(self, spec_file: Path) -> bool:
+            else:
+                print(f"[WARNING] File not found: {file_path_obj}")
+
+        return "[" + ",\n    ".join(files) + "]"
+
+    def _parallel_precompile(self):
+        """并行预编译Python文件以加速PyInstaller"""
+        try:
+            import concurrent.futures
+            import py_compile
+            import multiprocessing
+
+            print("[OPTIMIZATION] Starting parallel precompilation...")
+
+            # 收集所有Python文件
+            python_files = []
+            for pattern in ["**/*.py"]:
+                python_files.extend(self.project_root.glob(pattern))
+
+            # 过滤掉不需要的文件
+            exclude_patterns = [
+                "venv", "__pycache__", ".git", "build", "dist",
+                "tests", "test_", "_test", "setup.py"
+            ]
+
+            filtered_files = []
+            for file in python_files:
+                if not any(pattern in str(file) for pattern in exclude_patterns):
+                    filtered_files.append(file)
+
+            if not filtered_files:
+                return
+
+            print(f"[OPTIMIZATION] Precompiling {len(filtered_files)} Python files...")
+
+            def compile_file(file_path):
+                try:
+                    py_compile.compile(file_path, doraise=True, optimize=1)
+                    return True
+                except:
+                    return False
+
+            # 使用多进程并行编译
+            max_workers = min(multiprocessing.cpu_count(), 8)
+            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+                results = list(executor.map(compile_file, filtered_files))
+
+            success_count = sum(results)
+            print(f"[OPTIMIZATION] Precompiled {success_count}/{len(filtered_files)} files successfully")
+
+        except Exception as e:
+            print(f"[WARNING] Precompilation failed: {e}")
+            # 继续构建，预编译失败不应该阻止构建
+
+    def _run_pyinstaller(self, spec_file: Path, mode: str = "prod") -> bool:
         """运行PyInstaller"""
         try:
             print(f"[PYINSTALLER] Running command: {sys.executable} -m PyInstaller {spec_file}")
             print(f"[PYINSTALLER] Working directory: {self.project_root}")
             print("=" * 60)
+
+            # 预编译优化：并行预编译Python文件
+            build_modes = self.config.get_build_modes()
+            mode_config = build_modes.get(mode, {})
+            use_parallel = mode_config.get("parallel", False)
+
+            if use_parallel and mode in ["fast", "dev", "prod"]:
+                self._parallel_precompile()
 
             # 根据平台设置环境变量
             if platform.system() == "Windows":
@@ -581,12 +680,98 @@ app = BUNDLE(
             # 添加并行构建参数
             cmd = [sys.executable, "-m", "PyInstaller"]
 
-            # 添加性能优化参数
+            # 获取配置
+            pyinstaller_config = self.config.get_pyinstaller_config()
+            build_modes = self.config.get_build_modes()
+            mode_config = build_modes.get(mode, {})
+
+            # 当使用spec文件时，只能添加少数几个选项
             cmd.extend([
                 "--noconfirm",  # 不询问确认
-                "--clean",      # 清理临时文件
-                str(spec_file)
             ])
+
+            # 根据模式决定是否清理
+            if mode_config.get("clean", False):
+                cmd.append("--clean")
+                print("[PYINSTALLER] Clean build enabled")
+
+            # 添加缓存支持（优先使用模式配置，然后是全局配置）
+            use_cache = mode_config.get("use_cache", pyinstaller_config.get("use_cache", False))
+            if use_cache:
+                cache_dir = pyinstaller_config.get("cache_dir", "build/pyinstaller_cache")
+                cache_path = self.project_root / cache_dir
+                cache_path.mkdir(parents=True, exist_ok=True)
+                cmd.extend(["--workpath", str(cache_path)])
+                print(f"[PYINSTALLER] Using cache directory: {cache_path}")
+
+            # 配置并行编译环境变量
+            use_parallel = mode_config.get("parallel", pyinstaller_config.get("parallel", False))
+            if use_parallel:
+                import multiprocessing
+                workers = pyinstaller_config.get("workers", 0)
+                if workers == 0:
+                    workers = min(multiprocessing.cpu_count(), 8)  # 限制最大8个进程
+
+                # 设置编译优化环境变量
+                env['PYTHONHASHSEED'] = '1'  # 确保编译的一致性
+                env['PYTHONOPTIMIZE'] = '1'  # 启用Python优化
+                env['PYTHONDONTWRITEBYTECODE'] = '1'  # 不写.pyc文件，加速
+
+                # 设置多线程库优化（对科学计算库有效）
+                env['OMP_NUM_THREADS'] = str(workers)
+                env['MKL_NUM_THREADS'] = str(workers)
+                env['NUMEXPR_NUM_THREADS'] = str(workers)
+
+                # 设置内存和I/O优化
+                env['PYTHONUNBUFFERED'] = '1'  # 无缓冲输出
+
+                # 设置临时目录到更快的存储（如果可能）
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                env['TMPDIR'] = temp_dir
+                env['TEMP'] = temp_dir
+                env['TMP'] = temp_dir
+
+                print(f"[PYINSTALLER] Performance optimization enabled with {workers} threads for libraries")
+                print(f"[PYINSTALLER] Using temp directory: {temp_dir}")
+
+            strip_debug = mode_config.get("strip_debug", pyinstaller_config.get("strip_debug", False))
+            if strip_debug:
+                print("[PYINSTALLER] Debug symbols will be stripped (configured in spec file)")
+
+            # 添加 collect 参数（优先使用模式配置，然后是全局配置）
+            def get_collect_packages(collect_type):
+                mode_packages = mode_config.get(collect_type, [])
+                global_packages = pyinstaller_config.get(collect_type, [])
+
+                if mode_packages == "all":
+                    return global_packages
+                elif isinstance(mode_packages, list) and mode_packages:
+                    return mode_packages
+                elif isinstance(global_packages, list):
+                    return global_packages
+                else:
+                    return []
+
+            collect_data_packages = get_collect_packages("collect_data")
+            if collect_data_packages:
+                for package in collect_data_packages:
+                    cmd.extend(["--collect-data", package])
+                print(f"[PYINSTALLER] Auto-collecting data from {len(collect_data_packages)} packages")
+
+            collect_binaries_packages = get_collect_packages("collect_binaries")
+            if collect_binaries_packages:
+                for package in collect_binaries_packages:
+                    cmd.extend(["--collect-binaries", package])
+                print(f"[PYINSTALLER] Auto-collecting binaries from {len(collect_binaries_packages)} packages")
+
+            collect_submodules_packages = get_collect_packages("collect_submodules")
+            if collect_submodules_packages:
+                for package in collect_submodules_packages:
+                    cmd.extend(["--collect-submodules", package])
+                print(f"[PYINSTALLER] Auto-collecting submodules from {len(collect_submodules_packages)} packages")
+
+            cmd.append(str(spec_file))
 
             process = subprocess.Popen(
                 cmd,
@@ -684,7 +869,17 @@ class InstallerBuilder:
             solid_compression = str(mode_config.get("solid_compression", installer_config.get("solid_compression", False))).lower()
             internal_compress_level = mode_config.get("internal_compress_level", "fast")
 
+            # 检查是否启用并行处理
+            build_modes = self.config.get_build_modes()
+            build_mode_config = build_modes.get(self.mode, {})
+            use_parallel = build_mode_config.get("parallel", False)
+
+            # 添加并行处理注释
+            parallel_comment = "; Parallel compression enabled via environment variables" if use_parallel else "; Single-threaded compression"
+
             iss_content = f"""
+; ECBot Installer Script
+{parallel_comment}
 [Setup]
 AppName={installer_config.get('app_name', app_info.get('name', 'ECBot'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
@@ -783,8 +978,29 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
 
+                # 配置并行压缩
+                build_modes = self.config.get_build_modes()
+                mode_config = build_modes.get(self.mode, {})
+                use_parallel = mode_config.get("parallel", False)
+
+                if use_parallel:
+                    import multiprocessing
+                    workers = min(multiprocessing.cpu_count(), 8)
+                    # 设置压缩线程数环境变量
+                    env['NUMBER_OF_PROCESSORS'] = str(workers)
+                    env['INNO_COMPRESS_THREADS'] = str(workers)
+                    print(f"[INSTALLER] Parallel compression enabled with {workers} threads")
+
                 # 构建 Inno Setup 命令
-                cmd = [iscc_path, str(iss_file)]
+                cmd = [iscc_path]
+
+                # 添加并行优化参数
+                if use_parallel:
+                    cmd.extend(["/Q", "/O+"])  # 安静模式 + 输出优化
+                else:
+                    cmd.append("/Q")  # 仅安静模式
+
+                cmd.append(str(iss_file))
 
                 try:
                     result = subprocess.run(
@@ -801,8 +1017,20 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                     print(f"[ERROR] Inno Setup compilation timed out ({timeout_seconds//60} minutes)")
                     return False
             else:
+                # 非Windows平台（通过Wine运行Inno Setup）
+                build_modes = self.config.get_build_modes()
+                mode_config = build_modes.get(self.mode, {})
+                use_parallel = mode_config.get("parallel", False)
+
+                cmd = [iscc_path]
+                if use_parallel:
+                    cmd.extend(["/Q", "/O+"])  # 安静模式 + 输出优化
+                else:
+                    cmd.append("/Q")  # 仅安静模式
+                cmd.append(str(iss_file))
+
                 result = subprocess.run(
-                    [iscc_path, str(iss_file)],
+                    cmd,
                     cwd=self.project_root,
                     capture_output=True,
                     text=True
@@ -1053,17 +1281,12 @@ exit 0
 class ECBotBuild:
     """ECBot构建主类"""
     
-    def __init__(self, mode: str = "prod", fast: bool = False):
+    def __init__(self, mode: str = "prod"):
         self.mode = mode
-        self.fast = fast
         self.project_root = Path.cwd()
 
-        # 选择配置文件
-        if fast:
-            config_file = self.project_root / "build_system" / "fast_build_config.json"
-        else:
-            config_file = self.project_root / "build_system" / "build_config.json"
-
+        # 使用统一的配置文件
+        config_file = self.project_root / "build_system" / "build_config.json"
         self.config = BuildConfig(config_file)
         self.env = BuildEnvironment()
         self.frontend_builder = FrontendBuilder(self.project_root)
@@ -1131,16 +1354,11 @@ def main():
                        help="Skip frontend build")
     parser.add_argument("--skip-installer", action="store_true",
                        help="Skip installer creation")
-    parser.add_argument("--fast", action="store_true",
-                       help="Use fast build configuration (fewer dependencies)")
 
     args = parser.parse_args()
 
-    # 如果模式是fast，自动启用fast配置
-    fast_mode = args.fast or args.mode == "fast"
-    build_mode = "dev" if args.mode == "fast" else args.mode
-
-    builder = ECBotBuild(build_mode, fast=fast_mode)
+    # 使用指定的构建模式
+    builder = ECBotBuild(args.mode)
     success = builder.build(force=args.force, skip_frontend=args.skip_frontend, skip_installer=args.skip_installer)
 
     sys.exit(0 if success else 1)

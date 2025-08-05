@@ -130,18 +130,41 @@ class SmartDynamicDetector:
         python_files = [f for f in python_files if not any(skip in str(f) for skip in ['venv', 'build', 'dist', '__pycache__', '.git', 'node_modules'])]
         
         print(f"   分析 {len(python_files)} 个 Python 文件...")
-        
-        for py_file in python_files:
-            try:
-                with open(py_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # 提取实际的动态导入
-                imports = self._extract_actual_dynamic_imports(content)
-                dynamic_imports.update(imports)
-                
-            except Exception as e:
-                print(f"   警告: 分析文件 {py_file} 失败: {e}")
+
+        try:
+            import concurrent.futures
+            import multiprocessing
+
+            def analyze_file(py_file):
+                try:
+                    with open(py_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    return self._extract_actual_dynamic_imports(content)
+                except:
+                    return set()
+
+            # 并行分析文件
+            max_workers = min(multiprocessing.cpu_count(), 8)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = executor.map(analyze_file, python_files)
+
+            # 合并结果
+            for result in results:
+                dynamic_imports.update(result)
+
+        except ImportError:
+            # 回退到串行处理
+            for py_file in python_files:
+                try:
+                    with open(py_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
+                    # 提取实际的动态导入
+                    imports = self._extract_actual_dynamic_imports(content)
+                    dynamic_imports.update(imports)
+
+                except Exception as e:
+                    print(f"   警告: 分析文件 {py_file} 失败: {e}")
         
         return dynamic_imports
     
