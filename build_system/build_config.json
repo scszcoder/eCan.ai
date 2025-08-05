@@ -68,27 +68,30 @@
   },
   "build_modes": {
     "dev": {
-      "debug": false,
+      "debug": true,
       "console": true,
       "clean": false,
       "optimize": false,
       "onefile": false,
       "use_cache": false,
       "parallel": true,
-      "strip_debug": false
+      "strip_debug": true,
+      "collect_data": "all",
+      "collect_binaries": "all",
+      "collect_submodules": "all"
     },
     "fast": {
-      "debug": false,
-      "console": false,
+      "debug": true,
+      "console": true,
       "clean": false,
       "optimize": false,
       "onefile": false,
       "use_cache": true,
       "parallel": true,
       "strip_debug": true,
-      "collect_data": ["transformers", "torch", "sklearn", "certifi"],
-      "collect_binaries": ["torch", "cv2"],
-      "collect_submodules": ["transformers"]
+      "collect_data": "all",
+      "collect_binaries": "all",
+      "collect_submodules": "all"
     },
     "prod": {
       "debug": false,
