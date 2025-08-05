@@ -138,7 +138,8 @@ def print_mode_info(mode: str, fast: bool = False):
         print("  ✓ 并行编译 (多核CPU加速)")
         print("  ✓ 完整优化和清理")
         print("  ✓ 调试符号剥离")
-        print("  ✓ 预计时间: 8-15分钟")
+        print("  ✓ LZMA最佳压缩")
+        print("  ✓ 预计时间: 15-25分钟")
 
     print("=" * 60)
 
@@ -151,7 +152,7 @@ def main():
 构建模式说明:
   fast     快速构建 (并行+缓存，2-5分钟)
   dev      开发构建 (并行+控制台，5-10分钟)
-  prod     生产构建 (并行+完全优化，8-15分钟)
+  prod     生产构建 (并行+最佳压缩，15-25分钟)
 
 使用示例:
   python build.py fast              # 快速构建

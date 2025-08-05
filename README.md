@@ -696,8 +696,31 @@ python build.py prod                    # Production build (fully optimized)
 
 ### Build Mode Differences
 - **fast**: Enables caching and parallel compilation for fastest builds (~2-5 min)
+  - Uses ZIP compression for installer (fastest)
+  - Minimal data collection for essential packages only
+  - Optimized for development speed
 - **dev**: Parallel compilation with console output for debugging (~5-10 min)
-- **prod**: Parallel compilation with full optimization and clean builds (~8-15 min)
+  - Uses ZIP compression for installer
+  - Full data collection for comprehensive testing
+  - Includes debug symbols and console output
+- **prod**: Parallel compilation with full optimization and clean builds (~15-25 min)
+  - Uses LZMA compression with solid compression (smallest size)
+  - Complete data collection for all packages
+  - Maximum compression for distribution
+
+### Build Time Optimization
+Choose the right mode for your needs:
+- **Development**: Use `fast` mode for quick iterations (`python build.py fast`)
+- **Testing**: Use `dev` mode for comprehensive testing (`python build.py dev`)
+- **Distribution**: Use `prod` mode for final releases (`python build.py prod`)
+
+If build time is critical:
+- Skip installer creation: `python build.py [mode] --skip-installer`
+- Use fast mode for development: `python build.py fast`
+
+**Expected installer creation times:**
+- fast/dev modes: 3-5 minutes (ZIP compression)
+- prod mode: 15-25 minutes (LZMA compression with solid compression)
 
 ### Build Output
 - Executable files are generated in the `dist/` directory

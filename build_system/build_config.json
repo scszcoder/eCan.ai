@@ -65,8 +65,7 @@
     "excludes": [
       "jupyter", "pytest", "test", "pip", "wheel", "jupyter_client", "jupyter_core", "django",
       "pysqlite2", "MySQLdb", "psycopg2", "tkinter", "matplotlib", "numpy.tests",
-      "pandas.tests", "sklearn.tests", "PIL.tests", "email.test",
-      "unittest", "cProfile", "turtledemo"
+      "pandas.tests", "sklearn.tests", "PIL.tests", "email.test"
     ]
   },
   "build_modes": {
@@ -126,7 +125,7 @@
       },
       "prod": {
         "compression": "lzma",
-        "solid_compression": false,
+        "solid_compression": true,
         "internal_compress_level": "normal"
       },
       "fast": {
