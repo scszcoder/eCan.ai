@@ -10,7 +10,7 @@
     "directories": [
       "resource", "config", "bot", "gui", "common", "utils",
       "agent", "tests", "knowledge", "settings", "skills",
-      "telemetry", "gui_v2/dist", "resource", "browser_use", "fake_useragent"
+      "telemetry", "gui_v2/dist", "resource"
     ],
     "files": [
       "app_context.py", "ECBot.ico", "ECBot.icns",
@@ -41,9 +41,7 @@
       "openai",
       "anthropic",
       "langchain",
-      "langchain_community",
       "langchain_core",
-      "chromadb",
       "sentence_transformers",
       "browser_use", 
       "fake_useragent"
