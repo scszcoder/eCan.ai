@@ -19,7 +19,8 @@
   },
   "pyinstaller": {
     "excludes": [
-      "jupyter", "pytest", "test", "pip", "wheel", "jupyter_client", "jupyter_core", "django"
+      "jupyter", "pytest", "test", "pip", "wheel", "jupyter_client", "jupyter_core", "django",
+      "pysqlite2", "MySQLdb", "psycopg2"
     ]
   },
   "build_modes": {
