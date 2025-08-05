@@ -10,7 +10,7 @@
     "directories": [
       "resource", "config", "bot", "gui", "common", "utils",
       "agent", "tests", "knowledge", "settings", "skills",
-      "telemetry", "gui_v2/dist", "resource"
+      "telemetry", "gui_v2/dist", "resource", "browser_use"
     ],
     "files": [
       "app_context.py", "ECBot.ico", "ECBot.icns",
@@ -47,8 +47,9 @@
     "default_dir": "{autopf}\\\\ECBot",
     "default_group": "ECBot",
     "privileges_required": "lowest",
-    "compression": "zip",
+    "compression": "lzma",
     "solid_compression": false,
+    "internal_compress_level": "normal",
     "compression_modes": {
       "dev": {
         "compression": "zip",
@@ -57,13 +58,18 @@
       },
       "prod": {
         "compression": "lzma",
-        "solid_compression": true,
-        "internal_compress_level": "max"
+        "solid_compression": false,
+        "internal_compress_level": "normal"
       },
       "fast": {
         "compression": "zip",
         "solid_compression": false,
         "internal_compress_level": "fast"
+      },
+      "release": {
+        "compression": "lzma",
+        "solid_compression": true,
+        "internal_compress_level": "max"
       }
     },
     "macos": {

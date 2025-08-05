@@ -661,7 +661,16 @@ class SmartDynamicDetector:
             'sqlalchemy', 'sqlite3', 'PIL', 'opencv',
             'cryptography', 'bcrypt', 'jwt', 'playwright',
             'langmem', 'faiss', 'browser-use', 'crawl4ai', 'langmem',
-            'faiss.swigfaiss_avx512'
+            'faiss.swigfaiss_avx512',
+
+            # fake_useragent 相关模块
+            'fake_useragent', 'fake_useragent.data', 'fake_useragent.fake',
+            'fake_useragent.utils', 'fake_useragent.errors', 'fake_useragent.settings',
+
+            # browser_use 相关模块和资源
+            'browser_use', 'browser_use.agent', 'browser_use.agent.prompts',
+            'browser_use.agent.service', 'browser_use.browser', 'browser_use.dom',
+            'browser_use.utils', 'browser_use.controller', 'browser_use.telemetry'
             
             # Pydantic 相关模块
             'pydantic', 'pydantic.deprecated', 'pydantic.deprecated.decorator',
@@ -674,7 +683,7 @@ class SmartDynamicDetector:
             # setuptools 和 jaraco 相关模块
             'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
             'jaraco.functools', 'jaraco.context', 'jaraco.collections',
-            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging',
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', "jaraco.path",
         ]
         
         # 从原始列表中筛选出存在的核心模块
@@ -707,6 +716,6 @@ class SmartDynamicDetector:
             # 添加setuptools和jaraco相关模块
             'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
             'jaraco.functools', 'jaraco.context', 'jaraco.collections',
-            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging'
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', "jaraco.path",
         ]
         return any(module.startswith(lib) for lib in critical_libs) 
