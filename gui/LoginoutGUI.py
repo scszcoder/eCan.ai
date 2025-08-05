@@ -22,7 +22,7 @@ import botocore
 import locale
 
 from gui.MainGUI import MainWindow
-from gui.BrowserGUI import BrowserWindow
+# from gui.BrowserGUI import BrowserWindow
 
 from bot.signio import CLIENT_ID, USER_POOL_ID, CLIENT_SECRET
 from config.app_info import app_info
