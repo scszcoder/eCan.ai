@@ -155,7 +155,7 @@
       "prod": {
         "compression": "lzma",
         "solid_compression": true,
-        "internal_compress_level": "max"
+        "internal_compress_level": "normal"
       },
       "fast": {
         "compression": "zip",

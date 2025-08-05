@@ -991,16 +991,16 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
             # 根据构建模式和并行处理调整超时时间
             if self.mode == "prod":
                 # 生产模式：质量优先，给予充足时间
-                base_timeout_multiplier = 0.7 if use_parallel else 1.0
+                base_timeout_multiplier = 1
                 if compression == "lzma" and solid_compression and internal_compress_level == "max":
-                    timeout_seconds = int(1800 * base_timeout_multiplier)  # 并行: 21分钟, 串行: 30分钟
+                    timeout_seconds = int(3000 * base_timeout_multiplier)  # 30分钟
                 elif compression == "lzma" and solid_compression:
-                    timeout_seconds = int(1200 * base_timeout_multiplier)  # 并行: 14分钟, 串行: 20分钟
+                    timeout_seconds = int(2000 * base_timeout_multiplier)  # 20分钟
                 else:
-                    timeout_seconds = int(1000 * base_timeout_multiplier)   # 并行: 7分钟, 串行: 10分钟
+                    timeout_seconds = int(1000 * base_timeout_multiplier)   # 10分钟
             else:
                 # 开发模式：速度优先
-                timeout_seconds = int(10000)
+                timeout_seconds = int(1000)
 
             print(f"[INSTALLER] Running Inno Setup: {iscc_path}")
             print(f"[INSTALLER] Script file: {iss_file}")
