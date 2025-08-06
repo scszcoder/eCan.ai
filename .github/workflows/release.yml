@@ -1,10 +1,22 @@
 name: Release Build
+#
+# 通过 workflow_dispatch 参数 platform/arch 可选择打包平台和 CPU 架构：
+#   - platform: windows, macos, all
+#   - arch: x86_64, arm64
+#
+# 注意：
+#   - Windows 仅支持 x86_64 架构（GitHub Actions 无 ARM runner）
+#   - macOS 支持 x86_64/arm64，但 GitHub Actions runner 默认是 x86_64，arm64 需本地 M1/M2/M3 Mac 或专用 runner
+#
+# 示例：
+#   - 手动触发 workflow 时可选择平台和架构
+#   - 推送 tag 或发布 release 时自动触发，默认打包 all + x86_64
 
 on:
   # Trigger conditions: create tag or release
-  push:
-    tags:
-      - 'v*'  # Match formats like v1.0.0, v2.1.3
+  # push:
+  #   tags:
+  #     - 'v*'  # Match formats like v1.0.0, v2.1.3
   release:
     types: [published, edited, created]
   # Manual trigger
@@ -19,6 +31,19 @@ on:
           - all
           - windows
           - macos
+      arch:
+        description: 'CPU architecture (macOS: x86_64/arm64, Windows: x86_64 only)'
+        required: true
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - arm64
+      tag:
+        description: 'Git tag to build (e.g. v1.2.3)'
+        required: true
+        default: ''
+        type: string
 
 jobs:
   # Validate tag format
@@ -30,36 +55,37 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.tag || github.ref }}
       
     - name: Validate tag format
       id: validate
       run: |
-        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+        TAG_NAME="${{ github.event.inputs.tag }}"
+        if [ -z "$TAG_NAME" ]; then
           TAG_NAME="${GITHUB_REF#refs/tags/}"
-          if [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
-            echo "valid=true" >> $GITHUB_OUTPUT
-            echo "version=${TAG_NAME#v}" >> $GITHUB_OUTPUT
-            echo "✅ Valid tag format: $TAG_NAME"
-          else
-            echo "valid=false" >> $GITHUB_OUTPUT
-            echo "❌ Invalid tag format: $TAG_NAME"
-            echo "Expected format: vX.Y.Z or vX.Y.Z-prerelease"
-            exit 1
-          fi
-        else
+        fi
+        if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
           echo "valid=true" >> $GITHUB_OUTPUT
-          echo "version=manual" >> $GITHUB_OUTPUT
-          echo "ℹ️ Manual trigger or release event"
+          echo "version=${TAG_NAME#v}" >> $GITHUB_OUTPUT
+          echo "✅ Valid tag format: $TAG_NAME"
+        else
+          echo "valid=false" >> $GITHUB_OUTPUT
+          echo "❌ Invalid tag format: $TAG_NAME"
+          echo "Expected format: vX.Y.Z or vX.Y.Z-prerelease"
+          exit 1
         fi
 
   # Windows build
+  # 注意：GitHub Actions 目前仅支持 Windows x86_64 架构，Windows ARM 架构暂不支持
   build-windows:
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' && 
       (github.event.inputs.platform == 'windows' || 
        github.event.inputs.platform == 'all' || 
-       github.event.inputs.platform == null)
+       github.event.inputs.platform == null) &&
+      (github.event.inputs.arch == 'x86_64' || github.event.inputs.arch == null)
     runs-on: windows-latest
     timeout-minutes: 45
     
@@ -95,6 +121,10 @@ jobs:
         
         echo "=== Verifying pywin32 installation ==="
         python -c "import win32api; print('pywin32 installed successfully')"
+    
+    - name: Uninstall pathlib if present (Windows)
+      run: |
+        pip uninstall -y pathlib || true
     
     - name: Install frontend dependencies
       run: |
@@ -146,6 +176,14 @@ jobs:
         
         # Run build with detailed output
         python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
+        
+        # 重命名产物，规范为 eCan-windows-x86_64-v{version}.exe
+        if (Test-Path "dist/eCan/eCan.exe") {
+          Rename-Item "dist/eCan/eCan.exe" "dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        }
+        if (Test-Path "dist/eCan-Setup.exe") {
+          Rename-Item "dist/eCan-Setup.exe" "dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        }
         
         # Check exit code
         if ($LASTEXITCODE -ne 0) {
@@ -202,7 +240,8 @@ jobs:
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/
+          dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
           build.log
         retention-days: 30
 
@@ -250,6 +289,10 @@ jobs:
         echo "=== Verifying PyInstaller installation ==="
         python -c "import PyInstaller; print('PyInstaller installed successfully')"
     
+    - name: Uninstall pathlib if present (macOS)
+      run: |
+        pip uninstall -y pathlib || true
+    
     - name: Install frontend dependencies
       run: |
         echo "=== Installing Frontend Dependencies ==="
@@ -277,6 +320,14 @@ jobs:
         
         # Run build with detailed output
         python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        
+        # 规范产物命名
+        if [ -f "dist/eCan.pkg" ]; then
+          mv "dist/eCan.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
+        fi
+        if [ -d "dist/eCan.app" ]; then
+          ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
+        fi
         
         # Check exit code
         if [ $? -ne 0 ]; then
@@ -322,7 +373,8 @@ jobs:
       with:
         name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.pkg
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip
           build.log
         retention-days: 30
 
@@ -364,23 +416,10 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: ${{ github.event.inputs.platform == 'windows' && 'windows-artifacts/dist/eCan-Setup.exe,windows-artifacts/dist/eCan/eCan.exe' || github.event.inputs.platform == 'macos' && 'macos-artifacts/dist/eCan.pkg,macos-artifacts/dist/eCan.app' || 'windows-artifacts/dist/eCan-Setup.exe,windows-artifacts/dist/eCan/eCan.exe,macos-artifacts/dist/eCan.pkg,macos-artifacts/dist/eCan.app' }}
-        draft: false
-        prerelease: ${{ contains(github.ref, '-') }}
-        generate_release_notes: true
-        body: |
-          ## eCan ${{ needs.validate-tag.outputs.version }}
-          
-          ### Downloads
-          ${{ github.event.inputs.platform == 'windows' && '- **Windows**: eCan-Setup.exe (Installer) or eCan.exe (Portable)' || '' }}
-          ${{ github.event.inputs.platform == 'macos' && '- **macOS**: eCan.pkg (Installer) or eCan.app (Portable)' || '' }}
-          ${{ (github.event.inputs.platform == 'all' || github.event.inputs.platform == null) && '- **Windows**: eCan-Setup.exe (Installer) or eCan.exe (Portable)' || '' }}
-          ${{ (github.event.inputs.platform == 'all' || github.event.inputs.platform == null) && '- **macOS**: eCan.pkg (Installer) or eCan.app (Portable)' || '' }}
-          
-          ### Build Information
-          - Build Date: ${{ github.event.head_commit.timestamp }}
-          - Commit: ${{ github.sha }}
-          - Tag: ${{ github.ref_name }}
-          - Platform: ${{ github.event.inputs.platform || 'all' }}
+        files: |
+          dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.pkg
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
