@@ -61,7 +61,7 @@ class BuildEnvironment:
         """检查必要文件"""
         required_files = [
             "main.py",
-            "build_system/ecbot_build.py",
+            "build_system/ecan_build.py",
             "build_system/build_config.json"
         ]
         
@@ -221,7 +221,7 @@ def main():
     print_mode_info(args.mode, fast_mode)
 
     # 构建命令
-    cmd = [sys.executable, "build_system/ecbot_build.py", build_mode]
+    cmd = [sys.executable, "build_system/ecan_build.py", build_mode]
 
     # 添加选项参数
     if args.force:
@@ -246,16 +246,16 @@ def main():
 
         # 根据操作系统确定可执行文件名和安装包信息
         if platform.system() == "Windows":
-            exe_name = "ECBot.exe"
-            installer_info = f"📦 安装包: {Path.cwd()}/dist/ECBot-Setup.exe"
+            exe_name = "eCan.exe"
+            installer_info = f"📦 安装包: {Path.cwd()}/dist/eCan-Setup.exe"
         elif platform.system() == "Darwin":
-            exe_name = "ECBot"  # macOS
-            installer_info = f"📦 安装包: {Path.cwd()}/dist/ECBot-1.0.0.pkg"
+            exe_name = "eCan"  # macOS
+            installer_info = f"📦 安装包: {Path.cwd()}/dist/eCan-1.0.0.pkg"
         else:
-            exe_name = "ECBot"  # Linux
+            exe_name = "eCan"  # Linux
             installer_info = "📦 安装包: 暂不支持Linux安装包"
 
-        print(f"📁 可执行文件: {Path.cwd()}/dist/ECBot/{exe_name}")
+        print(f"📁 可执行文件: {Path.cwd()}/dist/eCan/{exe_name}")
         if not args.skip_frontend:
             print(f"🌐 前端文件: {Path.cwd()}/gui_v2/dist/")
         if not args.skip_installer:

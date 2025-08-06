@@ -14,7 +14,7 @@ import traceback
 import socket
 import uuid
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
-
+from utils.logger_helper import logger_helper as logger
 
 def set_up_my_twin_agent(mainwin):
     try:
@@ -23,7 +23,7 @@ def set_up_my_twin_agent(mainwin):
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
-        print("chatter skill:", chatter_skill)
+        logger.info("chatter skill:", chatter_skill)
         agent_card = AgentCard(
                 name="My Twin Agent",
                 description="Human Representative",
@@ -34,7 +34,7 @@ def set_up_my_twin_agent(mainwin):
                 capabilities=capabilities,
                 skills=[chatter_skill],
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
         chat_task = create_my_twin_chat_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])

@@ -17,7 +17,7 @@ def build_agents(main_win):
         # first try to obtain all agents from the cloud, if that fails or there are no agents
         # then build the agents locally
         all_agents = load_agents_from_cloud(main_win)
-        print("agents from cloud:", all_agents)
+        logger.info("agents from cloud:", all_agents)
         if not all_agents:
             # for now just build a few agents.
             all_agents.append(set_up_my_twin_agent(main_win))
@@ -33,7 +33,7 @@ def build_agents(main_win):
         
         # 过滤掉None对象
         all_agents = [agent for agent in all_agents if agent is not None]
-        print(f"Total agents after filtering None: {len(all_agents)}")
+        logger.info(f"Total agents after filtering None: {len(all_agents)}")
 
         main_win.agents = all_agents
 
