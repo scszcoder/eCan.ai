@@ -197,6 +197,13 @@ class LightragServer:
         try:
             import tempfile
 
+            # 安全处理路径，避免转义问题
+            working_dir = self.extra_env.get('WORKING_DIR', '').replace('\\', '/')
+            input_dir = self.extra_env.get('INPUT_DIR', '').replace('\\', '/')
+            log_dir = self.extra_env.get('LOG_DIR', '').replace('\\', '/')
+            host = self.extra_env.get('HOST', '0.0.0.0')
+            port = self.extra_env.get('PORT', '9621')
+
             # 创建临时启动脚本
             # 创建跨平台兼容的独立LightRAG启动脚本
             script_content = f'''#!/usr/bin/env python3
@@ -217,47 +224,37 @@ def setup_environment():
     current_os = platform.system().lower()
     print(f"Operating System: {{current_os}}")
 
-    # 从父进程传递的环境变量（处理路径分隔符）
-    working_dir = "{self.extra_env.get('WORKING_DIR', '')}"
-    input_dir = "{self.extra_env.get('INPUT_DIR', '')}"
-    log_dir = "{self.extra_env.get('LOG_DIR', '')}"
+    # 直接从环境变量获取路径，避免字符串插值的转义问题
+    import os
 
-    # 跨平台路径处理
-    if working_dir:
-        if current_os == "windows":
-            working_dir = working_dir.replace('/', '\\\\')
-        else:  # macOS/Linux
-            working_dir = working_dir.replace('\\\\', '/')
-
-    if input_dir:
-        if current_os == "windows":
-            input_dir = input_dir.replace('/', '\\\\')
-        else:  # macOS/Linux
-            input_dir = input_dir.replace('\\\\', '/')
-
-    if log_dir:
-        if current_os == "windows":
-            log_dir = log_dir.replace('/', '\\\\')
-        else:  # macOS/Linux
-            log_dir = log_dir.replace('\\\\', '/')
-
-    # 环境变量设置
+    # 环境变量设置（使用预处理的变量避免转义问题）
     env_vars = {{
-        "HOST": "{self.extra_env.get('HOST', '0.0.0.0')}",
-        "PORT": "{self.extra_env.get('PORT', '9621')}",
-        "WORKING_DIR": working_dir,
-        "INPUT_DIR": input_dir,
-        "LOG_DIR": log_dir,
+        "HOST": "{host}",
+        "PORT": "{port}",
         "LOG_LEVEL": "INFO",
         "MAX_TOKENS": "32768",
         "MAX_ASYNC": "16",
         "TIMEOUT": "60"
     }}
 
-    # 设置环境变量
+    # 安全设置路径环境变量（使用正斜杠，在脚本中转换）
+    path_vars = {{
+        "WORKING_DIR": "{working_dir}",
+        "INPUT_DIR": "{input_dir}",
+        "LOG_DIR": "{log_dir}"
+    }}
+
+    # 设置非路径环境变量
     for key, value in env_vars.items():
         if value:
             os.environ[key] = str(value)
+
+    # 安全设置路径环境变量（避免转义问题）
+    for key, value in path_vars.items():
+        if value:
+            # 使用os.path.normpath标准化路径
+            normalized_path = os.path.normpath(value)
+            os.environ[key] = normalized_path
 
     # 清理命令行参数，避免argparse冲突
     sys.argv = ["lightrag_server"]
@@ -368,6 +365,93 @@ if True:  # 总是执行，跨平台兼容
 
         except Exception as e:
             logger.error(f"[LightragServer] Failed to create startup script: {e}")
+            return None
+
+    def _create_simple_lightrag_script(self):
+        """创建简单的LightRAG启动脚本，利用main.py的保护机制"""
+        try:
+            import tempfile
+
+            # 安全处理环境变量
+            env_settings = []
+            for key, value in self.extra_env.items():
+                # 安全转义路径
+                safe_value = str(value).replace('\\', '/')
+                env_settings.append(f'os.environ["{key}"] = r"{safe_value}"')
+
+            env_code = '\n    '.join(env_settings)
+
+            # 创建简单的启动脚本
+            # 关键：不导入main模块，直接运行LightRAG
+            script_content = f'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+LightRAG简单启动脚本
+利用main.py现有的保护机制，不导入主程序模块
+"""
+
+import sys
+import os
+
+def setup_lightrag_environment():
+    """设置LightRAG环境"""
+    # 设置环境变量
+    {env_code}
+
+    # 清理命令行参数
+    sys.argv = ["lightrag_server"]
+
+    print("LightRAG Environment Setup Complete")
+
+def main():
+    """启动LightRAG服务器"""
+    try:
+        print("=" * 50)
+        print("LightRAG Server Starting...")
+        print("=" * 50)
+
+        # 设置环境
+        setup_lightrag_environment()
+
+        # 检查LightRAG可用性
+        try:
+            import lightrag
+            print(f"LightRAG version: {{getattr(lightrag, '__version__', 'unknown')}}")
+        except ImportError as e:
+            print(f"LightRAG not available: {{e}}")
+            print("Exiting gracefully...")
+            return 0
+
+        # 启动LightRAG服务器
+        from lightrag.api.lightrag_server import main as lightrag_main
+        print("Starting LightRAG API server...")
+        lightrag_main()
+
+    except KeyboardInterrupt:
+        print("LightRAG server interrupted")
+        return 0
+    except Exception as e:
+        print(f"LightRAG server error: {{e}}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+# 使用标准的if __name__ == '__main__'
+# 这样会被main.py的保护机制正确处理
+if __name__ == '__main__':
+    sys.exit(main())
+'''
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+                f.write(script_content)
+                script_path = f.name
+
+            logger.info(f"[LightragServer] Created simple startup script: {script_path}")
+            return script_path
+
+        except Exception as e:
+            logger.error(f"[LightragServer] Failed to create simple startup script: {e}")
             return None
 
 
@@ -672,10 +756,11 @@ if True:  # 总是执行，跨平台兼容
 
             # 构建启动命令
             if self.is_frozen:
-                # 在打包环境中，创建临时脚本文件（跨平台兼容）
-                logger.info("[LightragServer] Creating temporary script for packaged environment")
+                # 在打包环境中，利用main.py现有的保护机制
+                logger.info("[LightragServer] Using main.py protection mechanism for packaged environment")
 
-                script_path = self._create_lightrag_startup_script()
+                # 创建一个简单的启动脚本，导入并运行LightRAG
+                script_path = self._create_simple_lightrag_script()
                 if not script_path:
                     logger.error("[LightragServer] Failed to create startup script")
                     return False
