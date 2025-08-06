@@ -322,13 +322,15 @@ class PyInstallerBuilder:
             # Note: This method is only called when cache is enabled, so no need to check cache settings again
 
             # Determine executable filename based on OS
+            app_info = self.config.get_app_info()
+            app_name = app_info.get("name", "eCan")
             if platform.system() == "Windows":
-                exe_name = "ECBot.exe"
+                exe_name = f"{app_name}.exe"
             else:
-                exe_name = "eCan"  # macOS and Linux don't need .exe extension
+                exe_name = app_name  # macOS and Linux don't need .exe extension
 
             # Check if output file exists
-            exe_file = self.dist_dir / "ECBot" / exe_name
+            exe_file = self.dist_dir / app_name / exe_name
             if not exe_file.exists():
                 print(f"[CACHE] Executable not found: {exe_file}")
                 return False
@@ -394,7 +396,9 @@ class PyInstallerBuilder:
         """Generate spec file"""
         try:
             spec_content = self._create_spec_content(mode)
-            spec_file = self.build_dir / "ecbot.spec"
+            app_info = self.config.get_app_info()
+            app_name = app_info.get("name", "eCan")
+            spec_file = self.build_dir / f"{app_name.lower()}.spec"
             
             # Ensure build directory exists
             self.build_dir.mkdir(exist_ok=True)
@@ -1104,7 +1108,9 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             print(f"[INFO] Inno Setup output: {result.stdout}")
 
             # Check if output file exists
-            expected_output = self.dist_dir / "ECBot-Setup.exe"
+            app_info = self.config.get_app_info()
+            app_name = app_info.get("name", "eCan")
+            expected_output = self.dist_dir / f"{app_name}-Setup.exe"
             if expected_output.exists():
                 size_mb = expected_output.stat().st_size / (1024 * 1024)
                 print(f"[INFO] Installer file: {expected_output}")
@@ -1129,19 +1135,22 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
                 return True
             
             # Check if .app file exists
-            app_path = self.dist_dir / "ECBot.app"
+            app_info = self.config.get_app_info()
+            app_name = app_info.get("name", "eCan")
+            version = app_info.get("version", "1.0.0")
+            app_path = self.dist_dir / f"{app_name}.app"
             if not app_path.exists():
                 print(f"[ERROR] App bundle not found: {app_path}")
                 print("[ERROR] Please build the app first using PyInstaller")
                 return False
-            
+
             # Create component package
             component_pkg = self._create_component_package(app_path)
             if not component_pkg:
                 return False
-            
+
             # Use component package directly as final installer (simplified process)
-            final_pkg = self.dist_dir / "ECBot-1.0.0.pkg"
+            final_pkg = self.dist_dir / f"{app_name}-{version}.pkg"
             import shutil
             shutil.copy2(component_pkg, final_pkg)
             
@@ -1234,17 +1243,22 @@ exit 0
             
             postinstall_script.chmod(0o755)
             
-            # Get version information
+            # Get app information
             app_info = self.config.get_app_info()
+            app_name = app_info.get("name", "eCan")
             version = app_info.get("version", "1.0.0")
-            
+
+            # Get macOS configuration
+            macos_config = self.config.config.get("macos", {})
+            bundle_identifier = macos_config.get("bundle_identifier", "com.ecan.app")
+
             # Create component package - use simpler parameters to avoid timeout
-            component_pkg = build_dir / "ECBot-component.pkg"
+            component_pkg = build_dir / f"{app_name}-component.pkg"
             cmd = [
                 "pkgbuild",
                 "--component", str(app_path),
                 "--install-location", "/Applications",
-                "--identifier", "com.ecan.app",
+                "--identifier", bundle_identifier,
                 "--version", version,
                 "--scripts", str(scripts_dir),
                 str(component_pkg)
@@ -1416,7 +1430,7 @@ class ECanBuild:
 
 def main():
     """Main function"""
-    parser = argparse.ArgumentParser(description="ECBot Build System")
+    parser = argparse.ArgumentParser(description="eCan Build System")
     parser.add_argument("mode", choices=["dev", "prod", "fast"], default="prod", nargs="?",
                        help="Build mode (default: prod)")
     parser.add_argument("--force", "-f", action="store_true",

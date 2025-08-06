@@ -684,7 +684,7 @@ class SmartDynamicDetector:
             'sqlalchemy', 'sqlite3', 'PIL', 'opencv',
             'cryptography', 'bcrypt', 'jwt', 'playwright',
             'langmem', 'faiss', 'browser-use', 'crawl4ai', 'langmem',
-            'faiss.swigfaiss_avx512',
+            'faiss.swigfaiss_avx512', 'lightrag',
 
             # fake_useragent related modules
             'fake_useragent', 'fake_useragent.data', 'fake_useragent.fake',
