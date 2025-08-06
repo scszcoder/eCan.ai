@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot Cross-Platform Build System v8.0
-简化构建脚本 - 自动依赖检测
+eCan Cross-Platform Build System v8.0
+Simplified build script - automatic dependency detection
 """
 
 import os
@@ -15,22 +15,22 @@ import argparse
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
-# Windows环境下的编码初始化
+# Encoding initialization for Windows environment
 if platform.system() == "Windows":
     try:
         import codecs
-        # 只在需要时重新配置stdout/stderr
+        # Reconfigure stdout/stderr only when needed
         if not hasattr(sys.stdout, 'encoding') or sys.stdout.encoding.lower() != 'utf-8':
             sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
             sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
         os.environ['PYTHONIOENCODING'] = 'utf-8'
     except Exception:
-        # 如果编码设置失败，继续执行（不影响核心功能）
+        # Continue execution if encoding setup fails (doesn't affect core functionality)
         pass
 
 
 class BuildEnvironment:
-    """构建环境管理"""
+    """Build environment management"""
     
     def __init__(self):
         self.platform = platform.system()
@@ -40,12 +40,12 @@ class BuildEnvironment:
         self.is_ci = self._detect_ci_environment()
         
     def _detect_ci_environment(self) -> bool:
-        """检测CI环境"""
+        """Detect CI environment"""
         ci_vars = ['GITHUB_ACTIONS', 'CI', 'TRAVIS', 'CIRCLECI']
         return any(os.getenv(var) for var in ci_vars)
     
     def get_platform_config(self) -> Dict[str, Any]:
-        """获取平台配置"""
+        """Get platform configuration"""
         if self.is_windows:
             return {
                 "name": "Windows",
@@ -70,14 +70,14 @@ class BuildEnvironment:
 
 
 class BuildConfig:
-    """构建配置管理"""
+    """Build configuration management"""
     
     def __init__(self, config_file: Path):
         self.config_file = config_file
         self.config = self._load_config()
         
     def _load_config(self) -> Dict[str, Any]:
-        """加载配置文件"""
+        """Load configuration file"""
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -86,23 +86,23 @@ class BuildConfig:
             sys.exit(1)
     
     def get_app_info(self) -> Dict[str, Any]:
-        """获取应用信息"""
+        """Get application information"""
         return self.config.get("app_info", {})
     
     def get_data_files(self) -> Dict[str, Any]:
-        """获取数据文件配置"""
+        """Get data files configuration"""
         return self.config.get("data_files", {})
     
     def get_pyinstaller_config(self) -> Dict[str, Any]:
-        """获取PyInstaller配置"""
+        """Get PyInstaller configuration"""
         return self.config.get("pyinstaller", {})
     
     def get_build_modes(self) -> Dict[str, Any]:
-        """获取构建模式配置"""
+        """Get build modes configuration"""
         return self.config.get("build_modes", {})
     
     def update_version(self, version: str):
-        """更新版本信息"""
+        """Update version information"""
         if "app_info" in self.config:
             self.config["app_info"]["version"] = version
         if "installer" in self.config:
@@ -111,14 +111,14 @@ class BuildConfig:
 
 
 class FrontendBuilder:
-    """前端构建器"""
+    """Frontend builder"""
     
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.frontend_dir = project_root / "gui_v2"
     
     def build(self, force: bool = False) -> bool:
-        """构建前端"""
+        """Build frontend"""
         if not self.frontend_dir.exists():
             print("[WARNING] Frontend directory not found, skipping frontend build")
             return True
@@ -126,13 +126,13 @@ class FrontendBuilder:
         print("[FRONTEND] Building frontend...")
         
         try:
-            # 安装依赖（如果需要）
+            # Install dependencies (if needed)
             # if force:
             #     print("[FRONTEND] Force mode: reinstalling dependencies...")
             #     if not self._install_dependencies():
             #         return False
 
-            # 执行构建
+            # Execute build
             if not self._run_build():
                 return False
             
@@ -144,23 +144,23 @@ class FrontendBuilder:
             return False
     
     def _install_dependencies(self) -> bool:
-        """安装依赖"""
+        """Install dependencies"""
         try:
             print("[FRONTEND] Installing dependencies...")
 
-            # 根据平台设置命令和环境变量
+            # Set command and environment variables based on platform
             if platform.system() == "Windows":
                 cmd = "npm ci --legacy-peer-deps"
                 shell = True
-                # Windows 编码设置
+                # Windows encoding settings
                 env = os.environ.copy()
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
-                env['CHCP'] = '65001'  # 设置代码页为UTF-8
+                env['CHCP'] = '65001'  # Set code page to UTF-8
             else:
                 cmd = ["npm", "ci", "--legacy-peer-deps"]
                 shell = False
-                # macOS/Linux 环境设置
+                # macOS/Linux environment settings
                 env = os.environ.copy()
                 env['LC_ALL'] = 'en_US.UTF-8'
                 env['LANG'] = 'en_US.UTF-8'
@@ -176,10 +176,10 @@ class FrontendBuilder:
                 shell=shell,
                 env=env,
                 encoding='utf-8',
-                errors='replace'  # 替换无法解码的字符而不是抛出异常
+                errors='replace'  # Replace undecodable characters instead of raising exceptions
             )
 
-            # 实时显示输出
+            # Display output in real-time
             for line in iter(process.stdout.readline, ''):
                 if line:
                     print(f"[FRONTEND] {line.rstrip()}")
@@ -198,23 +198,23 @@ class FrontendBuilder:
             return False
     
     def _run_build(self) -> bool:
-        """执行构建"""
+        """Execute build"""
         try:
             print("[FRONTEND] Building frontend...")
 
-            # 根据平台设置命令和环境变量
+            # Set command and environment variables based on platform
             if platform.system() == "Windows":
                 cmd = "npm run build"
                 shell = True
-                # Windows 编码设置
+                # Windows encoding settings
                 env = os.environ.copy()
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
-                env['CHCP'] = '65001'  # 设置代码页为UTF-8
+                env['CHCP'] = '65001'  # Set code page to UTF-8
             else:
                 cmd = ["npm", "run", "build"]
                 shell = False
-                # macOS/Linux 环境设置
+                # macOS/Linux environment settings
                 env = os.environ.copy()
                 env['LC_ALL'] = 'en_US.UTF-8'
                 env['LANG'] = 'en_US.UTF-8'
@@ -230,10 +230,10 @@ class FrontendBuilder:
                 shell=shell,
                 env=env,
                 encoding='utf-8',
-                errors='replace'  # 替换无法解码的字符而不是抛出异常
+                errors='replace'  # Replace undecodable characters instead of raising exceptions
             )
 
-            # 实时显示输出
+            # Display output in real-time
             for line in iter(process.stdout.readline, ''):
                 if line:
                     print(f"[FRONTEND] {line.rstrip()}")
@@ -253,7 +253,7 @@ class FrontendBuilder:
 
 
 class PyInstallerBuilder:
-    """PyInstaller构建器"""
+    """PyInstaller builder"""
     
     def __init__(self, config: BuildConfig, env: BuildEnvironment, project_root: Path):
         self.config = config
@@ -263,15 +263,15 @@ class PyInstallerBuilder:
         self.dist_dir = project_root / "dist"
     
     def build(self, mode: str, force: bool = False) -> bool:
-        """构建应用"""
+        """Build application"""
         print(f"[PYINSTALLER] Starting PyInstaller build...")
 
         try:
-            # 获取模式配置
+            # Get mode configuration
             build_modes = self.config.get_build_modes()
             mode_config = build_modes.get(mode, {})
 
-            # force参数会覆盖缓存设置
+            # force parameter overrides cache settings
             use_cache = mode_config.get("use_cache", False) and not force
 
             if force:
@@ -281,31 +281,31 @@ class PyInstallerBuilder:
             else:
                 print(f"[PYINSTALLER] Cache disabled for {mode} mode")
 
-            # 检查是否需要重新构建（只有在启用缓存且非强制模式下）
+            # Check if rebuild is needed (only when cache is enabled and not in force mode)
             if use_cache and self._should_skip_build():
                 print("[PYINSTALLER] Build is up to date, skipping...")
                 return True
 
-            # 清理之前的构建
+            # Clean previous build
             should_clean = force or mode_config.get("clean", False)
             if should_clean:
                 if not self._clean_previous_build():
                     print("[ERROR] Failed to clean previous build")
                     return False
             else:
-                # 即使不清理，也检查输出目录是否存在冲突
+                # Check for output directory conflicts even if not cleaning
                 if self.dist_dir.exists() and not use_cache:
                     print("[PYINSTALLER] Output directory exists, cleaning for fresh build...")
                     if not self._clean_previous_build():
                         print("[ERROR] Failed to clean output directory")
                         return False
             
-            # 生成spec文件
+            # Generate spec file
             spec_file = self._generate_spec_file(mode)
             if not spec_file:
                 return False
 
-            # 运行PyInstaller
+            # Run PyInstaller
             if not self._run_pyinstaller(spec_file, mode):
                 return False
             
@@ -317,17 +317,17 @@ class PyInstallerBuilder:
             return False
 
     def _should_skip_build(self) -> bool:
-        """检查是否应该跳过构建（基于文件修改时间）"""
+        """Check if build should be skipped (based on file modification time)"""
         try:
-            # 注意：这个方法只在启用缓存时被调用，所以不需要再次检查缓存设置
+            # Note: This method is only called when cache is enabled, so no need to check cache settings again
 
-            # 根据操作系统确定可执行文件名
+            # Determine executable filename based on OS
             if platform.system() == "Windows":
                 exe_name = "ECBot.exe"
             else:
-                exe_name = "ECBot"  # macOS 和 Linux 不需要 .exe 扩展名
+                exe_name = "eCan"  # macOS and Linux don't need .exe extension
 
-            # 检查输出文件是否存在
+            # Check if output file exists
             exe_file = self.dist_dir / "ECBot" / exe_name
             if not exe_file.exists():
                 print(f"[CACHE] Executable not found: {exe_file}")
@@ -336,7 +336,7 @@ class PyInstallerBuilder:
             exe_mtime = exe_file.stat().st_mtime
             print(f"[CACHE] Checking build cache, executable modified: {exe_mtime}")
 
-            # 检查源代码文件是否有更新
+            # Check if source code files have been updated
             source_dirs = [
                 self.project_root / "src",
                 self.project_root / "gui",
@@ -363,7 +363,7 @@ class PyInstallerBuilder:
             return False
 
     def _clean_previous_build(self):
-        """清理之前的构建"""
+        """Clean previous build"""
         print("[PYINSTALLER] Cleaning previous build...")
         try:
             if self.build_dir.exists():
@@ -377,7 +377,7 @@ class PyInstallerBuilder:
                 print(f"[PYINSTALLER] Cleaned dist directory: {self.dist_dir}")
         except Exception as e:
             print(f"[WARNING] Failed to clean previous build: {e}")
-            # 尝试使用系统命令清理
+            # Try to clean using system commands
             import subprocess
             try:
                 if self.build_dir.exists():
@@ -391,12 +391,12 @@ class PyInstallerBuilder:
         return True
     
     def _generate_spec_file(self, mode: str) -> Optional[Path]:
-        """生成spec文件"""
+        """Generate spec file"""
         try:
             spec_content = self._create_spec_content(mode)
             spec_file = self.build_dir / "ecbot.spec"
             
-            # 确保build目录存在
+            # Ensure build directory exists
             self.build_dir.mkdir(exist_ok=True)
             
             with open(spec_file, 'w', encoding='utf-8') as f:
@@ -410,43 +410,43 @@ class PyInstallerBuilder:
             return None
     
     def _create_spec_content(self, mode: str) -> str:
-        """创建spec文件内容"""
+        """Create spec file content"""
         app_info = self.config.get_app_info()
         data_files = self.config.get_data_files()
         pyinstaller_config = self.config.get_pyinstaller_config()
 
-        # 获取模式配置
+        # Get mode configuration
         build_modes = self.config.get_build_modes()
         mode_config = build_modes.get(mode, {})
 
-        # 基础配置
+        # Basic configuration
         main_script = app_info.get("main_script", "main.py")
         main_script_path = str(self.project_root / main_script)
 
-        # 根据平台选择正确的图标文件
+        # Choose correct icon file based on platform
         if self.env.is_windows:
             icon_name = app_info.get("icon_windows", "eCan.ico")
         elif self.env.is_macos:
             icon_name = app_info.get("icon_macos", "eCan.icns")
         else:
-            icon_name = app_info.get("icon_windows", "eCan.ico")  # Linux 使用 ico 作为默认
+            icon_name = app_info.get("icon_windows", "eCan.ico")  # Linux uses ico as default
 
         icon_path = str(self.project_root / icon_name)
 
-        # 格式化数据文件
+        # Format data files
         data_files_str = self._format_data_files(data_files)
 
-        # 获取必要的包作为hidden_imports
+        # Get necessary packages as hidden_imports
         essential_packages = self._get_essential_packages()
         hidden_imports = essential_packages
 
-        # 获取模式特定配置
+        # Get mode-specific configuration
         strip_debug = mode_config.get("strip_debug", False)
         console_mode = mode_config.get("console", mode == "dev")
         debug_mode = mode_config.get("debug", mode == "dev")
         use_parallel = mode_config.get("parallel", pyinstaller_config.get("parallel", False))
 
-        # 获取 collect 配置
+        # Get collect configuration
         def get_collect_packages(collect_type):
             mode_packages = mode_config.get(collect_type, [])
             global_packages = pyinstaller_config.get(collect_type, [])
@@ -466,7 +466,7 @@ class PyInstallerBuilder:
         
 
         
-        # 生成 collect 导入语句和数据收集代码
+        # Generate collect import statements and data collection code
         collect_imports = []
         collect_code = []
 
@@ -491,12 +491,12 @@ class PyInstallerBuilder:
         collect_imports_str = "\n".join(collect_imports)
         collect_code_str = "\n".join(collect_code)
 
-        # 构建 Analysis 参数
+        # Build Analysis parameters
         binaries_param = "collected_binaries" if collect_binaries_packages else "[]"
         datas_param = f"collected_datas + {data_files_str}" if collect_data_packages else data_files_str
         hiddenimports_param = f"collected_submodules + {hidden_imports}" if collect_submodules_packages else hidden_imports
 
-        # 简化的spec内容 - 包含所有依赖，只排除特定包
+        # Simplified spec content - includes all dependencies, only excludes specific packages
         parallel_comment = "# Parallel compilation enabled via environment variables" if use_parallel else ""
         collect_comment = f"# Auto-collecting from {len(collect_data_packages + collect_binaries_packages + collect_submodules_packages)} packages" if any([collect_data_packages, collect_binaries_packages, collect_submodules_packages]) else ""
 
@@ -550,7 +550,7 @@ exe = EXE(
 )
 """
         
-        # 添加平台特定配置
+        # Add platform-specific configuration
         if self.env.is_windows:
             spec_content += f"""
 coll = COLLECT(
@@ -603,11 +603,11 @@ app = BUNDLE(
         return spec_content
     
     def _get_essential_packages(self) -> List[str]:
-        """使用智能动态导入检测器获取包列表"""
-        print("[PYINSTALLER] 使用智能动态导入检测器...")
+        """Get package list using smart dynamic import detector"""
+        print("[PYINSTALLER] Using smart dynamic import detector...")
         
         try:
-            # 导入智能检测器 - 修复导入路径
+            # Import smart detector - fix import path
             import sys
             build_system_path = str(self.project_root / "build_system")
             if build_system_path not in sys.path:
@@ -615,39 +615,39 @@ app = BUNDLE(
             
             from smart_dynamic_detector import SmartDynamicDetector
             
-            # 创建检测器实例
+            # Create detector instance
             detector = SmartDynamicDetector(self.project_root)
             
-            # 检测智能动态导入
+            # Detect smart dynamic imports
             all_packages = detector.detect_smart_imports()
             
-            print(f"[PYINSTALLER] 智能检测器发现 {len(all_packages)} 个包")
+            print(f"[PYINSTALLER] Smart detector found {len(all_packages)} packages")
             
             return all_packages
             
         except ImportError as e:
-            self._handle_package_manager_error(f"智能检测器文件不存在: {e}")
+            self._handle_package_manager_error(f"Smart detector file not found: {e}")
             return []
         except Exception as e:
-            self._handle_package_manager_error(f"智能检测器错误: {e}")
+            self._handle_package_manager_error(f"Smart detector error: {e}")
             return []
     
     def _handle_package_manager_error(self, error_msg: str):
-        """处理智能检测器错误"""
+        """Handle smart detector errors"""
         print(f"[ERROR] {error_msg}")
-        print("[ERROR] 智能动态导入检测器配置错误，构建失败")
-        print("[ERROR] 请检查以下文件:")
+        print("[ERROR] Smart dynamic import detector configuration error, build failed")
+        print("[ERROR] Please check the following files:")
         print("  - build_system/smart_dynamic_detector.py")
-        print("[ERROR] 或者运行以下命令测试检测器:")
+        print("[ERROR] Or run the following command to test the detector:")
         print("  python build_system/smart_dynamic_detector.py")
     
 
     
     def _format_data_files(self, data_files: Dict[str, Any]) -> str:
-        """格式化数据文件"""
+        """Format data files"""
         files = []
 
-        # 添加目录
+        # Add directory
         for directory in data_files.get("directories", []):
             dir_path = self.project_root / directory
             if dir_path.exists():
@@ -655,7 +655,7 @@ app = BUNDLE(
             else:
                 print(f"[WARNING] Directory not found: {dir_path}")
 
-        # 添加文件
+        # Add file
         for file_path in data_files.get("files", []):
             file_path_obj = self.project_root / file_path
             if file_path_obj.exists():
@@ -666,7 +666,7 @@ app = BUNDLE(
         return "[" + ",\n    ".join(files) + "]"
 
     def _parallel_precompile(self):
-        """并行预编译Python文件以加速PyInstaller"""
+        """Parallel precompile Python files to accelerate PyInstaller"""
         try:
             import concurrent.futures
             import py_compile
@@ -674,12 +674,12 @@ app = BUNDLE(
 
             print("[OPTIMIZATION] Starting parallel precompilation...")
 
-            # 收集所有Python文件
+            # Collect all Python files
             python_files = []
             for pattern in ["**/*.py"]:
                 python_files.extend(self.project_root.glob(pattern))
 
-            # 过滤掉不需要的文件
+            # Filter out unnecessary files
             exclude_patterns = [
                 "venv", "__pycache__", ".git", "build", "dist",
                 "tests", "test_", "_test", "setup.py"
@@ -695,7 +695,7 @@ app = BUNDLE(
 
             print(f"[OPTIMIZATION] Precompiling {len(filtered_files)} Python files...")
 
-            # 使用多线程而不是多进程（避免pickle问题）
+            # Use multithreading instead of multiprocessing (avoid pickle issues)
             max_workers = min(multiprocessing.cpu_count(), 8)
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 def compile_file(file_path):
@@ -712,16 +712,16 @@ app = BUNDLE(
 
         except Exception as e:
             print(f"[WARNING] Precompilation failed: {e}")
-            # 继续构建，预编译失败不应该阻止构建
+            # Continue building, precompilation failure should not block build
 
     def _run_pyinstaller(self, spec_file: Path, mode: str = "prod") -> bool:
-        """运行PyInstaller"""
+        """Run PyInstaller"""
         try:
             print(f"[PYINSTALLER] Running command: {sys.executable} -m PyInstaller {spec_file}")
             print(f"[PYINSTALLER] Working directory: {self.project_root}")
             print("=" * 60)
 
-            # 预编译优化：并行预编译Python文件
+            # Precompilation optimization: parallel precompile Python files
             build_modes = self.config.get_build_modes()
             mode_config = build_modes.get(mode, {})
             use_parallel = mode_config.get("parallel", False)
@@ -729,37 +729,37 @@ app = BUNDLE(
             if use_parallel and mode in ["fast", "dev", "prod"]:
                 self._parallel_precompile()
 
-            # 根据平台设置环境变量
+            # Set environment variables based on platform
             if platform.system() == "Windows":
                 env = os.environ.copy()
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
-                env['CHCP'] = '65001'  # 设置代码页为UTF-8
+                env['CHCP'] = '65001'  # Set code page to UTF-8
             else:
-                # macOS/Linux 环境设置
+                # macOS/Linux environment settings
                 env = os.environ.copy()
                 env['LC_ALL'] = 'en_US.UTF-8'
                 env['LANG'] = 'en_US.UTF-8'
 
-            # 添加并行构建参数
+            # Add parallel build parameters
             cmd = [sys.executable, "-m", "PyInstaller"]
 
-            # 获取配置
+            # Get configuration
             pyinstaller_config = self.config.get_pyinstaller_config()
             build_modes = self.config.get_build_modes()
             mode_config = build_modes.get(mode, {})
 
-            # 当使用spec文件时，只能添加少数几个选项
+            # When using spec file, only a few options can be added
             cmd.extend([
-                "--noconfirm",  # 不询问确认
+                "--noconfirm",  # Don't ask for confirmation
             ])
 
-            # 根据模式决定是否清理
+            # Decide whether to clean based on mode
             if mode_config.get("clean", False):
                 cmd.append("--clean")
                 print("[PYINSTALLER] Clean build enabled")
 
-            # 添加缓存支持（优先使用模式配置，然后是全局配置）
+            # Add cache support (prioritize mode configuration, then global configuration)
             use_cache = mode_config.get("use_cache", pyinstaller_config.get("use_cache", False))
             if use_cache:
                 cache_dir = pyinstaller_config.get("cache_dir", "build/pyinstaller_cache")
@@ -768,28 +768,28 @@ app = BUNDLE(
                 cmd.extend(["--workpath", str(cache_path)])
                 print(f"[PYINSTALLER] Using cache directory: {cache_path}")
 
-            # 配置并行编译环境变量
+            # Configure parallel compilation environment variables
             use_parallel = mode_config.get("parallel", pyinstaller_config.get("parallel", False))
             if use_parallel:
                 import multiprocessing
                 workers = pyinstaller_config.get("workers", 0)
                 if workers == 0:
-                    workers = min(multiprocessing.cpu_count(), 8)  # 限制最大8个进程
+                    workers = min(multiprocessing.cpu_count(), 8)  # Limit to maximum 8 processes
 
-                # 设置编译优化环境变量
-                env['PYTHONHASHSEED'] = '1'  # 确保编译的一致性
-                env['PYTHONOPTIMIZE'] = '1'  # 启用Python优化
-                env['PYTHONDONTWRITEBYTECODE'] = '1'  # 不写.pyc文件，加速
+                # Set compilation optimization environment variables
+                env['PYTHONHASHSEED'] = '1'  # Ensure compilation consistency
+                env['PYTHONOPTIMIZE'] = '1'  # Enable Python optimization
+                env['PYTHONDONTWRITEBYTECODE'] = '1'  # Don't write .pyc files, accelerate
 
-                # 设置多线程库优化（对科学计算库有效）
+                # Set multithreading library optimization (effective for scientific computing libraries)
                 env['OMP_NUM_THREADS'] = str(workers)
                 env['MKL_NUM_THREADS'] = str(workers)
                 env['NUMEXPR_NUM_THREADS'] = str(workers)
 
-                # 设置内存和I/O优化
-                env['PYTHONUNBUFFERED'] = '1'  # 无缓冲输出
+                # Set memory and I/O optimization
+                env['PYTHONUNBUFFERED'] = '1'  # Unbuffered output
 
-                # 设置临时目录到更快的存储（如果可能）
+                # Set temporary directory to faster storage (if possible)
                 import tempfile
                 temp_dir = tempfile.gettempdir()
                 env['TMPDIR'] = temp_dir
@@ -803,8 +803,8 @@ app = BUNDLE(
             if strip_debug:
                 print("[PYINSTALLER] Debug symbols will be stripped (configured in spec file)")
 
-            # 注意：当使用spec文件时，collect参数必须在spec文件中定义，不能在命令行中添加
-            # collect配置将在spec文件生成时处理
+            # Note: When using spec file, collect parameters must be defined in spec file, cannot be added in command line
+            # collect configuration will be handled during spec file generation
 
             cmd.append(str(spec_file))
 
@@ -818,10 +818,10 @@ app = BUNDLE(
                 universal_newlines=True,
                 env=env,
                 encoding='utf-8',
-                errors='replace'  # 替换无法解码的字符而不是抛出异常
+                errors='replace'  # Replace undecodable characters instead of raising exceptions
             )
 
-            # 实时显示输出
+            # Display output in real-time
             for line in iter(process.stdout.readline, ''):
                 if line:
                     print(f"[PYINSTALLER] {line.rstrip()}")
@@ -842,7 +842,7 @@ app = BUNDLE(
 
 
 class InstallerBuilder:
-    """安装包构建器"""
+    """Installer builder"""
 
     def __init__(self, config: BuildConfig, env: BuildEnvironment, project_root: Path, mode: str = "prod"):
         self.config = config
@@ -852,7 +852,7 @@ class InstallerBuilder:
         self.mode = mode
     
     def build(self) -> bool:
-        """构建安装包"""
+        """Build installer"""
         if self.env.is_windows:
             return self._build_windows_installer()
         elif self.env.is_macos:
@@ -862,19 +862,19 @@ class InstallerBuilder:
             return True
     
     def _build_windows_installer(self) -> bool:
-        """构建Windows安装包"""
+        """Build Windows installer"""
         try:
-            # 检查Inno Setup
+            # Check Inno Setup
             if not self._check_inno_setup():
                 print("[WARNING] Inno Setup not found, skipping installer creation")
                 return True
             
-            # 创建Inno Setup脚本
+            # Create Inno Setup script
             iss_file = self._create_inno_script()
             if not iss_file:
                 return False
             
-            # 运行Inno Setup
+            # Run Inno Setup
             return self._run_inno_setup(iss_file)
             
         except Exception as e:
@@ -882,7 +882,7 @@ class InstallerBuilder:
             return False
     
     def _check_inno_setup(self) -> bool:
-        """检查Inno Setup"""
+        """Check Inno Setup"""
         inno_paths = [
             r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
             r"C:\Program Files\Inno Setup 6\ISCC.exe"
@@ -890,26 +890,26 @@ class InstallerBuilder:
         return any(Path(path).exists() for path in inno_paths)
     
     def _create_inno_script(self) -> Optional[Path]:
-        """创建Inno Setup脚本"""
+        """Create Inno Setup script"""
         try:
             installer_config = self.config.config.get("installer", {})
             app_info = self.config.get_app_info()
 
-            # 根据构建模式选择压缩设置
+            # Choose compression settings based on build mode
             compression_modes = installer_config.get("compression_modes", {})
             mode_config = compression_modes.get(self.mode, {})
 
-            # 使用模式特定配置，或回退到默认值
+            # Use mode-specific configuration, or fallback to defaults
             compression = mode_config.get("compression", installer_config.get("compression", "zip"))
             solid_compression = str(mode_config.get("solid_compression", installer_config.get("solid_compression", False))).lower()
             internal_compress_level = mode_config.get("internal_compress_level", "fast")
 
-            # 检查是否启用并行处理
+            # Check if parallel processing is enabled
             build_modes = self.config.get_build_modes()
             build_mode_config = build_modes.get(self.mode, {})
             use_parallel = build_mode_config.get("parallel", False)
 
-            # 添加并行处理注释
+            # Add parallel processing comments
             parallel_comment = "; Parallel compression enabled via environment variables" if use_parallel else "; Single-threaded compression"
 
             iss_content = f"""
@@ -927,11 +927,11 @@ Compression={compression}
 SolidCompression={solid_compression}
 PrivilegesRequired=lowest
 InternalCompressLevel={internal_compress_level}
-; 改进的安装配置以避免COM错误
+; Improved installation configuration to avoid COM errors
 SetupIconFile=..\\eCan.ico
 UninstallDisplayIcon={{app}}\\eCan.exe
 CreateUninstallRegKey=true
-; 处理权限问题
+; Handle permission issues
 AllowNoIcons=true
 DisableProgramGroupPage=auto
 
@@ -965,7 +965,7 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             return None
     
     def _run_inno_setup(self, iss_file: Path) -> bool:
-        """运行Inno Setup"""
+        """Run Inno Setup"""
         try:
             inno_paths = [
                 r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
@@ -982,7 +982,7 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
                 print("[ERROR] Inno Setup compiler not found")
                 return False
             
-            # 根据压缩模式动态设置超时时间
+            # Dynamically set timeout based on compression mode
             installer_config = self.config.config.get("installer", {})
             compression_modes = installer_config.get("compression_modes", {})
             mode_config = compression_modes.get(self.mode, {})
@@ -991,23 +991,23 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             solid_compression = mode_config.get("solid_compression", installer_config.get("solid_compression", False))
             internal_compress_level = mode_config.get("internal_compress_level", "normal")
 
-            # 根据压缩设置和并行处理计算超时时间
+            # Calculate timeout based on compression settings and parallel processing
             build_modes = self.config.get_build_modes()
             build_mode_config = build_modes.get(self.mode, {})
             use_parallel = build_mode_config.get("parallel", False)
 
-            # 根据构建模式和并行处理调整超时时间
+            # Adjust timeout based on build mode and parallel processing
             if self.mode == "prod":
-                # 生产模式：质量优先，给予充足时间
+                # Production mode: quality priority, allow sufficient time
                 base_timeout_multiplier = 1
                 if compression == "lzma" and solid_compression and internal_compress_level == "max":
-                    timeout_seconds = int(6000 * base_timeout_multiplier)  # 60分钟
+                    timeout_seconds = int(6000 * base_timeout_multiplier)  # 60 minutes
                 elif compression == "lzma" and solid_compression:
-                    timeout_seconds = int(4000 * base_timeout_multiplier)  # 40分钟
+                    timeout_seconds = int(4000 * base_timeout_multiplier)  # 40 minutes
                 else:
-                    timeout_seconds = int(2000 * base_timeout_multiplier)   # 20分钟
+                    timeout_seconds = int(2000 * base_timeout_multiplier)   # 20 minutes
             else:
-                # 开发模式：速度优先
+                # Development mode: speed priority
                 timeout_seconds = int(1500)
 
             print(f"[INSTALLER] Running Inno Setup: {iscc_path}")
@@ -1019,13 +1019,13 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             print(f"[INSTALLER] Starting compression... (this may take several minutes)")
             print("=" * 60)
 
-            # Windows环境下的编码处理
+            # Encoding handling in Windows environment
             if self.env.is_windows:
                 env = os.environ.copy()
                 env['PYTHONIOENCODING'] = 'utf-8'
                 env['PYTHONLEGACYWINDOWSSTDIO'] = 'utf-8'
 
-                # 配置并行压缩
+                # Configure parallel compression
                 build_modes = self.config.get_build_modes()
                 mode_config = build_modes.get(self.mode, {})
                 use_parallel = mode_config.get("parallel", False)
@@ -1033,19 +1033,19 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
                 if use_parallel:
                     import multiprocessing
                     workers = min(multiprocessing.cpu_count(), 8)
-                    # 设置压缩线程数环境变量
+                    # Set compression thread count environment variable
                     env['NUMBER_OF_PROCESSORS'] = str(workers)
                     env['INNO_COMPRESS_THREADS'] = str(workers)
                     print(f"[INSTALLER] Parallel compression enabled with {workers} threads")
 
-                # 构建 Inno Setup 命令
+                # Build Inno Setup command
                 cmd = [iscc_path]
 
-                # 添加并行优化参数
+                # Add parallel optimization parameters
                 if use_parallel:
-                    cmd.extend(["/Q", "/O+"])  # 安静模式 + 输出优化
+                    cmd.extend(["/Q", "/O+"])  # Quiet mode + output optimization
                 else:
-                    cmd.append("/Q")  # 仅安静模式
+                    cmd.append("/Q")  # Quiet mode only
 
                 cmd.append(str(iss_file))
 
@@ -1071,16 +1071,16 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
                     print(f"[INFO] Current settings: {compression} compression, solid={solid_compression}, level={internal_compress_level}")
                     return False
             else:
-                # 非Windows平台（通过Wine运行Inno Setup）
+                # Non-Windows platform (run Inno Setup through Wine)
                 build_modes = self.config.get_build_modes()
                 mode_config = build_modes.get(self.mode, {})
                 use_parallel = mode_config.get("parallel", False)
 
                 cmd = [iscc_path]
                 if use_parallel:
-                    cmd.extend(["/Q", "/O+"])  # 安静模式 + 输出优化
+                    cmd.extend(["/Q", "/O+"])  # Quiet mode + output optimization
                 else:
-                    cmd.append("/Q")  # 仅安静模式
+                    cmd.append("/Q")  # Quiet mode only
                 cmd.append(str(iss_file))
 
                 result = subprocess.run(
@@ -1100,7 +1100,7 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             print("[SUCCESS] Windows installer created")
             print(f"[INFO] Inno Setup output: {result.stdout}")
 
-            # 检查输出文件是否存在
+            # Check if output file exists
             expected_output = self.dist_dir / "ECBot-Setup.exe"
             if expected_output.exists():
                 size_mb = expected_output.stat().st_size / (1024 * 1024)
@@ -1116,33 +1116,33 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             return False
 
     def _build_macos_installer(self) -> bool:
-        """构建macOS安装包"""
+        """Build macOS installer"""
         try:
             print("[INSTALLER] Building macOS pkg installer...")
             
-            # 检查必要的工具
+            # Check required tools
             if not self._check_macos_tools():
                 print("[WARNING] Required macOS tools not found, skipping pkg creation")
                 return True
             
-            # 检查.app文件是否存在
+            # Check if .app file exists
             app_path = self.dist_dir / "ECBot.app"
             if not app_path.exists():
                 print(f"[ERROR] App bundle not found: {app_path}")
                 print("[ERROR] Please build the app first using PyInstaller")
                 return False
             
-            # 创建组件包
+            # Create component package
             component_pkg = self._create_component_package(app_path)
             if not component_pkg:
                 return False
             
-            # 直接使用组件包作为最终安装包（简化流程）
+            # Use component package directly as final installer (simplified process)
             final_pkg = self.dist_dir / "ECBot-1.0.0.pkg"
             import shutil
             shutil.copy2(component_pkg, final_pkg)
             
-            # 确保文件权限正确
+            # Ensure file permissions are correct
             import os
             os.chmod(final_pkg, 0o644)
             
@@ -1157,19 +1157,19 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             return False
     
     def _check_macos_tools(self) -> bool:
-        """检查macOS必要的工具"""
+        """Check required macOS tools"""
         try:
-            # 检查pkgbuild - 使用 --help 而不是 --version
+            # Check pkgbuild - use --help instead of --version
             result = subprocess.run(["pkgbuild", "--help"], 
                                   capture_output=True, text=True, timeout=10)
-            if result.returncode != 0 and result.returncode != 1:  # pkgbuild --help 可能返回1
+            if result.returncode != 0 and result.returncode != 1:  # pkgbuild --help may return 1
                 print("[ERROR] pkgbuild not found or not working")
                 return False
             
-            # 检查productbuild - 使用 --help 而不是 --version
+            # Check productbuild - use --help instead of --version
             result = subprocess.run(["productbuild", "--help"], 
                                   capture_output=True, text=True, timeout=10)
-            if result.returncode != 0 and result.returncode != 1:  # productbuild --help 可能返回1
+            if result.returncode != 0 and result.returncode != 1:  # productbuild --help may return 1
                 print("[ERROR] productbuild not found or not working")
                 return False
             
@@ -1186,39 +1186,39 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
 
 
     def _create_component_package(self, app_path: Path) -> Optional[Path]:
-        """创建组件包"""
+        """Create component package"""
         try:
             print("[MACOS] Creating component package...")
             
-            # 创建构建目录
+            # Create build directory
             build_dir = self.project_root / "build" / "macos_pkg"
             build_dir.mkdir(parents=True, exist_ok=True)
             
-            # 创建 postinstall 脚本
+            # Create postinstall script
             scripts_dir = build_dir / "scripts"
             scripts_dir.mkdir(exist_ok=True)
             
             postinstall_script = scripts_dir / "postinstall"
             postinstall_content = """#!/bin/bash
-# 安装后脚本
+# Post-installation script
 echo "Installing eCan..."
 
-# 设置应用权限
+# Set application permissions
 chmod -R 755 "/Applications/eCan.app"
 
-# 创建桌面快捷方式
+# Create desktop shortcut
 if [ -d "/Users/$USER/Desktop" ]; then
     ln -sf "/Applications/eCan.app" "/Users/$USER/Desktop/eCan.app"
     echo "Desktop shortcut created"
 fi
 
-# 创建应用程序文件夹快捷方式
+# Create Applications folder shortcut
 if [ -d "/Applications" ]; then
-    # 确保应用在应用程序文件夹中可见
+    # Ensure app is visible in Applications folder
     touch "/Applications/eCan.app"
 fi
 
-# 刷新 Finder 和 Dock
+# Refresh Finder and Dock
 killall Finder 2>/dev/null || true
 killall Dock 2>/dev/null || true
 
@@ -1231,11 +1231,11 @@ exit 0
             
             postinstall_script.chmod(0o755)
             
-            # 获取版本信息
+            # Get version information
             app_info = self.config.get_app_info()
             version = app_info.get("version", "1.0.0")
             
-            # 创建组件包 - 使用更简单的参数避免超时
+            # Create component package - use simpler parameters to avoid timeout
             component_pkg = build_dir / "ECBot-component.pkg"
             cmd = [
                 "pkgbuild",
@@ -1248,7 +1248,7 @@ exit 0
             ]
             
             print(f"[MACOS] Running pkgbuild: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # 增加超时时间到15分钟
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)  # Increase timeout to 15 minutes
             
             if result.returncode != 0:
                 print(f"[ERROR] pkgbuild failed:")
@@ -1267,15 +1267,15 @@ exit 0
             return None
 
     def _create_final_package(self, component_pkg: Path) -> Optional[Path]:
-        """创建最终安装包"""
+        """Create final installer package"""
         try:
             print("[MACOS] Creating final package...")
             
-            # 创建 distribution.xml
+            # Create distribution.xml
             build_dir = self.project_root / "build" / "macos_pkg"
             dist_xml = build_dir / "distribution.xml"
             
-            # 获取版本信息
+            # Get version information
             app_info = self.config.get_app_info()
             version = app_info.get("version", "1.0.0")
             
@@ -1299,11 +1299,11 @@ exit 0
             with open(dist_xml, 'w', encoding='utf-8') as f:
                 f.write(distribution_content)
             
-            # 创建 resources 目录
+            # Create resources directory
             resources_dir = build_dir / "resources"
             resources_dir.mkdir(exist_ok=True)
             
-            # 创建最终安装包
+            # Create final installer package
             final_pkg = self.dist_dir / f"eCan-{version}.pkg"
             cmd = [
                 "productbuild",
@@ -1321,7 +1321,7 @@ exit 0
                 print(f"STDERR: {result.stderr}")
                 return None
             
-            # 检查文件大小
+            # Check file size
             if final_pkg.exists():
                 size_mb = final_pkg.stat().st_size / (1024 * 1024)
                 print(f"[MACOS] Final package created: {final_pkg} ({size_mb:.1f} MB)")
@@ -1341,18 +1341,18 @@ exit 0
 
 
 class ECBotBuild:
-    """ECBot构建主类"""
+    """eCan build main class"""
     
     def __init__(self, mode: str = "prod", version: str = None):
         self.mode = mode
         self.version = version
         self.project_root = Path.cwd()
 
-        # 使用统一的配置文件
+        # Use unified configuration file
         config_file = self.project_root / "build_system" / "build_config.json"
         self.config = BuildConfig(config_file)
         
-        # 如果指定了版本，更新配置
+        # If version is specified, update configuration
         if self.version:
             self.config.update_version(self.version)
             
@@ -1362,15 +1362,15 @@ class ECBotBuild:
         self.installer_builder = InstallerBuilder(self.config, self.env, self.project_root, self.mode)
     
     def build(self, force: bool = False, skip_frontend: bool = None, skip_installer: bool = False) -> bool:
-        """执行构建"""
+        """Execute build"""
         start_time = time.time()
 
         print("=" * 60)
-        print("ECBot Cross-Platform Build System v8.0")
+        print("eCan Cross-Platform Build System v8.0")
         print("=" * 60)
 
         try:
-            # 构建前端（如果需要）
+            # Build frontend (if needed)
             if skip_frontend is None:
                 skip_frontend = self.mode == "prod"
 
@@ -1378,11 +1378,11 @@ class ECBotBuild:
                 if not self.frontend_builder.build(force):
                     return False
 
-            # 构建主应用
+            # Build main application
             if not self.pyinstaller_builder.build(self.mode, force):
                 return False
 
-            # 构建安装包（如果需要）
+            # Build installer (if needed)
             if not skip_installer:
                 print(f"[INFO] Creating installer for {self.mode} mode...")
                 if not self.installer_builder.build():
@@ -1390,7 +1390,7 @@ class ECBotBuild:
             else:
                 print("[INFO] Skipping installer creation")
 
-            # 显示结果
+            # Display results
             self._show_result(start_time)
             return True
 
@@ -1402,7 +1402,7 @@ class ECBotBuild:
             return False
     
     def _show_result(self, start_time: float):
-        """显示构建结果"""
+        """Display build results"""
         build_time = time.time() - start_time
         print("=" * 60)
         print(f"[SUCCESS] Build completed in {build_time:.2f} seconds")
@@ -1412,7 +1412,7 @@ class ECBotBuild:
 
 
 def main():
-    """主函数"""
+    """Main function"""
     parser = argparse.ArgumentParser(description="ECBot Build System")
     parser.add_argument("mode", choices=["dev", "prod", "fast"], default="prod", nargs="?",
                        help="Build mode (default: prod)")
@@ -1427,7 +1427,7 @@ def main():
 
     args = parser.parse_args()
 
-    # 使用指定的构建模式
+    # Use specified build mode
     builder = ECBotBuild(args.mode, version=args.version)
     success = builder.build(force=args.force, skip_frontend=args.skip_frontend, skip_installer=args.skip_installer)
 

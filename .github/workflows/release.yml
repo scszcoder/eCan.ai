@@ -1,17 +1,17 @@
 name: Release Build
 
 on:
-  # 触发条件：创建 tag 或 release
+  # Trigger conditions: create tag or release
   push:
     tags:
-      - 'v*'  # 匹配 v1.0.0, v2.1.3 等格式
+      - 'v*'  # Match formats like v1.0.0, v2.1.3
   release:
     types: [published, edited, created]
-  # 手动触发
+  # Manual trigger
   workflow_dispatch:
     inputs:
       platform:
-        description: '构建平台 (windows, macos, all)'
+        description: 'Build platform (windows, macos, all)'
         required: true
         default: 'all'
         type: choice
@@ -21,7 +21,7 @@ on:
           - macos
 
 jobs:
-  # 验证 tag 格式
+  # Validate tag format
   validate-tag:
     runs-on: ubuntu-latest
     outputs:
@@ -52,7 +52,7 @@ jobs:
           echo "ℹ️ Manual trigger or release event"
         fi
 
-  # Windows 构建
+  # Windows build
   build-windows:
     needs: validate-tag
     if: |
@@ -206,7 +206,7 @@ jobs:
           build.log
         retention-days: 30
 
-  # macOS 构建
+  # macOS build
   build-macos:
     needs: validate-tag
     if: |
@@ -326,7 +326,7 @@ jobs:
           build.log
         retention-days: 30
 
-  # 创建 Release
+  # Create Release
   create-release:
     needs: [validate-tag, build-windows, build-macos]
     if: |
