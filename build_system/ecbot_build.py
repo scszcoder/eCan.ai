@@ -993,14 +993,14 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
                 # 生产模式：质量优先，给予充足时间
                 base_timeout_multiplier = 1
                 if compression == "lzma" and solid_compression and internal_compress_level == "max":
-                    timeout_seconds = int(3000 * base_timeout_multiplier)  # 30分钟
+                    timeout_seconds = int(6000 * base_timeout_multiplier)  # 60分钟
                 elif compression == "lzma" and solid_compression:
-                    timeout_seconds = int(2000 * base_timeout_multiplier)  # 20分钟
+                    timeout_seconds = int(4000 * base_timeout_multiplier)  # 40分钟
                 else:
-                    timeout_seconds = int(1000 * base_timeout_multiplier)   # 10分钟
+                    timeout_seconds = int(2000 * base_timeout_multiplier)   # 20分钟
             else:
                 # 开发模式：速度优先
-                timeout_seconds = int(1000)
+                timeout_seconds = int(1500)
 
             print(f"[INSTALLER] Running Inno Setup: {iscc_path}")
             print(f"[INSTALLER] Script file: {iss_file}")
