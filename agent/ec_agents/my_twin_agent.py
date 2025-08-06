@@ -36,7 +36,13 @@ def set_up_my_twin_agent(mainwin):
         )
         logger.info("agent card created:", agent_card.name, agent_card.url)
         chat_task = create_my_twin_chat_task(mainwin)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+
+        # 在打包环境中安全初始化browser_use_llm
+        try:
+            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        except Exception as e:
+            logger.warning(f"Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+
         helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[chatter_skill], tasks=[chat_task])
 
     except Exception as e:
