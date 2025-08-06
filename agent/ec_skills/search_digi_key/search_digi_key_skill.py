@@ -18,13 +18,21 @@ async def mcp_call_tool(mcp_client, tool_name, args):
         # Call the tool and get the raw response
         # response = await mcp_client.call_tool(tool_name, args)
         url = "http://localhost:4668/mcp/"
-        response = await local_mcp_call_tool(url,tool_name, args)
+        response = await local_mcp_call_tool(url, tool_name, args)
         print(f"Raw response type: {type(response)}")
-        print(f"Raw response Err: {response.isError}   {response.content[0].text}")
-        # print("response meta:", response.content[0].meta)
-
-        # If the response is a CallToolResult with an error, return the error
-        return response
+        print(f"Raw response: {response}")
+        
+        # 检查响应是否包含错误信息
+        if hasattr(response, 'isError') and response.isError:
+            print(f"Tool call error: {response}")
+            return response
+        elif hasattr(response, 'content') and len(response.content) > 0:
+            print(f"Tool call content: {response.content[0].text}")
+            return response
+        else:
+            # 如果响应格式不符合预期，返回一个标准格式
+            print(f"Unexpected response format: {response}")
+            return response
 
     except Exception as e:
         error_msg = f"Error calling {tool_name}: {str(e)}"
@@ -38,48 +46,50 @@ def go_to_site_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     try:
         print("about to connect to ads power:", type(state), state)
-        loop = asyncio.get_event_loop()
-    except RuntimeError as e:
+        
+        # 安全地获取或创建事件循环
         try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"os_connect_to_adspower", args={"input": state["tool_input"]} ))
-            # tool_result = await mainwin.mcp_client.call_tool(
-            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
-            # )
-            print("new loop go_to_site_node tool completed:", type(tool_result), tool_result)
-            if "completed" in tool_result.content[0].text:
-                state.result = tool_result.content[0].text
-                state.tool_result = getattr(tool_result, 'meta', None)
+        
+        # 调用工具
+        tool_result = loop.run_until_complete(
+            mcp_call_tool(mainwin.mcp_client, "os_connect_to_adspower", args={"input": state["tool_input"]})
+        )
+        
+        print("go_to_site_node tool completed:", type(tool_result), tool_result)
+        
+        # 安全地处理结果
+        if isinstance(tool_result, dict):
+            # 如果返回的是字典
+            if "content" in tool_result and len(tool_result["content"]) > 0:
+                content_text = tool_result["content"][0].get("text", "")
+                if "completed" in content_text:
+                    state["result"] = content_text
+                    state["tool_result"] = tool_result.get("meta", None)
+                else:
+                    state["error"] = content_text
             else:
-                state["error"] = tool_result.content[0].text
-
-            return state
-        except Exception as e:
-            state['error'] = get_traceback(e, "ErrorGoToSiteNode0")
-            logger.debug(state['error'])
-            return state
-        finally:
-            loop.close()
-    else:
-        try:
-            tool_result = loop.run_until_complete(
-                mcp_call_tool(mainwin.mcp_client, "os_connect_to_adspower", args={"input": state["tool_input"]}))
-            # tool_result = await mainwin.mcp_client.call_tool(
-            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
-            # )
-            print("old loop go_to_site_node tool completed:", type(tool_result), tool_result)
-            if "completed" in tool_result.content[0].text:
-                state.result = tool_result.content[0].text
-                state.tool_result = getattr(tool_result, 'meta', None)
+                state["error"] = f"Invalid tool result format: {tool_result}"
+        else:
+            # 如果返回的是对象
+            if hasattr(tool_result, 'content') and len(tool_result.content) > 0:
+                if "completed" in tool_result.content[0].text:
+                    state["result"] = tool_result.content[0].text
+                    state["tool_result"] = getattr(tool_result, 'meta', None)
+                else:
+                    state["error"] = tool_result.content[0].text
             else:
-                state["error"] = tool_result.content[0].text
+                state["error"] = f"Invalid tool result object: {tool_result}"
 
-            return state
-        except Exception as e:
-            state['error'] = get_traceback(e, "ErrorGoToSiteNode1")
-            logger.debug(state['error'])
-            return state
+        return state
+        
+    except Exception as e:
+        state["error"] = get_traceback(e, "ErrorGoToSiteNode")
+        logger.debug(state["error"])
+        return state
 
 
 def check_captcha_node(state: NodeState) -> NodeState:
