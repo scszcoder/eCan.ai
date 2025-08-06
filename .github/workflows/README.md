@@ -84,12 +84,12 @@
 ## 构建产物
 
 ### Windows
-- `ECBot-Setup.exe` - 安装程序
-- `ECBot/ECBot.exe` - 便携版可执行文件
+- `eCan-Setup.exe` - 安装程序
+- `eCan/eCan.exe` - 便携版可执行文件
 
 ### macOS
-- `ECBot.pkg` - macOS 安装包
-- `ECBot.app` - macOS 应用程序包（便携版）
+- `eCan.pkg` - macOS 安装包
+- `eCan.app` - macOS 应用程序包（便携版）
 
 ## 版本管理
 
@@ -100,8 +100,8 @@
 - 构建产物文件名包含版本号
 
 ### 版本应用范围
-- **Windows 安装包**：`ECBot-Setup.exe` 中的应用信息
-- **macOS 安装包**：`ECBot-{version}.pkg` 文件名和包信息
+- **Windows 安装包**：`eCan-Setup.exe` 中的应用信息
+- **macOS 安装包**：`eCan-{version}.pkg` 文件名和包信息
 - **应用程序**：可执行文件中的应用版本信息
 - **Release 说明**：自动生成包含版本信息的发布说明
 

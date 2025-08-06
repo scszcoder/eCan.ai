@@ -1040,9 +1040,9 @@ class MainWindow(QMainWindow):
                 print("getting bots from cloud....")
                 self.bot_service.sync_cloud_bot_data(self.session, self.tokens, self)
                 print("bot cloud done....")
-            print("bot service sync cloud data")
+            logger.info("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
-            print("find all bots")
+            logger.info("find all bots")
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
@@ -1050,9 +1050,9 @@ class MainWindow(QMainWindow):
 
             if not self.debug_mode or self.schedule_mode == "auto":
                 self.mission_service.sync_cloud_mission_data(self.session, self.tokens, self)
-            print("mission cloud synced")
+            logger.info("mission cloud synced")
             missions_data = self.mission_service.find_missions_by_createon()
-            print("local mission data:", missions_data)
+            logger.info("local mission data:", missions_data)
             # missions_data = []      # test hack
             self.loadLocalMissions(missions_data)
             log3("missions loaded")
@@ -1197,7 +1197,7 @@ class MainWindow(QMainWindow):
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
-        print("Building agent skills.....")
+        logger.info("Building agent skills.....")
         asyncio.create_task(self.async_agents_init())
 
 
@@ -1218,7 +1218,7 @@ class MainWindow(QMainWindow):
 
 
         self.saveSettings()
-        print("vehicles after init:", [v.getName() for v in self.vehicles])
+        logger.info("vehicles after init:", [v.getName() for v in self.vehicles])
 
         # finally setup agents, note: local servers needs to be setup and running
         # before this.
@@ -1292,12 +1292,12 @@ class MainWindow(QMainWindow):
         self.agent_tools = obtain_agent_tools(self)
         self.agent_knowledges = build_agent_knowledges(self)
         # tools = await mcp_load_tools()
-        print("DONE build agent skills.....", len(self.agent_skills))
+        logger.info("DONE build agent skills.....", len(self.agent_skills))
         build_agents(self)
-        print("DONE build agents.....")
+        logger.info("DONE build agents.....")
         # await self.launch_agents()
         self.launch_agents()
-        print("DONE launch agents.....")
+        logger.info("DONE launch agents.....")
 
         # self.top_gui.update_all(self)
         # await self.test_a2a()

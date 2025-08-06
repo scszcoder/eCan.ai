@@ -1,10 +1,10 @@
 {
   "app_info": {
-    "name": "ECBot",
+    "name": "eCan",
     "version": "1.0.0",
     "main_script": "main.py",
-    "icon_macos": "ECBot.icns",
-    "icon_windows": "ECBot.ico"
+    "icon_macos": "eCan.icns",
+    "icon_windows": "eCan.ico"
   },
   "data_files": {
     "directories": [
@@ -25,8 +25,8 @@
     ],
     "files": [
       "app_context.py",
-      "ECBot.ico",
-      "ECBot.icns",
+      "eCan.ico",
+      "eCan.icns",
       "ecbot.qm",
       "ecbot_zh.qm",
       "role.json",
@@ -137,11 +137,11 @@
   },
   "installer": {
     "enabled": true,
-    "app_name": "ECBot",
+    "app_name": "eCan",
     "app_version": "1.0.0",
-    "app_publisher": "ECBot Team",
-    "default_dir": "{autopf}\\\\ECBot",
-    "default_group": "ECBot",
+    "app_publisher": "eCan Team",
+    "default_dir": "{autpf}\\\\eCan",
+    "default_group": "eCan",
     "privileges_required": "lowest",
     "compression": "lzma",
     "solid_compression": false,
@@ -164,7 +164,7 @@
       }
     },
     "macos": {
-      "bundle_identifier": "com.ecbot.app",
+      "bundle_identifier": "com.ecan.app",
       "install_location": "/Applications",
       "create_desktop_shortcut": false,
       "sign_package": false,

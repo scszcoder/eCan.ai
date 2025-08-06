@@ -10,7 +10,7 @@ from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_rpa_operator_chat_task, create_ec_rpa_operator_work_task
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
-
+from utils.logger_helper import logger_helper as logger
 
 from agent.tasks import Repeat_Types
 import traceback
@@ -25,20 +25,20 @@ def set_up_ec_rpa_operator_agent(mainwin):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         worker_skill = next((sk for sk in agent_skills if "ecbot rpa operator" in sk.name), None)
         if worker_skill:
-            print("agent_skill", worker_skill.name)
+            logger.info("agent_skill", worker_skill.name)
         else:
-            print("Warning: worker_skill not found")
+            logger.warning("Warning: worker_skill not found")
         chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa operator chatter"),None)
         if chatter_skill:
-            print("chatter_skill", chatter_skill.name)
+            logger.info("chatter_skill", chatter_skill.name)
         else:
-            print("Warning: chatter_skill not found")
+            logger.warning("Warning: chatter_skill not found")
 
         # 过滤掉 None 值
         valid_skills = [skill for skill in [worker_skill, chatter_skill] if skill is not None]
 
         if not valid_skills:
-            print("Error: No valid skills found for ECBot RPA Operator Agent")
+            logger.error("Error: No valid skills found for ECBot RPA Operator Agent")
             return None
 
         agent_card = AgentCard(
@@ -51,7 +51,7 @@ def set_up_ec_rpa_operator_agent(mainwin):
             capabilities=capabilities,
             skills=valid_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_rpa_operator_chat_task(mainwin)
         worker_task = create_ec_rpa_operator_work_task(mainwin)
@@ -71,5 +71,6 @@ def set_up_ec_rpa_operator_agent(mainwin):
         else:
             ex_stat = "ErrorSetUpECRPAOperatorAgent: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
     return operator

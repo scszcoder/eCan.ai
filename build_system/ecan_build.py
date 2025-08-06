@@ -49,21 +49,21 @@ class BuildEnvironment:
         if self.is_windows:
             return {
                 "name": "Windows",
-                "icon": "ECBot.ico",
+                "icon": "eCan.ico",
                 "app_suffix": ".exe",
                 "executable_suffix": ".exe"
             }
         elif self.is_macos:
             return {
                 "name": "macOS",
-                "icon": "ECBot.icns",
+                "icon": "eCan.icns",
                 "app_suffix": ".app",
                 "executable_suffix": ""
             }
         else:
             return {
                 "name": "Linux",
-                "icon": "ECBot.ico",
+                "icon": "eCan.ico",
                 "app_suffix": "",
                 "executable_suffix": ""
             }
@@ -425,11 +425,11 @@ class PyInstallerBuilder:
 
         # 根据平台选择正确的图标文件
         if self.env.is_windows:
-            icon_name = app_info.get("icon_windows", "ECBot.ico")
+            icon_name = app_info.get("icon_windows", "eCan.ico")
         elif self.env.is_macos:
-            icon_name = app_info.get("icon_macos", "ECBot.icns")
+            icon_name = app_info.get("icon_macos", "eCan.icns")
         else:
-            icon_name = app_info.get("icon_windows", "ECBot.ico")  # Linux 使用 ico 作为默认
+            icon_name = app_info.get("icon_windows", "eCan.ico")  # Linux 使用 ico 作为默认
 
         icon_path = str(self.project_root / icon_name)
 
@@ -913,23 +913,23 @@ class InstallerBuilder:
             parallel_comment = "; Parallel compression enabled via environment variables" if use_parallel else "; Single-threaded compression"
 
             iss_content = f"""
-; ECBot Installer Script
+; eCan Installer Script
 {parallel_comment}
 [Setup]
-AppName={installer_config.get('app_name', app_info.get('name', 'ECBot'))}
+AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
-AppPublisher={installer_config.get('app_publisher', 'ECBot Team')}
-DefaultDirName={{autopf}}\\ECBot
-DefaultGroupName=ECBot
+AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
+DefaultDirName={{autopf}}\\eCan
+DefaultGroupName=eCan
 OutputDir=..\\dist
-OutputBaseFilename=ECBot-Setup
+OutputBaseFilename=eCan-Setup
 Compression={compression}
 SolidCompression={solid_compression}
 PrivilegesRequired=lowest
 InternalCompressLevel={internal_compress_level}
 ; 改进的安装配置以避免COM错误
-SetupIconFile=..\\ECBot.ico
-UninstallDisplayIcon={{app}}\\ECBot.exe
+SetupIconFile=..\\eCan.ico
+UninstallDisplayIcon={{app}}\\eCan.exe
 CreateUninstallRegKey=true
 ; 处理权限问题
 AllowNoIcons=true
@@ -942,14 +942,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
 
 [Files]
-Source: "..\\dist\\ECBot\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\\dist\\eCan\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{{group}}\\ECBot"; Filename: "{{app}}\\ECBot.exe"
-Name: "{{userdesktop}}\\ECBot"; Filename: "{{app}}\\ECBot.exe"; Tasks: desktopicon
+Name: "{{group}}\\eCan"; Filename: "{{app}}\\eCan.exe"
+Name: "{{userdesktop}}\\eCan"; Filename: "{{app}}\\eCan.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
 """
             
             iss_file = self.project_root / "build" / "setup.iss"
@@ -1201,28 +1201,28 @@ Filename: "{{app}}\\ECBot.exe"; Description: "{{cm:LaunchProgram,ECBot}}"; Flags
             postinstall_script = scripts_dir / "postinstall"
             postinstall_content = """#!/bin/bash
 # 安装后脚本
-echo "Installing ECBot..."
+echo "Installing eCan..."
 
 # 设置应用权限
-chmod -R 755 "/Applications/ECBot.app"
+chmod -R 755 "/Applications/eCan.app"
 
 # 创建桌面快捷方式
 if [ -d "/Users/$USER/Desktop" ]; then
-    ln -sf "/Applications/ECBot.app" "/Users/$USER/Desktop/ECBot.app"
+    ln -sf "/Applications/eCan.app" "/Users/$USER/Desktop/eCan.app"
     echo "Desktop shortcut created"
 fi
 
 # 创建应用程序文件夹快捷方式
 if [ -d "/Applications" ]; then
     # 确保应用在应用程序文件夹中可见
-    touch "/Applications/ECBot.app"
+    touch "/Applications/eCan.app"
 fi
 
 # 刷新 Finder 和 Dock
 killall Finder 2>/dev/null || true
 killall Dock 2>/dev/null || true
 
-echo "ECBot installation completed"
+echo "eCan installation completed"
 exit 0
 """
             
@@ -1241,7 +1241,7 @@ exit 0
                 "pkgbuild",
                 "--component", str(app_path),
                 "--install-location", "/Applications",
-                "--identifier", "com.ecbot.app",
+                "--identifier", "com.ecan.app",
                 "--version", version,
                 "--scripts", str(scripts_dir),
                 str(component_pkg)
@@ -1281,18 +1281,18 @@ exit 0
             
             distribution_content = f"""<?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
-    <title>ECBot</title>
-    <organization>com.ecbot</organization>
+    <title>eCan</title>
+    <organization>com.ecan</organization>
     <domains enable_localSystem="true"/>
     <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
-    <pkg-ref id="com.ecbot.app"/>
+    <pkg-ref id="com.ecan.app"/>
     <choices-outline>
-        <line choice="com.ecbot.app"/>
+        <line choice="com.ecan.app"/>
     </choices-outline>
-    <choice id="com.ecbot.app" title="ECBot">
-        <pkg-ref id="com.ecbot.app"/>
+    <choice id="com.ecan.app" title="eCan">
+        <pkg-ref id="com.ecan.app"/>
     </choice>
-    <pkg-ref id="com.ecbot.app" version="{version}" onConclusion="none">{component_pkg.name}</pkg-ref>
+    <pkg-ref id="com.ecan.app" version="{version}" onConclusion="none">{component_pkg.name}</pkg-ref>
 </installer-gui-script>
 """
             
@@ -1304,7 +1304,7 @@ exit 0
             resources_dir.mkdir(exist_ok=True)
             
             # 创建最终安装包
-            final_pkg = self.dist_dir / f"ECBot-{version}.pkg"
+            final_pkg = self.dist_dir / f"eCan-{version}.pkg"
             cmd = [
                 "productbuild",
                 "--distribution", str(dist_xml),
