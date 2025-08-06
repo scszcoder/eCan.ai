@@ -120,6 +120,172 @@ class LightragServer:
 
         return env
 
+    def _get_virtual_env_python(self):
+        """获取虚拟环境中的 Python 解释器路径"""
+        # 检查当前是否在虚拟环境中
+        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+            logger.info(f"[LightragServer] Already in virtual environment: {sys.executable}")
+            return sys.executable
+        
+        # 尝试找到项目根目录下的虚拟环境
+        project_root = os.path.dirname(os.path.dirname(__file__))
+        venv_paths = [
+            os.path.join(project_root, "venv", "bin", "python"),
+            os.path.join(project_root, "venv", "Scripts", "python.exe"),
+        ]
+        
+        for venv_python in venv_paths:
+            if os.path.exists(venv_python):
+                logger.info(f"[LightragServer] Found virtual environment Python: {venv_python}")
+                return venv_python
+        
+        # 如果找不到虚拟环境，返回当前解释器
+        logger.warning(f"[LightragServer] No virtual environment found, using current Python: {sys.executable}")
+        return sys.executable
+
+    def _check_and_free_port(self):
+        """检查端口是否被占用，如果被占用则尝试释放"""
+        try:
+            import socket
+            import platform
+            import subprocess
+            import time
+            
+            port = int(self.extra_env.get("PORT", "9621"))
+            is_windows = platform.system().lower().startswith('win')
+            
+            # 检查端口是否被占用
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('localhost', port))
+            sock.close()
+            
+            if result == 0:
+                # 端口被占用，尝试释放
+                logger.warning(f"[LightragServer] Port {port} is in use, attempting to free it...")
+                
+                pids = self._find_processes_using_port(port, is_windows)
+                
+                if pids:
+                    logger.info(f"[LightragServer] Found {len(pids)} process(es) using port {port}: {pids}")
+                    
+                    # 尝试杀死进程
+                    killed_count = 0
+                    for pid in pids:
+                        if self._kill_process(pid, is_windows):
+                            killed_count += 1
+                            logger.info(f"[LightragServer] Successfully killed process {pid}")
+                        else:
+                            logger.warning(f"[LightragServer] Failed to kill process {pid}")
+                    
+                    if killed_count > 0:
+                        # 等待端口释放
+                        for i in range(15):  # 最多等待15秒
+                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sock.settimeout(1)
+                            result = sock.connect_ex(('localhost', port))
+                            sock.close()
+                            if result != 0:
+                                logger.info(f"[LightragServer] Port {port} is now free after killing {killed_count} process(es)")
+                                return True
+                            time.sleep(1)
+                        
+                        logger.warning(f"[LightragServer] Port {port} is still in use after killing processes")
+                    else:
+                        logger.warning(f"[LightragServer] Could not kill any processes using port {port}")
+                    
+                    # 如果无法杀死进程，尝试使用不同的端口
+                    return self._try_alternative_port(port)
+                else:
+                    logger.warning(f"[LightragServer] Could not find processes using port {port}")
+                    return self._try_alternative_port(port)
+            else:
+                # 端口可用
+                return True
+                
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error checking port: {e}")
+            return True  # 如果检查失败，假设端口可用
+
+    def _find_processes_using_port(self, port, is_windows):
+        """查找使用指定端口的进程"""
+        try:
+            if is_windows:
+                # Windows: 使用 netstat
+                result = subprocess.run(
+                    ['netstat', '-ano'], 
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    pids = []
+                    for line in result.stdout.split('\n'):
+                        if f':{port}' in line and 'LISTENING' in line:
+                            parts = line.split()
+                            if len(parts) >= 5:
+                                pid = parts[-1]
+                                if pid.isdigit():
+                                    pids.append(pid)
+                    return pids
+            else:
+                # Unix/Linux/macOS: 使用 lsof
+                result = subprocess.run(
+                    ['lsof', '-ti', f':{port}'], 
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip().split('\n')
+            
+            return []
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error finding processes using port {port}: {e}")
+            return []
+
+    def _kill_process(self, pid, is_windows):
+        """尝试杀死进程"""
+        try:
+            if is_windows:
+                # Windows: 使用 taskkill
+                result = subprocess.run(
+                    ['taskkill', '/PID', str(pid), '/F'], 
+                    capture_output=True, text=True, timeout=10
+                )
+                return result.returncode == 0
+            else:
+                # Unix/Linux/macOS: 使用 kill
+                result = subprocess.run(
+                    ['kill', '-9', str(pid)], 
+                    capture_output=True, text=True, timeout=10
+                )
+                return result.returncode == 0
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error killing process {pid}: {e}")
+            return False
+
+    def _try_alternative_port(self, original_port):
+        """尝试使用替代端口"""
+        try:
+            import socket
+            
+            # 尝试端口范围 9621-9630
+            for port in range(original_port, original_port + 10):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex(('localhost', port))
+                sock.close()
+                
+                if result != 0:
+                    # 找到可用端口
+                    logger.info(f"[LightragServer] Found alternative port {port}")
+                    self.extra_env["PORT"] = str(port)
+                    return True
+            
+            logger.error(f"[LightragServer] No available ports found in range {original_port}-{original_port + 9}")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error trying alternative ports: {e}")
+            return False
+
     def _monitor_parent(self):
         import platform
         is_windows = platform.system().lower().startswith('win')
@@ -244,10 +410,18 @@ class LightragServer:
             env = self.build_env()
             stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
 
+            # 检查端口是否被占用
+            if not self._check_and_free_port():
+                logger.error("[LightragServer] Failed to free port, cannot start server")
+                return False
+
+            # 尝试找到虚拟环境中的 Python 解释器
+            python_executable = self._get_virtual_env_python()
+            
             import platform
             if platform.system().lower().startswith('win'):
                 self.proc = subprocess.Popen(
-                    [sys.executable, "-m", "lightrag.api.lightrag_server"],
+                    [python_executable, "-m", "lightrag.api.lightrag_server"],
                     env=env,
                     stdin=subprocess.PIPE,
                     stdout=stdout_log,
@@ -266,7 +440,7 @@ class LightragServer:
                 # Unix-like 系统
                 yes_proc = subprocess.Popen(["yes", "yes"], stdout=subprocess.PIPE)
                 self.proc = subprocess.Popen(
-                    [sys.executable, "-m", "lightrag.api.lightrag_server"],
+                    [python_executable, "-m", "lightrag.api.lightrag_server"],
                     env=env,
                     stdin=yes_proc.stdout,
                     stdout=stdout_log,
@@ -279,6 +453,13 @@ class LightragServer:
 
             final_host = env.get("HOST", "0.0.0.0")
             final_port = env.get("PORT", "9621")
+            
+            # 确保端口是有效的数字
+            try:
+                final_port = str(int(final_port))
+            except (ValueError, TypeError):
+                final_port = "9621"
+                logger.warning(f"[LightragServer] Invalid port, using default: 9621")
 
             logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
             logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
@@ -356,6 +537,28 @@ class LightragServer:
     def is_running(self):
         """检查服务器是否在运行"""
         return self.proc is not None and self.proc.poll() is None
+
+    def get_current_port(self):
+        """获取当前使用的端口号"""
+        try:
+            # 从环境变量中获取端口
+            port = self.extra_env.get("PORT", "9621")
+            return int(port)
+        except (ValueError, TypeError):
+            # 如果端口不是有效数字，返回默认端口
+            return 9621
+
+    def get_server_url(self):
+        """获取服务器URL"""
+        port = self.get_current_port()
+        host = self.extra_env.get("HOST", "0.0.0.0")
+        return f"http://{host}:{port}"
+
+    def get_webui_url(self):
+        """获取WebUI URL"""
+        port = self.get_current_port()
+        host = self.extra_env.get("HOST", "0.0.0.0")
+        return f"http://{host}:{port}/webui"
 
 if __name__ == "__main__":
     server = LightragServer()

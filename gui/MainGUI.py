@@ -44,7 +44,6 @@ import importlib.util
 from common.models import BotModel, MissionModel
 from common.db_init import init_db, get_session
 from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
-from tests.TestAll import Tester
 
 from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
@@ -86,9 +85,7 @@ from tests.unittests import *
 from tests.agent_tests import *
 import pandas as pd
 from gui.encrypt import *
-import keyboard
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
-import cpuinfo
 import psutil
 # from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
@@ -404,7 +401,6 @@ class MainWindow(QMainWindow):
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
-        self.tester = Tester()
         self.wifis = []
 
         if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):
@@ -1231,22 +1227,17 @@ class MainWindow(QMainWindow):
         # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
-        # 异步初始化浏览器组件
-        asyncio.create_task(self.async_init_browser_components())
-
-        # 确保 MainWindow 在初始化时不显示，避免闪现
-        self.setVisible(False)
-
-    async def async_init_browser_components(self):
-        """异步初始化浏览器组件"""
         try:
-            await self.newWebCrawler()
+            self.newWebCrawler()
             self.setupBrowserSession()
             self.setupBrowserUseController()
             logger.info("Browser components initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize browser components: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
+
+        # 确保 MainWindow 在初始化时不显示，避免闪现
+        self.setVisible(False)
 
     async def initialize_mcp(self):
         local_server_port = 4668
@@ -1615,7 +1606,7 @@ class MainWindow(QMainWindow):
     def getWebCrawler(self):
         return self.async_crawler
 
-    async def newWebCrawler(self):
+    def newWebCrawler(self):
         try:
             self.crawler_browser_config = BrowserConfig(
                 headless=False,
@@ -1624,8 +1615,6 @@ class MainWindow(QMainWindow):
                 viewport_height=1080
             )
             self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
-            # 启动 crawler 以初始化内部组件
-            await self.async_crawler.start()
             logger.info("Web crawler initialized and started successfully")
         except Exception as e:
             logger.error(f"Failed to initialize web crawler with BrowserConfig: {e}")
