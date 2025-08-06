@@ -122,26 +122,68 @@ class LightragServer:
 
     def _get_virtual_env_python(self):
         """获取虚拟环境中的 Python 解释器路径"""
+        # 在打包环境中，sys.executable 就是包含所有依赖的exe文件
+        # LightRAG服务器应该使用相同的exe来保证环境一致性
+        if self.is_frozen:
+            logger.info(f"[LightragServer] Running in PyInstaller environment, using current executable: {sys.executable}")
+            return sys.executable
+
+        # 非打包环境的原有逻辑
         # 检查当前是否在虚拟环境中
         if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
             logger.info(f"[LightragServer] Already in virtual environment: {sys.executable}")
             return sys.executable
-        
+
         # 尝试找到项目根目录下的虚拟环境
         project_root = os.path.dirname(os.path.dirname(__file__))
         venv_paths = [
             os.path.join(project_root, "venv", "bin", "python"),
             os.path.join(project_root, "venv", "Scripts", "python.exe"),
         ]
-        
+
         for venv_python in venv_paths:
             if os.path.exists(venv_python):
                 logger.info(f"[LightragServer] Found virtual environment Python: {venv_python}")
                 return venv_python
-        
+
         # 如果找不到虚拟环境，返回当前解释器
         logger.warning(f"[LightragServer] No virtual environment found, using current Python: {sys.executable}")
         return sys.executable
+
+    def _validate_python_executable(self, python_path):
+        """验证Python解释器是否可用"""
+        try:
+            # 在打包环境中，验证exe文件是否存在且可执行
+            if self.is_frozen:
+                if os.path.exists(python_path) and os.access(python_path, os.X_OK):
+                    logger.info(f"[LightragServer] PyInstaller executable validation successful: {python_path}")
+                    return True
+                else:
+                    logger.error(f"[LightragServer] PyInstaller executable not found or not executable: {python_path}")
+                    return False
+
+            # 非打包环境中，测试Python解释器版本
+            result = subprocess.run(
+                [python_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                logger.info(f"[LightragServer] Python validation successful: {result.stdout.strip()}")
+                return True
+            else:
+                logger.error(f"[LightragServer] Python validation failed with return code {result.returncode}")
+                return False
+        except subprocess.TimeoutExpired:
+            logger.error(f"[LightragServer] Python validation timed out: {python_path}")
+            return False
+        except FileNotFoundError:
+            logger.error(f"[LightragServer] Python executable not found: {python_path}")
+            return False
+        except Exception as e:
+            logger.error(f"[LightragServer] Python validation error: {e}")
+            return False
 
     def _check_and_free_port(self):
         """检查端口是否被占用，如果被占用则尝试释放"""
@@ -417,11 +459,30 @@ class LightragServer:
 
             # 尝试找到虚拟环境中的 Python 解释器
             python_executable = self._get_virtual_env_python()
+
+            # 验证Python解释器是否可用
+            if not self._validate_python_executable(python_executable):
+                logger.error(f"[LightragServer] Python executable validation failed: {python_executable}")
+                if self.is_frozen:
+                    logger.warning("[LightragServer] In packaged environment, LightRAG server will be disabled")
+                    logger.warning("[LightragServer] Please ensure Python is installed and available in system PATH")
+                    return False
+                else:
+                    logger.error("[LightragServer] Cannot start server without valid Python interpreter")
+                    return False
             
             import platform
+
+            # 构建启动命令
+            cmd = [python_executable, "-m", "lightrag.api.lightrag_server"]
+            if self.is_frozen:
+                logger.info(f"[LightragServer] PyInstaller mode command: {' '.join(cmd)}")
+            else:
+                logger.info(f"[LightragServer] Development mode command: {' '.join(cmd)}")
+
             if platform.system().lower().startswith('win'):
                 self.proc = subprocess.Popen(
-                    [python_executable, "-m", "lightrag.api.lightrag_server"],
+                    cmd,
                     env=env,
                     stdin=subprocess.PIPE,
                     stdout=stdout_log,
@@ -440,7 +501,7 @@ class LightragServer:
                 # Unix-like 系统
                 yes_proc = subprocess.Popen(["yes", "yes"], stdout=subprocess.PIPE)
                 self.proc = subprocess.Popen(
-                    [python_executable, "-m", "lightrag.api.lightrag_server"],
+                    cmd,
                     env=env,
                     stdin=yes_proc.stdout,
                     stdout=stdout_log,
