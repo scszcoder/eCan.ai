@@ -100,6 +100,14 @@ class BuildConfig:
     def get_build_modes(self) -> Dict[str, Any]:
         """获取构建模式配置"""
         return self.config.get("build_modes", {})
+    
+    def update_version(self, version: str):
+        """更新版本信息"""
+        if "app_info" in self.config:
+            self.config["app_info"]["version"] = version
+        if "installer" in self.config:
+            self.config["installer"]["app_version"] = version
+        print(f"[INFO] Updated version to: {version}")
 
 
 class FrontendBuilder:
@@ -1223,6 +1231,10 @@ exit 0
             
             postinstall_script.chmod(0o755)
             
+            # 获取版本信息
+            app_info = self.config.get_app_info()
+            version = app_info.get("version", "1.0.0")
+            
             # 创建组件包 - 使用更简单的参数避免超时
             component_pkg = build_dir / "ECBot-component.pkg"
             cmd = [
@@ -1230,7 +1242,7 @@ exit 0
                 "--component", str(app_path),
                 "--install-location", "/Applications",
                 "--identifier", "com.ecbot.app",
-                "--version", "1.0.0",
+                "--version", version,
                 "--scripts", str(scripts_dir),
                 str(component_pkg)
             ]
@@ -1263,6 +1275,10 @@ exit 0
             build_dir = self.project_root / "build" / "macos_pkg"
             dist_xml = build_dir / "distribution.xml"
             
+            # 获取版本信息
+            app_info = self.config.get_app_info()
+            version = app_info.get("version", "1.0.0")
+            
             distribution_content = f"""<?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
     <title>ECBot</title>
@@ -1276,7 +1292,7 @@ exit 0
     <choice id="com.ecbot.app" title="ECBot">
         <pkg-ref id="com.ecbot.app"/>
     </choice>
-    <pkg-ref id="com.ecbot.app" version="1.0.0" onConclusion="none">{component_pkg.name}</pkg-ref>
+    <pkg-ref id="com.ecbot.app" version="{version}" onConclusion="none">{component_pkg.name}</pkg-ref>
 </installer-gui-script>
 """
             
@@ -1288,7 +1304,7 @@ exit 0
             resources_dir.mkdir(exist_ok=True)
             
             # 创建最终安装包
-            final_pkg = self.dist_dir / "ECBot-1.0.0.pkg"
+            final_pkg = self.dist_dir / f"ECBot-{version}.pkg"
             cmd = [
                 "productbuild",
                 "--distribution", str(dist_xml),
@@ -1327,13 +1343,19 @@ exit 0
 class ECBotBuild:
     """ECBot构建主类"""
     
-    def __init__(self, mode: str = "prod"):
+    def __init__(self, mode: str = "prod", version: str = None):
         self.mode = mode
+        self.version = version
         self.project_root = Path.cwd()
 
         # 使用统一的配置文件
         config_file = self.project_root / "build_system" / "build_config.json"
         self.config = BuildConfig(config_file)
+        
+        # 如果指定了版本，更新配置
+        if self.version:
+            self.config.update_version(self.version)
+            
         self.env = BuildEnvironment()
         self.frontend_builder = FrontendBuilder(self.project_root)
         self.pyinstaller_builder = PyInstallerBuilder(self.config, self.env, self.project_root)
@@ -1396,6 +1418,8 @@ def main():
                        help="Build mode (default: prod)")
     parser.add_argument("--force", "-f", action="store_true",
                        help="Force rebuild")
+    parser.add_argument("--version", "-V", type=str,
+                       help="Specify version number (e.g., 1.0.0, 2.1.3)")
     parser.add_argument("--skip-frontend", action="store_true",
                        help="Skip frontend build")
     parser.add_argument("--skip-installer", action="store_true",
@@ -1404,7 +1428,7 @@ def main():
     args = parser.parse_args()
 
     # 使用指定的构建模式
-    builder = ECBotBuild(args.mode)
+    builder = ECBotBuild(args.mode, version=args.version)
     success = builder.build(force=args.force, skip_frontend=args.skip_frontend, skip_installer=args.skip_installer)
 
     sys.exit(0 if success else 1)

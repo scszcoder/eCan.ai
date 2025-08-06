@@ -1,0 +1,386 @@
+name: Release Build
+
+on:
+  # 触发条件：创建 tag 或 release
+  push:
+    tags:
+      - 'v*'  # 匹配 v1.0.0, v2.1.3 等格式
+  release:
+    types: [published, edited, created]
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '构建平台 (windows, macos, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+
+jobs:
+  # 验证 tag 格式
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag-valid: ${{ steps.validate.outputs.valid }}
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Validate tag format
+      id: validate
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          if [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "version=${TAG_NAME#v}" >> $GITHUB_OUTPUT
+            echo "✅ Valid tag format: $TAG_NAME"
+          else
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "❌ Invalid tag format: $TAG_NAME"
+            echo "Expected format: vX.Y.Z or vX.Y.Z-prerelease"
+            exit 1
+          fi
+        else
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "version=manual" >> $GITHUB_OUTPUT
+          echo "ℹ️ Manual trigger or release event"
+        fi
+
+  # Windows 构建
+  build-windows:
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' && 
+      (github.event.inputs.platform == 'windows' || 
+       github.event.inputs.platform == 'all' || 
+       github.event.inputs.platform == null)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: windows-pip-3.11-${{ hashFiles('requirements*.txt') }}
+        restore-keys: |
+          windows-pip-3.11-
+    
+    - name: Install Python dependencies
+      run: |
+        echo "=== Installing Python Dependencies ==="
+        python -m pip install --upgrade pip
+        pip install -r requirements-windows.txt
+        pip install pyinstaller pywin32-ctypes
+        
+        echo "=== Verifying pywin32 installation ==="
+        python -c "import win32api; print('pywin32 installed successfully')"
+    
+    - name: Install frontend dependencies
+      run: |
+        echo "=== Installing Frontend Dependencies ==="
+        cd gui_v2
+        npm ci --legacy-peer-deps
+    
+    - name: Install Inno Setup
+      run: |
+        echo "=== Installing Inno Setup ==="
+        $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
+        $DownloadPath = "$env:TEMP\innosetup-6.2.2.exe"
+        
+        Write-Host "📥 Downloading Inno Setup..."
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
+        
+        Write-Host "🔨 Installing Inno Setup..."
+        Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+        
+        Write-Host "✅ Inno Setup installation completed"
+        
+        # Verify installation
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (Test-Path $innoPath) {
+            Write-Host "✅ Inno Setup verified at: $innoPath"
+        } else {
+            Write-Host "❌ Inno Setup not found at expected location"
+            exit 1
+        }
+    
+    - name: Create build directories
+      run: |
+        echo "=== Creating Build Directories ==="
+        New-Item -ItemType Directory -Force -Path build, dist
+    
+    - name: Check build environment
+      run: |
+        echo "=== Checking Build Environment ==="
+        python build.py --check-env
+    
+    - name: Build Windows EXE
+      run: |
+        echo "=== Starting Windows Build ==="
+        echo "Command: python build.py prod --force"
+        
+        # Set environment variables
+        $env:PYTHONPATH = "$PWD"
+        $env:PYTHONUNBUFFERED = "1"
+        
+        # Run build with detailed output
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
+        
+        # Check exit code
+        if ($LASTEXITCODE -ne 0) {
+            echo "❌ Build failed with exit code: $LASTEXITCODE"
+            echo "=== Build Log ==="
+            Get-Content "build.log"
+            exit 1
+        }
+        
+        echo "✅ Build completed successfully"
+    
+    - name: Check build result
+      run: |
+        echo "=== Build Result Check ==="
+        echo "Dist directory contents:"
+        Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
+        
+        $exeFound = $false
+        $setupFound = $false
+        
+        if (Test-Path "dist/ECBot/ECBot.exe") {
+            $exe = Get-Item "dist/ECBot/ECBot.exe"
+            echo "✅ Windows EXE found: dist/ECBot/ECBot.exe"
+            echo "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
+            echo "   Created: $($exe.CreationTime)"
+            $exeFound = $true
+        } else {
+            echo "❌ Windows EXE not found"
+            echo "Searching for .exe files..."
+            Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" | ForEach-Object {
+                echo "   Found: $($_.FullName)"
+            }
+        }
+        
+        if (Test-Path "dist/ECBot-Setup.exe") {
+            $setup = Get-Item "dist/ECBot-Setup.exe"
+            echo "✅ Installer found: dist/ECBot-Setup.exe"
+            echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
+            echo "   Created: $($setup.CreationTime)"
+            $setupFound = $true
+        } else {
+            echo "⚠️  Installer not found"
+        }
+        
+        if (-not $exeFound) {
+            echo "❌ Build validation failed - no executable found"
+            exit 1
+        }
+        
+        echo "✅ Build validation passed"
+    
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ECBot-Windows-${{ needs.validate-tag.outputs.version }}
+        path: |
+          dist/
+          build.log
+        retention-days: 30
+
+  # macOS 构建
+  build-macos:
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' && 
+      (github.event.inputs.platform == 'macos' || 
+       github.event.inputs.platform == 'all' || 
+       github.event.inputs.platform == null)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: macos-pip-3.11-${{ hashFiles('requirements*.txt') }}
+        restore-keys: |
+          macos-pip-3.11-
+    
+    - name: Install Python dependencies
+      run: |
+        echo "=== Installing Python Dependencies ==="
+        python -m pip install --upgrade pip
+        pip install -r requirements-macos.txt
+        pip install pyinstaller
+        
+        echo "=== Verifying PyInstaller installation ==="
+        python -c "import PyInstaller; print('PyInstaller installed successfully')"
+    
+    - name: Install frontend dependencies
+      run: |
+        echo "=== Installing Frontend Dependencies ==="
+        cd gui_v2
+        npm ci --legacy-peer-deps
+    
+    - name: Create build directories
+      run: |
+        echo "=== Creating Build Directories ==="
+        mkdir -p build dist
+    
+    - name: Check build environment
+      run: |
+        echo "=== Checking Build Environment ==="
+        python build.py --check-env
+    
+    - name: Build macOS App
+      run: |
+        echo "=== Starting macOS Build ==="
+        echo "Command: python build.py prod --force"
+        
+        # Set environment variables
+        export PYTHONPATH="$PWD"
+        export PYTHONUNBUFFERED=1
+        
+        # Run build with detailed output
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        
+        # Check exit code
+        if [ $? -ne 0 ]; then
+            echo "❌ Build failed"
+            echo "=== Build Log ==="
+            cat build.log
+            exit 1
+        fi
+        
+        echo "✅ Build completed successfully"
+    
+    - name: Check build result
+      run: |
+        echo "=== Build Result Check ==="
+        echo "Dist directory contents:"
+        ls -la dist/
+        
+        # Check for .pkg installer
+        if [ -f "dist/ECBot.pkg" ]; then
+            echo "✅ macOS PKG installer found: dist/ECBot.pkg"
+            pkg_size=$(du -sh dist/ECBot.pkg | cut -f1)
+            echo "   Size: $pkg_size"
+        elif [ -d "dist/ECBot.app" ]; then
+            echo "✅ macOS App found: dist/ECBot.app"
+            app_size=$(du -sh dist/ECBot.app | cut -f1)
+            echo "   Size: $app_size"
+            
+            # Check app structure
+            echo "   App structure:"
+            find dist/ECBot.app -type f -name "ECBot" | head -5
+        else
+            echo "❌ macOS build not found"
+            echo "Searching for .pkg and .app files..."
+            find dist -name "*.pkg" 2>/dev/null || echo "No .pkg files found"
+            find dist -name "*.app" 2>/dev/null || echo "No .app files found"
+            exit 1
+        fi
+        
+        echo "✅ Build validation passed"
+    
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ECBot-macOS-${{ needs.validate-tag.outputs.version }}
+        path: |
+          dist/
+          build.log
+        retention-days: 30
+
+  # 创建 Release
+  create-release:
+    needs: [validate-tag, build-windows, build-macos]
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' && 
+      startsWith(github.ref, 'refs/tags/v') &&
+      (
+        (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
+        (github.event.inputs.platform == 'macos' && needs.build-macos.result == 'success') ||
+        (github.event.inputs.platform == 'all' && needs.build-windows.result == 'success' && needs.build-macos.result == 'success') ||
+        (github.event.inputs.platform == null && needs.build-windows.result == 'success' && needs.build-macos.result == 'success')
+      )
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download Windows artifacts
+      if: |
+        github.event.inputs.platform == 'windows' || 
+        github.event.inputs.platform == 'all' || 
+        github.event.inputs.platform == null
+      uses: actions/download-artifact@v4
+      with:
+        name: ECBot-Windows-${{ needs.validate-tag.outputs.version }}
+        path: windows-artifacts
+    
+    - name: Download macOS artifacts
+      if: |
+        github.event.inputs.platform == 'macos' || 
+        github.event.inputs.platform == 'all' || 
+        github.event.inputs.platform == null
+      uses: actions/download-artifact@v4
+      with:
+        name: ECBot-macOS-${{ needs.validate-tag.outputs.version }}
+        path: macos-artifacts
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ github.event.inputs.platform == 'windows' && 'windows-artifacts/dist/ECBot-Setup.exe,windows-artifacts/dist/ECBot/ECBot.exe' || github.event.inputs.platform == 'macos' && 'macos-artifacts/dist/ECBot.pkg,macos-artifacts/dist/ECBot.app' || 'windows-artifacts/dist/ECBot-Setup.exe,windows-artifacts/dist/ECBot/ECBot.exe,macos-artifacts/dist/ECBot.pkg,macos-artifacts/dist/ECBot.app' }}
+        draft: false
+        prerelease: ${{ contains(github.ref, '-') }}
+        generate_release_notes: true
+        body: |
+          ## ECBot ${{ needs.validate-tag.outputs.version }}
+          
+          ### Downloads
+          ${{ github.event.inputs.platform == 'windows' && '- **Windows**: ECBot-Setup.exe (Installer) or ECBot.exe (Portable)' || '' }}
+          ${{ github.event.inputs.platform == 'macos' && '- **macOS**: ECBot.pkg (Installer) or ECBot.app (Portable)' || '' }}
+          ${{ (github.event.inputs.platform == 'all' || github.event.inputs.platform == null) && '- **Windows**: ECBot-Setup.exe (Installer) or ECBot.exe (Portable)' || '' }}
+          ${{ (github.event.inputs.platform == 'all' || github.event.inputs.platform == null) && '- **macOS**: ECBot.pkg (Installer) or ECBot.app (Portable)' || '' }}
+          
+          ### Build Information
+          - Build Date: ${{ github.event.head_commit.timestamp }}
+          - Commit: ${{ github.sha }}
+          - Tag: ${{ github.ref_name }}
+          - Platform: ${{ github.event.inputs.platform || 'all' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
