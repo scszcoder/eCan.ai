@@ -75,8 +75,7 @@
       "langchain",
       "langchain_community",
       "langchain_core",
-      "pydantic",
-      "lightrag"
+      "pydantic"
     ],
     "excludes": [
       "jupyter",
