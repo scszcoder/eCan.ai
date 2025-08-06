@@ -158,6 +158,7 @@ def main():
   python build.py fast              # 快速构建
   python build.py dev --force       # 强制开发构建
   python build.py prod              # 生产构建
+  python build.py prod --version 2.1.0  # 指定版本构建
   python build.py fast --skip-frontend  # 跳过前端的快速构建
   python build.py prod --skip-installer # 跳过安装程序创建
         """
@@ -177,6 +178,12 @@ def main():
         "--force", "-f",
         action="store_true",
         help="强制重新构建 (清理缓存)"
+    )
+
+    parser.add_argument(
+        "--version", "-V",
+        type=str,
+        help="指定版本号 (如: 1.0.0, 2.1.3)"
     )
 
     parser.add_argument(
@@ -219,6 +226,8 @@ def main():
     # 添加选项参数
     if args.force:
         cmd.append("--force")
+    if args.version:
+        cmd.extend(["--version", args.version])
     if args.skip_frontend:
         cmd.append("--skip-frontend")
     if args.skip_installer:
