@@ -500,6 +500,9 @@ class PyInstallerBuilder:
         parallel_comment = "# Parallel compilation enabled via environment variables" if use_parallel else ""
         collect_comment = f"# Auto-collecting from {len(collect_data_packages + collect_binaries_packages + collect_submodules_packages)} packages" if any([collect_data_packages, collect_binaries_packages, collect_submodules_packages]) else ""
 
+        app_name = app_info.get("name", "eCan")
+        bundle_id = f"com.{app_name.lower()}.app"
+        
         spec_content = f"""
 # -*- mode: python ; coding: utf-8 -*-
 {parallel_comment}
@@ -535,7 +538,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='{app_info.get("name", "ECBot")}',
+    name='{app_name}',
     debug={debug_mode},
     bootloader_ignore_signals=False,
     strip={strip_debug},
@@ -561,7 +564,7 @@ coll = COLLECT(
     strip={strip_debug},
     upx=True,
     upx_exclude=[],
-    name='ECBot',
+    name='{app_name}',
 )
 """
         elif self.env.is_macos:
@@ -574,17 +577,17 @@ coll = COLLECT(
     strip={strip_debug},
     upx=True,
     upx_exclude=[],
-    name='ECBot',
+    name='{app_name}',
 )
 
 app = BUNDLE(
     coll,
-    name='ECBot.app',
+    name='{app_name}.app',
     icon=r'{icon_path}',
-    bundle_identifier='com.ecbot.app',
+    bundle_identifier='{bundle_id}',
     info_plist={{
-        'CFBundleName': 'ECBot',
-        'CFBundleDisplayName': 'ECBot',
+        'CFBundleName': '{app_name}',
+        'CFBundleDisplayName': '{app_name}',
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
         'NSHighResolutionCapable': True,
@@ -1340,7 +1343,7 @@ exit 0
 
 
 
-class ECBotBuild:
+class ECanBuild:
     """eCan build main class"""
     
     def __init__(self, mode: str = "prod", version: str = None):
@@ -1428,7 +1431,7 @@ def main():
     args = parser.parse_args()
 
     # Use specified build mode
-    builder = ECBotBuild(args.mode, version=args.version)
+    builder = ECanBuild(args.mode, version=args.version)
     success = builder.build(force=args.force, skip_frontend=args.skip_frontend, skip_installer=args.skip_installer)
 
     sys.exit(0 if success else 1)
