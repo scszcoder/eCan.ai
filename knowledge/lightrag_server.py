@@ -185,6 +185,59 @@ class LightragServer:
             logger.error(f"[LightragServer] Python validation error: {e}")
             return False
 
+    def _create_lightrag_startup_script(self):
+        """为打包环境创建LightRAG启动脚本"""
+        try:
+            import tempfile
+
+            # 创建临时启动脚本
+            script_content = '''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+LightRAG服务器启动脚本 - 用于打包环境
+避免argparse冲突
+"""
+
+import sys
+import os
+
+# 清除可能导致冲突的命令行参数
+original_argv = sys.argv[:]
+sys.argv = [sys.argv[0]]  # 只保留脚本名
+
+try:
+    # 设置默认参数
+    os.environ.setdefault("HOST", "0.0.0.0")
+    os.environ.setdefault("PORT", "9621")
+    os.environ.setdefault("WORKING_DIR", os.path.join(os.path.expanduser("~"), ".lightrag"))
+
+    # 导入并启动LightRAG服务器
+    from lightrag.api.lightrag_server import main
+    main()
+
+except ImportError as e:
+    print(f"LightRAG module not available: {e}")
+    sys.exit(1)
+except Exception as e:
+    print(f"LightRAG server startup failed: {e}")
+    sys.exit(1)
+finally:
+    # 恢复原始参数
+    sys.argv = original_argv
+'''
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+                f.write(script_content)
+                script_path = f.name
+
+            logger.info(f"[LightragServer] Created startup script: {script_path}")
+            return script_path
+
+        except Exception as e:
+            logger.error(f"[LightragServer] Failed to create startup script: {e}")
+            return None
+
     def _check_and_free_port(self):
         """检查端口是否被占用，如果被占用则尝试释放"""
         try:
@@ -474,10 +527,17 @@ class LightragServer:
             import platform
 
             # 构建启动命令
-            cmd = [python_executable, "-m", "lightrag.api.lightrag_server"]
             if self.is_frozen:
+                # 在打包环境中，创建一个简单的启动脚本来避免argparse冲突
+                logger.info("[LightragServer] Creating startup script for packaged environment")
+                startup_script = self._create_lightrag_startup_script()
+                if not startup_script:
+                    logger.error("[LightragServer] Failed to create startup script")
+                    return False
+                cmd = [python_executable, startup_script]
                 logger.info(f"[LightragServer] PyInstaller mode command: {' '.join(cmd)}")
             else:
+                cmd = [python_executable, "-m", "lightrag.api.lightrag_server"]
                 logger.info(f"[LightragServer] Development mode command: {' '.join(cmd)}")
 
             if platform.system().lower().startswith('win'):
