@@ -1,165 +1,165 @@
-# ECBot 构建系统
+# eCan Build System
 
-## 概述
+## Overview
 
-ECBot 构建系统集成了自动化动态导入检测功能，能够自动检测项目中的所有动态导入并生成完整的 hiddenimports 列表，确保所有依赖都能被正确打包。
+The eCan build system integrates automated dynamic import detection functionality, automatically detecting all dynamic imports in the project and generating a complete hiddenimports list to ensure all dependencies are correctly packaged.
 
-## 核心功能
+## Core Features
 
-### 1. 自动化动态导入检测
-- **无需手动维护包名列表**
-- **自动检测所有动态导入模式**
-- **智能识别科学计算库、机器学习库、Web框架等**
+### 1. Automated Dynamic Import Detection
+- **No manual maintenance of package name lists required**
+- **Automatically detects all dynamic import patterns**
+- **Intelligently identifies scientific computing libraries, machine learning libraries, web frameworks, etc.**
 
-### 2. 多模式构建支持
-- **fast**: 快速构建（开发调试用）
-- **dev**: 开发构建（带调试信息）
-- **prod**: 生产构建（完全优化）
+### 2. Multi-mode Build Support
+- **fast**: Fast build (for development and debugging)
+- **dev**: Development build (with debug information)
+- **prod**: Production build (fully optimized)
 
-### 3. 智能包检测
-- 自动检测已安装包的所有子模块
-- 智能识别项目特定的包结构
-- 自动测试模块的可导入性
+### 3. Intelligent Package Detection
+- Automatically detects all submodules of installed packages
+- Intelligently identifies project-specific package structures
+- Automatically tests module importability
 
-## 使用方法
+## Usage
 
-### 基本构建命令
+### Basic Build Commands
 
 ```bash
-# 快速构建（开发调试用）
+# Fast build (for development and debugging)
 python build.py fast
 
-# 开发构建
+# Development build
 python build.py dev
 
-# 生产构建
+# Production build
 python build.py prod
 
-# 强制重新构建
+# Force rebuild
 python build.py prod --force
 
-# 跳过前端构建
+# Skip frontend build
 python build.py prod --skip-frontend
 
-# 跳过安装程序创建
+# Skip installer creation
 python build.py prod --skip-installer
 ```
 
-### 独立运行检测器
+### Run Detector Independently
 
 ```bash
-# 运行智能动态导入检测
+# Run smart dynamic import detection
 python build_system/smart_dynamic_detector.py
 
-# 输出示例：
-🧠 开始智能动态导入检测...
-📝 第一阶段：检测项目特定的动态导入...
-   发现项目特定导入: 200 个
-💻 第二阶段：检测代码中的实际动态导入...
-   分析 150 个 Python 文件...
-   发现代码动态导入: 25 个
-🔑 第三阶段：检测关键依赖的动态导入...
-   检测 100 个关键动态导入模式...
-   发现关键依赖: 80 个
-🔄 第四阶段：智能合并和优化...
-✅ 智能检测完成: 305 个模块
-💾 智能检测结果已保存到: build_system/smart_detected_modules.json
+# Output example:
+🧠 Starting smart dynamic import detection...
+📝 Phase 1: Detecting project-specific dynamic imports...
+Found project-specific imports: 200
+💻 Phase 2: Detecting actual dynamic imports in code...
+Analyzing 150 Python files...
+Found code dynamic imports: 25
+🔑 Phase 3: Detecting critical dependency dynamic imports...
+Detecting 100 critical dynamic import patterns...
+Found critical dependencies: 80
+🔄 Phase 4: Intelligent merging and optimization...
+✅ Smart detection completed: 305 modules
+💾 Smart detection results saved to: build_system/smart_detected_modules.json
 ```
 
-## 解决的问题
+## Problems Solved
 
-### 动态导入问题
-- `No module named 'scipy._lib.array_api_compat.numpy.fft'`
-- `No module named 'scipy.stats.chatterjeexi'`
-- 所有类似的动态导入错误
+### Dynamic Import Issues
+- `ModuleNotFoundError: No module named 'scipy.spatial'`
+- `ModuleNotFoundError: No module named 'numpy.random'`
+- All similar dynamic import errors
 
-### 覆盖的库类型
-- **科学计算库**: scipy, numpy, pandas, matplotlib, sklearn
-- **机器学习库**: transformers, torch, tensorflow
-- **Web 框架**: fastapi, starlette, uvicorn
-- **数据库**: sqlalchemy, django
-- **AI 库**: openai, langchain
-- **其他常用库**: pydantic, click, rich, cryptography 等
+### Covered Library Types
+- **Scientific Computing Libraries**: scipy, numpy, pandas, matplotlib, sklearn
+- **Machine Learning Libraries**: transformers, torch, tensorflow
+- **Web Frameworks**: fastapi, starlette, uvicorn
+- **Databases**: sqlalchemy, django
+- **AI Libraries**: openai, langchain
+- **Other Common Libraries**: pydantic, click, rich, cryptography, etc.
 
-## 技术特点
+## Technical Features
 
-### 1. 智能优化
-- 限制最大模块数量（1000个），避免 spec 文件过长
-- 优先级排序，保留最重要的模块
-- 智能过滤，避免冗余检测
+### 1. Intelligent Optimization
+- Limits maximum module count (1000), avoiding overly long spec files
+- Priority sorting, keeping the most important modules
+- Intelligent filtering, avoiding redundant detection
 
-### 2. 精准检测
-- 项目特定的动态导入（优先级最高）
-- 代码中的实际动态导入
-- 关键依赖的动态导入
+### 2. Precise Detection
+- Project-specific dynamic imports (highest priority)
+- Actual dynamic imports in code
+- Critical dependency dynamic imports
 
-### 3. 高效覆盖
-- 涵盖最常见的动态导入问题
-- 自动识别关键模式
-- 避免过度检测
+### 3. Efficient Coverage
+- Covers the most common dynamic import issues
+- Automatically identifies critical patterns
+- Avoids over-detection
 
-## 配置文件
+## Configuration Files
 
-### build_config.json
+The build system uses the following configuration files:
+
+- `build_config.json`: Main configuration file
+- `smart_dynamic_detector.py`: Dynamic import detector
+- `ecan_build.py`: Core build system
+
+### Configuration Structure
+
 ```json
 {
-  "build_modes": {
-    "dev": { "debug": false, "console": true },
-    "prod": { "debug": false, "console": false }
+  "app_info": {
+    "name": "eCan",
+    "version": "1.0.0",
+    "main_script": "main.py"
   },
-  "installer": {
-    "compression_modes": {
-      "dev": { "compression": "zip", "solid_compression": false },
-      "prod": { "compression": "lzma", "solid_compression": true }
+  "build_modes": {
+    "fast": {
+      "use_cache": true,
+      "parallel": true,
+      "strip_debug": false
+    },
+    "dev": {
+      "use_cache": false,
+      "parallel": true,
+      "console": true
+    },
+    "prod": {
+      "use_cache": false,
+      "parallel": true,
+      "strip_debug": true
     }
   }
 }
 ```
 
-### fast_build_config.json
-```json
-{
-  "build_modes": {
-    "fast": { "debug": true, "console": true, "clean": false }
-  },
-  "installer": { "enabled": false }
-}
+## Troubleshooting
+
+### 1. Detector Run Failure
+
+```bash
+# Check Python environment
+python -c "import sys; print(sys.path)"
+
+# Manually run detector
+python build_system/smart_dynamic_detector.py
 ```
 
-## 故障排除
+### 2. Missing Modules During Build
 
-### 1. 检测器运行失败
 ```bash
-# 检查 Python 环境
-python -c "import importlib; print('OK')"
-
-# 手动运行检测器
-python build_system/auto_dynamic_detector.py
-```
-
-### 2. 构建时仍有模块缺失
-```bash
-# 查看详细错误信息
+# View detailed error information
 python build.py prod --verbose
 
-# 检查检测结果
-cat build_system/detected_modules.json
+# Check detection results
+cat build_system/smart_detected_modules.json
 ```
 
-### 3. 特定模块缺失
+### 3. Specific Module Missing
+
 ```bash
-# 检查模块是否存在
-python -c "import scipy._lib.array_api_compat.numpy.fft; print('OK')"
-```
-
-## 总结
-
-ECBot 构建系统通过自动化动态导入检测，彻底解决了传统方法需要手动维护大量包名列表的问题：
-
-1. **完全自动化**: 无需手动维护任何配置
-2. **智能检测**: 自动识别各种动态导入模式
-3. **全面覆盖**: 检测所有主要类别的动态导入问题
-4. **易于使用**: 一键运行，自动集成到构建流程
-5. **持续适应**: 自动适应项目变化和新依赖
-
-使用这个构建系统，你可以放心地使用各种动态导入技术，而不用担心打包时出现模块缺失的问题！ 
+# Check if module exists
+python -c "import module_name"
+``` 

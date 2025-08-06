@@ -487,7 +487,7 @@ def time_to_run(agent):
         repeat_seconds = get_repeat_interval_seconds(task.schedule)
 
         overdue_time = (now - last_runtime).total_seconds()
-        print("overdue:", overdue_time, repeat_seconds, elapsed_since_last_run)
+        logger.debug("overdue:", overdue_time, repeat_seconds, elapsed_since_last_run)
         # 🧠 Main logic: should we run now?
         if (now >= last_runtime and
             elapsed_since_last_run > repeat_seconds / 2 and

@@ -280,11 +280,9 @@ class WebGUI(QMainWindow):
     
     def closeEvent(self, event):
         """窗口关闭事件 - 调试版本"""
-        print("🔔 [DEBUG] closeEvent 被调用")
         logger.info("closeEvent triggered")
 
         try:
-            print("🔔 [DEBUG] 创建确认对话框")
             # 创建自定义对话框
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle('Confirm Exit')
@@ -311,45 +309,40 @@ class WebGUI(QMainWindow):
             except:
                 msg_box.setIcon(QMessageBox.Question)
 
-            print("🔔 [DEBUG] 显示对话框")
+            logger.info("🔔 [DEBUG] 显示对话框")
             reply = msg_box.exec()
-            print(f"🔔 [DEBUG] 用户选择: {reply}")
+            logger.info(f"🔔 [DEBUG] 用户选择: {reply}")
 
             if reply == QMessageBox.Yes:
-                print("🔔 [DEBUG] 用户确认退出")
                 logger.info("User confirmed exit")
                 event.accept()
 
-                print("🔔 [DEBUG] 开始退出流程")
+                logger.info("🔔 [DEBUG] 开始退出流程")
 
                 # 停止 LightragServer
                 try:
-                    print("🔔 [DEBUG] 停止 LightragServer")
+                    logger.info("🔔 [DEBUG] 停止 LightragServer")
                     from app_context import AppContext
                     ctx = AppContext()
                     if ctx.main_window and hasattr(ctx.main_window, 'lightrag_server'):
-                        print("🔔 [DEBUG] 找到 LightragServer，正在停止...")
+                        logger.info("🔔 [DEBUG] 找到 LightragServer，正在停止...")
                         ctx.main_window.lightrag_server.stop()
-                        print("🔔 [DEBUG] LightragServer 已停止")
+                        logger.info("🔔 [DEBUG] LightragServer 已停止")
                     else:
-                        print("🔔 [DEBUG] 未找到 LightragServer 或 MainWindow")
+                        logger.info("🔔 [DEBUG] 未找到 LightragServer 或 MainWindow")
                 except Exception as e:
-                    print(f"🔔 [DEBUG] 停止 LightragServer 时出错: {e}")
                     logger.warning(f"Error stopping LightragServer: {e}")
 
                 # 强制退出
                 import os
-                print("🔔 [DEBUG] 调用 os._exit(0)")
                 logger.info("Force exiting with os._exit(0)")
                 os._exit(0)
 
             else:
-                print("🔔 [DEBUG] 用户取消退出")
                 logger.info("User cancelled exit")
                 event.ignore()
 
         except Exception as e:
-            print(f"🔔 [DEBUG] closeEvent 异常: {e}")
             logger.error(f"closeEvent exception: {e}")
             import traceback
             traceback.print_exc()

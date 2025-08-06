@@ -1,170 +1,154 @@
 # GitHub Actions Workflows
 
-本项目包含一个主要的 GitHub Actions workflow，用于自动化构建和发布流程。
+This project contains a main GitHub Actions workflow for automated build and release processes.
 
-## Workflows 概览
+## Workflows Overview
 
 ### Release Build (`release.yml`)
-**统一发布流程** - 当创建 tag 或 release 时触发
+**Unified Release Process** - Triggered when creating tags or releases
 
-**触发条件：**
-- 推送 tag：`v*` (如 `v1.0.0`, `v2.1.3`)
-- 创建/编辑/发布 GitHub Release
-- 手动触发（支持平台选择）
+**Trigger Conditions:**
+- Push tag: `v*` (e.g., `v1.0.0`, `v2.1.3`)
+- Create/edit/publish GitHub Release
+- Manual trigger (with platform selection support)
 
-**功能：**
-- ✅ 验证 tag 格式
-- ✅ 支持选择性构建（Windows、macOS 或全部）
-- ✅ 并行构建 Windows 和 macOS 版本
-- ✅ 自动创建 GitHub Release
-- ✅ 上传构建产物
-- ✅ 统一管理多平台构建
+**Features:**
+- ✅ Validate tag format
+- ✅ Support selective builds (Windows, macOS, or all)
+- ✅ Parallel build for Windows and macOS versions
+- ✅ Automatic GitHub Release creation
+- ✅ Upload build artifacts
+- ✅ Unified multi-platform build management
 
-## 使用方法
+## Usage
 
-### 创建新版本发布
+### Creating a New Version Release
 
-1. **准备代码**
+1. **Prepare Code**
    ```bash
    git checkout main
    git pull origin main
    ```
 
-2. **创建并推送 tag**
+2. **Create and Push Tag**
    ```bash
-   # 创建 tag (遵循语义化版本控制)
+   # Create tag (following Semantic Versioning)
    git tag v1.0.0
    
-   # 推送 tag 到远程仓库
+   # Push tag to remote repository
    git push origin v1.0.0
    ```
 
-3. **自动触发构建**
-   - 推送 tag 后，GitHub Actions 会自动触发构建流程
-   - 构建完成后会自动创建 GitHub Release
+3. **Automatic Build Trigger**
+   - After pushing the tag, GitHub Actions will automatically trigger the build process
+   - After build completion, it will automatically create a GitHub Release
 
-### Tag 命名规范
+### Tag Naming Convention
 
-遵循 [语义化版本控制 (SemVer)](https://semver.org/lang/zh-CN/) 规范：
+Following [Semantic Versioning (SemVer)](https://semver.org/) specification:
 
-- **正式版本**：`v1.0.0`, `v2.1.3`
-- **预发布版本**：`v1.0.0-alpha.1`, `v2.1.3-beta.2`
-- **构建版本**：`v1.0.0+build.1`
+- **Stable Release**: `v1.0.0`, `v2.1.3`
+- **Pre-release**: `v1.0.0-alpha.1`, `v2.0.0-beta.1`
+- **Development**: `v1.0.0-dev.20240101`
 
-### 平台选择功能
+### Manual Trigger
 
-#### 自动触发（Tag/Release）
-- 推送 tag 时：自动构建所有平台
-- 创建 Release 时：自动构建所有平台
+You can manually trigger builds through GitHub's web interface:
 
-#### 手动触发
-支持选择特定平台进行构建：
+1. Go to project's **Actions** tab
+2. Select **Release Build** workflow
+3. Click **Run workflow**
+4. Choose platform (Windows, macOS, or all)
+5. Click **Run workflow** button
 
-- **all** (默认)：构建 Windows 和 macOS 版本
-- **windows**：仅构建 Windows 版本
-- **macos**：仅构建 macOS 版本
-
-#### 使用场景
-- **快速测试**：选择单个平台进行快速构建测试
-- **平台特定修复**：只构建需要修复的平台
-- **节省资源**：避免不必要的平台构建
-- **紧急发布**：快速构建特定平台版本
-
-### 手动触发
-
-1. 在 GitHub 仓库页面，点击 "Actions" 标签
-2. 选择 "Release Build" workflow
-3. 点击 "Run workflow" 按钮
-4. 选择构建平台：
-   - **all**: 构建所有平台（默认）
-   - **windows**: 仅构建 Windows 版本
-   - **macos**: 仅构建 macOS 版本
-5. 选择分支并点击 "Run workflow"
-
-## 构建产物
+## Build Artifacts
 
 ### Windows
-- `eCan-Setup.exe` - 安装程序
-- `eCan/eCan.exe` - 便携版可执行文件
+- `eCan-Setup.exe` - Installer
+- `eCan/eCan.exe` - Portable executable
 
 ### macOS
-- `eCan.pkg` - macOS 安装包
-- `eCan.app` - macOS 应用程序包（便携版）
+- `eCan.pkg` - macOS installer package
+- `eCan.app` - macOS application bundle (portable)
 
-## 版本管理
+### Artifact Storage
+- **GitHub Actions**: 30 days retention
+- **GitHub Releases**: Permanent storage
+- **Download**: Available from GitHub Releases page
 
-### 版本信息传递
-- 自动从 Git 标签提取版本号
-- 版本信息自动应用到构建产物
-- 支持语义化版本号 (SemVer)
-- 构建产物文件名包含版本号
+## Version Management
 
-### 版本应用范围
-- **Windows 安装包**：`eCan-Setup.exe` 中的应用信息
-- **macOS 安装包**：`eCan-{version}.pkg` 文件名和包信息
-- **应用程序**：可执行文件中的应用版本信息
-- **Release 说明**：自动生成包含版本信息的发布说明
+### Version Information Passing
+- Automatically extract version number from Git tags
+- Version information automatically applied to build artifacts
+- Support for Semantic Versioning (SemVer)
+- Build artifact filenames include version numbers
 
-## 环境要求
+### Version Application Scope
+- **Windows Installer**: Application information in `eCan-Setup.exe`
+- **macOS Installer**: `eCan-{version}.pkg` filename and package information
+- **Application**: Application version information in executable files
+- **Release Notes**: Automatically generate release notes with version information
 
-### Windows 构建
-- Python 3.11
-- Node.js 18
-- Inno Setup 6.2.2
-- PyInstaller
-- pywin32-ctypes
+## Build Process
 
-### macOS 构建
-- Python 3.11
-- Node.js 18
-- PyInstaller
+### Windows Build
+1. **Environment Setup**: Windows Server 2022
+2. **Dependencies**: Install Python, Node.js, system tools
+3. **Build**: Execute `python build.py prod --version {version}`
+4. **Artifacts**: Generate installer and portable version
+5. **Upload**: Upload to GitHub Actions artifacts
 
-## 故障排除
+### macOS Build
+1. **Environment Setup**: macOS 12 (Intel)
+2. **Dependencies**: Install Python, Node.js, system tools
+3. **Build**: Execute `python build.py prod --version {version}`
+4. **Artifacts**: Generate `.pkg` installer and `.app` bundle
+5. **Upload**: Upload to GitHub Actions artifacts
 
-### 常见问题
+### Release Creation
+1. **Dependency**: Requires successful completion of Windows and macOS builds
+2. **Artifacts**: Download build artifacts from previous jobs
+3. **Release**: Create GitHub Release with version tag
+4. **Upload**: Upload all platform artifacts to Release
+5. **Notes**: Generate release notes with download links
 
-1. **构建失败**
-   - 检查依赖项是否正确安装
-   - 查看构建日志获取详细错误信息
-   - 确保代码没有语法错误
+## Platform Selection
 
-2. **Release 创建失败**
-   - 确保 tag 格式正确
-   - 检查 GitHub Token 权限
-   - 验证构建产物是否存在
+When manually triggering workflows, you can select specific platforms to build:
 
-3. **端口冲突**
-   - 构建过程中可能遇到端口占用问题
-   - 系统会自动处理端口冲突
+- **all**: Build both Windows and macOS (default)
+- **windows**: Build Windows only
+- **macos**: Build macOS only
 
-### 日志查看
+This feature is useful for:
+- 🔧 Debugging platform-specific issues
+- ⚡ Faster iteration during development
+- 💰 Reducing CI/CD resource usage
+- 🎯 Platform-specific releases
 
-1. 在 GitHub Actions 页面查看构建日志
-2. 下载构建产物查看详细日志文件
-3. 检查 `build.log` 文件获取构建过程信息
+## Troubleshooting
 
-## 配置说明
+### Common Issues
 
-### 缓存配置
-- Python 依赖缓存：基于 `requirements*.txt` 文件哈希
-- Node.js 依赖缓存：基于 `package-lock.json`
+1. **Tag format error**: Ensure tag follows `v*` format (e.g., `v1.0.0`)
+2. **Build failure**: Check build logs in GitHub Actions
+3. **Missing artifacts**: Verify build completed successfully
+4. **Permission error**: Ensure repository has proper access permissions
 
-### 超时设置
-- 构建超时：45 分钟
-- 下载超时：10 分钟
+### Debug Steps
 
-### 产物保留
-- 构建产物保留：30 天
-- Release 文件：永久保留
+1. Check GitHub Actions logs
+2. Verify tag format and version number
+3. Ensure all required dependencies are available
+4. Check build script execution permissions
+5. Verify artifact upload permissions
 
-## 安全说明
+## Configuration
 
-- 使用 `GITHUB_TOKEN` 进行身份验证
-- 构建产物经过验证确保完整性
-- 支持预发布版本标记
+Build configuration is managed through:
+- `build_system/build_config.json` - Application and installer configuration
+- `build.py` - Main build script entry point
+- `build_system/ecan_build.py` - Core build system implementation
 
-## 更新日志
-
-- **v1.0.0**: 初始版本，支持基本的 tag 触发构建
-- **v1.1.0**: 添加 Release 自动创建功能
-- **v1.2.0**: 优化构建流程，添加并行构建支持 
+For detailed configuration options, see the build system documentation.
