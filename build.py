@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ECBot 统一构建系统 v9.0
-支持多种构建模式和性能优化
+eCan Unified Build System v9.0
+Supports multiple build modes and performance optimization
 """
 
 import sys
@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 class BuildEnvironment:
-    """构建环境检测和管理"""
+    """Build environment detection and management"""
     
     def __init__(self):
         self.platform = platform.system()
@@ -24,33 +24,33 @@ class BuildEnvironment:
         self.is_ci = self._detect_ci_environment()
         
     def _detect_ci_environment(self) -> bool:
-        """检测是否在CI环境中运行"""
+        """Detect if running in CI environment"""
         ci_vars = ['GITHUB_ACTIONS', 'CI', 'TRAVIS', 'CIRCLECI']
         return any(os.getenv(var) for var in ci_vars)
     
     def validate_environment(self) -> bool:
-        """验证构建环境"""
+        """Validate build environment"""
         print(f"[ENV] Platform: {self.platform}")
         print(f"[ENV] Python: {platform.python_version()}")
         print(f"[ENV] Architecture: {platform.architecture()[0]}")
         print(f"[ENV] CI Environment: {self.is_ci}")
         
-        # 检查Python版本
+        # Check Python version
         if not self._check_python_version():
             return False
             
-        # 检查虚拟环境
+        # Check virtual environment
         if not self._check_virtual_environment():
             return False
             
-        # 检查必要文件
+        # Check required files
         if not self._check_required_files():
             return False
             
         return True
     
     def _check_python_version(self) -> bool:
-        """检查Python版本"""
+        """Check Python version"""
         version = sys.version_info
         if version.major != 3 or version.minor < 8:
             print(f"[ERROR] Python 3.8+ required, current: {version.major}.{version.minor}")
@@ -58,10 +58,10 @@ class BuildEnvironment:
         return True
     
     def _check_required_files(self) -> bool:
-        """检查必要文件"""
+        """Check required files"""
         required_files = [
             "main.py",
-            "build_system/ecbot_build.py",
+            "build_system/ecan_build.py",
             "build_system/build_config.json"
         ]
         
@@ -73,7 +73,7 @@ class BuildEnvironment:
         return True
     
     def _check_virtual_environment(self) -> bool:
-        """检查虚拟环境"""
+        """Check virtual environment"""
         if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
             print("[SUCCESS] Virtual environment detected")
             return True
@@ -83,13 +83,13 @@ class BuildEnvironment:
             return self._activate_virtual_environment()
     
     def _activate_virtual_environment(self) -> bool:
-        """激活虚拟环境"""
+        """Activate virtual environment"""
         venv_path = Path("venv")
         if not venv_path.exists():
             print("[ERROR] Virtual environment not found")
             return False
         
-        # 在Windows上激活虚拟环境
+        # Activate virtual environment on Windows
         if self.is_windows:
             activate_script = venv_path / "Scripts" / "activate.bat"
             if activate_script.exists():
@@ -98,7 +98,7 @@ class BuildEnvironment:
                 print("[SUCCESS] Virtual environment activated")
                 return True
         else:
-            # 在Unix系统上激活虚拟环境
+            # Activate virtual environment on Unix systems
             activate_script = venv_path / "bin" / "activate"
             if activate_script.exists():
                 os.environ['VIRTUAL_ENV'] = str(venv_path)
@@ -111,145 +111,153 @@ class BuildEnvironment:
 
 
 def print_banner():
-    """打印构建横幅"""
+    """Print build banner"""
     print("=" * 60)
-    print("ECBot 统一构建系统 v9.0")
+    print("eCan Unified Build System v9.0")
     print("=" * 60)
 
 def print_mode_info(mode: str, fast: bool = False):
-    """打印构建模式信息"""
-    print(f"构建模式: {mode.upper()}")
+    """Print build mode information"""
+    print(f"Build Mode: {mode.upper()}")
 
     if fast:
-        print("🚀 快速构建特性:")
-        print("  ✓ 只包含必要依赖 (~60个包)")
-        print("  ✓ 启用控制台输出")
-        print("  ✓ 增量构建检查")
-        print("  ✓ 禁用UPX压缩")
-        print("  ✓ 预计时间: 2-5分钟")
+        print("🚀 Fast Build Features:")
+        print("  ✓ Parallel compilation (multi-core CPU acceleration)")
+        print("  ✓ Smart caching (incremental build)")
+        print("  ✓ Optimized dependencies (~280 packages)")
+        print("  ✓ Debug symbols stripped")
+        print("  ✓ Estimated time: 2-5 minutes")
     elif mode == "dev":
-        print("🔧 开发构建特性:")
-        print("  ✓ 包含调试信息")
-        print("  ✓ 启用控制台输出")
-        print("  ✓ 快速编译选项")
-        print("  ✓ 预计时间: 5-10分钟")
+        print("🔧 Development Build Features:")
+        print("  ✓ Parallel compilation (multi-core CPU acceleration)")
+        print("  ✓ Console output enabled")
+        print("  ✓ Debug symbols preserved")
+        print("  ✓ Estimated time: 5-10 minutes")
     else:
-        print("🏭 生产构建特性:")
-        print("  ✓ 包含所有依赖")
-        print("  ✓ 完整优化和压缩")
-        print("  ✓ 生产级别打包")
-        print("  ✓ 预计时间: 10-20分钟")
+        print("🏭 Production Build Features:")
+        print("  ✓ Parallel compilation (multi-core CPU acceleration)")
+        print("  ✓ Full optimization and cleanup")
+        print("  ✓ Debug symbols stripped")
+        print("  ✓ LZMA best compression")
+        print("  ✓ Estimated time: 15-25 minutes")
 
     print("=" * 60)
 
 def main():
-    """主函数"""
+    """Main function"""
     parser = argparse.ArgumentParser(
-        description="ECBot 统一构建系统",
+        description="eCan Unified Build System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-构建模式说明:
-  fast     快速构建 (开发测试用，2-5分钟)
-  dev      开发构建 (带调试信息，5-10分钟)
-  prod     生产构建 (完全优化，10-20分钟)
+Build mode description:
+  fast     Fast build (parallel+cache, 2-5 minutes)
+  dev      Development build (parallel+console, 5-10 minutes)
+  prod     Production build (parallel+best compression, 15-25 minutes)
 
-使用示例:
-  python build.py fast              # 快速构建
-  python build.py dev --force       # 强制开发构建
-  python build.py prod              # 生产构建
-  python build.py fast --skip-frontend  # 跳过前端的快速构建
-  python build.py prod --skip-installer # 跳过安装程序创建
+Usage examples:
+  python build.py fast              # Fast build
+  python build.py dev --force       # Force development build
+  python build.py prod              # Production build
+  python build.py prod --version 2.1.0  # Build with specified version
+  python build.py fast --skip-frontend  # Fast build skipping frontend
+  python build.py prod --skip-installer # Skip installer creation
         """
     )
 
-    # 位置参数
+    # Positional arguments
     parser.add_argument(
         "mode",
         choices=["fast", "dev", "prod"],
         default="fast",
         nargs="?",
-        help="构建模式 (默认: fast)"
+        help="Build mode (default: fast)"
     )
 
-    # 可选参数
+    # Optional arguments
     parser.add_argument(
         "--force", "-f",
         action="store_true",
-        help="强制重新构建 (清理缓存)"
+        help="Force rebuild (clean cache)"
+    )
+
+    parser.add_argument(
+        "--version", "-V",
+        type=str,
+        help="Specify version number (e.g.: 1.0.0, 2.1.3)"
     )
 
     parser.add_argument(
         "--skip-frontend",
         action="store_true",
-        help="跳过前端构建 (仅构建Python部分)"
+        help="Skip frontend build (build Python part only)"
     )
 
     parser.add_argument(
         "--skip-installer",
         action="store_true",
-        help="跳过安装程序创建 (仅生成可执行文件)"
+        help="Skip installer creation (generate executable only)"
     )
 
     parser.add_argument(
         "--verbose", "-v",
         action="store_true",
-        help="显示详细构建信息"
+        help="Show detailed build information"
     )
 
     args = parser.parse_args()
 
-    # 验证环境
+    # Validate environment
     env = BuildEnvironment()
     if not env.validate_environment():
         sys.exit(1)
 
-    # 打印信息
+    # Print information
     print_banner()
 
-    # 确定是否使用快速模式
+    # Use specified build mode
+    build_mode = args.mode
     fast_mode = args.mode == "fast"
-    build_mode = "dev" if fast_mode else args.mode
 
     print_mode_info(args.mode, fast_mode)
 
-    # 构建命令
-    cmd = [sys.executable, "build_system/ecbot_build.py", build_mode]
+    # Build command
+    cmd = [sys.executable, "build_system/ecan_build.py", build_mode]
 
-    # 添加选项参数
+    # Add optional parameters
     if args.force:
         cmd.append("--force")
+    if args.version:
+        cmd.extend(["--version", args.version])
     if args.skip_frontend:
         cmd.append("--skip-frontend")
     if args.skip_installer:
         cmd.append("--skip-installer")
-    if fast_mode:
-        cmd.append("--fast")
 
-    print(f"[EXEC] 执行命令: {' '.join(cmd)}")
+    print(f"[EXEC] Executing command: {' '.join(cmd)}")
     print("=" * 60)
 
-    # 执行构建
+    # Execute build
     try:
         subprocess.run(cmd, check=True)
 
         print("\n" + "=" * 60)
-        print("🎉 构建完成!")
+        print("🎉 Build completed!")
         print("=" * 60)
 
-        # 根据操作系统确定可执行文件名和安装包信息
+        # Determine executable filename and installer info based on OS
         if platform.system() == "Windows":
-            exe_name = "ECBot.exe"
-            installer_info = f"📦 安装包: {Path.cwd()}/dist/ECBot-Setup.exe"
+            exe_name = "eCan.exe"
+            installer_info = f"📦 Installer: {Path.cwd()}/dist/eCan-Setup.exe"
         elif platform.system() == "Darwin":
-            exe_name = "ECBot"  # macOS
-            installer_info = f"📦 安装包: {Path.cwd()}/dist/ECBot-1.0.0.pkg"
+            exe_name = "eCan"  # macOS
+            installer_info = f"📦 Installer: {Path.cwd()}/dist/eCan-1.0.0.pkg"
         else:
-            exe_name = "ECBot"  # Linux
-            installer_info = "📦 安装包: 暂不支持Linux安装包"
+            exe_name = "eCan"  # Linux
+            installer_info = "📦 Installer: Linux installer not supported yet"
 
-        print(f"📁 可执行文件: {Path.cwd()}/dist/ECBot/{exe_name}")
+        print(f"📁 Executable: {Path.cwd()}/dist/eCan/{exe_name}")
         if not args.skip_frontend:
-            print(f"🌐 前端文件: {Path.cwd()}/gui_v2/dist/")
+            print(f"🌐 Frontend: {Path.cwd()}/gui_v2/dist/")
         if not args.skip_installer:
             print(installer_info)
         print("=" * 60)
@@ -257,13 +265,13 @@ def main():
         return 0
 
     except subprocess.CalledProcessError as e:
-        print(f"\n❌ 构建失败，退出码: {e.returncode}")
+        print(f"\n❌ Build failed, exit code: {e.returncode}")
         return e.returncode
     except KeyboardInterrupt:
-        print("\n⏹️  构建被用户中断")
+        print("\n⏹️  Build interrupted by user")
         return 1
     except Exception as e:
-        print(f"\n❌ 构建失败: {e}")
+        print(f"\n❌ Build failed: {e}")
         return 1
 
 

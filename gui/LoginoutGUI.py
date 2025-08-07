@@ -25,17 +25,9 @@ from PySide6.QtWidgets import QDialog, QLabel, QComboBox, QApplication, QLineEdi
     QVBoxLayout, QMessageBox
 import botocore
 import locale
-try:
-    from gui.MainGUI import MainWindow
-except Exception as e:
-    traceback_info = traceback.extract_tb(e.__traceback__)
-    # Extract the file name and line number from the last entry in the traceback
-    if traceback_info:
-        ex_stat = "ErrorLoginoutGUIImportLib:" + traceback.format_exc() + " " + str(e)
-    else:
-        ex_stat = "ErrorLoginoutGUIImportLib: traceback information not available:" + str(e)
-    print(ex_stat)
-from gui.BrowserGUI import BrowserWindow
+
+from gui.MainGUI import MainWindow
+# from gui.BrowserGUI import BrowserWindow
 
 from bot.signio import CLIENT_ID, USER_POOL_ID, CLIENT_SECRET
 from config.app_info import app_info

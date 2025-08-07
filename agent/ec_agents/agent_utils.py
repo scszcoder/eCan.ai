@@ -111,7 +111,13 @@ def gen_agent_from_cloud_data(mainwin, ajs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+
+        # 在打包环境中安全初始化browser_use_llm
+        try:
+            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        except Exception as e:
+            logger.warning(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -160,7 +166,15 @@ def gen_new_agent(mainwin, ajs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+
+        # 在打包环境中安全初始化browser_use_llm
+        try:
+            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        except Exception as e:
+            print(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+            # 使用主LLM作为备用方案
+            browser_use_llm = llm
+
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:
@@ -326,7 +340,15 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
             skills=agent_skills,
         )
         print("agent card created:", agent_card.name, agent_card.url)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+
+        # 在打包环境中安全初始化browser_use_llm
+        try:
+            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        except Exception as e:
+            print(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+            # 使用主LLM作为备用方案
+            browser_use_llm = llm
+
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
     except Exception as e:

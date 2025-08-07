@@ -456,6 +456,9 @@ class SkillManagerWindow(QMainWindow):
 
         self.setWindowTitle(QApplication.translate("QtWidget", "Skill Manager"))
 
+        # 默认隐藏窗口，避免闪现
+        self.setVisible(False)
+
     def closeSkillManager(self):
         self.close()
 

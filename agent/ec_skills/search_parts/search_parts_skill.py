@@ -21,48 +21,50 @@ def go_to_next_site_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     try:
         print("about to connect to ads power:", type(state), state)
-        loop = asyncio.get_event_loop()
-    except RuntimeError as e:
+
+        # 安全地获取或创建事件循环
         try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"in_browser_open_tab", args={"input": state["tool_input"]} ))
-            # tool_result = await mainwin.mcp_client.call_tool(
-            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
-            # )
-            print("new loop go_to_site_node tool completed:", type(tool_result), tool_result)
-            if "completed" in tool_result.content[0].text:
-                state.result = tool_result.content[0].text
-                state.tool_result = getattr(tool_result, 'meta', None)
-            else:
-                state["error"] = tool_result.content[0].text
 
-            return state
-        except Exception as e:
-            state["error"] = get_traceback(e, "ErrorGoToSiteNode0")
-            logger.debug(state["error"])
-            return state
-        finally:
-            loop.close()
-    else:
-        try:
-            tool_result = loop.run_until_complete(
-                mcp_call_tool(mainwin.mcp_client, "os_connect_to_adspower", args={"input": state["tool_input"]}))
-            # tool_result = await mainwin.mcp_client.call_tool(
-            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
-            # )
-            print("old loop go_to_site_node tool completed:", type(tool_result), tool_result)
-            if "completed" in tool_result.content[0].text:
-                state.result = tool_result.content[0].text
-                state.tool_result = getattr(tool_result, 'meta', None)
-            else:
-                state["error"] = tool_result.content[0].text
+        # 调用工具
+        tool_result = loop.run_until_complete(
+            mcp_call_tool(mainwin.mcp_client, "in_browser_open_tab", args={"input": state["tool_input"]})
+        )
 
-            return state
-        except Exception as e:
-            state["error"] = get_traceback(e, "ErrorGoToSiteNode1")
-            logger.debug(state["error"])
-            return state
+        print("go_to_site_node tool completed:", type(tool_result), tool_result)
+
+        # 安全地处理结果
+        if isinstance(tool_result, dict):
+            # 如果返回的是字典
+            if "content" in tool_result and len(tool_result["content"]) > 0:
+                content_text = tool_result["content"][0].get("text", "")
+                if "completed" in content_text:
+                    state["result"] = content_text
+                    state["tool_result"] = tool_result.get("meta", None)
+                else:
+                    state["error"] = content_text
+            else:
+                state["error"] = f"Invalid tool result format: {tool_result}"
+        else:
+            # 如果返回的是对象
+            if hasattr(tool_result, 'content') and len(tool_result.content) > 0:
+                if "completed" in tool_result.content[0].text:
+                    state["result"] = tool_result.content[0].text
+                    state["tool_result"] = getattr(tool_result, 'meta', None)
+                else:
+                    state["error"] = tool_result.content[0].text
+            else:
+                state["error"] = f"Invalid tool result object: {tool_result}"
+
+        return state
+
+    except Exception as e:
+        state["error"] = get_traceback(e, "ErrorGoToSiteNode")
+        logger.debug(state["error"])
+        return state
 
 
 def check_captcha_node(state: NodeState) -> NodeState:
@@ -501,7 +503,7 @@ async def create_search_parts_skill(mainwin):
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(NodeState, WorkFlowContext)
+        workflow = StateGraph(NodeState)
         workflow.add_node("go_to_next_site", go_to_next_site_node)
         workflow.set_entry_point("go_to_next_site")
         # workflow.add_node("goto_site", goto_site)

@@ -499,7 +499,7 @@ def time_to_run(agent):
         repeat_seconds = get_repeat_interval_seconds(task.schedule)
 
         overdue_time = (now - last_runtime).total_seconds()
-        print("overdue:", overdue_time, repeat_seconds, elapsed_since_last_run)
+        logger.debug("overdue:", overdue_time, repeat_seconds, elapsed_since_last_run)
         # 🧠 Main logic: should we run now?
         if (now >= last_runtime and
             elapsed_since_last_run > repeat_seconds / 2 and
@@ -769,13 +769,11 @@ class TaskRunner(Generic[Context]):
     def launch_scheduled_run(self, task=None):
         while not self._stop_event.is_set():
             try:
-                logger.trace("checking scheduled task...." + self.agent.card.name)
-                print("checking agent scheduled task...." + self.agent.card.name)
+                logger.trace("checking agent scheduled task...." + self.agent.card.name)
                 # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
                 logger.trace("Checking schedule.....")
                 task2run = time_to_run(self.agent)
-                print("task2run:", task2run)
-                logger.trace(f"len task2run, {task2run}, {self.agent.card.name}")
+                logger.trace(f"task2run: len task2run, {task2run}, {self.agent.card.name}")
                 if task2run:
                     print("setting up scheduled task to run", task2run.name)
                     logger.debug("scheduled task2run skill name" + task2run.skill.name)
@@ -790,7 +788,7 @@ class TaskRunner(Generic[Context]):
                     else:
                         self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
                 else:
-                    print("schedule task not reached scheduled time yet....")
+                    logger.trace("schedule task not reached scheduled time yet....")
                     logger.debug("nothing 2 run")
 
             except Exception as e:

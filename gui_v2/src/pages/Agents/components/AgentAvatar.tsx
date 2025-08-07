@@ -1,5 +1,5 @@
-import React, { useMemo, useRef } from 'react';
-import agentGifs from '@/assets/gifs'; // 需实现导入所有 gif
+import React, { useMemo, useRef, useEffect } from 'react';
+import agentGifs, { logVideoSupport } from '@/assets/gifs'; // 需实现导入所有 gif
 import { Agent, AgentCard } from '../types';
 import './AgentAvatar.css';
 import { Button } from 'antd';
@@ -12,6 +12,9 @@ function getRandomGif(): string {
   const idx = Math.floor(Math.random() * agentGifs.length);
   return agentGifs[idx] as string;
 }
+
+// 全局标记，确保视频支持检测只执行一次
+let videoSupportChecked = false;
 
 interface AgentAvatarProps {
   agent: Agent | AgentCard;
@@ -35,6 +38,14 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   const renderCount = useRef(0);
   renderCount.current++;
   // console.log('AgentAvatar render', id, 'count:', renderCount.current, agent);
+
+  // 在第一次渲染时检测视频支持
+  useEffect(() => {
+    if (!videoSupportChecked) {
+      videoSupportChecked = true;
+      logVideoSupport();
+    }
+  }, []);
 
   console.log('is video', isVideo, ' gif url:', mediaUrl);
   // console.log('agentGifs:', agentGifs);

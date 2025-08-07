@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-智能动态导入检测器 v2.0
-分阶段检测和智能合并，避免丢失模块的同时控制 spec 文件长度
-优化版本：提高检测准确性，确保所有动态包都能被正确引入
+Smart Dynamic Import Detector v2.0
+Phased detection and intelligent merging, avoiding module loss while controlling spec file length
+Optimized version: improve detection accuracy, ensure all dynamic packages are correctly imported
 """
 
 import os
@@ -16,67 +16,67 @@ from typing import Set, List, Dict, Any, Optional
 import json
 
 class SmartDynamicDetector:
-    """智能动态导入检测器 v2.0"""
+    """Smart Dynamic Import Detector v2.0"""
     
     def __init__(self, project_root: Path):
         self.project_root = project_root
         self.detected_modules = set()
-        self.max_hidden_imports = 2000  # 提高限制，确保更多模块被包含
-        self.windows_cmd_limit = 8191  # Windows命令行长度限制
-        self.spec_line_limit = 7000  # spec文件中单行长度限制（留出安全余量）
+        self.max_hidden_imports = 2000  # Increase limit to ensure more modules are included
+        self.windows_cmd_limit = 8191  # Windows command line length limit
+        self.spec_line_limit = 7000  # Single line length limit in spec file (with safety margin)
         
     def detect_smart_imports(self) -> List[str]:
-        """智能检测动态导入 v2.0"""
-        print("🧠 开始智能动态导入检测 v2.0...")
+        """Smart dynamic import detection v2.0"""
+        print("🧠 Starting smart dynamic import detection v2.0...")
         
-        # 第一阶段：检测项目特定的动态导入
-        print("📝 第一阶段：检测项目特定的动态导入...")
+        # Phase 1: Detect project-specific dynamic imports
+        print("📝 Phase 1: Detecting project-specific dynamic imports...")
         project_imports = self._detect_project_specific_imports()
-        print(f"   发现项目特定导入: {len(project_imports)} 个")
+        print(f"   Found project-specific imports: {len(project_imports)}")
         
-        # 第二阶段：检测代码中的实际动态导入
-        print("💻 第二阶段：检测代码中的实际动态导入...")
+        # Phase 2: Detect actual dynamic imports in code
+        print("💻 Phase 2: Detecting actual dynamic imports in code...")
         code_imports = self._detect_actual_code_imports()
-        print(f"   发现代码动态导入: {len(code_imports)} 个")
+        print(f"   Found code dynamic imports: {len(code_imports)}")
         
-        # 第三阶段：检测关键依赖的动态导入
-        print("🔑 第三阶段：检测关键依赖的动态导入...")
+        # Phase 3: Detect critical dependency dynamic imports
+        print("🔑 Phase 3: Detecting critical dependency dynamic imports...")
         critical_imports = self._detect_critical_dependencies()
-        print(f"   发现关键依赖: {len(critical_imports)} 个")
+        print(f"   Found critical dependencies: {len(critical_imports)}")
         
-        # 第四阶段：检测运行时动态导入
-        print("⚡ 第四阶段：检测运行时动态导入...")
+        # Phase 4: Detect runtime dynamic imports
+        print("⚡ Phase 4: Detecting runtime dynamic imports...")
         runtime_imports = self._detect_runtime_imports()
-        print(f"   发现运行时导入: {len(runtime_imports)} 个")
+        print(f"   Found runtime imports: {len(runtime_imports)}")
         
-        # 第五阶段：智能合并和优化
-        print("🔄 第五阶段：智能合并和优化...")
+        # Phase 5: Intelligent merging and optimization
+        print("🔄 Phase 5: Intelligent merging and optimization...")
         all_modules = project_imports | code_imports | critical_imports | runtime_imports
         
-        # 第六阶段：验证和过滤模块
-        print("✅ 第六阶段：验证和过滤模块...")
+        # Phase 6: Validate and filter modules
+        print("✅ Phase 6: Validating and filtering modules...")
         validated_modules = self._validate_and_filter_modules(all_modules)
-        print(f"   验证后模块: {len(validated_modules)} 个")
+        print(f"   Validated modules: {len(validated_modules)}")
         
-        # 第七阶段：Windows兼容性检查和压缩
-        print("🪟 第七阶段：Windows兼容性检查和压缩...")
+        # Phase 7: Windows compatibility check and compression
+        print("🪟 Phase 7: Windows compatibility check and compression...")
         final_modules = self._compress_modules_for_windows(list(validated_modules))
         
-        # 如果模块数量过多，使用智能策略
+        # If too many modules, use intelligent strategy
         if len(final_modules) > self.max_hidden_imports:
-            print(f"⚠️  模块数量过多 ({len(final_modules)})，使用智能策略...")
+            print(f"⚠️  Too many modules ({len(final_modules)}), using intelligent strategy...")
             final_modules = self._smart_merge_strategy(set(final_modules), project_imports, code_imports, critical_imports, runtime_imports)
         else:
             final_modules = list(final_modules)
         
-        print(f"✅ 智能检测完成: {len(final_modules)} 个模块")
+        print(f"✅ Smart detection completed: {len(final_modules)} modules")
         return final_modules
     
     def _detect_project_specific_imports(self) -> Set[str]:
-        """检测项目特定的动态导入 v2.0"""
+        """Detect project-specific dynamic imports v2.0"""
         modules = set()
         
-        # 检测项目中的包结构（更全面的检测）
+        # Detect package structure in project (more comprehensive detection)
         project_dirs = [
             "agent", "bot", "common", "config", "gui", "utils", 
             "telemetry", "knowledge", "settings", "skills", "build_system",
@@ -88,11 +88,11 @@ class SmartDynamicDetector:
             if dir_path.exists() and dir_path.is_dir():
                 modules.add(dir_name)
                 
-                # 递归查找子模块（不限制深度）
+                # Recursively find submodules (unlimited depth)
                 submodules = self._get_project_submodules(dir_path, dir_name)
                 modules.update(submodules)
         
-        # 添加根目录下的Python文件
+        # Add Python files in root directory
         for py_file in self.project_root.glob("*.py"):
             if py_file.name != "__init__.py":
                 modules.add(py_file.stem)
@@ -100,7 +100,7 @@ class SmartDynamicDetector:
         return modules
     
     def _get_project_submodules(self, dir_path: Path, base_name: str) -> Set[str]:
-        """获取项目子模块（不限制深度）v2.0"""
+        """Get project submodules (unlimited depth) v2.0"""
         modules = set()
         
         try:
@@ -113,65 +113,88 @@ class SmartDynamicDetector:
                     if (item / '__init__.py').exists():
                         module_name = f"{base_name}.{item.name}"
                         modules.add(module_name)
-                        # 递归查找子模块
+                        # Recursively find submodules
                         submodules = self._get_project_submodules(item, module_name)
                         modules.update(submodules)
         except Exception as e:
-            print(f"   警告: 获取子模块失败 {dir_path}: {e}")
+            print(f"   Warning: Failed to get submodules {dir_path}: {e}")
         
         return modules
     
     def _detect_actual_code_imports(self) -> Set[str]:
-        """检测代码中的实际动态导入 v2.0"""
+        """Detect actual dynamic imports in code v2.0"""
         dynamic_imports = set()
         
-        # 查找所有 Python 文件
+        # Find all Python files
         python_files = list(self.project_root.rglob("*.py"))
         python_files = [f for f in python_files if not any(skip in str(f) for skip in ['venv', 'build', 'dist', '__pycache__', '.git', 'node_modules'])]
         
-        print(f"   分析 {len(python_files)} 个 Python 文件...")
-        
-        for py_file in python_files:
-            try:
-                with open(py_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # 提取实际的动态导入
-                imports = self._extract_actual_dynamic_imports(content)
-                dynamic_imports.update(imports)
-                
-            except Exception as e:
-                print(f"   警告: 分析文件 {py_file} 失败: {e}")
+        print(f"   Analyzing {len(python_files)} Python files...")
+
+        try:
+            import concurrent.futures
+            import multiprocessing
+
+            def analyze_file(py_file):
+                try:
+                    with open(py_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    return self._extract_actual_dynamic_imports(content)
+                except:
+                    return set()
+
+            # Parallel file analysis
+            max_workers = min(multiprocessing.cpu_count(), 8)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = executor.map(analyze_file, python_files)
+
+            # Merge results
+            for result in results:
+                dynamic_imports.update(result)
+
+        except ImportError:
+            # Fallback to serial processing
+            for py_file in python_files:
+                try:
+                    with open(py_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
+                    # Extract actual dynamic imports
+                    imports = self._extract_actual_dynamic_imports(content)
+                    dynamic_imports.update(imports)
+
+                except Exception as e:
+                    print(f"   Warning: Failed to analyze file {py_file}: {e}")
         
         return dynamic_imports
     
     def _extract_actual_dynamic_imports(self, content: str) -> Set[str]:
-        """提取实际的动态导入 v2.0"""
+        """Extract actual dynamic imports v2.0"""
         imports = set()
         
         lines = content.split('\n')
         for line in lines:
             line = line.strip()
             
-            # 检测 importlib.import_module
+            # Detect importlib.import_module
             if 'importlib.import_module' in line:
                 module = self._extract_module_name(line)
                 if module:
                     imports.add(module)
             
-            # 检测 __import__
+            # Detect __import__
             elif '__import__' in line:
                 module = self._extract_module_name(line)
                 if module:
                     imports.add(module)
             
-            # 检测 from ... import *
+            # Detect from ... import *
             elif 'from ' in line and ' import *' in line:
                 parts = line.split(' import ')[0].split('from ')[1]
                 base_module = parts.strip()
                 imports.add(base_module)
             
-            # 检测动态字符串导入
+            # Detect dynamic string imports
             elif 'import ' in line and ('"' in line or "'" in line):
                 module = self._extract_string_module(line)
                 if module:
@@ -180,7 +203,7 @@ class SmartDynamicDetector:
         return imports
     
     def _extract_module_name(self, line: str) -> Optional[str]:
-        """提取模块名 v2.0"""
+        """Extract module name v2.0"""
         if "('" in line or '("' in line:
             start = line.find("('") if "('" in line else line.find('("')
             if start != -1:
@@ -190,7 +213,7 @@ class SmartDynamicDetector:
         return None
     
     def _extract_string_module(self, line: str) -> Optional[str]:
-        """提取字符串中的模块名"""
+        """Extract module name from string"""
         import_pos = line.find('import ')
         if import_pos != -1:
             module_part = line[import_pos + 7:].strip()
@@ -201,12 +224,12 @@ class SmartDynamicDetector:
         return None
     
     def _detect_critical_dependencies(self) -> Set[str]:
-        """检测关键依赖的动态导入 v2.0"""
+        """Detect critical dependency dynamic imports v2.0"""
         modules = set()
         
-        # 扩展的关键动态导入模式 v2.0
+        # Extended critical dynamic import patterns v2.0
         critical_patterns = [
-            # scipy 相关（最常见的问题）
+            # scipy related (most common issue)
             "scipy._lib.array_api_compat.numpy.fft",
             "scipy.stats.chatterjeexi",
             "scipy._lib.array_api_compat.numpy",
@@ -250,7 +273,7 @@ class SmartDynamicDetector:
             "scipy.stats.sampling",
             "scipy.stats.survival",
             
-            # numpy 相关
+            # numpy related
             "numpy.core._methods",
             "numpy.lib.format",
             "numpy.random._pickle",
@@ -264,7 +287,7 @@ class SmartDynamicDetector:
             "numpy.random.bit_generator",
             "numpy.random.mtrand",
             
-            # pandas 相关
+            # pandas related
             "pandas._libs.tslibs.timedeltas",
             "pandas._libs.tslibs.timestamps",
             "pandas._libs.tslibs.np_datetime",
@@ -285,7 +308,7 @@ class SmartDynamicDetector:
             "pandas._libs.window",
             "pandas._libs.writers",
             
-            # sklearn 相关
+            # sklearn related
             "sklearn.utils._cython_blas",
             "sklearn.neighbors._partition_nodes",
             "sklearn.tree._utils",
@@ -293,7 +316,7 @@ class SmartDynamicDetector:
             "sklearn.tree._criterion",
             "sklearn.tree._tree",
             
-            # transformers 相关
+            # transformers related
             "transformers.tokenization_utils",
             "transformers.modeling_utils",
             "transformers.generation.utils",
@@ -305,17 +328,17 @@ class SmartDynamicDetector:
             "transformers.image_processing_utils",
             "transformers.processing_utils",
             
-            # Web 框架
+            # Web frameworks
             "fastapi.dependencies",
             "starlette.middleware",
             "uvicorn.lifespan",
             
-            # 其他关键库
+            # Other critical libraries
             "pydantic.deprecated.decorator",
             "langchain_core._import_utils",
             "langchain_core.tools.base",
             
-            # PySide6 相关
+            # PySide6 related
             "PySide6.QtCore",
             "PySide6.QtGui", 
             "PySide6.QtWidgets",
@@ -324,14 +347,14 @@ class SmartDynamicDetector:
             "PySide6.QtWebEngineCore",
             "PySide6.QtWebEngineWidgets",
             
-            # 其他重要库
+            # Other important libraries
             "requests",
             "urllib3",
             "certifi",
             "charset_normalizer",
             "idna",
             
-            # setuptools 和 jaraco 相关模块
+            # setuptools and jaraco related modules
             "setuptools",
             "jaraco",
             "jaraco.text",
@@ -344,7 +367,7 @@ class SmartDynamicDetector:
             "jaraco.logging",
             "jaraco.path",
             
-            # Pydantic 相关模块
+            # Pydantic related modules
             "pydantic",
             "pydantic.deprecated",
             "pydantic.deprecated.decorator",
@@ -353,7 +376,7 @@ class SmartDynamicDetector:
             "pydantic._migration",
             "pydantic._internal._validators",
             
-            # LangChain 相关模块
+            # LangChain related modules
             "langchain",
             "langchain_core",
             "langchain_openai",
@@ -362,71 +385,71 @@ class SmartDynamicDetector:
             "langchain_core.tools.base",
         ]
         
-        print(f"   检测 {len(critical_patterns)} 个关键动态导入模式...")
+        print(f"   Detecting {len(critical_patterns)} critical dynamic import patterns...")
         
         for module_name in critical_patterns:
             try:
-                # 尝试导入模块
+                # Try to import module
                 importlib.import_module(module_name)
                 modules.add(module_name)
             except ImportError:
-                # 如果导入失败，检查是否是项目内部模块
+                # If import fails, check if it is a project internal module
                 if not any(prefix in module_name for prefix in ['scipy.', 'numpy.', 'pandas.', 'sklearn.', 'transformers.', 'PySide6.']):
-                    # 对于非第三方库，尝试添加到项目中
+                    # For non-third-party libraries, try to add to project
                     modules.add(module_name)
             except Exception:
-                # 对于其他错误，也尝试添加
+                # For other errors, also try to add
                 modules.add(module_name)
         
         return modules
     
     def _detect_runtime_imports(self) -> Set[str]:
-        """检测运行时动态导入"""
+        """Detect runtime dynamic imports"""
         modules = set()
         
-        # 运行时可能需要的模块
+        # Modules that may be needed at runtime
         runtime_modules = [
-            # 系统模块
+            # System modules
             "os", "sys", "pathlib", "json", "time", "datetime",
             "subprocess", "platform", "argparse", "typing",
             
-            # 网络相关
+            # Network related
             "requests", "urllib3", "certifi", "charset_normalizer",
             
-            # 数据处理
+            # Data processing
             "pandas", "numpy", "scipy", "sklearn",
             
-            # 机器学习
+            # Machine learning
             "transformers", "torch", "tensorflow",
             
-            # Web框架
+            # Web frameworks
             "fastapi", "starlette", "uvicorn", "flask",
             
-            # 数据库
+            # Database
             "sqlite3", "sqlalchemy", "pymongo", "redis",
             
-            # 图像处理
+            # Image processing
             "PIL", "opencv", "matplotlib", "seaborn",
             
-            # 其他常用库
+            # Other common libraries
             "yaml", "toml", "configparser", "logging",
             "threading", "multiprocessing", "asyncio",
             "aiohttp", "websockets", "socketserver",
         ]
         
-        print(f"   检测 {len(runtime_modules)} 个运行时模块...")
+        print(f"   Detecting {len(runtime_modules)} runtime modules...")
         
         for module_name in runtime_modules:
             try:
                 importlib.import_module(module_name)
                 modules.add(module_name)
             except ImportError:
-                # 对于某些模块，即使导入失败也添加到列表中
-                # 因为这些模块可能在运行时动态加载
+                # For some modules, add to list even if import fails
+                # Because these modules may be dynamically loaded at runtime
                 if module_name in ["sqlite3", "threading", "multiprocessing", "asyncio"]:
                     modules.add(module_name)
             except Exception:
-                # 对于其他错误，也尝试添加
+                # For other errors, also try to add
                 modules.add(module_name)
         
         return modules
@@ -434,50 +457,50 @@ class SmartDynamicDetector:
     def _smart_merge_strategy(self, all_modules: Set[str], project_imports: Set[str], 
                              code_imports: Set[str], critical_imports: Set[str], 
                              runtime_imports: Set[str]) -> List[str]:
-        """智能合并策略 v2.0，确保不丢失重要模块"""
+        """Intelligent merging strategy v2.0, ensuring no important modules are lost"""
         final_modules = set()
         
-        # 策略1：保留所有项目特定模块（最高优先级）
+        # Strategy 1: Keep all project-specific modules (highest priority)
         final_modules.update(project_imports)
-        print(f"   保留项目特定模块: {len(project_imports)} 个")
+        print(f"   Keeping project-specific modules: {len(project_imports)}")
         
-        # 策略2：保留所有代码中的实际动态导入
+        # Strategy 2: Keep all actual dynamic imports in code
         final_modules.update(code_imports)
-        print(f"   保留代码动态导入: {len(code_imports)} 个")
+        print(f"   Keeping code dynamic imports: {len(code_imports)}")
         
-        # 策略3：保留所有关键依赖
+        # Strategy 3: Keep all critical dependencies
         final_modules.update(critical_imports)
-        print(f"   保留关键依赖: {len(critical_imports)} 个")
+        print(f"   Keeping critical dependencies: {len(critical_imports)}")
         
-        # 策略4：保留运行时模块
+        # Strategy 4: Keep runtime modules
         final_modules.update(runtime_imports)
-        print(f"   保留运行时模块: {len(runtime_imports)} 个")
+        print(f"   Keeping runtime modules: {len(runtime_imports)}")
         
-        # 策略5：如果还有空间，添加其他重要模块
+        # Strategy 5: If there is still space, add other important modules
         remaining_space = self.max_hidden_imports - len(final_modules)
         if remaining_space > 0:
             other_modules = all_modules - final_modules
             if other_modules:
-                # 按优先级添加其他模块
+                # Add other modules by priority
                 prioritized_others = self._prioritize_other_modules(list(other_modules))
                 final_modules.update(prioritized_others[:remaining_space])
-                print(f"   添加其他重要模块: {min(remaining_space, len(prioritized_others))} 个")
+                print(f"   Adding other important modules: {min(remaining_space, len(prioritized_others))}")
         
         return list(final_modules)
     
     def _prioritize_other_modules(self, modules: List[str]) -> List[str]:
-        """对其他模块进行优先级排序 v2.0"""
-        # 定义优先级规则
+        """Prioritize other modules v2.0"""
+        # Define priority rules
         priority_rules = [
-            # 最高优先级：科学计算库
+            # Highest priority: Scientific computing libraries
             lambda m: any(prefix in m for prefix in ['scipy.', 'numpy.', 'pandas.', 'matplotlib.']),
-            # 高优先级：机器学习库
+            # High priority: Machine learning libraries
             lambda m: any(prefix in m for prefix in ['sklearn.', 'transformers.', 'torch.', 'tensorflow.']),
-            # 中优先级：Web框架
+            # Medium priority: Web frameworks
             lambda m: any(prefix in m for prefix in ['fastapi.', 'starlette.', 'uvicorn.', 'django.', 'flask.']),
-            # 中优先级：GUI框架
+            # Medium priority: GUI frameworks
             lambda m: any(prefix in m for prefix in ['PySide6.', 'PyQt6.', 'tkinter.', 'wx.']),
-            # 低优先级：其他库
+            # Low priority: Other libraries
             lambda m: True
         ]
         
@@ -489,7 +512,7 @@ class SmartDynamicDetector:
         return prioritized
     
     def save_detection_result(self, modules: List[str], output_file: str = "smart_detected_modules.json"):
-        """保存检测结果 v2.0"""
+        """Save detection results v2.0"""
         data = {
             "generated_at": str(Path.cwd()),
             "total_modules": len(modules),
@@ -503,22 +526,22 @@ class SmartDynamicDetector:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
-        print(f"💾 智能检测结果已保存到: {output_path}")
+        print(f"💾 Smart detection results saved to: {output_path}")
     
     def _is_project_module(self, module_name: str) -> bool:
-        """检查是否是项目内部模块"""
+        """Check if it is a project internal module"""
         project_prefixes = [
             'agent', 'bot', 'common', 'config', 'gui', 'utils',
             'telemetry', 'knowledge', 'settings', 'skills', 'build_system',
             'resource', 'tests', 'docs', 'scripts'
         ]
         
-        # 检查模块名是否以项目前缀开头
+        # Check if module name starts with project prefix
         for prefix in project_prefixes:
             if module_name.startswith(prefix + '.') or module_name == prefix:
                 return True
         
-        # 检查是否是项目根目录下的模块
+        # Check if it is a module under project root directory
         root_modules = ['main', 'app_context', 'build']
         if module_name in root_modules:
             return True
@@ -526,7 +549,7 @@ class SmartDynamicDetector:
         return False
     
     def _validate_and_filter_modules(self, modules: Set[str]) -> Set[str]:
-        """验证和过滤模块，确保模块名称的有效性"""
+        """Validate and filter modules, ensure module name validity"""
         validated_modules = set()
         
         for module in modules:
@@ -536,41 +559,41 @@ class SmartDynamicDetector:
         return validated_modules
     
     def _is_valid_module_name(self, module_name: str) -> bool:
-        """检查模块名称是否有效"""
-        # 检查基本有效性
+        """Check if module name is valid"""
+        # Check basic validity
         if not module_name or module_name.startswith('.') or module_name.endswith('.'):
             return False
         
-        # 检查是否包含无效字符
+        # Check if contains invalid characters
         invalid_chars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|']
         if any(char in module_name for char in invalid_chars):
             return False
         
-        # 检查是否以数字开头（Python模块不能以数字开头）
+        # Check if starts with number (Python modules cannot start with numbers)
         if module_name[0].isdigit():
             return False
         
-        # 检查是否包含连续的点
+        # Check if contains consecutive dots
         if '..' in module_name:
             return False
         
-        # 检查是否以点结尾
+        # Check if ends with dot
         if module_name.endswith('.'):
             return False
         
-        # 排除hook文件
+        # Exclude hook files
         if 'hook-' in module_name:
             return False
         
-        # 排除包含连字符的模块名（Python模块名不能包含连字符）
+        # Exclude module names with hyphens (Python module names cannot contain hyphens)
         if '-' in module_name:
             return False
         
         return True
     
     def _check_windows_compatibility(self, modules: List[str]) -> Dict[str, Any]:
-        """检查Windows兼容性"""
-        # 模拟生成spec文件中的hidden_imports行
+        """Check Windows compatibility"""
+        # Simulate generating hidden_imports line in spec file
         hidden_imports_str = "hiddenimports=[" + ", ".join(f"'{m}'" for m in modules) + "]"
         line_length = len(hidden_imports_str)
         
@@ -584,112 +607,122 @@ class SmartDynamicDetector:
         return result
     
     def _compress_modules_for_windows(self, modules: List[str]) -> List[str]:
-        """为Windows环境压缩模块列表"""
-        print(f"🪟 检查Windows兼容性...")
+        """Compress module list for Windows environment"""
+        print(f"🪟 Checking Windows compatibility...")
         
-        # 检查当前模块列表的兼容性
+        # Check compatibility of current module list
         compatibility = self._check_windows_compatibility(modules)
         
         if compatibility["windows_compatible"]:
-            print(f"✅ Windows兼容性检查通过: {compatibility['line_length']} 字符")
+            print(f"✅ Windows compatibility check passed: {compatibility['line_length']} characters")
             return modules
         
-        print(f"⚠️  Windows兼容性检查失败: {compatibility['line_length']} 字符 (限制: {self.spec_line_limit})")
-        print(f"   超出限制: {compatibility['exceeds_limit']} 字符")
+        print(f"⚠️  Windows compatibility check failed: {compatibility['line_length']} characters (limit: {self.spec_line_limit})")
+        print(f"   Exceeds limit: {compatibility['exceeds_limit']} characters")
         
-        # 压缩策略：按优先级保留模块
+        # Compression strategy: keep modules by priority
         compressed_modules = self._apply_compression_strategy(modules)
         
-        # 重新检查兼容性
+        # Re-check compatibility
         new_compatibility = self._check_windows_compatibility(compressed_modules)
         
         if new_compatibility["windows_compatible"]:
-            print(f"✅ 压缩后Windows兼容性检查通过: {new_compatibility['line_length']} 字符")
-            print(f"   保留模块: {len(compressed_modules)} 个 (原始: {len(modules)} 个)")
+            print(f"✅ Windows compatibility check passed after compression: {new_compatibility['line_length']} characters")
+            print(f"   Kept modules: {len(compressed_modules)} (original: {len(modules)})")
         else:
-            print(f"❌ 压缩后仍超出限制: {new_compatibility['line_length']} 字符")
-            # 进一步压缩
+            print(f"❌ Still exceeds limit after compression: {new_compatibility['line_length']} characters")
+            # Further compression
             compressed_modules = self._apply_aggressive_compression(compressed_modules)
             final_compatibility = self._check_windows_compatibility(compressed_modules)
-            print(f"✅ 最终压缩后Windows兼容性检查通过: {final_compatibility['line_length']} 字符")
-            print(f"   最终保留模块: {len(compressed_modules)} 个")
+            print(f"✅ Final Windows compatibility check passed after compression: {final_compatibility['line_length']} characters")
+            print(f"   Final kept modules: {len(compressed_modules)}")
         
         return compressed_modules
     
     def _apply_compression_strategy(self, modules: List[str]) -> List[str]:
-        """应用压缩策略"""
-        # 优先级1：项目核心模块（必须保留）
+        """Apply compression strategy"""
+        # Priority 1: Project core modules (must keep)
         core_modules = [m for m in modules if self._is_core_module(m)]
         
-        # 优先级2：关键第三方库
+        # Priority 2: Critical third-party libraries
         critical_third_party = [m for m in modules if self._is_critical_third_party(m)]
         
-        # 优先级3：项目内部模块
+        # Priority 3: Project internal modules
         project_modules = [m for m in modules if self._is_project_module(m) and m not in core_modules]
         
-        # 优先级4：其他模块（按重要性排序）
+        # Priority 4: Other modules (sorted by importance)
         other_modules = [m for m in modules if m not in core_modules + critical_third_party + project_modules]
         
-        # 按优先级组合，确保不超过限制
+        # Combine by priority, ensure not exceeding limit
         result = []
         for module_group in [core_modules, critical_third_party, project_modules, other_modules]:
             for module in module_group:
                 result.append(module)
-                # 检查是否超出限制
+                # Check if exceeding limit
                 test_compatibility = self._check_windows_compatibility(result)
                 if not test_compatibility["windows_compatible"]:
-                    result.pop()  # 移除最后一个模块
+                    result.pop()  # Remove last module
                     break
         
         return result
     
     def _apply_aggressive_compression(self, modules: List[str]) -> List[str]:
-        """应用激进压缩策略"""
-        # 只保留最核心的模块
+        """Apply aggressive compression strategy"""
+        # Only keep the most core modules
         essential_modules = [
-            # 项目核心
+            # Project core
             'main', 'app_context', 'config', 'gui', 'bot', 'agent', 'common', 'utils',
             
-            # 关键第三方库
+            # Critical third-party libraries
             'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets',
             'PySide6.QtWebEngineWidgets', 'PySide6.QtWebEngineCore',
             'PySide6.QtWebChannel', 'PySide6.QtWebEngine',
             'requests', 'urllib3', 'certifi', 'charset_normalizer',
             'pandas', 'numpy', 'scipy', 'sklearn',
             'transformers', 'torch', 'tensorflow',
-            'fastapi', 'starlette', 'uvicorn',
+            'fastapi', 'starlette', 'uvicorn', 'flask', 'openai',
             'sqlalchemy', 'sqlite3', 'PIL', 'opencv',
             'cryptography', 'bcrypt', 'jwt', 'playwright',
-            'langmem', 'faiss',
+            'langmem', 'faiss', 'browser-use', 'crawl4ai', 'langmem',
+            'faiss.swigfaiss_avx512', 'lightrag',
+
+            # fake_useragent related modules
+            'fake_useragent', 'fake_useragent.data', 'fake_useragent.fake',
+            'fake_useragent.utils', 'fake_useragent.errors', 'fake_useragent.settings',
+
+            # browser_use related modules and resources
+            'browser_use', 'browser_use.agent', 'browser_use.agent.prompts',
+            'browser_use.agent.service', 'browser_use.browser', 'browser_use.dom',
+            'browser_use.utils', 'browser_use.controller', 'browser_use.telemetry'
             
-            # Pydantic 相关模块
+            # Pydantic related modules
             'pydantic', 'pydantic.deprecated', 'pydantic.deprecated.decorator',
             'pydantic_core', 'pydantic._internal', 'pydantic._migration',
             
-            # LangChain 相关模块
+            # LangChain related modules
             'langchain', 'langchain_core', 'langchain_openai',
-            'langchain_core.tools', 'langchain_core._import_utils',
+            'langchain_core.tools', 'langchain_core._import_utils', 
             
-            # setuptools 和 jaraco 相关模块
+            # setuptools and jaraco related modules
             'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
             'jaraco.functools', 'jaraco.context', 'jaraco.collections',
-            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', 'jaraco.path',
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', "jaraco.path",
         ]
         
-        # 从原始列表中筛选出存在的核心模块
+        # Filter out existing core modules from original list
         result = [m for m in modules if m in essential_modules]
         
         return result
     
     def _is_core_module(self, module: str) -> bool:
-        """检查是否是核心模块"""
+        """Check if it is a core module"""
         core_modules = [
             'main', 'app_context', 'config', 'gui', 'bot', 'agent', 'common', 'utils'
         ]
         return module in core_modules
     
     def _is_critical_third_party(self, module: str) -> bool:
-        """检查是否是关键第三方库"""
+        """Check if it is a critical third-party library"""
         critical_libs = [
             'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets',
             'requests', 'urllib3', 'certifi', 'charset_normalizer',
@@ -697,15 +730,15 @@ class SmartDynamicDetector:
             'transformers', 'torch', 'tensorflow',
             'fastapi', 'starlette', 'uvicorn',
             'sqlalchemy', 'sqlite3', 'PIL', 'opencv',
-            # 添加pydantic相关模块
+            # Add pydantic related modules
             'pydantic', 'pydantic.deprecated', 'pydantic.deprecated.decorator',
             'pydantic_core', 'pydantic._internal', 'pydantic._migration',
-            # 添加langchain相关模块
+            # Add langchain related modules
             'langchain', 'langchain_core', 'langchain_openai',
             'langchain_core.tools', 'langchain_core._import_utils',
-            # 添加setuptools和jaraco相关模块
+            # Add setuptools and jaraco related modules
             'setuptools', 'jaraco', 'jaraco.text', 'jaraco.classes',
             'jaraco.functools', 'jaraco.context', 'jaraco.collections',
-            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', 'jaraco.path'
+            'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', "jaraco.path",
         ]
         return any(module.startswith(lib) for lib in critical_libs) 

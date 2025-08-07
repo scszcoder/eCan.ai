@@ -111,6 +111,13 @@ class LightragServer:
         if self.extra_env:
             env.update({str(k): str(v) for k, v in self.extra_env.items()})
 
+        # 在打包环境中的特殊处理
+        if self.is_frozen:
+            # 清除可能导致冲突的Python环境变量
+            env.pop("PYTHONPATH", None)
+            env.pop("PYTHONHOME", None)
+            logger.info("[LightragServer] Cleaned Python environment variables for packaged environment")
+
         # 设置路径相关的环境变量
         if 'APP_DATA_PATH' in env:
             app_data_path = env['APP_DATA_PATH']
@@ -119,6 +126,478 @@ class LightragServer:
             env.setdefault('LOG_DIR', os.path.join(app_data_path, 'runlogs'))
 
         return env
+
+    def _get_virtual_env_python(self):
+        """获取虚拟环境中的 Python 解释器路径"""
+        # 在打包环境中，sys.executable 就是包含所有依赖的exe文件
+        # LightRAG服务器应该使用相同的exe来保证环境一致性
+        if self.is_frozen:
+            logger.info(f"[LightragServer] Running in PyInstaller environment, using current executable: {sys.executable}")
+            return sys.executable
+
+        # 非打包环境的原有逻辑
+        # 检查当前是否在虚拟环境中
+        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+            logger.info(f"[LightragServer] Already in virtual environment: {sys.executable}")
+            return sys.executable
+
+        # 尝试找到项目根目录下的虚拟环境
+        project_root = os.path.dirname(os.path.dirname(__file__))
+        venv_paths = [
+            os.path.join(project_root, "venv", "bin", "python"),
+            os.path.join(project_root, "venv", "Scripts", "python.exe"),
+        ]
+
+        for venv_python in venv_paths:
+            if os.path.exists(venv_python):
+                logger.info(f"[LightragServer] Found virtual environment Python: {venv_python}")
+                return venv_python
+
+        # 如果找不到虚拟环境，返回当前解释器
+        logger.warning(f"[LightragServer] No virtual environment found, using current Python: {sys.executable}")
+        return sys.executable
+
+    def _validate_python_executable(self, python_path):
+        """验证Python解释器是否可用"""
+        try:
+            # 在打包环境中，验证exe文件是否存在且可执行
+            if self.is_frozen:
+                if os.path.exists(python_path) and os.access(python_path, os.X_OK):
+                    logger.info(f"[LightragServer] PyInstaller executable validation successful: {python_path}")
+                    return True
+                else:
+                    logger.error(f"[LightragServer] PyInstaller executable not found or not executable: {python_path}")
+                    return False
+
+            # 非打包环境中，测试Python解释器版本
+            result = subprocess.run(
+                [python_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                logger.info(f"[LightragServer] Python validation successful: {result.stdout.strip()}")
+                return True
+            else:
+                logger.error(f"[LightragServer] Python validation failed with return code {result.returncode}")
+                return False
+        except subprocess.TimeoutExpired:
+            logger.error(f"[LightragServer] Python validation timed out: {python_path}")
+            return False
+        except FileNotFoundError:
+            logger.error(f"[LightragServer] Python executable not found: {python_path}")
+            return False
+        except Exception as e:
+            logger.error(f"[LightragServer] Python validation error: {e}")
+            return False
+
+    def _create_lightrag_startup_script(self):
+        """为打包环境创建LightRAG启动脚本"""
+        try:
+            import tempfile
+
+            # 安全处理路径，避免转义问题
+            working_dir = self.extra_env.get('WORKING_DIR', '').replace('\\', '/')
+            input_dir = self.extra_env.get('INPUT_DIR', '').replace('\\', '/')
+            log_dir = self.extra_env.get('LOG_DIR', '').replace('\\', '/')
+            host = self.extra_env.get('HOST', '0.0.0.0')
+            port = self.extra_env.get('PORT', '9621')
+
+            # 创建临时启动脚本
+            # 创建跨平台兼容的独立LightRAG启动脚本
+            script_content = f'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+LightRAG服务器独立启动脚本 - 跨平台兼容版本
+支持Windows和macOS，不导入main.py避免冲突
+"""
+
+import sys
+import os
+import platform
+import traceback
+
+def setup_environment():
+    """设置LightRAG运行环境 - 跨平台兼容"""
+    # 检测操作系统
+    current_os = platform.system().lower()
+    print(f"Operating System: {{current_os}}")
+
+    # 直接从环境变量获取路径，避免字符串插值的转义问题
+    import os
+
+    # 环境变量设置（使用预处理的变量避免转义问题）
+    env_vars = {{
+        "HOST": "{host}",
+        "PORT": "{port}",
+        "LOG_LEVEL": "INFO",
+        "MAX_TOKENS": "32768",
+        "MAX_ASYNC": "16",
+        "TIMEOUT": "60"
+    }}
+
+    # 安全设置路径环境变量（使用正斜杠，在脚本中转换）
+    path_vars = {{
+        "WORKING_DIR": "{working_dir}",
+        "INPUT_DIR": "{input_dir}",
+        "LOG_DIR": "{log_dir}"
+    }}
+
+    # 设置非路径环境变量
+    for key, value in env_vars.items():
+        if value:
+            os.environ[key] = str(value)
+
+    # 安全设置路径环境变量（避免转义问题）
+    for key, value in path_vars.items():
+        if value:
+            # 使用os.path.normpath标准化路径
+            normalized_path = os.path.normpath(value)
+            os.environ[key] = normalized_path
+
+    # 清理命令行参数，避免argparse冲突
+    sys.argv = ["lightrag_server"]
+
+    # 显示环境信息
+    print(f"LightRAG Environment Setup ({{current_os}}):")
+    print(f"  HOST: {{os.environ.get('HOST', 'not set')}}")
+    print(f"  PORT: {{os.environ.get('PORT', 'not set')}}")
+    print(f"  WORKING_DIR: {{os.environ.get('WORKING_DIR', 'not set')}}")
+    print(f"  INPUT_DIR: {{os.environ.get('INPUT_DIR', 'not set')}}")
+    print(f"  LOG_DIR: {{os.environ.get('LOG_DIR', 'not set')}}")
+
+def check_python_environment():
+    """检查Python环境兼容性"""
+    print(f"Python Version: {{sys.version}}")
+    print(f"Python Executable: {{sys.executable}}")
+    print(f"Platform: {{platform.platform()}}")
+    print(f"Architecture: {{platform.architecture()}}")
+
+    # 检查是否在PyInstaller环境中
+    if getattr(sys, 'frozen', False):
+        print("✅ Running in PyInstaller packaged environment")
+        if hasattr(sys, '_MEIPASS'):
+            print(f"   PyInstaller temp directory: {{sys._MEIPASS}}")
+        return True
+    else:
+        print("ℹ️  Running in development environment")
+        return False
+
+def main():
+    """主函数 - 独立运行LightRAG服务器"""
+    try:
+        print("=" * 70)
+        print("LightRAG Independent Server Starting...")
+        print("=" * 70)
+
+        # 检查Python环境
+        is_packaged = check_python_environment()
+
+        # 设置运行环境
+        setup_environment()
+
+        # 尝试导入LightRAG
+        print("\\n" + "=" * 50)
+        print("Importing LightRAG...")
+        print("=" * 50)
+
+        try:
+            import lightrag
+            print(f"✅ LightRAG imported successfully")
+            if hasattr(lightrag, '__version__'):
+                print(f"   Version: {{lightrag.__version__}}")
+            else:
+                print("   Version: unknown")
+        except ImportError as e:
+            print(f"❌ Failed to import LightRAG: {{e}}")
+            print("   LightRAG is not available in this environment")
+            if is_packaged:
+                print("   This is normal if LightRAG was not packaged with the application")
+            else:
+                print("   Please install LightRAG: pip install lightrag")
+            print("   Exiting gracefully...")
+            sys.exit(0)  # 正常退出，不是错误
+
+        # 导入并启动LightRAG API服务器
+        print("\\n" + "=" * 50)
+        print("Starting LightRAG API Server...")
+        print("=" * 50)
+
+        try:
+            from lightrag.api.lightrag_server import main as lightrag_main
+            print("🚀 Calling LightRAG main function...")
+            lightrag_main()
+        except Exception as e:
+            print(f"❌ LightRAG server startup failed: {{e}}")
+            print("\\nFull traceback:")
+            traceback.print_exc()
+            sys.exit(1)
+
+    except KeyboardInterrupt:
+        print("\\n⚠️  LightRAG server interrupted by user (Ctrl+C)")
+        sys.exit(0)
+    except SystemExit as e:
+        if e.code == 0:
+            print(f"\\n✅ LightRAG server exited normally")
+        else:
+            print(f"\\n❌ LightRAG server exited with error code: {{e.code}}")
+        sys.exit(e.code)
+    except Exception as e:
+        print(f"\\n❌ Unexpected error in LightRAG server: {{e}}")
+        print("\\nFull traceback:")
+        traceback.print_exc()
+        sys.exit(1)
+
+# 直接运行，不检查__name__ == "__main__"
+# 这样就不会触发main.py中的主程序逻辑
+if True:  # 总是执行，跨平台兼容
+    main()
+'''
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+                f.write(script_content)
+                script_path = f.name
+
+            logger.info(f"[LightragServer] Created startup script: {script_path}")
+            return script_path
+
+        except Exception as e:
+            logger.error(f"[LightragServer] Failed to create startup script: {e}")
+            return None
+
+    def _create_simple_lightrag_script(self):
+        """创建简单的LightRAG启动脚本，利用main.py的保护机制"""
+        try:
+            import tempfile
+
+            # 安全处理环境变量
+            env_settings = []
+            for key, value in self.extra_env.items():
+                # 安全转义路径
+                safe_value = str(value).replace('\\', '/')
+                env_settings.append(f'os.environ["{key}"] = r"{safe_value}"')
+
+            env_code = '\n    '.join(env_settings)
+
+            # 创建简单的启动脚本
+            # 关键：不导入main模块，直接运行LightRAG
+            script_content = f'''#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+LightRAG简单启动脚本
+利用main.py现有的保护机制，不导入主程序模块
+"""
+
+import sys
+import os
+
+def setup_lightrag_environment():
+    """设置LightRAG环境"""
+    # 设置环境变量
+    {env_code}
+
+    # 清理命令行参数
+    sys.argv = ["lightrag_server"]
+
+    print("LightRAG Environment Setup Complete")
+
+def main():
+    """启动LightRAG服务器"""
+    try:
+        print("=" * 50)
+        print("LightRAG Server Starting...")
+        print("=" * 50)
+
+        # 设置环境
+        setup_lightrag_environment()
+
+        # 检查LightRAG可用性
+        try:
+            import lightrag
+            print(f"LightRAG version: {{getattr(lightrag, '__version__', 'unknown')}}")
+        except ImportError as e:
+            print(f"LightRAG not available: {{e}}")
+            print("Exiting gracefully...")
+            return 0
+
+        # 启动LightRAG服务器
+        from lightrag.api.lightrag_server import main as lightrag_main
+        print("Starting LightRAG API server...")
+        lightrag_main()
+
+    except KeyboardInterrupt:
+        print("LightRAG server interrupted")
+        return 0
+    except Exception as e:
+        print(f"LightRAG server error: {{e}}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+# 使用标准的if __name__ == '__main__'
+# 这样会被main.py的保护机制正确处理
+if __name__ == '__main__':
+    sys.exit(main())
+'''
+
+            # 创建临时文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+                f.write(script_content)
+                script_path = f.name
+
+            logger.info(f"[LightragServer] Created simple startup script: {script_path}")
+            return script_path
+
+        except Exception as e:
+            logger.error(f"[LightragServer] Failed to create simple startup script: {e}")
+            return None
+
+
+
+    def _check_and_free_port(self):
+        """检查端口是否被占用，如果被占用则尝试释放"""
+        try:
+            import socket
+            import platform
+            import subprocess
+            import time
+            
+            port = int(self.extra_env.get("PORT", "9621"))
+            is_windows = platform.system().lower().startswith('win')
+            
+            # 检查端口是否被占用
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(('localhost', port))
+            sock.close()
+            
+            if result == 0:
+                # 端口被占用，尝试释放
+                logger.warning(f"[LightragServer] Port {port} is in use, attempting to free it...")
+                
+                pids = self._find_processes_using_port(port, is_windows)
+                
+                if pids:
+                    logger.info(f"[LightragServer] Found {len(pids)} process(es) using port {port}: {pids}")
+                    
+                    # 尝试杀死进程
+                    killed_count = 0
+                    for pid in pids:
+                        if self._kill_process(pid, is_windows):
+                            killed_count += 1
+                            logger.info(f"[LightragServer] Successfully killed process {pid}")
+                        else:
+                            logger.warning(f"[LightragServer] Failed to kill process {pid}")
+                    
+                    if killed_count > 0:
+                        # 等待端口释放
+                        for i in range(15):  # 最多等待15秒
+                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sock.settimeout(1)
+                            result = sock.connect_ex(('localhost', port))
+                            sock.close()
+                            if result != 0:
+                                logger.info(f"[LightragServer] Port {port} is now free after killing {killed_count} process(es)")
+                                return True
+                            time.sleep(1)
+                        
+                        logger.warning(f"[LightragServer] Port {port} is still in use after killing processes")
+                    else:
+                        logger.warning(f"[LightragServer] Could not kill any processes using port {port}")
+                    
+                    # 如果无法杀死进程，尝试使用不同的端口
+                    return self._try_alternative_port(port)
+                else:
+                    logger.warning(f"[LightragServer] Could not find processes using port {port}")
+                    return self._try_alternative_port(port)
+            else:
+                # 端口可用
+                return True
+                
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error checking port: {e}")
+            return True  # 如果检查失败，假设端口可用
+
+    def _find_processes_using_port(self, port, is_windows):
+        """查找使用指定端口的进程"""
+        try:
+            if is_windows:
+                # Windows: 使用 netstat
+                result = subprocess.run(
+                    ['netstat', '-ano'], 
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    pids = []
+                    for line in result.stdout.split('\n'):
+                        if f':{port}' in line and 'LISTENING' in line:
+                            parts = line.split()
+                            if len(parts) >= 5:
+                                pid = parts[-1]
+                                if pid.isdigit():
+                                    pids.append(pid)
+                    return pids
+            else:
+                # Unix/Linux/macOS: 使用 lsof
+                result = subprocess.run(
+                    ['lsof', '-ti', f':{port}'], 
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip().split('\n')
+            
+            return []
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error finding processes using port {port}: {e}")
+            return []
+
+    def _kill_process(self, pid, is_windows):
+        """尝试杀死进程"""
+        try:
+            if is_windows:
+                # Windows: 使用 taskkill
+                result = subprocess.run(
+                    ['taskkill', '/PID', str(pid), '/F'], 
+                    capture_output=True, text=True, timeout=10
+                )
+                return result.returncode == 0
+            else:
+                # Unix/Linux/macOS: 使用 kill
+                result = subprocess.run(
+                    ['kill', '-9', str(pid)], 
+                    capture_output=True, text=True, timeout=10
+                )
+                return result.returncode == 0
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error killing process {pid}: {e}")
+            return False
+
+    def _try_alternative_port(self, original_port):
+        """尝试使用替代端口"""
+        try:
+            import socket
+            
+            # 尝试端口范围 9621-9630
+            for port in range(original_port, original_port + 10):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex(('localhost', port))
+                sock.close()
+                
+                if result != 0:
+                    # 找到可用端口
+                    logger.info(f"[LightragServer] Found alternative port {port}")
+                    self.extra_env["PORT"] = str(port)
+                    return True
+            
+            logger.error(f"[LightragServer] No available ports found in range {original_port}-{original_port + 9}")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"[LightragServer] Error trying alternative ports: {e}")
+            return False
 
     def _monitor_parent(self):
         import platform
@@ -244,10 +723,57 @@ class LightragServer:
             env = self.build_env()
             stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
 
+            # 检查端口是否被占用
+            if not self._check_and_free_port():
+                logger.error("[LightragServer] Failed to free port, cannot start server")
+                return False
+
+            # 尝试找到虚拟环境中的 Python 解释器
+            python_executable = self._get_virtual_env_python()
+
+            # 验证Python解释器是否可用
+            if not self._validate_python_executable(python_executable):
+                logger.error(f"[LightragServer] Python executable validation failed: {python_executable}")
+                if self.is_frozen:
+                    logger.warning("[LightragServer] In packaged environment, LightRAG server will be disabled")
+                    logger.warning("[LightragServer] This is normal if lightrag is not packaged with the application")
+                    return False
+                else:
+                    logger.error("[LightragServer] Cannot start server without valid Python interpreter")
+                    return False
+
+            # 在打包环境中，检查lightrag模块是否可用
+            if self.is_frozen:
+                try:
+                    import lightrag
+                    logger.info("[LightragServer] lightrag module is available in packaged environment")
+                except ImportError:
+                    logger.warning("[LightragServer] lightrag module not available in packaged environment")
+                    logger.warning("[LightragServer] LightRAG server will be disabled")
+                    return False
+            
             import platform
+
+            # 构建启动命令
+            if self.is_frozen:
+                # 在打包环境中，利用main.py现有的保护机制
+                logger.info("[LightragServer] Using main.py protection mechanism for packaged environment")
+
+                # 创建一个简单的启动脚本，导入并运行LightRAG
+                script_path = self._create_simple_lightrag_script()
+                if not script_path:
+                    logger.error("[LightragServer] Failed to create startup script")
+                    return False
+
+                cmd = [python_executable, script_path]
+                logger.info(f"[LightragServer] PyInstaller mode command: {' '.join(cmd)}")
+            else:
+                cmd = [python_executable, "-m", "lightrag.api.lightrag_server"]
+                logger.info(f"[LightragServer] Development mode command: {' '.join(cmd)}")
+
             if platform.system().lower().startswith('win'):
                 self.proc = subprocess.Popen(
-                    [sys.executable, "-m", "lightrag.api.lightrag_server"],
+                    cmd,
                     env=env,
                     stdin=subprocess.PIPE,
                     stdout=stdout_log,
@@ -266,7 +792,7 @@ class LightragServer:
                 # Unix-like 系统
                 yes_proc = subprocess.Popen(["yes", "yes"], stdout=subprocess.PIPE)
                 self.proc = subprocess.Popen(
-                    [sys.executable, "-m", "lightrag.api.lightrag_server"],
+                    cmd,
                     env=env,
                     stdin=yes_proc.stdout,
                     stdout=stdout_log,
@@ -279,6 +805,13 @@ class LightragServer:
 
             final_host = env.get("HOST", "0.0.0.0")
             final_port = env.get("PORT", "9621")
+            
+            # 确保端口是有效的数字
+            try:
+                final_port = str(int(final_port))
+            except (ValueError, TypeError):
+                final_port = "9621"
+                logger.warning(f"[LightragServer] Invalid port, using default: 9621")
 
             logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
             logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
@@ -356,6 +889,28 @@ class LightragServer:
     def is_running(self):
         """检查服务器是否在运行"""
         return self.proc is not None and self.proc.poll() is None
+
+    def get_current_port(self):
+        """获取当前使用的端口号"""
+        try:
+            # 从环境变量中获取端口
+            port = self.extra_env.get("PORT", "9621")
+            return int(port)
+        except (ValueError, TypeError):
+            # 如果端口不是有效数字，返回默认端口
+            return 9621
+
+    def get_server_url(self):
+        """获取服务器URL"""
+        port = self.get_current_port()
+        host = self.extra_env.get("HOST", "0.0.0.0")
+        return f"http://{host}:{port}"
+
+    def get_webui_url(self):
+        """获取WebUI URL"""
+        port = self.get_current_port()
+        host = self.extra_env.get("HOST", "0.0.0.0")
+        return f"http://{host}:{port}/webui"
 
 if __name__ == "__main__":
     server = LightragServer()

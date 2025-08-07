@@ -1,0 +1,425 @@
+name: Release Build
+#
+# 通过 workflow_dispatch 参数 platform/arch 可选择打包平台和 CPU 架构：
+#   - platform: windows, macos, all
+#   - arch: x86_64, arm64
+#
+# 注意：
+#   - Windows 仅支持 x86_64 架构（GitHub Actions 无 ARM runner）
+#   - macOS 支持 x86_64/arm64，但 GitHub Actions runner 默认是 x86_64，arm64 需本地 M1/M2/M3 Mac 或专用 runner
+#
+# 示例：
+#   - 手动触发 workflow 时可选择平台和架构
+#   - 推送 tag 或发布 release 时自动触发，默认打包 all + x86_64
+
+on:
+  # Trigger conditions: create tag or release
+  # push:
+  #   tags:
+  #     - 'v*'  # Match formats like v1.0.0, v2.1.3
+  release:
+    types: [published, edited, created]
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build platform (windows, macos, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+      arch:
+        description: 'CPU architecture (macOS: x86_64/arm64, Windows: x86_64 only)'
+        required: true
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - arm64
+      tag:
+        description: 'Git tag to build (e.g. v1.2.3)'
+        required: true
+        default: ''
+        type: string
+
+jobs:
+  # Validate tag format
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag-valid: ${{ steps.validate.outputs.valid }}
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.tag || github.ref }}
+      
+    - name: Validate tag format
+      id: validate
+      run: |
+        TAG_NAME="${{ github.event.inputs.tag }}"
+        if [ -z "$TAG_NAME" ]; then
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+        fi
+        if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "version=${TAG_NAME#v}" >> $GITHUB_OUTPUT
+          echo "✅ Valid tag format: $TAG_NAME"
+        else
+          echo "valid=false" >> $GITHUB_OUTPUT
+          echo "❌ Invalid tag format: $TAG_NAME"
+          echo "Expected format: vX.Y.Z or vX.Y.Z-prerelease"
+          exit 1
+        fi
+
+  # Windows build
+  # 注意：GitHub Actions 目前仅支持 Windows x86_64 架构，Windows ARM 架构暂不支持
+  build-windows:
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' && 
+      (github.event.inputs.platform == 'windows' || 
+       github.event.inputs.platform == 'all' || 
+       github.event.inputs.platform == null) &&
+      (github.event.inputs.arch == 'x86_64' || github.event.inputs.arch == null)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: windows-pip-3.11-${{ hashFiles('requirements*.txt') }}
+        restore-keys: |
+          windows-pip-3.11-
+    
+    - name: Install Python dependencies
+      run: |
+        echo "=== Installing Python Dependencies ==="
+        python -m pip install --upgrade pip
+        pip install -r requirements-windows.txt
+        pip install pyinstaller pywin32-ctypes
+        
+        echo "=== Verifying pywin32 installation ==="
+        python -c "import win32api; print('pywin32 installed successfully')"
+    
+    - name: Uninstall pathlib if present (Windows)
+      run: |
+        pip uninstall -y pathlib || true
+    
+    - name: Install frontend dependencies
+      run: |
+        echo "=== Installing Frontend Dependencies ==="
+        cd gui_v2
+        npm ci --legacy-peer-deps
+    
+    - name: Install Inno Setup
+      run: |
+        echo "=== Installing Inno Setup ==="
+        $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
+        $DownloadPath = "$env:TEMP\innosetup-6.2.2.exe"
+        
+        Write-Host "📥 Downloading Inno Setup..."
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
+        
+        Write-Host "🔨 Installing Inno Setup..."
+        Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
+        
+        Write-Host "✅ Inno Setup installation completed"
+        
+        # Verify installation
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (Test-Path $innoPath) {
+            Write-Host "✅ Inno Setup verified at: $innoPath"
+        } else {
+            Write-Host "❌ Inno Setup not found at expected location"
+            exit 1
+        }
+    
+    - name: Create build directories
+      run: |
+        echo "=== Creating Build Directories ==="
+        New-Item -ItemType Directory -Force -Path build, dist
+    
+    - name: Check build environment
+      run: |
+        echo "=== Checking Build Environment ==="
+        python build.py --check-env
+    
+    - name: Build Windows EXE
+      run: |
+        echo "=== Starting Windows Build ==="
+        echo "Command: python build.py prod --force"
+        
+        # Set environment variables
+        $env:PYTHONPATH = "$PWD"
+        $env:PYTHONUNBUFFERED = "1"
+        
+        # Run build with detailed output
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
+        
+        # 重命名产物，规范为 eCan-windows-x86_64-v{version}.exe
+        if (Test-Path "dist/eCan/eCan.exe") {
+          Rename-Item "dist/eCan/eCan.exe" "dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        }
+        if (Test-Path "dist/eCan-Setup.exe") {
+          Rename-Item "dist/eCan-Setup.exe" "dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        }
+        
+        # Check exit code
+        if ($LASTEXITCODE -ne 0) {
+            echo "❌ Build failed with exit code: $LASTEXITCODE"
+            echo "=== Build Log ==="
+            Get-Content "build.log"
+            exit 1
+        }
+        
+        echo "✅ Build completed successfully"
+    
+    - name: Check build result
+      run: |
+        echo "=== Build Result Check ==="
+        echo "Dist directory contents:"
+        Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
+        
+        $exeFound = $false
+        $setupFound = $false
+        
+        if (Test-Path "dist/eCan/eCan.exe") {
+            $exe = Get-Item "dist/eCan/eCan.exe"
+            echo "✅ Windows EXE found: dist/eCan/eCan.exe"
+            echo "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
+            echo "   Created: $($exe.CreationTime)"
+            $exeFound = $true
+        } else {
+            echo "❌ Windows EXE not found"
+            echo "Searching for .exe files..."
+            Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" | ForEach-Object {
+                echo "   Found: $($_.FullName)"
+            }
+        }
+        
+        if (Test-Path "dist/eCan-Setup.exe") {
+            $setup = Get-Item "dist/eCan-Setup.exe"
+            echo "✅ Installer found: dist/eCan-Setup.exe"
+            echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
+            echo "   Created: $($setup.CreationTime)"
+            $setupFound = $true
+        } else {
+            echo "⚠️  Installer not found"
+        }
+        
+        if (-not $exeFound) {
+            echo "❌ Build validation failed - no executable found"
+            exit 1
+        }
+        
+        echo "✅ Build validation passed"
+    
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
+        path: |
+          dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          build.log
+        retention-days: 30
+
+  # macOS build
+  build-macos:
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' && 
+      (github.event.inputs.platform == 'macos' || 
+       github.event.inputs.platform == 'all' || 
+       github.event.inputs.platform == null)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: macos-pip-3.11-${{ hashFiles('requirements*.txt') }}
+        restore-keys: |
+          macos-pip-3.11-
+    
+    - name: Install Python dependencies
+      run: |
+        echo "=== Installing Python Dependencies ==="
+        python -m pip install --upgrade pip
+        pip install -r requirements-macos.txt
+        pip install pyinstaller
+        
+        echo "=== Verifying PyInstaller installation ==="
+        python -c "import PyInstaller; print('PyInstaller installed successfully')"
+    
+    - name: Uninstall pathlib if present (macOS)
+      run: |
+        pip uninstall -y pathlib || true
+    
+    - name: Install frontend dependencies
+      run: |
+        echo "=== Installing Frontend Dependencies ==="
+        cd gui_v2
+        npm ci --legacy-peer-deps
+    
+    - name: Create build directories
+      run: |
+        echo "=== Creating Build Directories ==="
+        mkdir -p build dist
+    
+    - name: Check build environment
+      run: |
+        echo "=== Checking Build Environment ==="
+        python build.py --check-env
+    
+    - name: Build macOS App
+      run: |
+        echo "=== Starting macOS Build ==="
+        echo "Command: python build.py prod --force"
+        
+        # Set environment variables
+        export PYTHONPATH="$PWD"
+        export PYTHONUNBUFFERED=1
+        
+        # Run build with detailed output
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        
+        # 规范产物命名
+        if [ -f "dist/eCan.pkg" ]; then
+          mv "dist/eCan.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
+        fi
+        if [ -d "dist/eCan.app" ]; then
+          ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
+        fi
+        
+        # Check exit code
+        if [ $? -ne 0 ]; then
+            echo "❌ Build failed"
+            echo "=== Build Log ==="
+            cat build.log
+            exit 1
+        fi
+        
+        echo "✅ Build completed successfully"
+    
+    - name: Check build result
+      run: |
+        echo "=== Build Result Check ==="
+        echo "Dist directory contents:"
+        ls -la dist/
+        
+        # Check for .pkg installer
+        if [ -f "dist/eCan.pkg" ]; then
+            echo "✅ macOS PKG installer found: dist/eCan.pkg"
+            pkg_size=$(du -sh dist/eCan.pkg | cut -f1)
+            echo "   Size: $pkg_size"
+        elif [ -d "dist/eCan.app" ]; then
+            echo "✅ macOS App found: dist/eCan.app"
+            app_size=$(du -sh dist/eCan.app | cut -f1)
+            echo "   Size: $app_size"
+            
+            # Check app structure
+            echo "   App structure:"
+            find dist/eCan.app -type f -name "eCan" | head -5
+        else
+            echo "❌ macOS build not found"
+            echo "Searching for .pkg and .app files..."
+            find dist -name "*.pkg" 2>/dev/null || echo "No .pkg files found"
+            find dist -name "*.app" 2>/dev/null || echo "No .app files found"
+            exit 1
+        fi
+        
+        echo "✅ Build validation passed"
+    
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
+        path: |
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.pkg
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip
+          build.log
+        retention-days: 30
+
+  # Create Release
+  create-release:
+    needs: [validate-tag, build-windows, build-macos]
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' && 
+      startsWith(github.ref, 'refs/tags/v') &&
+      (
+        (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
+        (github.event.inputs.platform == 'macos' && needs.build-macos.result == 'success') ||
+        (github.event.inputs.platform == 'all' && needs.build-windows.result == 'success' && needs.build-macos.result == 'success') ||
+        (github.event.inputs.platform == null && needs.build-windows.result == 'success' && needs.build-macos.result == 'success')
+      )
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download Windows artifacts
+      if: |
+        github.event.inputs.platform == 'windows' || 
+        github.event.inputs.platform == 'all' || 
+        github.event.inputs.platform == null
+      uses: actions/download-artifact@v4
+      with:
+        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
+        path: windows-artifacts
+    
+    - name: Download macOS artifacts
+      if: |
+        github.event.inputs.platform == 'macos' || 
+        github.event.inputs.platform == 'all' || 
+        github.event.inputs.platform == null
+      uses: actions/download-artifact@v4
+      with:
+        name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
+        path: macos-artifacts
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.pkg
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

@@ -26,7 +26,7 @@ ECBot构建系统采用分层架构设计，实现了统一入口、通用构建
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                ecbot_build.py (通用构建脚本)                │
+│                ecan_build.py (通用构建脚本)                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
 │  │ 环境管理    │  │ 配置管理    │  │ 前端构建    │        │
 │  │Environment  │  │Config       │  │Frontend     │        │
@@ -59,7 +59,7 @@ ECBot构建系统采用分层架构设计，实现了统一入口、通用构建
 - 详细的错误处理和日志
 - 支持环境检查模式
 
-### 2. ecbot_build.py (通用构建脚本)
+### 2. ecan_build.py (通用构建脚本)
 
 **职责**：
 - 跨平台构建逻辑
@@ -151,7 +151,7 @@ python build.py prod --skip-frontend
 
 每个组件都有明确的职责：
 - `build.py`: 入口和协调
-- `ecbot_build.py`: 构建逻辑
+- `ecan_build.py`: 构建逻辑
 - GitHub Actions: 环境准备
 
 ### 2. 依赖倒置原则
@@ -185,7 +185,7 @@ python build.py prod --skip-frontend
   },
   "data_files": {
     "directories": ["resource", "config", "bot"],
-    "files": ["app_context.py", "ECBot.ico"]
+    "files": ["app_context.py", "eCan.ico"]
   },
   "pyinstaller": {
     "excludes": ["matplotlib", "jupyter"],
