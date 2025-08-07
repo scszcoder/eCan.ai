@@ -615,7 +615,7 @@ def create_agent_tasks(main_win):
         # first try to obtain all agents from the cloud, if that fails or there are no agents
         # then build the agents locally
         all_agent_tasks = load_agent_tasks_from_cloud(main_win)
-        print("agent tasks from cloud:", all_agent_tasks)
+        logger.info("agent tasks from cloud:", all_agent_tasks)
         if not all_agent_tasks:
             # for now just build a few agents.
             all_agent_tasks.append(create_my_twin_chat_task(main_win))
