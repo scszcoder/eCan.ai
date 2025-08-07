@@ -73,6 +73,12 @@ def main():
     if not app:  # If no instance, create a new QApplication
         app = QApplication(sys.argv)
     
+    # 设置应用程序信息和图标（统一管理）
+    from utils.app_setup_helper import setup_application_info, set_app_icon, set_app_icon_delayed
+    
+    # 统一设置应用程序基本信息
+    setup_application_info(app, logger)
+    
     # 初始化全局 AppContext
     ctx = AppContext()
     ctx.set_app(app)
@@ -80,9 +86,7 @@ def main():
     ctx.set_config(app_settings)
     ctx.set_app_info(app_info)
 
-    # 设置应用程序图标（在 QApplication 创建之后）
-    from utils.app_icon_helper import set_app_icon, set_app_icon_delayed
-    # 立即设置基本图标
+    # 设置应用程序图标
     set_app_icon(app, logger)
     # 延迟设置 Windows 任务栏图标（等待主窗口创建）
     set_app_icon_delayed(app, logger)
@@ -134,7 +138,7 @@ def main():
 
 if __name__ == '__main__':
     print(TimeUtil.formatted_now_with_ms() + " main function run start...")
-    setproctitle('ECBot')
+    # 注意：不要在这里重新设置进程标题，因为前面已经设置为'eCan'了
 
     # test_eb_orders_scraper()
     # test_etsy_label_gen()
