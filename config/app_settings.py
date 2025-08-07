@@ -93,9 +93,28 @@ def is_frozen():
 
 class AppSettings:
     def __init__(self):
-        self.root_dir = Path(__file__).parent.parent
+        # 处理 PyInstaller 打包后的路径问题
+        if getattr(sys, 'frozen', False):
+            # PyInstaller 打包环境：使用 _MEIPASS 作为根目录
+            if hasattr(sys, '_MEIPASS'):
+                self.root_dir = Path(sys._MEIPASS)
+            else:
+                self.root_dir = Path(sys.executable).parent
+            print(f"[PyInstaller] Using root_dir: {self.root_dir}")
+        else:
+            # 开发环境：使用相对路径
+            self.root_dir = Path(__file__).parent.parent
+            print(f"[Development] Using root_dir: {self.root_dir}")
+
         self.gui_v2_dir = self.root_dir / "gui_v2"
         self.dist_dir = self.gui_v2_dir / "dist"
+
+        # 调试信息
+        print(f"[AppSettings] gui_v2_dir: {self.gui_v2_dir}")
+        print(f"[AppSettings] dist_dir: {self.dist_dir}")
+        print(f"[AppSettings] dist_dir exists: {self.dist_dir.exists()}")
+        if self.dist_dir.exists():
+            print(f"[AppSettings] dist_dir contents: {list(self.dist_dir.iterdir())}")
         
         # Web 模式配置
         # 如果是打包产物，强制 prod，否则用环境变量
@@ -128,12 +147,26 @@ class AppSettings:
     def get_web_url(self):
         """获取 Web 页面的 URL"""
         if self.is_dev_mode:
+            print(f"[AppSettings] Development mode: using {self.vite_dev_server}")
             return self.vite_dev_server
         else:
             index_path = self.dist_dir / "index.html"
+            print(f"[AppSettings] Production mode: looking for {index_path}")
+
             if index_path.exists():
-                return f"file://{index_path.absolute().as_posix()}"
-            return None
+                url = f"file://{index_path.absolute().as_posix()}"
+                print(f"[AppSettings] Found index.html, URL: {url}")
+                return url
+            else:
+                print(f"[AppSettings] ERROR: index.html not found at {index_path}")
+                print(f"[AppSettings] dist_dir exists: {self.dist_dir.exists()}")
+                if self.dist_dir.exists():
+                    print(f"[AppSettings] dist_dir contents:")
+                    for item in self.dist_dir.iterdir():
+                        print(f"  - {item.name}")
+                else:
+                    print(f"[AppSettings] dist_dir does not exist: {self.dist_dir}")
+                return None
 
 
 app_settings = AppSettings()

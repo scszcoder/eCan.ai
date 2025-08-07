@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import multiprocessing
 import sys
-import os
-import tempfile
 
 # 多进程保护 - 必须在所有其他导入之前
 if __name__ == '__main__':
@@ -31,42 +32,111 @@ else:
 from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " app start...")
+
+print(TimeUtil.formatted_now_with_ms() + " importing modules...")
+
+# 标准导入
 import asyncio
 import traceback
-
 import qasync
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QIcon
 from setproctitle import setproctitle
 
+# 基础配置导入
 from config.app_info import app_info
 from config.app_settings import app_settings
 from utils.logger_helper import set_top_web_gui, logger_helper as logger
-from utils.hot_reload import start_watching
-
-import utils
-from gui.LoginoutGUI import Login
-# from gui.WaitGui import WaitWindow
-from gui.WebGUI import WebGUI
-from bot.network import runCommanderLAN, runPlatoonLAN
-
-
-from tests.unittests import *
-from tests.scraper_test import *
-
 from app_context import AppContext
 
+def fix_pyinstaller_environment():
+    """跨平台的 PyInstaller 环境修复"""
+    if not getattr(sys, 'frozen', False):
+        return
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+    try:
+        import os
+
+        # 只处理最关键的 cv2 路径问题
+        if hasattr(sys, '_MEIPASS'):
+            cv2_path = os.path.join(sys._MEIPASS, 'cv2')
+            if os.path.exists(cv2_path) and cv2_path not in sys.path:
+                sys.path.insert(0, cv2_path)
+
+            # 平台特定的库路径修复
+            if sys.platform == 'win32':
+                # Windows: 添加 DLL 目录（如果支持）
+                try:
+                    os.add_dll_directory(cv2_path)
+                except (OSError, AttributeError):
+                    pass  # Python < 3.8 或不支持
+
+            elif sys.platform == 'darwin':
+                # macOS: 设置动态库路径
+                try:
+                    # 添加 cv2 库路径到 DYLD_LIBRARY_PATH
+                    dyld_path = os.environ.get('DYLD_LIBRARY_PATH', '')
+                    if cv2_path not in dyld_path:
+                        if dyld_path:
+                            os.environ['DYLD_LIBRARY_PATH'] = f"{cv2_path}:{dyld_path}"
+                        else:
+                            os.environ['DYLD_LIBRARY_PATH'] = cv2_path
+
+                    # 也尝试添加到 DYLD_FALLBACK_LIBRARY_PATH
+                    fallback_path = os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')
+                    if cv2_path not in fallback_path:
+                        if fallback_path:
+                            os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = f"{cv2_path}:{fallback_path}"
+                        else:
+                            os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = cv2_path
+
+                except Exception:
+                    pass  # 忽略 macOS 特定的错误
+
+            elif sys.platform.startswith('linux'):
+                # Linux: 设置 LD_LIBRARY_PATH
+                try:
+                    ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+                    if cv2_path not in ld_path:
+                        if ld_path:
+                            os.environ['LD_LIBRARY_PATH'] = f"{cv2_path}:{ld_path}"
+                        else:
+                            os.environ['LD_LIBRARY_PATH'] = cv2_path
+                except Exception:
+                    pass  # 忽略 Linux 特定的错误
+
+        print(f"[PYINSTALLER_FIX] Cross-platform environment fix applied for {sys.platform}")
+
+    except Exception as e:
+        print(f"[PYINSTALLER_FIX] Warning: {e}")
+        # 不要因为修复失败而阻止程序启动
+
+# 在所有导入之前修复环境
+fix_pyinstaller_environment()
+
+# 导入其他必要模块
+import utils
+from gui.LoginoutGUI import Login
+from gui.WebGUI import WebGUI
+
+# 测试模块（可选）
+try:
+    from tests.unittests import *
+    from tests.scraper_test import *
+except ImportError:
+    pass  # 测试模块不存在时忽略
+
 
 def main():
-    # 启动热更新监控
+    """主函数"""
+
+    # 启动热更新监控（开发模式）
     if app_settings.is_dev_mode:
-        watch_paths = ['agent', 'bot', 'config', 'common', 'gui', 'skills', 'utils']
-        # 在 GUI 应用中，事件循环由 Qt/qasync 管理，所以这里 loop 参数暂时不直接使用，
-        # 但保留以备将来与 asyncio 事件循环更紧密的集成。
-        start_watching(watch_paths, None)
+        try:
+            from utils.hot_reload import start_watching
+            watch_paths = ['agent', 'bot', 'config', 'common', 'gui', 'skills', 'utils']
+            start_watching(watch_paths, None)
+        except ImportError:
+            pass  # 热更新模块不存在时忽略
 
     # 创建应用程序实例
     app = QApplication.instance()
@@ -79,6 +149,7 @@ def main():
     # 统一设置应用程序基本信息
     setup_application_info(app, logger)
     
+
     # 初始化全局 AppContext
     ctx = AppContext()
     ctx.set_app(app)
@@ -91,11 +162,11 @@ def main():
     # 延迟设置 Windows 任务栏图标（等待主窗口创建）
     set_app_icon_delayed(app, logger)
 
-    # app = QApplication(sys.argv)
+    # 创建事件循环
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
-    # global login
-    # login = Login()
+
+    # 创建登录组件
     utils.logger_helper.login = Login()
     ctx.set_login(utils.logger_helper.login)
 
@@ -117,7 +188,7 @@ def main():
 
     utils.logger_helper.login.setLoop(loop)
     ctx.set_main_loop(loop)
-    
+
     # 打印当前运行模式
     if app_settings.is_dev_mode:
         logger.info("Running in development mode (Vite dev server)")
@@ -125,20 +196,38 @@ def main():
         logger.info("Running in production mode (built files)")
 
     # 创建并显示 Web GUI
-    web_gui = WebGUI()
-    ctx.set_web_gui(web_gui)
+    try:
+        logger.info("Creating WebGUI instance...")
+        web_gui = WebGUI()
+        logger.info("WebGUI instance created successfully")
 
-    set_top_web_gui(web_gui)
-    web_gui.show()
+        ctx.set_web_gui(web_gui)
+        set_top_web_gui(web_gui)
 
-    utils.logger_helper.login.setTopGUI(web_gui)
-    # 显示登录界面
-    # utils.logger_helper.login.show()
+        logger.info("Showing WebGUI...")
+        web_gui.show()
+        logger.info("WebGUI shown successfully")
+
+        utils.logger_helper.login.setTopGUI(web_gui)
+        logger.info("WebGUI setup completed")
+
+    except Exception as e:
+        logger.error(f"Failed to create or show WebGUI: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        # 即使 WebGUI 失败，也尝试继续运行
+        logger.info("Attempting to continue without WebGUI...")
+
+    # 运行主循环
     loop.run_forever()
 
 if __name__ == '__main__':
     print(TimeUtil.formatted_now_with_ms() + " main function run start...")
     # 注意：不要在这里重新设置进程标题，因为前面已经设置为'eCan'了
+    print(f"[PLATFORM] Running on {sys.platform}")
+    if getattr(sys, 'frozen', False):
+        print("[PYINSTALLER] Running from PyInstaller bundle")
+    setproctitle('ECBot')
 
     # test_eb_orders_scraper()
     # test_etsy_label_gen()

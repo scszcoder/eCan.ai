@@ -17,7 +17,7 @@ def obtain_agent_tools(main_win):
         # first try to obtain all agents from the cloud, if that fails or there are no agents
         # then build the agents locally
         all_agent_tools = load_agent_tools_from_cloud(main_win)
-        print("agents tools from cloud:", all_agent_tools)
+        logger.info("agents tools from cloud:", all_agent_tools)
         if not all_agent_tools:
             # for now just build a few agents.
             all_agent_tools =[]

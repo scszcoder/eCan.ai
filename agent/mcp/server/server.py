@@ -996,7 +996,11 @@ async def os_connect_to_chrome(mainwin, args):
 async def os_open_app(mainwin, args):
     try:
         DETACHED_PROCESS = 0x00000008
-        subprocess.Popen(args["input"]["app_name"], creationflags=DETACHED_PROCESS, shell=True, close_fds=True,
+        # 将应用名称转换为列表格式以避免 shell=True
+        app_cmd = args["input"]["app_name"]
+        if isinstance(app_cmd, str):
+            app_cmd = [app_cmd]
+        subprocess.Popen(app_cmd, creationflags=DETACHED_PROCESS, close_fds=True,
                          stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE)
 
@@ -1170,9 +1174,9 @@ async def os_seven_zip(mainwin, args):
         if "zip" in args["input"]["dest"]:
             # we are zipping a folder or file
             if args["input"]["dest"] != "":
-                cmd_output = subprocess.call(exe + " a " + args["input"]["src"] + "-o" + args["input"]["dest"])
+                cmd_output = subprocess.call([exe, "a", args["input"]["src"], "-o" + args["input"]["dest"]])
             else:
-                cmd_output = subprocess.call(exe + " e " + args["input"]["src"])
+                cmd_output = subprocess.call([exe, "e", args["input"]["src"]])
             msg = f"completed seven zip {args['input']['src']}"
         else:
             # we are unzipping a single file
@@ -1180,7 +1184,7 @@ async def os_seven_zip(mainwin, args):
                 cmd = [exe, 'e', args["input"]["src"],  f'-o{args["input"]["dest"]}']
                 cmd_output = subprocess.Popen(cmd)
             else:
-                cmd_output = subprocess.call(exe + " e " + args["input"]["src"])
+                cmd_output = subprocess.call([exe, "e", args["input"]["src"]])
             msg = f"completed seven unzip {args['input']['src']}"
 
         result = [TextContent(type="text", text=msg)]

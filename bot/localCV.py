@@ -47,6 +47,17 @@ class NumpyEncoder(json.JSONEncoder):
 cpu_nums = os.cpu_count()
 icon_match_executor = ProcessPoolExecutor(max_workers=cpu_nums)  # Optimize based on CPU cores
 
+def cleanup_executor():
+    """清理进程池执行器"""
+    global icon_match_executor
+    if icon_match_executor:
+        icon_match_executor.shutdown(wait=True)
+        icon_match_executor = None
+
+# 注册清理函数
+import atexit
+atexit.register(cleanup_executor)
+
 def remove_duplicates(dicts, threshold=10):
     """
     Remove coordinates that are very close to each other, prioritizing lower score entries.
