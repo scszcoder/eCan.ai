@@ -13,11 +13,11 @@ from utils.logger_helper import logger_helper as logger
 async def build_agent_skills(mainwin, skill_path=""):
     try:
         skills = load_agent_skills_from_cloud(mainwin)
-        print("agent skills from cloud:", skills)
+        logger.info("agent skills from cloud:", skills)
         if not skills:
-            print(f"tool_schemas: {len(tool_schemas)}.")
+            logger.info(f"tool_schemas: {len(tool_schemas)}.")
             if not skill_path:
-                print("build agent skills from code......")
+                logger.info("build agent skills from code......")
                 new_skill = await create_my_twin_chatter_skill(mainwin)
                 # print("twin chatter skill:", len(new_skill.mcp_client.get_tools()))
                 skills.append(new_skill)
@@ -60,7 +60,7 @@ async def build_agent_skills(mainwin, skill_path=""):
         # 过滤掉None对象
         skills = [skill for skill in skills if skill is not None]
         
-        print(f"done built agent skills: {len(skills)} {[s.name for s in skills]}")
+        logger.info(f"done built agent skills: {len(skills)} {[s.name for s in skills]}")
         return skills
 
     except Exception as e:

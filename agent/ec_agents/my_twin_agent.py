@@ -53,6 +53,7 @@ def set_up_my_twin_agent(mainwin):
             ex_stat = "ErrorSetUpMyTwinAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpMyTwinAgent: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        # mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
     return helper

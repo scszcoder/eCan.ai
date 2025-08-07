@@ -11,6 +11,7 @@ import base64
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
 import utils.logger_helper
+from utils.logger_helper import logger_helper as logger
 import traceback
 from bot.Logger import log3
 
@@ -326,7 +327,7 @@ async def tcpServer(topgui):
     myips = socket.gethostbyname_ex(hostname)[2]
     myip = myips[len(myips)-1]
     topgui.setIP(myip)
-    print("my host name is: ", hostname, " and my ip is: ", myip)
+    logger.info("my host name is: ", hostname, " and my ip is: ", myip)
     tcp_loop = asyncio.get_running_loop()
     on_con_lost = tcp_loop.create_future()
 
@@ -334,7 +335,7 @@ async def tcpServer(topgui):
     commanderServer = await tcp_loop.create_server(
         lambda: CommanderTCPServerProtocol(topgui, on_con_lost),
         myip, TCP_PORT)
-    print("commanderServer: ", commanderServer)
+    logger.info("commanderServer: ", commanderServer)
 
     async with commanderServer:
         await commanderServer.serve_forever()
