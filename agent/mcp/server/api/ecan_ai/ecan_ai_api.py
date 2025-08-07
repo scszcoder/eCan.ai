@@ -2,7 +2,7 @@ from utils.logger_helper import get_agent_by_id, get_traceback
 from utils.logger_helper import logger_helper as logger
 
 from agent.cloud_api.cloud_api import send_query_components_request_to_cloud, send_get_nodes_prompts_request_to_cloud
-
+import json
 
 
 def ecan_ai_api_query_components(mainwin, empty_components):
@@ -35,8 +35,23 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
         print("wan api endpoint:", wan_api_endpoint)
         response = send_get_nodes_prompts_request_to_cloud(session, token, nodes, wan_api_endpoint)
         print("api_ecan_ai_get_nodes_prompts: respnose:", response)
+        prompts = json.loads(response["body"])["data"]
+        usable_prompts = []
+        for prompt in prompts:
+            usable_prompts.append(
+                [
+                    {
+                        "role": "system",
+                        "content": prompt[0][1]
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt[1][1]
+                    }
+                ]
+            )
     except Exception as e:
         err_trace = get_traceback(e, "ErrorEcanAiApiGetNodesPrompts")
         logger.debug(err_trace)
-        response = {}
-    return response
+        usable_prompts = []
+    return usable_prompts

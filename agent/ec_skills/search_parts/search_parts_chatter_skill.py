@@ -246,10 +246,11 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
     mainwin = agent.mainwin
     print("run time:", runtime)
     current_node = runtime.context["this_node"].get("name")
-    print("current node:", current_node)
+    # print("current node:", current_node)
     nodes = [{"askid": "skid0", "name": current_node}]
-    prompts = api_ecan_ai_get_nodes_prompts(mainwin, nodes)
-    print("networked prompts:", prompts)
+    nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, nodes)
+    print("networked prompts:", nodes_prompts)
+    node_prompt = nodes_prompts[0]
 
     attachments = state.get("attachments", [])
     user_content = []
