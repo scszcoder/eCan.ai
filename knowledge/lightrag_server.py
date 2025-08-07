@@ -611,6 +611,8 @@ if __name__ == '__main__':
                 psutil_available = True
             except ImportError:
                 logger.warning("psutil not available, parent process monitoring may not work properly on Windows")
+            except Exception as e:
+                logger.warning(f"psutil import error: {e}, falling back to basic monitoring")
 
         # 添加失败计数器，避免偶发性检查失败导致退出
         failure_count = 0
