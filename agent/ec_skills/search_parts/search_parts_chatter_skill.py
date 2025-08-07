@@ -326,8 +326,8 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         }
     ]
 
-    print("chat node: llm prompt ready:", prompt_messages)
-    response = llm.invoke(prompt_messages)
+    print("chat node: llm prompt ready:", node_prompt)
+    response = llm.invoke(node_prompt)
     print("chat node: LLM response:", response)
     # Parse the response
     try:
