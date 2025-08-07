@@ -26,7 +26,7 @@ if sys.platform == 'darwin':
 class WebGUI(QMainWindow):
     def __init__(self, parent=None):
         super().__init__()
-        self.setWindowTitle("eCan.ai")
+        self.setWindowTitle("eCan.AI")
         self.parent = parent
         # Set window icon
         icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')

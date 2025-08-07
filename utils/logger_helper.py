@@ -1,7 +1,12 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import logging
 import colorlog
 from logging.handlers import RotatingFileHandler
 import os
+import sys
+import io
 from app_context import AppContext
 from config.constants import APP_NAME
 from config.app_info import app_info
@@ -62,15 +67,54 @@ class LoggerHelper:
                 secondary_log_colors={},
                 style="%"
             )
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(console_formatter)
-            self.logger.addHandler(console_handler)
+
+            # 创建支持 UTF-8 的控制台处理器
+            # 在 PyInstaller 环境中，sys.stdout 可能为 None
+            if sys.stdout is not None:
+                if sys.platform == "win32" and hasattr(sys.stdout, 'buffer'):
+                    # Windows 系统需要特殊处理 UTF-8 编码
+                    try:
+                        console_handler = logging.StreamHandler(
+                            io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+                        )
+                    except (AttributeError, OSError):
+                        # 如果失败，使用标准处理器
+                        console_handler = logging.StreamHandler()
+                else:
+                    console_handler = logging.StreamHandler()
+
+                console_handler.setFormatter(console_formatter)
+                self.logger.addHandler(console_handler)
+            # 如果 sys.stdout 为 None（PyInstaller windowed 模式），跳过控制台处理器
 
         if not any(isinstance(h, RotatingFileHandler) for h in self.logger.handlers):
             file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024 * 10, backupCount=5)
+            # 确保文件处理器使用 UTF-8 编码
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=1024 * 1024 * 10,
+                backupCount=5,
+                encoding='utf-8',
+                errors='replace'
+            )
             file_handler.setFormatter(file_formatter)
             self.logger.addHandler(file_handler)
+
+    def _safe_encode_message(self, message):
+        """安全编码消息，处理 emoji 和特殊字符"""
+        if not isinstance(message, str):
+            message = str(message)
+
+        # 在 Windows 系统上，如果遇到编码问题，替换有问题的字符
+        if sys.platform == "win32":
+            try:
+                # 尝试编码到 GBK，如果失败则替换字符
+                message.encode('gbk')
+            except UnicodeEncodeError:
+                # 替换无法编码的字符
+                message = message.encode('gbk', errors='replace').decode('gbk', errors='replace')
+
+        return message
 
     def _join_message_args(self, message, *args):
         def safe_str(x):
@@ -78,13 +122,17 @@ class LoggerHelper:
                 return str(x)
             except Exception:
                 return f"<Unprintable {type(x).__name__}>"
+
         # 如果 message 是字符串且 args 只有一个且包含 %，则用原生格式化
         if isinstance(message, str) and args and "%" in message:
             try:
-                return message % args
+                result = message % args
+                return self._safe_encode_message(result)
             except Exception:
                 pass  # 格式化失败则退回拼接
-        return " ".join(safe_str(x) for x in (message,) + args)
+
+        result = " ".join(safe_str(x) for x in (message,) + args)
+        return self._safe_encode_message(result)
 
     def trace(self, message, *args, **kwargs):
         if hasattr(self, 'logger'):
