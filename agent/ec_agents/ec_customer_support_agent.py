@@ -10,6 +10,7 @@ from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_customer_support_chat_task, create_ec_customer_support_work_task
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+from utils.logger_helper import logger_helper as logger
 
 from agent.tasks import Repeat_Types
 import traceback
@@ -35,7 +36,7 @@ def set_up_ec_customer_support_agent(mainwin):
             capabilities=capabilities,
             skills=[worker_skill, chatter_skill],
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_customer_support_chat_task(mainwin)
         worker_task = create_ec_customer_support_work_task(mainwin)
@@ -50,6 +51,7 @@ def set_up_ec_customer_support_agent(mainwin):
             ex_stat = "ErrorSetUpECBOTSuppportAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECBOTSuppportAgent: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        # mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
     return customer_support

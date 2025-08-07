@@ -29,7 +29,8 @@ def add_new_agents_to_cloud(mainwin, agents):
             ex_stat = "ErrorAddNewAgentsToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentsToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        logger.error(ex_stat)
+        # log3(ex_stat)
 
 
 def save_agents_to_cloud(mainwin, agents):
@@ -47,16 +48,17 @@ def save_agents_to_cloud(mainwin, agents):
             ex_stat = "ErrorAddNewAgentsToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentsToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        logger.error(ex_stat)
+        # log3(ex_stat)
 
 
 
 def load_agents_from_cloud(mainwin):
     cloud_agents = []
     try:
-        print("load_agents_from_cloud.......")
+        logger.info("load_agents_from_cloud.......")
         jresp = send_get_agents_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        print("cloud returns.......", jresp)
+        logger.info("cloud returns.......", jresp)
         all_agents = json.loads(jresp['body'])
         for ajs in all_agents:
             new_agent = gen_new_agent(mainwin, ajs)
@@ -74,7 +76,8 @@ def load_agents_from_cloud(mainwin):
             ex_stat = "ErrorLoadAgentsFromCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorLoadAgentsFromCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        logger.error(ex_stat)
+        # log3(ex_stat)
     
     return cloud_agents
 
@@ -110,7 +113,7 @@ def gen_agent_from_cloud_data(mainwin, ajs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # 在打包环境中安全初始化browser_use_llm
         try:
@@ -127,7 +130,8 @@ def gen_agent_from_cloud_data(mainwin, ajs):
             ex_stat = "ErrorNewAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -136,13 +140,13 @@ def gen_new_agent(mainwin, ajs):
         llm = mainwin.llm
         all_skills = mainwin.agent_skills
         all_tasks = mainwin.agent_tasks
-        print("ajs:", ajs)
+        logger.debug("ajs:", ajs)
         if ajs['skills'].strip():
             skids = [int(sskid.strip()) for sskid in ajs['skills'].split(",")]
         else:
             skids = []
 
-        print("skids:", skids, len(all_skills), all_skills[0])
+        logger.debug("skids:", skids, len(all_skills), all_skills[0])
         agent_skills = [sk for sk in all_skills if int(sk.id) in skids]
 
         if ajs['tasks'].strip():
@@ -165,13 +169,13 @@ def gen_new_agent(mainwin, ajs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # 在打包环境中安全初始化browser_use_llm
         try:
             browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         except Exception as e:
-            print(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+            logger.warning(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
             # 使用主LLM作为备用方案
             browser_use_llm = llm
 
@@ -184,7 +188,8 @@ def gen_new_agent(mainwin, ajs):
             ex_stat = "ErrorNewAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -221,7 +226,8 @@ def prep_agent_data_for_cloud(mainwin, agents):
             ex_stat = "ErrorNewAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -237,7 +243,8 @@ def remove_agents_from_cloud(mainwin, agents):
             ex_stat = "ErrorRemoveAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorRemoveAgent: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 # ###########################################################################################
@@ -257,7 +264,8 @@ def add_new_agent_skills_to_cloud(mainwin, skills):
             ex_stat = "ErrorAddNewAgentSkillsToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentSkillsToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
 
 
 def save_agent_skills_to_cloud(mainwin, skills):
@@ -275,17 +283,17 @@ def save_agent_skills_to_cloud(mainwin, skills):
             ex_stat = "ErrorAddNewAgentSkillsToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentSkillsToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
-
+        # log3(ex_stat)
+        logger.error(ex_stat)
 
 
 def load_agent_skills_from_cloud(mainwin):
     cloud_agent_skills = []
     try:
         jresp = send_get_agent_skills_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        print("cloud get agent skills returns.......", jresp)
+        logger.info("cloud get agent skills returns.......", jresp)
         all_agent_skills = json.loads(jresp['body'])
-        print("true cloud agent skills ...", all_agent_skills)
+        logger.info("true cloud agent skills ...", all_agent_skills)
         for askjs in all_agent_skills:
             new_agent_skill = gen_new_agent_skill(mainwin, askjs)
             if new_agent_skill:
@@ -302,7 +310,8 @@ def load_agent_skills_from_cloud(mainwin):
             ex_stat = "ErrorLoadAgentsFromCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorLoadAgentsFromCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return []
 
     return cloud_agent_skills
@@ -339,13 +348,13 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         # 在打包环境中安全初始化browser_use_llm
         try:
             browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         except Exception as e:
-            print(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+            logger.warning(f"Warning: Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
             # 使用主LLM作为备用方案
             browser_use_llm = llm
 
@@ -358,7 +367,8 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
             ex_stat = "ErrorNewAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgent: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -393,7 +403,7 @@ def gen_new_agent_skill(mainwin, askjs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         new_agent_skill = EC_Skill(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent_skill
@@ -404,7 +414,8 @@ def gen_new_agent_skill(mainwin, askjs):
             ex_stat = "ErrorNewAgentSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentSkill: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -434,7 +445,8 @@ def prep_agent_skills_data_for_cloud(mainwin, agent_skills):
             ex_stat = "ErrorNewAgentSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentSkill: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -450,7 +462,8 @@ def remove_agent_skills_from_cloud(mainwin, agent_skills):
             ex_stat = "ErrorRemoveAgentSkills:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorRemoveAgentSkills: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 # ###########################################################################################
@@ -470,7 +483,8 @@ def add_new_agent_tools_to_cloud(mainwin, tools):
             ex_stat = "ErrorAddNewAgentTasksToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentTasksToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return []
 
 
@@ -489,7 +503,9 @@ def save_agent_tools_to_cloud(mainwin, tools):
             ex_stat = "ErrorAddNewAgentTasksToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentTasksToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
+        return []
 
 
 
@@ -514,7 +530,8 @@ def load_agent_tools_from_cloud(mainwin):
             ex_stat = "ErrorLoadAgentToolsFromCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorLoadAgentToolsFromCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return []
 
 
@@ -548,7 +565,7 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -559,7 +576,8 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
             ex_stat = "ErrorNewAgentTasks:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentTasks: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -593,7 +611,7 @@ def gen_new_agent_tools(mainwin, tooljs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         new_agent_task = EC_Skill(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent_task
@@ -604,7 +622,8 @@ def gen_new_agent_tools(mainwin, tooljs):
             ex_stat = "ErrorNewAgentTools:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentTools: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -641,7 +660,8 @@ def prep_agent_tools_data_for_cloud(mainwin, agent_tools):
             ex_stat = "ErrorNewAgentTools:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentTools: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -657,7 +677,8 @@ def remove_agent_tools_from_cloud(mainwin, agent_tools):
             ex_stat = "ErrorRemoveAgentTools:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorRemoveAgentTools: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 # ###########################################################################################
@@ -677,7 +698,9 @@ def add_new_agent_tasks_to_cloud(mainwin, tasks):
             ex_stat = "ErrorAddNewAgentTasksToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentTasksToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
+        return []
 
 
 def save_agent_tasks_to_cloud(mainwin, tasks):
@@ -695,7 +718,9 @@ def save_agent_tasks_to_cloud(mainwin, tasks):
             ex_stat = "ErrorAddNewAgentTasksToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewAgentTasksToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
+        return []
 
 
 
@@ -704,7 +729,7 @@ def load_agent_tasks_from_cloud(mainwin):
     try:
         jresp = send_get_agent_tasks_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
         all_agent_tasks = json.loads(jresp['body'])
-        print("true cloud agent tasks ...", all_agent_tasks)
+        logger.info("true cloud agent tasks ...", all_agent_tasks)
         for askjs in all_agent_tasks:
             new_agent_task = gen_new_agent_tasks(mainwin, askjs)
             if new_agent_task:
@@ -721,7 +746,8 @@ def load_agent_tasks_from_cloud(mainwin):
             ex_stat = "ErrorLoadAgentTasksFromCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorLoadAgentTasksFromCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return []
 
     return cloud_agent_tasks
@@ -757,7 +783,7 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -768,7 +794,8 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
             ex_stat = "ErrorNewAgentTasks:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentTasks: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -802,7 +829,7 @@ def gen_new_agent_tasks(mainwin, taskjs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
 
         new_agent_task = EC_Skill(mainwin=mainwin, llm=llm, card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent_task
@@ -813,7 +840,8 @@ def gen_new_agent_tasks(mainwin, taskjs):
             ex_stat = "ErrorNewAgentTasks:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentTasks: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -842,7 +870,8 @@ def prep_agent_tasks_data_for_cloud(mainwin, agent_tasks):
             ex_stat = "ErrorNewAgentTasks:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewAgentTasks: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -858,7 +887,8 @@ def remove_agent_tasks_from_cloud(mainwin, agent_tasks):
             ex_stat = "ErrorRemoveAgentTasks:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorRemoveAgentTasks: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 # ###########################################################################################
@@ -878,7 +908,9 @@ def add_new_knowledges_to_cloud(mainwin, knowledges):
             ex_stat = "ErrorAddNewKnowledgesToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewKnowledgesToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
+        return []
 
 
 def save_knowledges_to_cloud(mainwin, knowledges):
@@ -896,7 +928,9 @@ def save_knowledges_to_cloud(mainwin, knowledges):
             ex_stat = "ErrorAddNewKnowledgesToCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorAddNewKnowledgesToCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
+        return []
 
 
 
@@ -921,7 +955,8 @@ def load_knowledges_from_cloud(mainwin):
             ex_stat = "ErrorLoadKnowledgesFromCloud:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorLoadKnowledgesFromCloud: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return []
 
 
@@ -956,7 +991,7 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("agent card created:", agent_card.name, agent_card.url)
+        logger.info("agent card created:", agent_card.name, agent_card.url)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         new_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_agent
@@ -967,7 +1002,8 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
             ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -1002,7 +1038,7 @@ def gen_new_knowledge(mainwin, kjs):
             capabilities=capabilities,
             skills=agent_skills,
         )
-        print("knowledge created:", agent_card.name, agent_card.url)
+        logger.info("knowledge created:", agent_card.name, agent_card.url)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         new_knowledge = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=agent_skills, tasks=agent_tasks)
         return new_knowledge
@@ -1013,7 +1049,8 @@ def gen_new_knowledge(mainwin, kjs):
             ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -1041,7 +1078,8 @@ def prep_knowledges_data_for_cloud(mainwin, knowledges):
             ex_stat = "ErrorNewKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorNewKnowledges: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None
 
 
@@ -1057,5 +1095,6 @@ def remove_knowledges_from_cloud(mainwin, knowledges):
             ex_stat = "ErrorRemoveKnowledges:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorRemoveKnowledges: traceback information not available:" + str(e)
-        log3(ex_stat)
+        # log3(ex_stat)
+        logger.error(ex_stat)
         return None

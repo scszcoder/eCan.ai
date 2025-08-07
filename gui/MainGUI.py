@@ -277,9 +277,9 @@ class MainWindow(QMainWindow):
             self.chat_id = self.chat_id + "_Commander"
         else:
             self.chat_id = self.chat_id+"_"+"".join(self.host_role.split())
-        print("my chatId:", self.chat_id)
+        logger.info("my chatId:", self.chat_id)
         self.chat_service = ChatService.initialize(db_path=os.path.join(self.my_ecb_data_homepath, ECBOT_CHAT_DB))
-        print("chat service initialized")
+        logger.info("chat service initialized")
         self.ecb_data_homepath = ecb_data_homepath
         self.temp_dir = os.path.join(self.my_ecb_data_homepath, "temp")
         logger.info("temp dir:" + self.temp_dir)
@@ -878,7 +878,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.bottomSplitter)
         #layout.addWidget(self.centralSplitter)
         #layout.addLayout(self.south_layout)
-        print("some vars init done6....")
+        logger.info("some vars init done6....")
         self.rpa_quit_dialog = QDialog(self)
         self.rpa_quit_dialog.setWindowTitle(QApplication.translate("QDialog", "Quit RPA Confirmation"))
         self.rpa_quit_dialog_layout = QHBoxLayout()
@@ -898,11 +898,11 @@ class MainWindow(QMainWindow):
         # finally start the network service
         # because if we don't know who the real boss is, there no point doing any networking.....
         if "Platoon" not in self.machine_role:
-            print("run commander side networking......")
+            logger.info("run commander side networking......")
             self.mainLoop.create_task(runCommanderLAN(self))
 
         else:
-            print("run platoon side networking...")
+            logger.info("run platoon side networking...")
             self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
 
         def on_ok():
@@ -937,9 +937,9 @@ class MainWindow(QMainWindow):
         self.unassigned_reactive_task_groups = {}  # per vehicle, flatten task list
         self.checkVehicles()
 
-        print("Check Vehicles:", len(self.vehicles))
+        logger.info("Check Vehicles:", len(self.vehicles))
         for v in self.vehicles:
-            print("vname:", v.getName(), "status:", v.getStatus(), )
+            logger.debug("vname:", v.getName(), "status:", v.getStatus(), )
 
         # get current wifi ssid and stores it.
         self.showMsg("Checking Wifi on OS platform: "+self.platform)
@@ -1027,7 +1027,7 @@ class MainWindow(QMainWindow):
                 self.wifis.append(ssid)
                 self.default_wifi = self.wifis[0]
         else:
-            print("***wifi info is None!")
+            logger.info("***wifi info is None!")
             self.default_wifi = ""
 
         self.SettingsWin = SettingsWidget(self)
@@ -1037,9 +1037,9 @@ class MainWindow(QMainWindow):
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
             if not self.debug_mode or self.schedule_mode == "auto":
-                print("getting bots from cloud....")
+                logger.info("getting bots from cloud....")
                 self.bot_service.sync_cloud_bot_data(self.session, self.tokens, self)
-                print("bot cloud done....")
+                logger.info("bot cloud done....")
             logger.info("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
             logger.info("find all bots")
@@ -1066,17 +1066,17 @@ class MainWindow(QMainWindow):
         rais_extensions_file = self.my_ecb_data_homepath + "/my_rais_extensions/my_rais_extensions.json"
         rais_extensions_dir = self.my_ecb_data_homepath + "/my_rais_extensions/"
         added_handlers=[]
-        print("rais extension file:"+rais_extensions_file)
+        logger.info("rais extension file:"+rais_extensions_file)
         if os.path.isfile(rais_extensions_file):
             with open(rais_extensions_file, 'r') as rais_extensions:
                 user_rais_modules = json.load(rais_extensions)
-                print("user_rais_modules:", user_rais_modules)
+                logger.info("user_rais_modules:", user_rais_modules)
                 for i, user_module in enumerate(user_rais_modules):
                     module_file = self.my_ecb_data_homepath + "/" + user_module["dir"] + "/"+user_module["file"]
                     added_ins = user_module['instructions']
                     module_name = os.path.splitext(user_module["file"])[0]
                     spec = importlib.util.spec_from_file_location(module_name, module_file)
-                    print("ext rais:", module_file, added_ins, module_name, spec)
+                    logger.debug("ext rais:", module_file, added_ins, module_name, spec)
                     # Create a module object from the spec
                     module = importlib.util.module_from_spec(spec)
                     # Load the module
@@ -1120,9 +1120,9 @@ class MainWindow(QMainWindow):
                "completed" : [],
                "aborted": []
             }
-            print("debug mode:", self.debug_mode, self.schedule_mode)
+            logger.info("debug mode:", self.debug_mode, self.schedule_mode)
             if not self.debug_mode and self.schedule_mode == "auto":
-                print("add fetch schedule to todo list....")
+                logger.info("add fetch schedule to todo list....")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
         # setup local web server including MCP server.
@@ -1253,7 +1253,7 @@ class MainWindow(QMainWindow):
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=payload)
             result = response.json()
-            print("Initialization successful:", result)
+            logger.info("Initialization successful:", result)
             return result
 
     def stop_lightrag_server(self):
@@ -1261,10 +1261,10 @@ class MainWindow(QMainWindow):
         self.lightrag_server = None
 
     async def async_agents_init(self):
-        print("initing agents async.....")
+        logger.info("initing agents async.....")
         local_server_port = self.get_local_server_port()
         await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
-        print(f"local server ready.........{local_server_port}")
+        logger.info(f"local server ready.........{local_server_port}")
         # result = await self.initialize_mcp()
         # print("initialize_mcp.....result:", result)
         # self.mcp_client = await create_mcp_client()
@@ -1274,7 +1274,7 @@ class MainWindow(QMainWindow):
         # self.mcp_client = await self.mcp_client_manager.session()
         # self.mcp_client = await SSEManager.get(url).session()
         # self.mcp_client = await create_sse_client()
-        print("MCP client created....")
+        logger.info("MCP client created....")
         # tl = await self.mcp_client.list_tools()
         tl = await local_mcp_list_tools(url)
         # print("list of tools:", tl)
@@ -1308,7 +1308,7 @@ class MainWindow(QMainWindow):
 
     def wait_for_server(self, agent, timeout: float = 10.0):
         url = agent.get_card().url+'/ping'
-        print("agent card url:", url)
+        logger.info("agent card url:", url)
         start = time.time()
         while time.time() - start < timeout:
             try:
@@ -1324,30 +1324,30 @@ class MainWindow(QMainWindow):
 
     # async def launch_agents(self):
     def launch_agents(self):
-        print(f"launching agents:{len(self.agents)}")
+        logger.info(f"launching agents:{len(self.agents)}")
         for agent in self.agents:
             if agent:
-                print("KICKING OFF AGENT.....")
+                logger.info("KICKING OFF AGENT.....")
                 # await agent.start()
                 agent.start()
-                print("checking a2a server status....")
+                logger.info("checking a2a server status....")
                 self.wait_for_server(agent)
-                print("AGENT STARTED.....")
+                logger.info("AGENT STARTED.....")
             else:
-                print("WARNING EMPTY AGENT .....")
+                logger.info("WARNING EMPTY AGENT .....")
 
     async def test_a2a(self):
         # let supervisor agent sends a message to agent
         supervisor = next((ag for ag in self.agents if "Helper" not in ag.card.name), None)
         if supervisor:
-            print("found supervisor:", supervisor.card.name)
+            logger.info("found supervisor:", supervisor.card.name)
             await supervisor.request_local_help()
         else:
-            print("Warning, supervisor not found...")
+            logger.info("Warning, supervisor not found...")
 
     def get_free_agent_ports(self, n):
         used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]
-        print("#agents:", len(self.agents), "used ports:", used_ports, "port range:", self.local_agents_port_range)
+        logger.info("#agents:", len(self.agents), "used ports:", used_ports, "port range:", self.local_agents_port_range)
         all_ports = range(self.local_agents_port_range[0], self.local_agents_port_range[1]+1)
         free_ports = [port for port in all_ports if port not in used_ports]
 
@@ -1371,9 +1371,9 @@ class MainWindow(QMainWindow):
 
     def get_vehicle_ecbot_op_agent(self, v):
         # obtain agents on a vehicle.
-        print(f"{len(self.agents)}")
+        logger.debug(f"{len(self.agents)}")
         ecb_op_agent = next((ag for ag in self.agents if "ECBot RPA Operator Agent" in ag.card.name), None)
-        print("FOUND Operator......", ecb_op_agent.card.name)
+        logger.info("FOUND Operator......", ecb_op_agent.card.name)
         return ecb_op_agent
 
     # SC note - really need to have
@@ -1412,11 +1412,11 @@ class MainWindow(QMainWindow):
     def dailySkillsetUpdate(self):
         if self.general_settings.get("schedule_mode", "auto") != "test":
             cloud_skills_results = self.SkillManagerWin.fetchMySkills()
-            print("DAILY SKILL FETCH:", cloud_skills_results)
+            logger.info("DAILY SKILL FETCH:", cloud_skills_results)
         else:
             cloud_skills_results = {"body": "{}"}
         existing_skids = [sk.getSkid() for sk in self.skills]
-        print("EXISTING SKIDS:", existing_skids)
+        logger.info("EXISTING SKIDS:", existing_skids)
 
         if 'body' in cloud_skills_results:
             # self.showMsg("db_skills_results:::::"+json.dumps(db_skills_results))
@@ -1449,10 +1449,10 @@ class MainWindow(QMainWindow):
 
             # for sanity immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
             # when a skill is selected, its dependencies will added to mission's skills list.
-            print("SKIDS to be regenerated:", [sk.getSkid() for sk in self.skills])
+            logger.info("SKIDS to be regenerated:", [sk.getSkid() for sk in self.skills])
             self.regenSkillPSKs()
 
-        print("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
+        logger.info("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
 
     def onScrollBarValueChanged(self, value):
         """监听滚动条变化，判断是否自动滚动"""
@@ -8426,7 +8426,7 @@ class MainWindow(QMainWindow):
                 # Handle network-related errors
                 log3(f"Error sending heartbeat to Commander: {e}", "serveCommander", self)
 
-            print("serving commander, checking queue...")
+            logger.info("serving commander, checking queue...")
             if not msgQueue.empty():
                 try:
                     net_message = await msgQueue.get()
