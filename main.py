@@ -50,7 +50,6 @@ from gui.LoginoutGUI import Login
 from gui.WebGUI import WebGUI
 from bot.network import runCommanderLAN, runPlatoonLAN
 
-
 from tests.unittests import *
 from tests.scraper_test import *
 
@@ -60,6 +59,7 @@ from app_context import AppContext
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
+
 def main():
     # 启动热更新监控
     if app_settings.is_dev_mode:
@@ -67,12 +67,11 @@ def main():
         # 在 GUI 应用中，事件循环由 Qt/qasync 管理，所以这里 loop 参数暂时不直接使用，
         # 但保留以备将来与 asyncio 事件循环更紧密的集成。
         start_watching(watch_paths, None)
-
     # 创建应用程序实例
     app = QApplication.instance()
     if not app:  # If no instance, create a new QApplication
         app = QApplication(sys.argv)
-    
+
     # 初始化全局 AppContext
     ctx = AppContext()
     ctx.set_app(app)
@@ -86,7 +85,6 @@ def main():
     set_app_icon(app, logger)
     # 延迟设置 Windows 任务栏图标（等待主窗口创建）
     set_app_icon_delayed(app, logger)
-
     # app = QApplication(sys.argv)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)

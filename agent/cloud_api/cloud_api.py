@@ -923,11 +923,53 @@ def gen_get_knowledges_string():
     logger_helper.debug(query_string)
     return query_string
 
+# 	component_id: ID!
+# 	name: String
+# 	proj_id: ID!
+# 	description: String
+# 	category: String
+# 	application: String
+# 	metadata: AWSJSON
 def gen_query_components_string(components):
-    query_string = "query MyGetKnowledgesQuery { getKnowledges (ids:'"
-    rec_string = "0"
+    query_string = """
+            query MyQuery {
+          queryComponents (qk:[
+        """
+    rec_string = ""
+    for i in range(len(components)):
+        rec_string = rec_string + "{ component_id: " + str(components[i]['component_id']) + ", "
+        rec_string = rec_string + "name: \"" + components[i]['name'] + "\", "
+        rec_string = rec_string + "proj_id: \"" + components[i]['proj_id'] + "\", "
+        rec_string = rec_string + "description: \"" + components[i]['description'] + "\", "
+        rec_string = rec_string + "category: \"" + components[i]['category'] + "\", "
+        rec_string = rec_string + "application: \"" + components[i]['application'] + "\", "
+        rec_string = rec_string + "metadata: \"" + json.dumps(components[i]['metadata']).replace('"', '\\"') + "\" }"
+        if i != len(components) - 1:
+            rec_string = rec_string + ', '
 
-    tail_string = "') }"
+    tail_string = """
+            ])
+            }"""
+    query_string = query_string + rec_string + tail_string
+    logger_helper.debug(query_string)
+    return query_string
+
+def gen_get_nodes_prompts_string(nodes):
+    query_string = """
+            query MyQuery {
+          getNodesPrompts (nodes:[
+        """
+    rec_string = ""
+    for i in range(len(nodes)):
+        rec_string = rec_string + "{ askid: \"" + str(nodes[i]['askid']) + "\", "
+        rec_string = rec_string + "name: \"" + nodes[i]['name'] + "\", "
+        rec_string = rec_string + "situation: \"" + "" + "\" }"
+        if i != len(nodes) - 1:
+            rec_string = rec_string + ', '
+
+    tail_string = """
+            ])
+            }"""
     query_string = query_string + rec_string + tail_string
     logger_helper.debug(query_string)
     return query_string
@@ -1525,7 +1567,20 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
     return jresponse
 
 
+def send_get_nodes_prompts_request_to_cloud(session, token, nodes, endpoint):
 
+    queryInfo = gen_get_nodes_prompts_string(nodes)
+    print("send_get_nodes_prompts_request_to_cloud sending: ", queryInfo)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    print("send_get_nodes_prompts_request_to_cloud jresp: ", jresp)
+    if "errors" in jresp:
+        screen_error = True
+        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["getNodesPrompts"])
+
+    return jresponse
 
 
 
