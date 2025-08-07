@@ -399,7 +399,7 @@ async def create_ec_customer_support_chat_skill(mainwin):
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("chat", chat_node)
         workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)

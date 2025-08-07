@@ -9,7 +9,6 @@ from knowledge.lightrag_server import LightragServer
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
 from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
-from agent.mcp.server.server import set_server_main_win
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -38,14 +37,12 @@ from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
     QMessageBox, QFileDialog, QPlainTextEdit, QDialog
-
 import importlib
 import importlib.util
 from common.models import BotModel, MissionModel
 from common.db_init import init_db, get_session
 from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
 from tests.TestAll import Tester
-
 from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
@@ -119,6 +116,7 @@ START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
 
 rpaConfig = None
+
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -203,6 +201,7 @@ class Expander(QWidget):
         contentAnimation.setEndValue(contentHeight)
 
 
+
 class AsyncInterface:
     """ Class to handle async tasks within the Qt Event Loop. """
     def __init__(self,queue):
@@ -218,6 +217,8 @@ class AsyncInterface:
             message = await self.queue.get()
             self.showMsg(f"Processed message from GUI: {message}")
             self.queue.task_done()
+
+
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
@@ -10983,3 +10984,4 @@ class MainWindow(QMainWindow):
 
         log3("Good Bye")
 
+print("maingui loaded....................")

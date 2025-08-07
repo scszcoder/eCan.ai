@@ -3,11 +3,11 @@ import uuid
 
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
+from langgraph.runtime import Runtime
 from langgraph.types import interrupt, Command
 from langgraph.func import entrypoint, task
 from langgraph.graph import add_messages
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.store.base import BaseStore
 from langchain_core.messages.utils import (
     # highlight-next-line
     trim_messages,
@@ -17,15 +17,33 @@ from langchain_core.messages.utils import (
 )
 from langgraph.prebuilt import create_react_agent
 from langmem.short_term import SummarizationNode
+from langgraph.store.base import BaseStore
 
 from scipy.stats import chatterjeexi
 import io
 import os
 import base64
+
+from agent.chats.chat_utils import a2a_send_chat
 from agent.ec_skills.file_utils.file_utils import extract_file_text
 from bot.Logger import *
 from agent.ec_skill import *
+from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import logger_helper as logger
+from agent.mcp.local_client import mcp_call_tool
+from agent.chats.tests.test_notifications import sample_metrics_0
+from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
 
+
+
+
+def _ensure_context(ctx: WorkFlowContext) -> WorkFlowContext:
+    """Get params that configure the search algorithm."""
+    if ctx.this_node:
+        if ctx.this_node.get("name", ""):
+            ctx.this_node = ctx.this_node
+    else:
+        ctx.node = {"name": ""}
 
 # this node will call ecan.ai api to obtain parametric filters of the searched components
 def get_user_parametric_node(state: NodeState) -> NodeState:
@@ -70,14 +88,24 @@ def human_approval(state: NodeState) -> Command[Literal["some_node", "another_no
     else:
         return Command(goto="another_node")
 
-def pend_for_human_input_node(state: NodeState):
+def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
     # highlight-next-line
     print("pend_for_human_input_node:", state)
+    if state.get("tool_result", None):
+        qa_form = state.get("tool_result").get("qa_form", None)
+        notification = state.get("tool_result").get("notification", None)
+    else:
+        qa_form = None
+        notification = None
+
     interrupted = interrupt( # (1)!
         {
-            "prompt_to_human": state["result"] # (2)!
+            "prompt_to_human": state["result"], # (2)!
+            "qa_form_to_human": qa_form,
+            "notification_to_human": notification
         }
     )
+    print("node running:", runtime.context.current_node)
     print("interrupted:", interrupted)
     return {
         "pended": interrupted # (3)!
@@ -117,12 +145,12 @@ def any_unknown_part_numbers(state: NodeState) -> NodeState:
         state["retries"] += 1
     return state
 
-def any_attachment(state: NodeState) -> NodeState:
+def any_attachment(state: NodeState) -> str:
     print("go to digi-key site:", state)
     return state
 
 
-def chat_or_work(state: NodeState) -> str:
+def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
     print("chat_or_work input:", state)
     if isinstance(state['result'], dict):
         state_output = state['result']
@@ -132,6 +160,13 @@ def chat_or_work(state: NodeState) -> str:
             return "chat_back"
     else:
         return "chat_back"
+
+def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -> str:
+    print("is_preliminary_component_info_ready input:", state)
+    if state['condition']:
+        return "preliminary_component_info_ready"
+    else:
+        return "query_human"
 
 def all_requirement_filled(state: NodeState) -> str:
     print("all_requirement_filled:", state)
@@ -147,9 +182,13 @@ async def ask_cloud_expert_for_search_sites(state: NodeState) -> str:
     print("ask_cloud_expert_for_search_sites:", state)
     return ""
 
-def read_attachments(state: NodeState) -> str:
+def read_attachments_node(state: NodeState) -> str:
     print("read attachments:", state)
     return {}
+
+def eval_basic_info_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+
+    return state
 
 def debug_node(state: NodeState) -> NodeState:
     print("Debug node state:", state)
@@ -199,11 +238,22 @@ def llm_node_with_extracted_files(state: NodeState) -> NodeState:
 
 # for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
 # .wav (.mp3) and .mp4
-def llm_node_with_raw_files(state: NodeState) -> NodeState:
+def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    print("in llm_node_with_raw_files....")
     user_input = state.get("input", "")
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    print("run time:", runtime)
+    current_node = runtime.context["this_node"].get("name")
+    print("current node:", current_node)
+    nodes = [{"askid": "skid0", "name": current_node}]
+    prompts = api_ecan_ai_get_nodes_prompts(mainwin, nodes)
+    print("networked prompts:", prompts)
+
     attachments = state.get("attachments", [])
     user_content = []
-
+    print("node running:", runtime)
     print("LLM input text:", user_input)
     # Add user text
     user_content.append({"type": "text", "text": user_input})
@@ -275,9 +325,9 @@ def llm_node_with_raw_files(state: NodeState) -> NodeState:
         }
     ]
 
-    print("llm prompt ready:", prompt_messages)
+    print("chat node: llm prompt ready:", prompt_messages)
     response = llm.invoke(prompt_messages)
-    print("LLM response:", response)
+    print("chat node: LLM response:", response)
     # Parse the response
     try:
         import json
@@ -328,6 +378,104 @@ def pre_model_hook(state):
     # highlight-next-line
     return {"llm_input_messages": trimmed_messages}
 
+def query_human_about_components_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    return state
+
+def check_preliminary_component_info_ready_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    return state
+
+def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    try:
+        print("about to query components:", type(state), state)
+        loop = asyncio.get_event_loop()
+    except RuntimeError as e:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"api_ecan_ai_query_components", args={"input": state["tool_input"]} ))
+            # tool_result = await mainwin.mcp_client.call_tool(
+            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
+            # )
+            print("query components completed:", type(tool_result), tool_result)
+            if "completed" in tool_result.content[0].text:
+                state.result = tool_result.content[0].text
+                state.tool_result = getattr(tool_result, 'meta', None)
+            else:
+                state["error"] = tool_result.content[0].text
+
+            return state
+        except Exception as e:
+            state['error'] = get_traceback(e, "ErrorGoToSiteNode0")
+            logger.debug(state['error'])
+            return state
+        finally:
+            loop.close()
+    else:
+        try:
+            tool_result = loop.run_until_complete(
+                mcp_call_tool(mainwin.mcp_client, "api_ecan_ai_query_components", args={"input": state["tool_input"]}))
+            # tool_result = await mainwin.mcp_client.call_tool(
+            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
+            # )
+            print("old loop query components tool completed:", type(tool_result), tool_result)
+            if "completed" in tool_result.content[0].text:
+                state.result = tool_result.content[0].text
+                state.tool_result = getattr(tool_result, 'meta', None)
+            else:
+                state["error"] = tool_result.content[0].text
+
+            return state
+        except Exception as e:
+            state['error'] = get_traceback(e, "ErrorGoToSiteNode1")
+            logger.debug(state['error'])
+            return state
+
+# this function takes the prompt generated by LLM from the previous node and puts ranking method template
+# into the right place. This way, the correct data can be passed onto the GUI side of the chat interface.
+def prep_ranking_method_template_node(state: NodeState) -> NodeState:
+    try:
+        ranking_method_template = sample_metrics_0
+        if state.get("tool_result", None):
+            state["tool_result"]["qa_form_to_human"] = ranking_method_template
+        # highlight-next-line
+        else:
+            state["tool_result"] = {"qa_form_to_human": ranking_method_template}
+        return state
+    except Exception as e:
+        state['error'] = get_traceback(e, "ErrorPrepRankingMethodTemplateNode")
+        logger.debug(state['error'])
+        return state
+
+
+def prep_component_specs_qa_form_node(state: NodeState) -> NodeState:
+    try:
+        component_specs_qa_form = state.get("result", {})
+        if state.get("tool_result", None):
+            state["tool_result"]["qa_form_to_human"] = component_specs_qa_form
+        # highlight-next-line
+        else:
+            state["tool_result"] = {"qa_form_to_human": component_specs_qa_form}
+        return state
+    except Exception as e:
+        state['error'] = get_traceback(e, "ErrorPrepComponentSpecsQaFormNode")
+        logger.debug(state['error'])
+        return state
+
+
+def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    agent_id = state["messages"][0]
+    # _ensure_context(runtime.context)
+    self_agent = get_agent_by_id(agent_id)
+    mainwin = self_agent.mainwin
+    print("run_search_node:", state)
+
+    # send self a message to trigger the real component search work-flow
+    result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
+    state.result = result
+    return state
 
 # summarization_node = SummarizationNode(
 #     token_counter=count_tokens_approximately,
@@ -404,22 +552,21 @@ async def create_search_parts_chatter_skill(mainwin):
                 return {**state, "analysis": {"job_related": False}}
 
         # initial classification node
-        # chat_node = process_chat
-        chat_node = llm_node_with_raw_files
 
-        prompt1 = ChatPromptTemplate.from_messages([
+        prompt_random_chat = ChatPromptTemplate.from_messages([
             ("system", """
                 You're a personal assistant, given a chat message sequence, please respond to the latest chat message to your best effort.
             """),
             ("human", "{input}")
         ])
 
-        def gen_chat_back(state: NodeState) -> NodeState:
+        def chat_back_node(state: NodeState, *, runtime: Runtime[WorkFlowContext], store: BaseStore) -> NodeState:
             # Get the last message (the actual user input)
             last_message = state["messages"][-1]
+            print("gen_chat_back runtime:", runtime)
 
             # Format the prompt with just the message content
-            messages = prompt1.invoke({"input": last_message})
+            messages = prompt_random_chat.invoke({"input": last_message})
             print("chat back LLM prompt:", messages)
             # Call the LLM
             response = llm.invoke(messages)
@@ -442,8 +589,6 @@ async def create_search_parts_chatter_skill(mainwin):
                 print(f"Raw response: {response}")
                 return {**state, "analysis": {"job_related": False}}
 
-        # casual response node
-        chat_back_node = gen_chat_back
 
 
         prompt2 = ChatPromptTemplate.from_messages([
@@ -459,27 +604,27 @@ async def create_search_parts_chatter_skill(mainwin):
 
 
 
-        prompt2A = ChatPromptTemplate.from_messages([
+        prompt_check_bom_components = ChatPromptTemplate.from_messages([
             ("system", """
                 You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
-                Given the latest human boss message,  try to understand it and let me know in json format that whether the human boss provided a pasted BOM text or simply looking for source a few components with the following json format {'with_attachment': true/false, 'bom': true/false, 'num_components': int }.
+                Given the latest human boss message,  try to understand it and let me know in json format that whether the human boss provided a pasted BOM text or simply a list of component names of which the human boss want to source. please answer in json format {'with_attachment': true/false, 'bom': true/false, 'num_components': int, 'components': [list of component names]}.
             """),
             ("human", "{input}")
         ])
 
         # initial classification node
-        understand_level0A_node = prompt2A | llm
+        check_bom_components_node = prompt_check_bom_components | llm
 
-        prompt2B = ChatPromptTemplate.from_messages([
+        prompt_check_product_application = ChatPromptTemplate.from_messages([
             ("system", """
                 You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
-                Given the latest human boss message, did human boss provide the part number of the component being searched (unless they're passive commodity components like a resistor, capacitor etc.) please answer in json format: {'part_number_or_passives': ['list of part numbers'], 'part_number_unknown': ['list of component names mentioned']} ?.
+                Given the latest human boss message, did human boss explain or mention the name of the product or an application that the components will reside in? please answer in json format: {'product_app_specified': true/false, 'product_app': ['list of products or apps, empty if not specified']}.
             """),
             ("human", "{input}")
         ])
 
         # initial classification node
-        understand_level0B_node = prompt2B | llm
+        check_product_application_node = prompt_check_product_application | llm
 
         prompt2C = ChatPromptTemplate.from_messages([
             ("system", """
@@ -491,24 +636,37 @@ async def create_search_parts_chatter_skill(mainwin):
                          "File Contents:\n{file_contents}")
         ])
 
-        prompt3 = ChatPromptTemplate.from_messages([
+        prompt_request_product_app_usage = ChatPromptTemplate.from_messages([
             ("system", """
                 You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
-                Given that human boss provided only vague info about the component he is looking for, we should design a series of prompt to get him/her to answer to gather technical parametric requirements. First, lets generate a question prompt
-                to ask human boss about the application and usage of this component (which will have implications on the technical requirements such as temperature range, humidity range, power consumption etc.). Please ask human boss to provide as much details as possible
-                about the product as well as the product's usage environment. so that we can classify this usage environment being consumer or industrial or automotive or aerospace or military. Also don't forget to mention that human boss can tell you to skip this question if
-                he/she doesn't want to answer this question. Please return the question prompt in json format: {'question_prompt': 'question prompt text'}
+                Given the information that the human boss provided so far about the component he is looking for, please generate a query prompt to get him/her to answer to gather more info about the component. First, if the component's related product or application is not provided, 
+                please include a request in the resulting prompt to ask human boss about the product or application of this component. Also don't forget to mention that human boss can tell you to skip this question if he/she doesn't want to share this info or doesn't know.
+                to ask human boss about the application and usage of this component (which will have implications on the technical requirements such as temperature range, humidity range, power consumption etc.). If the component's product or application is provided, but other 
+                settings such as usage environment, temperature range, humidity range, power consumption etc. are not provided, Please ask human boss to provide as much details as possible
+                about the product such as consumer/commercial/industrial/automotive/aerospace/military. Again don't forget to mention that human boss can respond with don't know or skip if he/she
+                doesn't want to answer this question. Please return the question prompt in json format: {'product_app_specified': true/false, 'product_app': 'product application', 'usage_grade_specified': true/false, 'usage_grade': 'consumer/commercial/industrial/automotive/aerospace/military'}
             """)
         ])
-        understand_level1_node = prompt3 | llm
+        request_product_app_usage_node = prompt_request_product_app_usage | llm
 
-        prompt3A = ChatPromptTemplate.from_messages([
+        prompt_request_oem_part_number = ChatPromptTemplate.from_messages([
             ("system", """
                         You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
-                        Given that human boss' answer regarding the component's usage product information. please try to fill the following json data {'decide_skip': true/false, 'product_name': 'product name', 'product_usage/NA': 'product usage/NA', 'usage_classification': 'consumer/industrial/automotive/aerospace/military/NA'}
+                        Given the information that the human boss provided so far about the component he is looking for, please generate a query prompt to get him/her to answer to gather more info about the component. First, if the component's OEM vendor company and/or part number or model number are not provided, 
+                        please include a request in the resulting prompt to ask human boss about OEM vendor company and part number or model number of the component(s). Also don't forget to mention that human boss can tell you to skip this question if he/she doesn't want to share this info or doesn't know.
+                        if the component's OEM vendor company and/or part number or model number are provided, create a prompt to ask the human boss in case the specified part or model are not available, will the human boss be willing to consider alternatives (yes or no)?
+                        Please return the question prompt in json format: {'oem_specified': true/false, 'part_number_specified': true/false, , 'oem': "", 'part_number': "", 'alternative_specified': true/false, 'alternative_accepted': true/false}
                     """)
         ])
-        understand_level1A_node = prompt3A | llm
+        request_oem_part_number_node = prompt_request_product_app_usage | llm
+
+        prompt_request_ranking_method = ChatPromptTemplate.from_messages([
+            ("system", """
+                        You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
+                        Please generate a prompt asking the human boss to fill out an attached form to specify the ranking criteria for the component(s) you are looking for. 
+                    """)
+        ])
+        request_ranking_method_node = prompt_request_ranking_method | llm
 
         prompt4 = ChatPromptTemplate.from_messages([
             ("system", """
@@ -530,12 +688,12 @@ async def create_search_parts_chatter_skill(mainwin):
         ])
         understand_level2A_node = prompt4A | llm
 
-        prompt5 = ChatPromptTemplate.from_messages([
+        prompt_check_req_collection_done = ChatPromptTemplate.from_messages([
             ("system", """
                 given the requirements json, are all key's values filled up, please return true or false..
             """)
         ])
-        understand_level3_node = prompt5 | llm
+        understand_level3_node = prompt_check_req_collection_done | llm
 
         prompt6 = ChatPromptTemplate.from_messages([
             ("system", """
@@ -548,63 +706,57 @@ async def create_search_parts_chatter_skill(mainwin):
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(NodeState)
-        workflow.add_node("chat", chat_node)
+        workflow = StateGraph(NodeState, WorkFlowContext)
+        workflow.add_node("chat", node_wrapper(llm_node_with_raw_files, "chat"))
         workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)
         workflow.add_node("debug", debug_node)
         workflow.add_conditional_edges("chat", chat_or_work, ["chat_back", "do_work"])
 
 
-        workflow.add_node("chat_back", chat_back_node)
-        workflow.add_node("pend_for_human_input", pend_for_human_input_node)
-        workflow.add_edge("chat_back", "pend_for_human_input")
-        workflow.add_edge("pend_for_human_input", "chat")      # chat infinite loop
+        workflow.add_node("chat_back", node_wrapper(chat_back_node, "chat_back"))
+        workflow.add_node("pend_for_human_input_chat", pend_for_human_input_node)
+        workflow.add_edge("chat_back", "pend_for_human_input_chat")
+        workflow.add_edge("pend_for_human_input_chat", "chat")      # chat infinite loop
 
 
         workflow.add_node("do_work", check_attachment_node)
-        workflow.add_node("understand_level0A", understand_level0A_node)
-        # workflow.add_node("do_work", check_attachment_node)
+        workflow.add_node("check_bom_components", check_bom_components_node)
+        workflow.add_node("check_product_application", check_product_application_node)
+        workflow.add_node("request_product_app_usage", request_product_app_usage_node)
+        workflow.add_node("request_oem_part_number", request_oem_part_number_node)
 
-        workflow.add_conditional_edges("do_work", any_attachment, ["read_attachment", "understand_level0A"])
+        workflow.add_node("query_human_about_components", query_human_about_components_node)
+
+        # workflow.add_node("request_oem_part_number", request_oem_part_number_node)
+        workflow.add_edge("query_component_specs", "prep_component_specs_qa_form")
+
+        workflow.add_node("check_preliminary_component_info_ready", check_preliminary_component_info_ready_node)
+        workflow.add_node("query_component_specs", query_component_specs_node)
+        workflow.add_node("prep_component_specs_qa_form", prep_component_specs_qa_form_node)
+
+        workflow.add_conditional_edges("check_preliminary_component_info_ready", is_preliminary_component_info_ready, ["query_component_specs", "query_human_about_components"])
+
+        workflow.add_edge("query_component_specs", "prep_component_specs_qa_form")
+
+        workflow.add_node("pend_for_human_input_fill_specs", pend_for_human_input_node)
+        workflow.add_edge("prep_component_specs_qa_form", "pend_for_human_input_fill_specs")
+
+        workflow.add_node("request_ranking_method", request_ranking_method_node)
+        workflow.add_node("prep_ranking_method_template", prep_ranking_method_template_node)
+        workflow.add_edge("request_ranking_method", "prep_ranking_method_template")
+
+        workflow.add_node("pend_for_human_input_spec_ranking", pend_for_human_input_node)
+        workflow.add_edge("prep_ranking_method_template", "pend_for_human_input_spec_ranking")
+
+        workflow.add_node("run_search", run_search_node)
+        workflow.add_edge("pend_for_human_input_fill_specs", "run_search")
+
+        workflow.add_node("read_attachments", read_attachments_node)
+        workflow.add_node("eval_basic_info", eval_basic_info_node)
+        workflow.add_conditional_edges("do_work", any_attachment, ["read_attachments", "eval_basic_info"])
         # workflow.add_edge("do_work", "understand_level0A")
-        workflow.add_edge("understand_level0A", END)
-
-        workflow.add_node("read_attachment", read_attachments)
-        workflow.add_edge("read_attachment", END)
-
-        # workflow.add_edge("understand_level0A_node", "understand_level0B_node")
-        # workflow.add_node("understand1", understand_level1_node)
-        # workflow.add_edge("understand_level0B_node", "understand_level1_node")
-        # workflow.add_node("understand2", understand_level2_node)
-        # workflow.add_edge("understand_level1_node", "understand_level2_node")
-        # workflow.add_node("understand3", understand_level3_node)
-        # workflow.add_edge("understand_level2_node", "understand_level3_node")
-        # workflow.add_node("understand4", understand_level4_node)
-        # workflow.add_edge("understand_level3_node", "understand_level4_node")
-        # workflow.add_conditional_edges("all_parameters_filled", understand_level4_node, ["ask_to_fill_requirements_node", "confirm_requirements_node"])
-        #
-        # prompt15A = ChatPromptTemplate.from_messages([
-        #     ("system", """
-        #         given yet empty requirements key values, ask human boss to fill them in or skip if they choose to..
-        #     """)
-        # ])
-        # ask_to_fill_requirements_node = prompt15A | llm
-        # workflow.add_node("ask_to_fill_requirements", ask_to_fill_requirements_node)
-        #
-        # prompt15B = ChatPromptTemplate.from_messages([
-        #     ("system", """
-        #         given the all filled requirements json data, ask human boss to review, edit some if needed and confirm.
-        #     """)
-        # ])
-        # confirm_requirements_node = prompt15B | llm
-        # workflow.add_node("confirm_requirements", confirm_requirements_node)
-        #
-        #
-        # # workflow.add_node("ask_parameters", ask_cloud_expert_for_search_parameters)
-        # # workflow.add_node("ask_sites", ask_cloud_expert_for_search_sites)
-
-        # obtain search parameters from search sites.
+        workflow.add_edge("run_search", END)
 
 
         searcher_chatter_skill.set_work_flow(workflow)

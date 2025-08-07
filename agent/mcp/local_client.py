@@ -120,3 +120,24 @@ async def local_mcp_call_tool(url, tool_name, arguments):
             result = await session.call_tool(tool_name, arguments)
             # await session.complete()
             return result
+
+
+async def mcp_call_tool(tool_name, args):
+    # async with mcp_client.session("E-Commerce Agents Service") as session:
+    print(f"MCP client calling tool: {tool_name} with args: {args}")
+    try:
+        # Call the tool and get the raw response
+        # response = await mcp_client.call_tool(tool_name, args)
+        url = "http://localhost:4668/mcp/"
+        response = await local_mcp_call_tool(url,tool_name, args)
+        print(f"Raw response type: {type(response)}")
+        print(f"Raw response Err: {response.isError}   {response.content[0].text}")
+        # print("response meta:", response.content[0].meta)
+
+        # If the response is a CallToolResult with an error, return the error
+        return response
+
+    except Exception as e:
+        error_msg = f"Error calling {tool_name}: {str(e)}"
+        print(error_msg)
+        return {"content": [{"type": "text", "text": error_msg}], "isError": True}

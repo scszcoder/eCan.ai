@@ -12,6 +12,11 @@ from datetime import datetime
 from os.path import exists
 from pycognito import Cognito, AWSSRP
 from pycognito.utils import RequestsSrpAuth
+import traceback
+import base64
+import hmac
+import hashlib
+import jwt
 
 import boto3
 from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent, QSettings
@@ -20,8 +25,16 @@ from PySide6.QtWidgets import QDialog, QLabel, QComboBox, QApplication, QLineEdi
     QVBoxLayout, QMessageBox
 import botocore
 import locale
-
-from gui.MainGUI import MainWindow
+try:
+    from gui.MainGUI import MainWindow
+except Exception as e:
+    traceback_info = traceback.extract_tb(e.__traceback__)
+    # Extract the file name and line number from the last entry in the traceback
+    if traceback_info:
+        ex_stat = "ErrorLoginoutGUIImportLib:" + traceback.format_exc() + " " + str(e)
+    else:
+        ex_stat = "ErrorLoginoutGUIImportLib: traceback information not available:" + str(e)
+    print(ex_stat)
 from gui.BrowserGUI import BrowserWindow
 
 from bot.signio import CLIENT_ID, USER_POOL_ID, CLIENT_SECRET
@@ -29,11 +42,7 @@ from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
 from utils.fernet import encrypt_password, decrypt_password
-import traceback
-import base64
-import hmac
-import hashlib
-import jwt
+
 
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")

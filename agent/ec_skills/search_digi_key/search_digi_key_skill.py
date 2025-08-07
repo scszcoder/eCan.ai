@@ -7,29 +7,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
-from agent.mcp.local_client import local_mcp_call_tool
+from agent.mcp.local_client import mcp_call_tool
 import re
 
 
-async def mcp_call_tool(mcp_client, tool_name, args):
-    # async with mcp_client.session("E-Commerce Agents Service") as session:
-    print(f"MCP client calling tool: {tool_name} with args: {args}")
-    try:
-        # Call the tool and get the raw response
-        # response = await mcp_client.call_tool(tool_name, args)
-        url = "http://localhost:4668/mcp/"
-        response = await local_mcp_call_tool(url,tool_name, args)
-        print(f"Raw response type: {type(response)}")
-        print(f"Raw response Err: {response.isError}   {response.content[0].text}")
-        # print("response meta:", response.content[0].meta)
 
-        # If the response is a CallToolResult with an error, return the error
-        return response
-
-    except Exception as e:
-        error_msg = f"Error calling {tool_name}: {str(e)}"
-        print(error_msg)
-        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
 
 
 def go_to_site_node(state: NodeState) -> NodeState:
@@ -711,7 +693,7 @@ async def create_search_digi_key_skill(mainwin):
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("go to digi-key site", go_to_site_node)
         workflow.set_entry_point("go to digi-key site")
         # workflow.add_node("goto_site", goto_site)

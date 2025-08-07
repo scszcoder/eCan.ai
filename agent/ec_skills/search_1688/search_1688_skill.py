@@ -377,7 +377,7 @@ async def create_search_1688_skill(mainwin):
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("check_browser", check_browser_and_drivers)
         workflow.set_entry_point("check_browser")
         # workflow.add_node("goto_site", goto_site)
