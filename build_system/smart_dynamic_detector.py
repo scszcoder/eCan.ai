@@ -48,24 +48,29 @@ class SmartDynamicDetector:
         print("⚡ Phase 4: Detecting runtime dynamic imports...")
         runtime_imports = self._detect_runtime_imports()
         print(f"   Found runtime imports: {len(runtime_imports)}")
+
+        # Phase 5: Detect problematic libraries
+        print("🚨 Phase 5: Detecting problematic libraries...")
+        problematic_imports = self._detect_problematic_libraries()
+        print(f"   Found problematic library imports: {len(problematic_imports)}")
+
+        # Phase 6: Intelligent merging and optimization
+        print("🔄 Phase 6: Intelligent merging and optimization...")
+        all_modules = project_imports | code_imports | critical_imports | runtime_imports | problematic_imports
         
-        # Phase 5: Intelligent merging and optimization
-        print("🔄 Phase 5: Intelligent merging and optimization...")
-        all_modules = project_imports | code_imports | critical_imports | runtime_imports
-        
-        # Phase 6: Validate and filter modules
-        print("✅ Phase 6: Validating and filtering modules...")
+        # Phase 7: Validate and filter modules
+        print("✅ Phase 7: Validating and filtering modules...")
         validated_modules = self._validate_and_filter_modules(all_modules)
         print(f"   Validated modules: {len(validated_modules)}")
-        
-        # Phase 7: Windows compatibility check and compression
-        print("🪟 Phase 7: Windows compatibility check and compression...")
+
+        # Phase 8: Windows compatibility check and compression
+        print("🪟 Phase 8: Windows compatibility check and compression...")
         final_modules = self._compress_modules_for_windows(list(validated_modules))
         
         # If too many modules, use intelligent strategy
         if len(final_modules) > self.max_hidden_imports:
             print(f"⚠️  Too many modules ({len(final_modules)}), using intelligent strategy...")
-            final_modules = self._smart_merge_strategy(set(final_modules), project_imports, code_imports, critical_imports, runtime_imports)
+            final_modules = self._smart_merge_strategy(set(final_modules), project_imports, code_imports, critical_imports, runtime_imports, problematic_imports)
         else:
             final_modules = list(final_modules)
         
@@ -340,13 +345,62 @@ class SmartDynamicDetector:
             
             # PySide6 related
             "PySide6.QtCore",
-            "PySide6.QtGui", 
+            "PySide6.QtGui",
             "PySide6.QtWidgets",
             "PySide6.QtNetwork",
             "PySide6.QtWebEngine",
             "PySide6.QtWebEngineCore",
             "PySide6.QtWebEngineWidgets",
-            
+            "PySide6.QtQml",
+            "PySide6.QtQuick",
+
+            # cv2 related (PyInstaller compatibility)
+            "cv2.dnn",
+            "cv2.gapi",
+            "cv2.ximgproc",
+            "cv2.xfeatures2d",
+
+            # psutil related (cross-platform)
+            "psutil._psutil_windows",
+            "psutil._psutil_posix",
+            "psutil._psutil_osx",
+            "psutil._psutil_linux",
+
+            # pyautogui related (cross-platform)
+            "pyautogui._pyautogui_win",
+            "pyautogui._pyautogui_osx",
+            "pyautogui._pyautogui_x11",
+
+            # cryptography related (OpenSSL)
+            "cryptography.hazmat.backends.openssl",
+            "cryptography.hazmat.bindings._rust",
+            "cryptography.hazmat.primitives._serialization",
+            "cryptography.hazmat.primitives._asymmetric",
+
+            # PIL related
+            "PIL._tkinter_finder",
+            "PIL.ImageQt",
+            "PIL._imaging",
+            "PIL._imagingmath",
+
+            # requests related
+            "requests.packages.urllib3.util.retry",
+            "requests.packages.urllib3.contrib.pyopenssl",
+            "urllib3.packages.six.moves.urllib.parse",
+            "urllib3.util.ssl_",
+
+            # charset_normalizer related
+            "charset_normalizer.md__mypyc",
+            "charset_normalizer.constant",
+
+            # torch related (if present)
+            "torch._C._nn",
+            "torch._C._fft",
+            "torch._C._linalg",
+            "torch._C._sparse",
+            "torch.nn.functional",
+            "torch.optim.lr_scheduler",
+
             # Other important libraries
             "requests",
             "urllib3",
@@ -402,7 +456,56 @@ class SmartDynamicDetector:
                 modules.add(module_name)
         
         return modules
-    
+
+    def _detect_problematic_libraries(self) -> Set[str]:
+        """检测项目中使用的问题库并添加必要的子模块"""
+        modules = set()
+
+        # 检查项目中实际使用的问题库
+        problematic_libs = {
+            'cv2': [
+                'cv2.dnn', 'cv2.gapi', 'cv2.ximgproc', 'cv2.xfeatures2d'
+            ],
+            'psutil': [
+                'psutil._psutil_windows', 'psutil._psutil_posix',
+                'psutil._psutil_osx', 'psutil._psutil_linux'
+            ],
+            'pyautogui': [
+                'pyautogui._pyautogui_win', 'pyautogui._pyautogui_osx',
+                'pyautogui._pyautogui_x11'
+            ],
+            'cryptography': [
+                'cryptography.hazmat.backends.openssl',
+                'cryptography.hazmat.bindings._rust'
+            ],
+            'PIL': [
+                'PIL._tkinter_finder', 'PIL.ImageQt', 'PIL._imaging'
+            ],
+            'requests': [
+                'requests.packages.urllib3.util.retry',
+                'requests.packages.urllib3.contrib.pyopenssl'
+            ]
+        }
+
+        # 扫描项目文件检查是否使用了这些库（排除 venv 和其他不必要的目录）
+        for py_file in self.project_root.rglob("*.py"):
+            if any(skip in str(py_file) for skip in ['.git', '__pycache__', 'build', 'dist', 'venv', '.venv', 'env', '.env', 'site-packages']):
+                continue
+
+            try:
+                with open(py_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+
+                for lib_name, sub_modules in problematic_libs.items():
+                    if f'import {lib_name}' in content or f'from {lib_name}' in content:
+                        print(f"   Found problematic library: {lib_name} in {py_file}")
+                        modules.update(sub_modules)
+
+            except Exception:
+                continue
+
+        return modules
+
     def _detect_runtime_imports(self) -> Set[str]:
         """Detect runtime dynamic imports"""
         modules = set()
@@ -454,9 +557,9 @@ class SmartDynamicDetector:
         
         return modules
     
-    def _smart_merge_strategy(self, all_modules: Set[str], project_imports: Set[str], 
-                             code_imports: Set[str], critical_imports: Set[str], 
-                             runtime_imports: Set[str]) -> List[str]:
+    def _smart_merge_strategy(self, all_modules: Set[str], project_imports: Set[str],
+                             code_imports: Set[str], critical_imports: Set[str],
+                             runtime_imports: Set[str], problematic_imports: Set[str]) -> List[str]:
         """Intelligent merging strategy v2.0, ensuring no important modules are lost"""
         final_modules = set()
         
@@ -475,8 +578,12 @@ class SmartDynamicDetector:
         # Strategy 4: Keep runtime modules
         final_modules.update(runtime_imports)
         print(f"   Keeping runtime modules: {len(runtime_imports)}")
-        
-        # Strategy 5: If there is still space, add other important modules
+
+        # Strategy 5: Keep problematic library imports (high priority)
+        final_modules.update(problematic_imports)
+        print(f"   Keeping problematic library imports: {len(problematic_imports)}")
+
+        # Strategy 6: If there is still space, add other important modules
         remaining_space = self.max_hidden_imports - len(final_modules)
         if remaining_space > 0:
             other_modules = all_modules - final_modules
