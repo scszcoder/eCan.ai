@@ -51,19 +51,28 @@ class WebGUI(QMainWindow):
         self._ipc_api = None
         
         # 获取 Web URL
-        web_url = app_settings.get_web_url()
-        logger.info(f"Web URL from settings: {web_url}")
-        
-        if web_url:
-            if app_settings.is_dev_mode:
-                # 开发模式：使用 Vite 开发服务器
-                self.web_engine_view.load_url(web_url)
-                logger.info(f"Development mode: Loading from {web_url}")
+        try:
+            web_url = app_settings.get_web_url()
+            logger.info(f"Web URL from settings: {web_url}")
+
+            if web_url:
+                if app_settings.is_dev_mode:
+                    # 开发模式：使用 Vite 开发服务器
+                    logger.info(f"Development mode: Loading from {web_url}")
+                    self.web_engine_view.load_url(web_url)
+                else:
+                    # 生产模式：加载本地文件
+                    logger.info("Production mode: Loading local HTML file")
+                    self.load_local_html()
             else:
-                # 生产模式：加载本地文件
-                self.load_local_html()
-        else:
-            logger.error("Failed to get web URL")
+                logger.error("Failed to get web URL - will show error page")
+                self._show_error_page("Web URL not available")
+
+        except Exception as e:
+            logger.error(f"Error during WebGUI initialization: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self._show_error_page(f"Initialization error: {str(e)}")
         
         # 添加 Web 引擎到布局
         layout.addWidget(self.web_engine_view)
@@ -71,6 +80,74 @@ class WebGUI(QMainWindow):
 
         # 设置快捷键（在所有组件初始化完成后）
         self._setup_shortcuts()
+
+    def _show_error_page(self, error_message):
+        """显示错误页面"""
+        try:
+            error_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>eCan.AI - Error</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        background: #1a1a1a;
+                        color: #ffffff;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        margin: 0;
+                    }}
+                    .error-container {{
+                        text-align: center;
+                        padding: 40px;
+                        background: #2a2a2a;
+                        border-radius: 10px;
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                    }}
+                    h1 {{ color: #ff6b6b; }}
+                    .error-message {{
+                        margin: 20px 0;
+                        padding: 15px;
+                        background: #3a3a3a;
+                        border-radius: 5px;
+                        font-family: monospace;
+                    }}
+                    .retry-button {{
+                        background: #4CAF50;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        font-size: 16px;
+                        margin-top: 20px;
+                    }}
+                    .retry-button:hover {{ background: #45a049; }}
+                </style>
+            </head>
+            <body>
+                <div class="error-container">
+                    <h1>⚠️ Application Error</h1>
+                    <p>eCan.AI encountered an error during startup:</p>
+                    <div class="error-message">{error_message}</div>
+                    <p>This usually happens when:</p>
+                    <ul style="text-align: left; display: inline-block;">
+                        <li>Frontend files are missing or corrupted</li>
+                        <li>PyInstaller packaging issue</li>
+                        <li>File permissions problem</li>
+                    </ul>
+                    <button class="retry-button" onclick="location.reload()">Retry</button>
+                </div>
+            </body>
+            </html>
+            """
+            self.web_engine_view.setHtml(error_html)
+            logger.info("Error page displayed")
+        except Exception as e:
+            logger.error(f"Failed to show error page: {e}")
 
     def _setup_window_style(self):
         """设置窗口样式，与内容主题一致"""

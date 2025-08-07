@@ -87,7 +87,9 @@
       "platforms",
       "imageformats",
       "iconengines",
-      "styles"
+      "styles",
+      "webengine",
+      "webenginewidgets"
     ],
     "collect_all": [
       "PySide6"

@@ -314,10 +314,12 @@ def main():
             print("   LightRAG is not available in this environment")
             if is_packaged:
                 print("   This is normal if LightRAG was not packaged with the application")
+                print("   LightRAG server will be disabled, but main application will continue")
+                return 0  # 返回而不是退出，让主程序继续运行
             else:
                 print("   Please install LightRAG: pip install lightrag")
-            print("   Exiting gracefully...")
-            sys.exit(0)  # 正常退出，不是错误
+                print("   Exiting gracefully...")
+                sys.exit(0)  # 只在开发环境中退出
 
         # 导入并启动LightRAG API服务器
         print("\\n" + "=" * 50)

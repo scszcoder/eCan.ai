@@ -191,11 +191,27 @@ def main():
         logger.info("Running in production mode (built files)")
 
     # 创建并显示 Web GUI
-    web_gui = WebGUI()
-    ctx.set_web_gui(web_gui)
-    set_top_web_gui(web_gui)
-    web_gui.show()
-    utils.logger_helper.login.setTopGUI(web_gui)
+    try:
+        logger.info("Creating WebGUI instance...")
+        web_gui = WebGUI()
+        logger.info("WebGUI instance created successfully")
+
+        ctx.set_web_gui(web_gui)
+        set_top_web_gui(web_gui)
+
+        logger.info("Showing WebGUI...")
+        web_gui.show()
+        logger.info("WebGUI shown successfully")
+
+        utils.logger_helper.login.setTopGUI(web_gui)
+        logger.info("WebGUI setup completed")
+
+    except Exception as e:
+        logger.error(f"Failed to create or show WebGUI: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        # 即使 WebGUI 失败，也尝试继续运行
+        logger.info("Attempting to continue without WebGUI...")
 
     # 运行主循环
     loop.run_forever()
