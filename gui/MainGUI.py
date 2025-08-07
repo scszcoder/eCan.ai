@@ -37,12 +37,13 @@ from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
     QMessageBox, QFileDialog, QPlainTextEdit, QDialog
+
 import importlib
 import importlib.util
 from common.models import BotModel, MissionModel
 from common.db_init import init_db, get_session
 from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
-from tests.TestAll import Tester
+
 from gui.BotGUI import BotNewWin
 from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
@@ -71,7 +72,7 @@ import openpyxl
 import tzlocal
 from datetime import timedelta
 import platform
-from pynput.mouse import Controller
+from pynput.mouse import Controller as MouseController
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
@@ -83,11 +84,9 @@ from tests.unittests import *
 from tests.agent_tests import *
 import pandas as pd
 from gui.encrypt import *
-import keyboard
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
-import cpuinfo
 import psutil
-from gui.BrowserGUI import BrowserWindow
+# from gui.BrowserGUI import BrowserWindow
 from config.constants import API_DEV_MODE
 from langchain_openai import ChatOpenAI
 from agent.ec_skills.build_agent_skills import build_agent_skills
@@ -107,6 +106,7 @@ from crawl4ai import JsonCssExtractionStrategy
 from crawl4ai.script.c4a_compile import C4ACompiler
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.controller.service import Controller as BrowserUseController
 from langchain_openai import ChatOpenAI
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
@@ -116,7 +116,6 @@ START_TIME = 15      # 15 x 20 minute = 5 o'clock in the morning
 Tzs = ["eastern", "central", "mountain", "pacific", "alaska", "hawaii"]
 
 rpaConfig = None
-
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -201,7 +200,6 @@ class Expander(QWidget):
         contentAnimation.setEndValue(contentHeight)
 
 
-
 class AsyncInterface:
     """ Class to handle async tasks within the Qt Event Loop. """
     def __init__(self,queue):
@@ -217,8 +215,6 @@ class AsyncInterface:
             message = await self.queue.get()
             self.showMsg(f"Processed message from GUI: {message}")
             self.queue.task_done()
-
-
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
@@ -348,8 +344,9 @@ class MainWindow(QMainWindow):
         self.BotNewWin = None
         self.missionWin = None
         self.chatWin = None
-        self.newGui = BrowserWindow(self)
-        logger.info("newGui init done....")
+        # self.newGui = BrowserWindow(self)
+        # self.newGui.hide()  # 确保窗口在后台创建，不显示
+        # logger.info("newGui init done....")
         self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"})
         self.lightrag_server.start()
         logger.info("lightrag_server init done....")
@@ -386,8 +383,10 @@ class MainWindow(QMainWindow):
         self.logConsoleBox.setContentLayout(self.logConsoleLayout)
 
         self.SkillManagerWin = SkillManagerWindow(self)
+        self.SkillManagerWin.hide()  # 确保窗口在后台创建，不显示
 
         self.netLogWin = CommanderLogWin(self)
+        self.netLogWin.hide()  # 确保窗口在后台创建，不显示
         self.machine_name = myname
         self.commander_name = ""
         self.system = platform.system()
@@ -401,7 +400,6 @@ class MainWindow(QMainWindow):
         self.todaysReport = []              # per task group. (inside this report, there are list of individual task/mission result report.
         self.todaysReports = []             # per vehicle/host
         self.todaysPlatoonReports = []
-        self.tester = Tester()
         self.wifis = []
 
         if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):

@@ -105,13 +105,18 @@ class EC_Agent(Agent):
 		self.personalities = personalities if personalities is not None else []
 		self.vehicle = vehicle if vehicle is not None else ""
 		self.status = "active"
-		self.embeddings = init_embeddings("openai:text-embedding-3-small")
-		self.store = InMemoryStore(
-			index={
-				"embed": self.embeddings,
-				"dims": 1536,
-			}
-		)
+
+		# 在打包环境中安全初始化embeddings
+		try:
+			self.embeddings = init_embeddings("openai:text-embedding-3-small")
+			self.store = InMemoryStore(
+				index={
+					"embed": self.embeddings,
+					"dims": 1536,
+				}
+			)
+		except Exception as e:
+			logger.warning(f"Failed to initialize embeddings in packaged environment: {e}")
 		# keep the old inits
 		super().__init__(*args, **kwargs)
 

@@ -63,7 +63,7 @@ from app_context import AppContext
 def main():
     # 启动热更新监控
     if app_settings.is_dev_mode:
-        watch_paths = ['agent', 'bot', 'config', 'common', 'dom', 'gui', 'skills', 'utils']
+        watch_paths = ['agent', 'bot', 'config', 'common', 'gui', 'skills', 'utils']
         # 在 GUI 应用中，事件循环由 Qt/qasync 管理，所以这里 loop 参数暂时不直接使用，
         # 但保留以备将来与 asyncio 事件循环更紧密的集成。
         start_watching(watch_paths, None)

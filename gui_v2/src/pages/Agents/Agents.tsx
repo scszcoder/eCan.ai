@@ -1,7 +1,5 @@
 import React, { useEffect, useCallback } from 'react';
 import VirtualPlatform from './VirtualPlatform';
-import { useTranslation } from 'react-i18next';
-import { Spin, message, App } from 'antd';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { useUserStore } from '../../stores/userStore';
 import { Agent } from './types';
@@ -10,12 +8,6 @@ import { get_ipc_api } from '@/services/ipc_api';
 
 
 const Agents: React.FC = () => {
-  const { t } = useTranslation();
-    const { message: messageApi } = App.useApp();
-    
-    const agents = useAppDataStore((state) => state.agents);
-    const isLoading = useAppDataStore((state) => state.isLoading);
-    const setLoading = useAppDataStore((state) => state.setLoading);
     const setAgents = useAppDataStore((state) => state.setAgents);
     const setError = useAppDataStore((state) => state.setError);
     const username = useUserStore((state) => state.username);
@@ -23,26 +15,28 @@ const Agents: React.FC = () => {
     const fetchAgents = useCallback(async () => {
         if (!username) return;
 
-        setLoading(true);
+        // 强制获取最新数据，在后台静默更新，不显示loading状态避免页面闪烁
         setError(null);
         try {
             const response = await get_ipc_api().getAgents<{ agents: Agent[] }>(username, []);
             console.log('[Agents] Fetched agents:', response.data);
             if (response.success && response.data) {
-                setAgents(response.data.agents);
-                // messageApi.success(t('common.success'));
+                // 总是更新store中的agents数据，即使是空数组也更新
+                setAgents(response.data.agents || []);
+                logger.info('[Agents] Updated agents data from API:', response.data.agents?.length || 0, 'agents');
             } else {
-                throw new Error(response.error?.message || 'Failed to fetch agents');
+                logger.error('[Agents] Failed to fetch agents:', response.error?.message);
+                // 可以选择显示错误消息，但不影响页面显示
+                // messageApi.error(`${t('common.failed')}: ${response.error?.message || 'Unknown error'}`);
             }
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
             setError(errorMessage);
-            messageApi.error(`${t('common.failed')}: ${errorMessage}`);
             logger.error('[Agents] Error fetching agents:', errorMessage);
-        } finally {
-            setLoading(false);
+            // 可以选择显示错误消息，但不影响页面显示
+            // messageApi.error(`${t('common.failed')}: ${errorMessage}`);
         }
-    }, [username, setLoading, setError, setAgents, messageApi, t]);
+    }, [username, setError, setAgents]);
 
     useEffect(() => {
         fetchAgents();

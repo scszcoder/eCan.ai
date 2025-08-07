@@ -4,8 +4,23 @@ import json
 import os
 import re
 import time
+import importlib
 from datetime import datetime
 from difflib import SequenceMatcher
+from utils.logger_helper import logger_helper as logger
+
+def _lazy_import_and_call(module_name, function_name, *args, **kwargs):
+    """延迟导入函数以避免循环导入"""
+    try:
+        module = importlib.import_module(module_name)
+        func = getattr(module, function_name)
+        return func(*args, **kwargs)
+    except ImportError as e:
+        logger.error(f"Failed to import {module_name}.{function_name}: {e}")
+        return None, f"ImportError: {e}"
+    except AttributeError as e:
+        logger.error(f"Function {function_name} not found in {module_name}: {e}")
+        return None, f"AttributeError: {e}"
 
 from bot.adsPowerSkill import processUpdateBotADSProfileFromSavedBatchTxt, processADSGenXlsxBatchProfiles, \
     processADSProfileBatches, processADSSaveAPISettings, processADSUpdateProfileIds
@@ -53,7 +68,8 @@ from bot.etsySellerSkill import processEtsyGetOrderClickedStatus, processEtsySet
     processPrepGSOrder
 from bot.ebaySellerSkill import processEbayGenShippingInfoFromOrderID
 # from bot.browserEbaySellerSkill import process
-from bot.labelSkill import processGSExtractZippedFileName, processPrepareGSOrder
+# 延迟导入避免循环导入
+# from bot.labelSkill import processGSExtractZippedFileName, processPrepareGSOrder
 from bot.printLabel import processPrintLabels
 from bot.ecSkill import processGenShippingOrdersFromMsgResponses
 from bot.scrapeGoodSupply import processGSScrapeLabels
@@ -226,8 +242,8 @@ RAIS = {
     "Create ADS Profile Batches": lambda x, y, z: processADSProfileBatches(x, y, z),
     "Update Buy Mission Result": lambda x, y, z: processUpdateBuyMissionResult(x, y, z),
     "GS Scrape Labels": lambda x, y, z: processGSScrapeLabels(x, y, z),
-    "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
-    "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
+    "GS Extract Zipped": lambda x, y: _lazy_import_and_call('bot.labelSkill', 'processGSExtractZippedFileName', x, y),
+    "Prep GS Order": lambda x, y: _lazy_import_and_call('bot.labelSkill', 'processPrepareGSOrder', x, y),
     "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x, y, z: processAMZMatchProduct(x, y, z),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
@@ -398,8 +414,8 @@ ARAIS = {
     "Create ADS Profile Batches": lambda x, y, z: processADSProfileBatches(x, y, z),
     "Update Buy Mission Result": lambda x, y, z: processUpdateBuyMissionResult(x, y, z),
     "GS Scrape Labels": lambda x, y, z: processGSScrapeLabels(x, y, z),
-    "GS Extract Zipped": lambda x, y: processGSExtractZippedFileName(x, y),
-    "Prep GS Order": lambda x, y: processPrepGSOrder(x, y),
+    "GS Extract Zipped": lambda x, y: _lazy_import_and_call('bot.labelSkill', 'processGSExtractZippedFileName', x, y),
+    "Prep GS Order": lambda x, y: _lazy_import_and_call('bot.labelSkill', 'processPrepareGSOrder', x, y),
     "Prepare GS Order": lambda x, y: processPrepareGSOrder(x, y),
     "AMZ Match Products": lambda x,y: processAMZMatchProduct(x, y),
     "Obtain Reviews": lambda x, y, z: processObtainReviews(x, y, z),
