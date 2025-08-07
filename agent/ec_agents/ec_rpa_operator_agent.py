@@ -75,7 +75,7 @@ def set_up_ec_rpa_operator_agent(mainwin):
             ex_stat = "ErrorSetUpECRPAOperatorAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECRPAOperatorAgent: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        # mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         return None
     return operator

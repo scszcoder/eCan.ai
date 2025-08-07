@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import ast
 import json
 import math
@@ -37,7 +40,9 @@ from bot.envi import getECBotDataHome
 from PIL import Image
 import shutil
 import zipfile
+
 import psutil
+
 import pyperclip
 from fuzzywuzzy import fuzz
 
@@ -59,7 +64,9 @@ elif sys.platform == 'darwin':
 # https://github.com/asweigart/pyautogui/issues/790
 import pyscreeze
 import PIL
+
 import pyautogui
+
 import pygetwindow as gw
 
 __PIL_TUPLE_VERSION = tuple(int(x) for x in PIL.__version__.split("."))
@@ -3103,7 +3110,12 @@ def processOpenApp(step, i, mission):
                 # start the app afresh
                 # exec("global oa_exe\noa_exe = "+step["app_type"])
                 if step["cargs_type"] == "direct":
-                    subprocess.call(executable + " " + step["cargs"])
+                    # 将字符串命令转换为列表格式
+                    if step["cargs"]:
+                        cmd_args = step["cargs"].split()
+                        subprocess.call([executable] + cmd_args)
+                    else:
+                        subprocess.call([executable])
                 else:
                     # in case of "expr" type.
                     DETACHED_PROCESS = 0x00000008
@@ -3118,7 +3130,7 @@ def processOpenApp(step, i, mission):
                             cmd = [executable] + oa_args
 
                     # subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, shell=True, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    subprocess.Popen(cmd, creationflags=DETACHED_PROCESS, close_fds=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         time.sleep(step["wait"])
         symTab[step["result"]] = True
@@ -3570,10 +3582,8 @@ def processCallExtern(step, i):
                 args = []
 
             cmdline.extend(args)
-            oargs = ["capture_output=True", "text=True"]
-            cmdline.extend(oargs)
             log3("command line: "+json.dumps(cmdline))
-            result = subprocess.call(cmdline, shell=True)
+            result = subprocess.call(cmdline, capture_output=True, text=True)
         else:
             # execute a string as raw python code.
             result = exec(step["file"])
@@ -3613,10 +3623,8 @@ async def processCallExtern8(step, i):
                 args = []
 
             cmdline.extend(args)
-            oargs = ["capture_output=True", "text=True"]
-            cmdline.extend(oargs)
             log3("command line: " + json.dumps(cmdline))
-            result = subprocess.call(cmdline, shell=True)
+            result = subprocess.call(cmdline, capture_output=True, text=True)
         else:
             # execute a string as raw python code.
             result = exec(step["file"])
@@ -4267,9 +4275,9 @@ def process7z(step, i):
         if step["action"] == "zip":
             if output_dir != "":
 
-                symTab[step["result"]] = subprocess.call(exe + " a " + input + "-o" + output_dir)
+                symTab[step["result"]] = subprocess.call([exe, "a", input, "-o" + output_dir])
             else:
-                symTab[step["result"]] = subprocess.call(exe + " e " + input)
+                symTab[step["result"]] = subprocess.call([exe, "e", input])
 
         elif step["action"] == "unzip":
             if output_dir != "":
@@ -4282,7 +4290,7 @@ def process7z(step, i):
                 # symTab[step["result"]] = subprocess.run(exe + " e " + input + " -o" + output_dir)
                 # symTab[step["result"]] = subprocess.Popen(['C:/Program Files/7-Zip/7z.exe'])
             else:
-                symTab[step["result"]] = subprocess.call(exe + " e " + input)
+                symTab[step["result"]] = subprocess.call([exe, "e", input])
 
     except Exception as e:
         # Get the traceback information

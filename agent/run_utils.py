@@ -241,13 +241,20 @@ class SignalHandler:
 		reset = '\x1b[0m'
 
 		try:  # escape code is to blink the ...
-			print(
-				f'➡️  Press {green}[Enter]{reset} to resume or {red}[Ctrl+C]{reset} again to exit{blink}...{unblink} ',
-				end='',
-				flush=True,
-				file=stderr,
-			)
-			input()  # This will raise KeyboardInterrupt on Ctrl+C
+			# Check if stdin is available (PyInstaller windowed mode compatibility)
+			if sys.stdin is not None:
+				print(
+					f'➡️  Press {green}[Enter]{reset} to resume or {red}[Ctrl+C]{reset} again to exit{blink}...{unblink} ',
+					end='',
+					flush=True,
+					file=stderr,
+				)
+				input()  # This will raise KeyboardInterrupt on Ctrl+C
+			else:
+				# In PyInstaller windowed mode, stdin might not be available
+				# Wait for a short time and then resume automatically
+				import time
+				time.sleep(2)
 
 			# Call resume callback if provided
 			if self.resume_callback:

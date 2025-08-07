@@ -58,7 +58,7 @@ def set_up_ec_helper_agent(mainwin):
             ex_stat = "ErrorSetUpECBOTHelperAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECBOTHelperAgent: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        # mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         return None
     return helper

@@ -61,7 +61,7 @@ class BuildEnvironment:
         """Check required files"""
         required_files = [
             "main.py",
-            "build_system/ecan_build.py",
+            "build_system/standard_optimizer.py",
             "build_system/build_config.json"
         ]
         
@@ -143,6 +143,40 @@ def print_mode_info(mode: str, fast: bool = False):
 
     print("=" * 60)
 
+
+def _show_build_results():
+    """显示构建结果"""
+    print("\n📁 Build Results:")
+
+    dist_dir = Path("dist")
+    if dist_dir.exists():
+        for item in dist_dir.iterdir():
+            if item.is_dir():
+                size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
+                size_mb = size / (1024 * 1024)
+                print(f"  📂 {item.name} ({size_mb:.1f} MB)")
+            elif item.is_file():
+                size_mb = item.stat().st_size / (1024 * 1024)
+                print(f"  📄 {item.name} ({size_mb:.1f} MB)")
+
+    # 显示平台特定信息
+    if platform.system() == "Windows":
+        exe_name = "eCan.exe"
+        print(f"\n🚀 Executable: ./dist/eCan/{exe_name}")
+    elif platform.system() == "Darwin":
+        exe_name = "eCan"
+        print(f"\n🚀 Executable: ./dist/eCan/{exe_name}")
+    else:
+        exe_name = "eCan"
+        print(f"\n🚀 Executable: ./dist/eCan/{exe_name}")
+
+    print("\n✅ Standard optimization features:")
+    print("  • PyInstaller native optimization")
+    print("  • Smart hidden imports detection")
+    print("  • Exclude unnecessary modules")
+    print("  • Binary compression")
+    print("  • Debug info stripping")
+
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
@@ -167,7 +201,7 @@ Usage examples:
     # Positional arguments
     parser.add_argument(
         "mode",
-        choices=["fast", "dev", "prod"],
+        choices=["fast", "dev", "prod", "onefile"],
         default="fast",
         nargs="?",
         help="Build mode (default: fast)"
@@ -220,47 +254,33 @@ Usage examples:
 
     print_mode_info(args.mode, fast_mode)
 
-    # Build command
-    cmd = [sys.executable, "build_system/ecan_build.py", build_mode]
-
-    # Add optional parameters
-    if args.force:
-        cmd.append("--force")
-    if args.version:
-        cmd.extend(["--version", args.version])
-    if args.skip_frontend:
-        cmd.append("--skip-frontend")
-    if args.skip_installer:
-        cmd.append("--skip-installer")
-
-    print(f"[EXEC] Executing command: {' '.join(cmd)}")
-    print("=" * 60)
-
-    # Execute build
+    # 调用完整的构建系统 (保留所有功能)
     try:
-        subprocess.run(cmd, check=True)
+        from build_system.ecan_build import ECanBuild
+
+        print(f"[BUILD] Starting {build_mode} build using eCan build system...")
+        print("=" * 60)
+
+        # 创建构建器实例
+        builder = ECanBuild(build_mode, version=args.version)
+
+        # 执行构建
+        success = builder.build(
+            force=args.force,
+            skip_frontend=args.skip_frontend,
+            skip_installer=args.skip_installer
+        )
+
+        if not success:
+            print("\n❌ Build failed!")
+            return 1
 
         print("\n" + "=" * 60)
-        print("🎉 Build completed!")
+        print("🎉 Build completed successfully!")
         print("=" * 60)
 
-        # Determine executable filename and installer info based on OS
-        if platform.system() == "Windows":
-            exe_name = "eCan.exe"
-            installer_info = f"📦 Installer: {Path.cwd()}/dist/eCan-Setup.exe"
-        elif platform.system() == "Darwin":
-            exe_name = "eCan"  # macOS
-            installer_info = f"📦 Installer: {Path.cwd()}/dist/eCan-1.0.0.pkg"
-        else:
-            exe_name = "eCan"  # Linux
-            installer_info = "📦 Installer: Linux installer not supported yet"
-
-        print(f"📁 Executable: {Path.cwd()}/dist/eCan/{exe_name}")
-        if not args.skip_frontend:
-            print(f"🌐 Frontend: {Path.cwd()}/gui_v2/dist/")
-        if not args.skip_installer:
-            print(installer_info)
-        print("=" * 60)
+        # 显示构建结果
+        _show_build_results()
 
         return 0
 

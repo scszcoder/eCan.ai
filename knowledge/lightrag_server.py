@@ -314,10 +314,12 @@ def main():
             print("   LightRAG is not available in this environment")
             if is_packaged:
                 print("   This is normal if LightRAG was not packaged with the application")
+                print("   LightRAG server will be disabled, but main application will continue")
+                return 0  # 返回而不是退出，让主程序继续运行
             else:
                 print("   Please install LightRAG: pip install lightrag")
-            print("   Exiting gracefully...")
-            sys.exit(0)  # 正常退出，不是错误
+                print("   Exiting gracefully...")
+                sys.exit(0)  # 只在开发环境中退出
 
         # 导入并启动LightRAG API服务器
         print("\\n" + "=" * 50)
@@ -611,6 +613,8 @@ if __name__ == '__main__':
                 psutil_available = True
             except ImportError:
                 logger.warning("psutil not available, parent process monitoring may not work properly on Windows")
+            except Exception as e:
+                logger.warning(f"psutil import error: {e}, falling back to basic monitoring")
 
         # 添加失败计数器，避免偶发性检查失败导致退出
         failure_count = 0

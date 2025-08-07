@@ -551,7 +551,7 @@ class Login(QDialog):
 
 
     def handleLogin(self, uname="", pw="", mrole = ""):
-        print("logging in....", self.textPass.text())
+        logger.info("logging in....", self.textPass.text())
         # global commanderServer
         # global commanderXport
 
