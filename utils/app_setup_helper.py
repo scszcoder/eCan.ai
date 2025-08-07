@@ -1,6 +1,7 @@
 import os
 import sys
 from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
 from config.app_info import app_info
 
 # Windows 特定导入
@@ -9,6 +10,143 @@ if sys.platform == 'win32':
         import ctypes
     except ImportError:
         ctypes = None
+
+# macOS 特定导入
+if sys.platform == 'darwin':
+    try:
+        from setproctitle import setproctitle
+    except ImportError:
+        setproctitle = None
+    
+    try:
+        import Foundation
+        import AppKit
+    except ImportError:
+        Foundation = None
+        AppKit = None
+
+def setup_application_info(app, logger=None):
+    """
+    统一设置应用程序基本信息
+    包括名称、版本、组织信息等
+    """
+    if not app:
+        if logger:
+            logger.error("QApplication instance is required")
+        return False
+    
+    try:
+        # 基本应用程序信息
+        app.setApplicationName("eCan")
+        app.setApplicationDisplayName("eCan")
+        app.setOrganizationName("eCan Team")
+        app.setOrganizationDomain("ecan.app")
+        
+        # 读取版本信息
+        version = "1.0.0"
+        try:
+            # 尝试多个可能的VERSION文件位置
+            version_paths = [
+                "VERSION",  # 当前目录
+                os.path.join(os.path.dirname(__file__), "..", "VERSION"),  # 项目根目录
+                os.path.join(os.getcwd(), "VERSION"),  # 工作目录
+            ]
+            
+            for version_path in version_paths:
+                if os.path.exists(version_path):
+                    with open(version_path, "r", encoding="utf-8") as f:
+                        version = f.read().strip()
+                    break
+        except Exception as e:
+            if logger:
+                logger.warning(f"读取VERSION文件失败: {e}")
+            pass
+        
+        app.setApplicationVersion(version)
+        
+        if logger:
+            logger.info(f"应用程序信息设置完成: eCan v{version}")
+        
+        # 平台特定设置
+        if sys.platform == 'darwin':
+            _setup_macos_app_info(app, logger)
+        elif sys.platform == 'win32':
+            _setup_windows_app_info(app, logger)
+        
+        return True
+        
+    except Exception as e:
+        if logger:
+            logger.error(f"设置应用程序信息失败: {e}")
+        return False
+
+def _setup_macos_app_info(app, logger=None):
+    """设置macOS特定的应用程序信息"""
+    try:
+        # 设置进程名称
+        if setproctitle:
+            setproctitle("eCan")
+            if logger:
+                logger.info("macOS进程名称设置为: eCan")
+        
+        # 设置macOS原生应用程序信息
+        if Foundation and AppKit:
+            try:
+                # 获取当前应用程序
+                ns_app = AppKit.NSApplication.sharedApplication()
+                
+                # 设置应用程序激活策略，确保正确显示在Dock中
+                ns_app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+                
+                # 创建虚拟的bundle信息
+                bundle_info = {
+                    'CFBundleName': 'eCan',
+                    'CFBundleDisplayName': 'eCan',
+                    'CFBundleIdentifier': 'com.ecan.app',
+                    'CFBundleVersion': app.applicationVersion(),
+                    'CFBundleShortVersionString': app.applicationVersion()
+                }
+                
+                # 尝试设置bundle信息
+                bundle = Foundation.NSBundle.mainBundle()
+                if bundle:
+                    info_dict = bundle.infoDictionary()
+                    if info_dict:
+                        for key, value in bundle_info.items():
+                            info_dict[key] = value
+                
+                # 确保应用程序名称正确设置
+                # 这有助于避免菜单重复问题
+                if hasattr(ns_app, 'setApplicationIconImage_'):
+                    # 如果有图标，设置应用程序图标
+                    pass
+                
+                if logger:
+                    logger.info("macOS原生应用程序信息设置完成")
+                    
+            except Exception as e:
+                if logger:
+                    logger.warning(f"macOS原生应用程序信息设置失败: {e}")
+        
+    except Exception as e:
+        if logger:
+            logger.warning(f"macOS应用程序信息设置失败: {e}")
+
+def _setup_windows_app_info(app, logger=None):
+    """设置Windows特定的应用程序信息"""
+    try:
+        if sys.platform == 'win32' and ctypes:
+            # 设置应用程序用户模型 ID
+            app_id = "eCan.AI.Application.1.0"
+            shell32 = ctypes.windll.shell32
+            shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+            
+            if logger:
+                logger.info(f"Windows应用程序ID设置为: {app_id}")
+                
+    except Exception as e:
+        if logger:
+            logger.warning(f"Windows应用程序信息设置失败: {e}")
 
 def set_windows_taskbar_icon(app, icon_path, logger=None):
     """

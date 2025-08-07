@@ -1,8 +1,9 @@
-from PySide6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QMessageBox)
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QMessageBox, QApplication
+from PySide6.QtGui import QKeySequence, QShortcut, QAction
 import sys
 import os
 from gui.ipc.api import IPCAPI
+from gui.menu_manager import MenuManager
 from PySide6.QtGui import QPixmap  # Add this import
 from PySide6.QtGui import QIcon  # Add this import
 from PySide6.QtCore import Qt  # For high quality scaling
@@ -71,6 +72,11 @@ class WebGUI(QMainWindow):
 
         # 设置快捷键（在所有组件初始化完成后）
         self._setup_shortcuts()
+        
+        # 初始化菜单管理器并设置菜单栏
+        # 注意：应用程序信息已在main.py中统一设置，这里不需要重复设置
+        self.menu_manager = MenuManager(self)
+        self.menu_manager.setup_menu()
 
     def _setup_window_style(self):
         """设置窗口样式，与内容主题一致"""
@@ -474,3 +480,7 @@ class WebGUI(QMainWindow):
         # chatId: str, content: dict, isRead: bool = False, timestamp: int = None, uid: str = None,
         response = self._ipc_api.push_chat_notification(chatId, content, isRead, timestamp, uid)
         print("receive_new_chat_message response::", response)
+    
+
+    
+
