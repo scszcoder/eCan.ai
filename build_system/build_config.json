@@ -2,9 +2,13 @@
   "app_info": {
     "name": "eCan",
     "version": "1.0.0",
+    "description": "eCan AI Assistant - Intelligent automation platform",
+    "author": "eCan.AI Team",
     "main_script": "main.py",
     "icon_macos": "eCan.icns",
-    "icon_windows": "eCan.ico"
+    "icon_windows": "eCan.ico",
+    "console": false,
+    "debug": false
   },
   "data_files": {
     "directories": [
@@ -20,8 +24,7 @@
       "settings",
       "skills",
       "telemetry",
-      "gui_v2/dist",
-      "resource"
+      "gui_v2/dist"
     ],
     "files": [
       "app_context.py",
@@ -37,6 +40,9 @@
     "parallel": true,
     "workers": 0,
     "cache_dir": "build/pyinstaller_cache",
+    "distpath": "dist",
+    "workpath": "build",
+    "specpath": ".",
     "collect_data": [
       "transformers",
       "torch",
@@ -77,10 +83,35 @@
       "langchain_core",
       "pydantic"
     ],
+    "qt_plugins": [
+      "platforms",
+      "imageformats",
+      "iconengines",
+      "styles"
+    ],
+    "collect_all": [
+      "PySide6"
+    ],
+    "force_includes": [
+      "jaraco.text",
+      "jaraco.functools",
+      "jaraco.context",
+      "jaraco.collections",
+      "jaraco.itertools",
+      "jaraco.classes",
+      "jaraco.logging",
+      "jaraco.path",
+      "jaraco.stream",
+      "pkg_resources",
+      "setuptools.dist",
+      "importlib.metadata",
+      "importlib_metadata"
+    ],
     "excludes": [
       "jupyter",
       "pytest",
       "test",
+      "testing",
       "pip",
       "wheel",
       "jupyter_client",
@@ -92,28 +123,43 @@
       "pandas.tests",
       "sklearn.tests",
       "PIL.tests",
-      "email.test"
-    ]
+      "email.test",
+      "matplotlib.tests",
+      "scipy.tests",
+      "IPython",
+      "notebook",
+      "ensurepip",
+      "venv"
+    ],
+    "optimization": {
+      "onedir_mode": true,
+      "lazy_imports": true,
+      "exclude_unused_modules": true,
+      "compress_binaries": true,
+      "strip_debug_info": true,
+      "optimize_imports": true,
+      "bundle_identifier": "com.ecan.app"
+    }
   },
   "build_modes": {
     "dev": {
       "debug": true,
       "console": true,
       "clean": false,
-      "optimize": true,
+      "optimize": false,
       "onefile": false,
       "use_cache": false,
       "parallel": true,
-      "strip_debug": true,
+      "strip_debug": false,
       "collect_data": "all",
       "collect_binaries": "all",
       "collect_submodules": "all"
     },
     "fast": {
-      "debug": true,
-      "console": true,
-      "clean": true,
-      "optimize": false,
+      "debug": false,
+      "console": false,
+      "clean": false,
+      "optimize": true,
       "onefile": false,
       "use_cache": true,
       "parallel": true,
@@ -127,20 +173,48 @@
       "console": false,
       "clean": true,
       "optimize": true,
-      "onefile": false,
+      "onefile": true,
       "use_cache": false,
       "parallel": true,
       "strip_debug": true,
       "collect_data": "all",
       "collect_binaries": "all",
-      "collect_submodules": "all"
+      "collect_submodules": "all",
+      "compression": "lzma",
+      "upx_compress": true,
+      "exclude_tk": false,
+      "exclude_matplotlib": false,
+      "lazy_imports": true,
+      "runtime_tmpdir": null,
+      "bootloader_ignore_signals": false,
+      "disable_windowed_traceback": false
+    },
+    "onefile": {
+      "debug": false,
+      "console": false,
+      "clean": true,
+      "optimize": true,
+      "onefile": true,
+      "use_cache": false,
+      "parallel": true,
+      "strip_debug": true,
+      "collect_data": "minimal",
+      "collect_binaries": "minimal",
+      "compression": "lzma",
+      "upx_compress": true,
+      "exclude_tk": true,
+      "exclude_matplotlib": true,
+      "lazy_imports": true,
+      "runtime_tmpdir": null,
+      "bootloader_ignore_signals": false,
+      "disable_windowed_traceback": false
     }
   },
   "installer": {
     "enabled": true,
     "app_name": "eCan",
     "app_version": "1.0.0",
-    "app_publisher": "eCan Team",
+    "app_publisher": "eCan.AI Team",
     "default_dir": "{autopf}\\\\eCan",
     "default_group": "eCan",
     "privileges_required": "lowest",
@@ -164,15 +238,58 @@
         "internal_compress_level": "fast"
       }
     },
+    "windows": {
+      "app_id": "{{B8E6D1A2-F4C3-4D5E-8F9A-1B2C3D4E5F6A}",
+      "publisher": "eCan Team",
+      "publisher_url": "https://github.com/ecan-team",
+      "support_url": "https://github.com/ecan-team/ecbot/issues",
+      "updates_url": "https://github.com/ecan-team/ecbot/releases",
+      "license_file": "",
+      "readme_file": "",
+      "icon_file": "eCan.ico",
+      "default_dir": "{autopf}\\eCan",
+      "default_group": "eCan",
+      "privileges_required": "lowest",
+      "create_desktop_icon": true,
+      "create_quick_launch_icon": false,
+      "create_uninstaller": true,
+      "compression": "lzma",
+      "solid_compression": true,
+      "sign_tool": "",
+      "sign_params": ""
+    },
     "macos": {
       "bundle_identifier": "com.ecan.app",
+      "app_name": "eCan",
+      "app_version": "1.0.0",
+      "copyright": "Copyright © 2025 eCan.AI Team",
       "install_location": "/Applications",
-      "create_desktop_shortcut": false,
-      "sign_package": false,
-      "developer_id": "",
-      "entitlements": "",
-      "postinstall_script": true,
-      "preinstall_script": false
+      "create_desktop_shortcut": true,
+      "create_launchpad_shortcut": true,
+      "min_os_version": "10.14",
+      "codesign": {
+        "enabled": false,
+        "identity": "Developer ID Application: Chunk Liu",
+        "entitlements": ""
+      },
+      "notarization": {
+        "enabled": false,
+        "apple_id": "",
+        "team_id": "",
+        "app_password": ""
+      },
+      "dylib_fixes": [
+        "cv2",
+        "numpy",
+        "scipy",
+        "cryptography"
+      ],
+      "permissions": [
+        "screen_recording",
+        "accessibility",
+        "camera",
+        "microphone"
+      ]
     }
   }
-  }
+}
