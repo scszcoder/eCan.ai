@@ -12,7 +12,9 @@ class A2ACardResolver:
         self.agent_card_path = agent_card_path.lstrip("/")
 
     def get_agent_card(self) -> AgentCard:
-        with httpx.Client() as client:
+        # 使用带超时的HTTP客户端，避免在PyInstaller环境中阻塞
+        timeout = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+        with httpx.Client(timeout=timeout) as client:
             response = client.get(self.base_url + "/" + self.agent_card_path)
             response.raise_for_status()
             try:

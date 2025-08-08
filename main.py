@@ -167,22 +167,23 @@ try:
         # 创建登录组件
         utils.logger_helper.login = Login()
         ctx.set_login(utils.logger_helper.login)
-        
-    # if utils.logger_helper.login.isCommander():
-    #     print("run as commander......")
-    #     utils.logger_helper.login.show()
-    #     loop.create_task(runCommanderLAN(utils.logger_helper.login))
-    #
-    #     loop.run_forever()
-    #
-    # else:
-    #     print("run as platoon...")
-    #     wait_window = WaitWindow()
-    #     # wait_window.show()
-    #     utils.logger_helper.login.show()
-    #     loop.create_task(runPlatoonLAN(utils.logger_helper.login, loop, wait_window))
-    #
-    #     loop.run_forever()
+
+        # if utils.logger_helper.login.isCommander():
+        #     print("run as commander......")
+        #     utils.logger_helper.login.show()
+        #     loop.create_task(runCommanderLAN(utils.logger_helper.login))
+        #
+        #     loop.run_forever()
+        #
+        # else:
+        #     print("run as platoon...")
+        #     wait_window = WaitWindow()
+        #     # wait_window.show()
+        #     utils.logger_helper.login.show()
+        #     loop.create_task(runPlatoonLAN(utils.logger_helper.login, loop, wait_window))
+        #
+        #     loop.run_forever()
+
         utils.logger_helper.login.setLoop(loop)
         ctx.set_main_loop(loop)
 

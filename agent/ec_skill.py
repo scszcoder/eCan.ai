@@ -35,7 +35,7 @@ import httpx
 import asyncio
 import requests
 import operator
-
+from utils.logger_helper import logger_helper as logger
 
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
@@ -122,16 +122,96 @@ class EC_Skill(AgentSkill):
 
 
 async def wait_until_server_ready(url: str, timeout=5):
+    """
+    等待服务器就绪，优化了PyInstaller环境下的超时处理
+    必须等待完成，因为后续逻辑依赖于服务器就绪状态
+
+    Args:
+        url: 服务器健康检查URL
+        timeout: 超时时间（秒）
+
+    Returns:
+        True: 服务器就绪
+
+    Raises:
+        RuntimeError: 超时或服务器不可用
+    """
+
     deadline = time.time() + timeout
+    last_error = None
+    attempt_count = 0
+
+    logger.info(f"Waiting for server ready at {url}, timeout: {timeout}s")
+
     while time.time() < deadline:
+        attempt_count += 1
+        remaining_time = deadline - time.time()
+
+        if remaining_time <= 0:
+            break
+
         try:
-            r = httpx.get(url)
-            if r.status_code == 200:
-                return True
-        except Exception:
-            pass
-        await asyncio.sleep(0.3)
-    raise RuntimeError(f"Server not ready at {url}")
+            # 设置较短的请求超时，避免在PyInstaller环境中阻塞
+            # 但确保每次请求都有合理的超时时间
+            request_timeout = min(3.0, max(1.0, remaining_time))
+
+            # 使用异步客户端，设置明确的超时配置
+            timeout_config = httpx.Timeout(
+                connect=min(2.0, request_timeout/2),  # 连接超时
+                read=request_timeout,                  # 读取超时
+                write=min(1.0, request_timeout/3),    # 写入超时
+                pool=min(1.0, request_timeout/3)      # 连接池超时
+            )
+
+            async with httpx.AsyncClient(timeout=timeout_config) as client:
+                logger.debug(f"Attempt {attempt_count}: checking {url} (timeout: {request_timeout:.1f}s)")
+
+                # 使用asyncio.wait_for作为额外的超时保护
+                response = await asyncio.wait_for(
+                    client.get(url),
+                    timeout=request_timeout
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"Server ready at {url} after {attempt_count} attempts")
+                    return True
+                else:
+                    last_error = f"HTTP {response.status_code}"
+                    logger.debug(f"Server returned status {response.status_code}")
+
+        except asyncio.TimeoutError as e:
+            last_error = f"Asyncio timeout: {e}"
+            logger.debug(f"Attempt {attempt_count}: asyncio timeout after {request_timeout:.1f}s")
+
+        except httpx.TimeoutException as e:
+            last_error = f"HTTPX timeout: {e}"
+            logger.debug(f"Attempt {attempt_count}: httpx timeout after {request_timeout:.1f}s")
+
+        except httpx.ConnectError as e:
+            last_error = f"Connection error: {e}"
+            logger.debug(f"Attempt {attempt_count}: connection failed - {e}")
+
+        except httpx.HTTPError as e:
+            last_error = f"HTTP error: {e}"
+            logger.debug(f"Attempt {attempt_count}: HTTP error - {e}")
+
+        except Exception as e:
+            last_error = f"Unexpected error: {e}"
+            logger.debug(f"Attempt {attempt_count}: unexpected error - {e}")
+
+        # 检查是否还有时间继续尝试
+        if time.time() >= deadline:
+            break
+
+        # 等待一段时间后重试，但不超过剩余时间
+        sleep_time = min(0.5, deadline - time.time())
+        if sleep_time > 0:
+            logger.debug(f"Waiting {sleep_time:.1f}s before next attempt...")
+            await asyncio.sleep(sleep_time)
+
+    error_msg = f"Server not ready at {url} after {timeout}s ({attempt_count} attempts). Last error: {last_error}"
+    logger.error(error_msg)
+    raise RuntimeError(error_msg)
 
 async def test_post_to_messages():
     url = "http://localhost:4668/messages"
