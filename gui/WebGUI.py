@@ -1,5 +1,6 @@
-from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QMessageBox, QApplication
-from PySide6.QtGui import QKeySequence, QShortcut, QAction
+from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QMessageBox, QApplication, QHBoxLayout, QLabel, QPushButton, QMenuBar
+from PySide6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QPixmap
+from PySide6.QtCore import Qt
 import sys
 import os
 from gui.ipc.api import IPCAPI
@@ -82,10 +83,13 @@ class WebGUI(QMainWindow):
         # 设置快捷键（在所有组件初始化完成后）
         self._setup_shortcuts()
         
-        # 初始化菜单管理器并设置菜单栏
-        # 注意：应用程序信息已在main.py中统一设置，这里不需要重复设置
-        self.menu_manager = MenuManager(self)
-        self.menu_manager.setup_menu()
+        # 在Windows和Linux平台上创建自定义标题栏菜单
+        if sys.platform in ['win32', 'linux']:
+            self._setup_custom_titlebar_with_menu()
+        else:
+            # macOS使用标准菜单栏
+            self.menu_manager = MenuManager(self)
+            self.menu_manager.setup_menu()
 
     def _show_error_page(self, error_message):
         """显示错误页面"""
@@ -557,7 +561,427 @@ class WebGUI(QMainWindow):
         # chatId: str, content: dict, isRead: bool = False, timestamp: int = None, uid: str = None,
         response = self._ipc_api.push_chat_notification(chatId, content, isRead, timestamp, uid)
         print("receive_new_chat_message response::", response)
-    
 
-    
+    def _adjust_layout_for_titlebar_menu(self):
+        """调整Windows和Linux平台的窗口布局以适应标题栏菜单"""
+        try:
+            # 获取菜单栏
+            menubar = self.menuBar()
+
+            # 确保菜单栏位置正确
+            # 在Qt中，菜单栏默认就在标题栏下方，我们通过样式让它看起来像在标题栏中
+            menubar.setCornerWidget(None)  # 清除任何角落部件
+
+            # 调整主窗口的内容边距，为菜单栏留出空间
+            central_widget = self.centralWidget()
+            if central_widget:
+                layout = central_widget.layout()
+                if layout:
+                    # 减少顶部边距，因为菜单栏现在更紧凑
+                    layout.setContentsMargins(0, 0, 0, 0)
+
+            logger.info("Windows窗口布局已调整为标题栏菜单模式")
+
+        except Exception as e:
+            logger.error(f"调整窗口布局失败: {e}")
+
+    def _setup_custom_titlebar_with_menu(self):
+        """设置自定义标题栏，将菜单栏集成到标题栏中"""
+        try:
+            # 隐藏默认标题栏
+            self.setWindowFlags(Qt.FramelessWindowHint)
+
+            # 创建自定义标题栏容器
+            self.custom_titlebar = QWidget()
+            self.custom_titlebar.setFixedHeight(32)  # 标准Windows标题栏高度
+            self.custom_titlebar.setStyleSheet("""
+                QWidget {
+                    background-color: #2d2d2d;
+                    border-bottom: 1px solid #404040;
+                }
+            """)
+
+            # 创建标题栏布局
+            titlebar_layout = QHBoxLayout(self.custom_titlebar)
+            titlebar_layout.setContentsMargins(8, 0, 0, 0)  # 右边距为0，让控制按钮贴边
+            titlebar_layout.setSpacing(0)
+
+            # 添加应用图标
+            self.app_icon = QLabel()
+            self.app_icon.setFixedSize(24, 24)
+            icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
+            if os.path.exists(icon_path):
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    # 缩放图片以适应24x24的大小，保持宽高比
+                    scaled_pixmap = pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    self.app_icon.setPixmap(scaled_pixmap)
+                    self.app_icon.setAlignment(Qt.AlignCenter)
+            self.app_icon.setStyleSheet("""
+                QLabel {
+                    padding: 2px 8px;
+                    background-color: transparent;
+                }
+            """)
+            titlebar_layout.addWidget(self.app_icon)
+
+            # 创建菜单栏并添加到标题栏
+            self.custom_menubar = QMenuBar()
+            self.custom_menubar.setStyleSheet("""
+                QMenuBar {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    border: none;
+                    padding: 0px;
+                    margin: 0px;
+                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+
+                QMenuBar::item {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    padding: 6px 10px;
+                    margin: 0px 1px;
+                    border-radius: 3px;
+                }
+
+                QMenuBar::item:selected {
+                    background-color: #404040;
+                    color: #ffffff;
+                }
+
+                QMenuBar::item:pressed {
+                    background-color: #505050;
+                    color: #ffffff;
+                }
+
+                QMenu {
+                    background-color: #2d2d2d;
+                    color: #e0e0e0;
+                    border: 1px solid #404040;
+                    border-radius: 6px;
+                    padding: 4px 0px;
+                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 13px;
+                }
+
+                QMenu::item {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    padding: 8px 24px;
+                    margin: 1px 4px;
+                    border-radius: 4px;
+                    min-height: 20px;
+                }
+
+                QMenu::item:selected {
+                    background-color: #404040;
+                    color: #ffffff;
+                }
+
+                QMenu::separator {
+                    height: 1px;
+                    background-color: #404040;
+                    margin: 6px 12px;
+                }
+            """)
+
+            # 手动设置菜单项
+            self._setup_custom_menus()
+
+            titlebar_layout.addWidget(self.custom_menubar)
+
+            # 添加弹性空间，让标题居中
+            titlebar_layout.addStretch()
+
+            # 添加标题（居中显示）
+            self.title_label = QLabel("eCan.AI")
+            self.title_label.setAlignment(Qt.AlignCenter)
+            self.title_label.setStyleSheet("""
+                QLabel {
+                    color: #e0e0e0;
+                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 13px;
+                    font-weight: 600;
+                    padding: 0px;
+                }
+            """)
+            titlebar_layout.addWidget(self.title_label)
+
+            # 添加弹性空间，保持标题居中
+            titlebar_layout.addStretch()
+
+            # 初始化菜单管理器（如果需要其他功能）
+            self.menu_manager = MenuManager(self)
+            # 重写menuBar方法以返回我们的自定义菜单栏
+            self.menuBar = lambda: self.custom_menubar
+
+            # 添加窗口控制按钮
+            self._add_window_controls(titlebar_layout)
+
+            # 将自定义标题栏添加到主布局
+            main_layout = self.centralWidget().layout()
+            main_layout.insertWidget(0, self.custom_titlebar)
+
+            # 使标题栏可拖拽
+            self._make_titlebar_draggable()
+
+            logger.info("自定义标题栏菜单已设置完成")
+
+        except Exception as e:
+            logger.error(f"设置自定义标题栏失败: {e}")
+            # 如果失败，回退到标准菜单栏
+            self.setWindowFlags(Qt.Window)
+            self.menu_manager = MenuManager(self)
+            self.menu_manager.setup_menu()
+
+    def _setup_custom_menus(self):
+        """设置自定义菜单栏的菜单项"""
+        try:
+            # 添加主要菜单项
+            app_menu = self.custom_menubar.addMenu('eCan')
+            self._add_app_menu_items(app_menu)
+
+            file_menu = self.custom_menubar.addMenu('File')
+            self._add_file_menu_items(file_menu)
+
+            edit_menu = self.custom_menubar.addMenu('Edit')
+            self._add_edit_menu_items(edit_menu)
+
+            view_menu = self.custom_menubar.addMenu('View')
+            self._add_view_menu_items(view_menu)
+
+            tools_menu = self.custom_menubar.addMenu('Tools')
+            self._add_tools_menu_items(tools_menu)
+
+            help_menu = self.custom_menubar.addMenu('Help')
+            self._add_help_menu_items(help_menu)
+
+        except Exception as e:
+            logger.error(f"设置自定义菜单失败: {e}")
+
+    def _add_app_menu_items(self, menu):
+        """添加应用菜单项"""
+        about_action = QAction('About eCan.AI', self)
+        about_action.triggered.connect(self._show_about)
+        menu.addAction(about_action)
+
+        menu.addSeparator()
+
+        preferences_action = QAction('Preferences...', self)
+        preferences_action.setShortcut('Ctrl+,')
+        menu.addAction(preferences_action)
+
+        menu.addSeparator()
+
+        quit_action = QAction('Quit', self)
+        quit_action.setShortcut('Ctrl+Q')
+        quit_action.triggered.connect(self.close)
+        menu.addAction(quit_action)
+
+    def _add_file_menu_items(self, menu):
+        """添加文件菜单项"""
+        new_action = QAction('New', self)
+        new_action.setShortcut('Ctrl+N')
+        menu.addAction(new_action)
+
+        open_action = QAction('Open...', self)
+        open_action.setShortcut('Ctrl+O')
+        menu.addAction(open_action)
+
+        menu.addSeparator()
+
+        save_action = QAction('Save', self)
+        save_action.setShortcut('Ctrl+S')
+        menu.addAction(save_action)
+
+    def _add_edit_menu_items(self, menu):
+        """添加编辑菜单项"""
+        undo_action = QAction('Undo', self)
+        undo_action.setShortcut('Ctrl+Z')
+        menu.addAction(undo_action)
+
+        redo_action = QAction('Redo', self)
+        redo_action.setShortcut('Ctrl+Y')
+        menu.addAction(redo_action)
+
+        menu.addSeparator()
+
+        cut_action = QAction('Cut', self)
+        cut_action.setShortcut('Ctrl+X')
+        menu.addAction(cut_action)
+
+        copy_action = QAction('Copy', self)
+        copy_action.setShortcut('Ctrl+C')
+        menu.addAction(copy_action)
+
+        paste_action = QAction('Paste', self)
+        paste_action.setShortcut('Ctrl+V')
+        menu.addAction(paste_action)
+
+    def _add_view_menu_items(self, menu):
+        """添加视图菜单项"""
+        fullscreen_action = QAction('Enter Full Screen', self)
+        fullscreen_action.setShortcut('F11')
+        fullscreen_action.triggered.connect(self._toggle_fullscreen)
+        menu.addAction(fullscreen_action)
+
+        menu.addSeparator()
+
+        reload_action = QAction('Reload', self)
+        reload_action.setShortcut('Ctrl+R')
+        menu.addAction(reload_action)
+
+        dev_tools_action = QAction('Developer Tools', self)
+        dev_tools_action.setShortcut('F12')
+        dev_tools_action.triggered.connect(self._toggle_dev_tools)
+        menu.addAction(dev_tools_action)
+
+    def _add_tools_menu_items(self, menu):
+        """添加工具菜单项"""
+        settings_action = QAction('Settings', self)
+        menu.addAction(settings_action)
+
+        menu.addSeparator()
+
+        update_action = QAction('Check for Updates...', self)
+        menu.addAction(update_action)
+
+    def _add_help_menu_items(self, menu):
+        """添加帮助菜单项"""
+        help_action = QAction('Help', self)
+        help_action.setShortcut('F1')
+        menu.addAction(help_action)
+
+        menu.addSeparator()
+
+        about_action = QAction('About', self)
+        about_action.triggered.connect(self._show_about)
+        menu.addAction(about_action)
+
+    def _add_window_controls(self, layout):
+        """添加窗口控制按钮（最小化、最大化、关闭）"""
+        try:
+            # 最小化按钮
+            minimize_btn = QPushButton('−')
+            minimize_btn.setFixedSize(46, 32)  # 标准Windows控制按钮大小
+            minimize_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    border: none;
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #404040;
+                }
+                QPushButton:pressed {
+                    background-color: #505050;
+                }
+            """)
+            minimize_btn.clicked.connect(self.showMinimized)
+            layout.addWidget(minimize_btn)
+
+            # 最大化/还原按钮
+            self.maximize_btn = QPushButton('□')
+            self.maximize_btn.setFixedSize(46, 32)  # 标准Windows控制按钮大小
+            self.maximize_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    border: none;
+                    font-size: 14px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #404040;
+                }
+                QPushButton:pressed {
+                    background-color: #505050;
+                }
+            """)
+            self.maximize_btn.clicked.connect(self._toggle_maximize)
+            layout.addWidget(self.maximize_btn)
+
+            # 关闭按钮
+            close_btn = QPushButton('×')
+            close_btn.setFixedSize(46, 32)  # 标准Windows控制按钮大小
+            close_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    border: none;
+                    font-size: 18px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #e74c3c;
+                    color: #ffffff;
+                }
+                QPushButton:pressed {
+                    background-color: #c0392b;
+                }
+            """)
+            close_btn.clicked.connect(self.close)
+            layout.addWidget(close_btn)
+
+        except Exception as e:
+            logger.error(f"添加窗口控制按钮失败: {e}")
+
+    def _make_titlebar_draggable(self):
+        """使标题栏可拖拽"""
+        self.custom_titlebar.mousePressEvent = self._titlebar_mouse_press
+        self.custom_titlebar.mouseMoveEvent = self._titlebar_mouse_move
+        self.custom_titlebar.mouseDoubleClickEvent = self._titlebar_double_click
+        self._drag_position = None
+
+    def _titlebar_mouse_press(self, event):
+        """标题栏鼠标按下事件"""
+        if event.button() == Qt.LeftButton:
+            self._drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def _titlebar_mouse_move(self, event):
+        """标题栏鼠标移动事件"""
+        if event.buttons() == Qt.LeftButton and self._drag_position:
+            self.move(event.globalPosition().toPoint() - self._drag_position)
+            event.accept()
+
+    def _titlebar_double_click(self, event):
+        """标题栏双击事件"""
+        if event.button() == Qt.LeftButton:
+            self._toggle_maximize()
+            event.accept()
+
+    def _toggle_maximize(self):
+        """切换最大化/还原窗口"""
+        if self.isMaximized():
+            self.showNormal()
+            self.maximize_btn.setText('□')
+        else:
+            self.showMaximized()
+            self.maximize_btn.setText('❐')
+
+    def _toggle_fullscreen(self):
+        """切换全屏模式"""
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def _toggle_dev_tools(self):
+        """切换开发者工具"""
+        if hasattr(self, 'dev_tools_manager'):
+            self.dev_tools_manager.toggle_dev_tools()
+
+    def _show_about(self):
+        """显示关于对话框"""
+        QMessageBox.about(self, "About eCan.AI",
+                         "eCan.AI\nVersion 1.0.0\n\nAn AI-powered e-commerce automation platform.")
+
+
+
 
