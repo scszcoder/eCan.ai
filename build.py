@@ -121,24 +121,24 @@ def print_mode_info(mode: str, fast: bool = False):
     print(f"Build Mode: {mode.upper()}")
 
     if fast:
-        print("🚀 Fast Build Features:")
-        print("  ✓ Parallel compilation (multi-core CPU acceleration)")
-        print("  ✓ Smart caching (incremental build)")
-        print("  ✓ Optimized dependencies (~280 packages)")
-        print("  ✓ Debug symbols stripped")
-        print("  ✓ Estimated time: 2-5 minutes")
+        print("[FAST] Fast Build Features:")
+        print("  * Parallel compilation (multi-core CPU acceleration)")
+        print("  * Smart caching (incremental build)")
+        print("  * Optimized dependencies (~280 packages)")
+        print("  * Debug symbols stripped")
+        print("  * Estimated time: 2-5 minutes")
     elif mode == "dev":
-        print("🔧 Development Build Features:")
-        print("  ✓ Parallel compilation (multi-core CPU acceleration)")
-        print("  ✓ Console output enabled")
-        print("  ✓ Debug symbols preserved")
-        print("  ✓ Estimated time: 5-10 minutes")
+        print("[DEV] Development Build Features:")
+        print("  * Parallel compilation (multi-core CPU acceleration)")
+        print("  * Console output enabled")
+        print("  * Debug symbols preserved")
+        print("  * Estimated time: 5-10 minutes")
     else:
-        print("🏭 Production Build Features:")
-        print("  ✓ Parallel compilation (multi-core CPU acceleration)")
-        print("  ✓ Full optimization and cleanup")
-        print("  ✓ Debug symbols stripped")
-        print("  ✓ LZMA best compression")
+        print("[PROD] Production Build Features:")
+        print("  * Parallel compilation (multi-core CPU acceleration)")
+        print("  * Full optimization and cleanup")
+        print("  * Debug symbols stripped")
+        print("  * LZMA best compression")
         print("  ✓ Estimated time: 15-25 minutes")
 
     print("=" * 60)
@@ -272,11 +272,11 @@ Usage examples:
         )
 
         if not success:
-            print("\n❌ Build failed!")
+            print("\n[ERROR] Build failed!")
             return 1
 
         print("\n" + "=" * 60)
-        print("🎉 Build completed successfully!")
+        print("[SUCCESS] Build completed successfully!")
         print("=" * 60)
 
         # 显示构建结果
@@ -285,13 +285,13 @@ Usage examples:
         return 0
 
     except subprocess.CalledProcessError as e:
-        print(f"\n❌ Build failed, exit code: {e.returncode}")
+        print(f"\n[ERROR] Build failed, exit code: {e.returncode}")
         return e.returncode
     except KeyboardInterrupt:
-        print("\n⏹️  Build interrupted by user")
+        print("\n[WARNING] Build interrupted by user")
         return 1
     except Exception as e:
-        print(f"\n❌ Build failed: {e}")
+        print(f"\n[ERROR] Build failed: {e}")
         return 1
 
 
