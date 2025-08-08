@@ -9,7 +9,6 @@ from knowledge.lightrag_server import LightragServer
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
 from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
-from agent.mcp.server.server import set_server_main_win
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -928,7 +927,6 @@ class MainWindow(QMainWindow):
         self.websocket = None
         self.setWindowTitle("My E-Commerce Agents ("+self.user+") - "+self.machine_role)
         self.vehicleMonitor = VehicleMonitorWin(self)
-        self.vehicleMonitor.hide()  # 确保窗口在后台创建，不显示
         self.showMsg("================= DONE with GUI Setup ==============================")
 
 
@@ -946,35 +944,26 @@ class MainWindow(QMainWindow):
         wifi_info = None
         if self.platform == "win":
             try:
-                # Use subprocess.run instead of check_output for better error handling
-                result = subprocess.run(['netsh', 'WLAN', 'show', 'interfaces'],
-                                      capture_output=True,
-                                      text=False,
-                                      timeout=10,
-                                      check=False)  # Don't raise exception on non-zero exit
-
-                if result.returncode == 0:
-                    wifi_info = result.stdout
-                else:
-                    logger.info(f"netsh WLAN command returned code {result.returncode}, trying alternative method")
-                    raise subprocess.CalledProcessError(result.returncode, 'netsh')
-
+                wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'],
+                                                  stderr=subprocess.DEVNULL,
+                                                  timeout=10)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                logger.info(f"Primary WiFi detection method failed (this is normal on some systems): {type(e).__name__}")
+                logger.warning(f"Failed to get WiFi info using netsh: {str(e)}")
+                print(f"WiFi detection failed: {str(e)}")
                 # Try alternative method for Windows
                 try:
                     # Get network interfaces (psutil is already imported globally)
                     interfaces = psutil.net_if_stats()
                     wifi_interfaces = [name for name in interfaces.keys() if 'wi-fi' in name.lower() or 'wireless' in name.lower() or 'wlan' in name.lower()]
                     if wifi_interfaces:
-                        logger.info(f"Found WiFi interfaces using alternative method: {wifi_interfaces}")
+                        logger.info(f"Found WiFi interfaces: {wifi_interfaces}")
                         # Create a mock wifi_info to indicate WiFi is available but SSID unknown
                         wifi_info = b"    SSID                   : Unknown\n"
                     else:
-                        logger.info("No WiFi interfaces found using alternative method")
+                        logger.info("No WiFi interfaces found")
                         wifi_info = None
                 except Exception as e2:
-                    logger.info(f"Alternative WiFi detection also failed: {str(e2)}")
+                    logger.warning(f"Alternative WiFi detection failed: {str(e2)}")
                     wifi_info = None
         elif self.platform == 'dar':
             # Try to find the airport command
@@ -1042,7 +1031,7 @@ class MainWindow(QMainWindow):
                 logger.info("bot cloud done....")
             logger.info("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
-            logger.info("find all bots")
+            print("find all bots")
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
@@ -1050,9 +1039,9 @@ class MainWindow(QMainWindow):
 
             if not self.debug_mode or self.schedule_mode == "auto":
                 self.mission_service.sync_cloud_mission_data(self.session, self.tokens, self)
-            logger.info("mission cloud synced")
+            print("mission cloud synced")
             missions_data = self.mission_service.find_missions_by_createon()
-            logger.info("local mission data:", missions_data)
+            print("local mission data:", missions_data)
             # missions_data = []      # test hack
             self.loadLocalMissions(missions_data)
             log3("missions loaded")
@@ -1197,7 +1186,7 @@ class MainWindow(QMainWindow):
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
-        logger.info("Building agent skills.....")
+        print("Building agent skills.....")
         asyncio.create_task(self.async_agents_init())
 
 
@@ -1218,7 +1207,7 @@ class MainWindow(QMainWindow):
 
 
         self.saveSettings()
-        logger.info("vehicles after init:", [v.getName() for v in self.vehicles])
+        print("vehicles after init:", [v.getName() for v in self.vehicles])
 
         # finally setup agents, note: local servers needs to be setup and running
         # before this.
@@ -1227,17 +1216,9 @@ class MainWindow(QMainWindow):
         # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
-        try:
-            self.newWebCrawler()
-            self.setupBrowserSession()
-            self.setupBrowserUseController()
-            logger.info("Browser components initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize browser components: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-
-        # 确保 MainWindow 在初始化时不显示，避免闪现
-        self.setVisible(False)
+        self.newWebCrawler()
+        self.setupBrowserSession()
+        self.setupBrowserUseController()
 
     async def initialize_mcp(self):
         local_server_port = 4668
@@ -1292,12 +1273,12 @@ class MainWindow(QMainWindow):
         self.agent_tools = obtain_agent_tools(self)
         self.agent_knowledges = build_agent_knowledges(self)
         # tools = await mcp_load_tools()
-        logger.info("DONE build agent skills.....", len(self.agent_skills))
+        print("DONE build agent skills.....", len(self.agent_skills))
         build_agents(self)
-        logger.info("DONE build agents.....")
+        print("DONE build agents.....")
         # await self.launch_agents()
         self.launch_agents()
-        logger.info("DONE launch agents.....")
+        print("DONE launch agents.....")
 
         # self.top_gui.update_all(self)
         # await self.test_a2a()
@@ -1615,26 +1596,16 @@ class MainWindow(QMainWindow):
                 viewport_height=1080
             )
             self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
-            logger.info("Web crawler initialized and started successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize web crawler with BrowserConfig: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            self.async_crawler = None
+            print(f"Warning: Failed to initialize web crawler with BrowserConfig: {e}")
  
     def setupBrowserSession(self):
-        if self.async_crawler is None:
-            logger.error("async_crawler is None, cannot setup browser session")
-            return
-        try:
-            browser = self.async_crawler.crawler_strategy.browser_manager.browser
-            self.browser_session = BrowserSession(browser=browser)
-        except Exception as e:
-            logger.error(f"Failed to setup browser session: {e}")
-            self.browser_session = None
+        browser = self.async_crawler.crawler_strategy.browser_manager.browser
+        self.browser_session = BrowserSession(browser=browser)
 
     def setupBrowserUseController(self):
         display_files_in_done_text = True
-        self.browser_use_controller = BrowserUseController(display_files_in_done_text=display_files_in_done_text)
+        self.browser_use_controller = Controller(display_files_in_done_text=display_files_in_done_text)
 
     def getBrowserSession(self):
         return self.browser_session
@@ -2274,7 +2245,7 @@ class MainWindow(QMainWindow):
         return self.display_resolution
 
     def test_scroll(self):
-        mouse = MouseController()
+        mouse = Controller()
         self.showMsg("testing scrolling....")
         url = 'https://www.amazon.com/s?k=yoga+mats&crid=2Y3M8P4537BWF&sprefix=%2Caps%2C331&ref=nb_sb_ss_recent_1_0_recent'
         webbrowser.open(url, new=0, autoraise=True)
@@ -8824,19 +8795,6 @@ class MainWindow(QMainWindow):
 
             if not task.done():
                 task.cancel()
-
-        # 清理 async_crawler
-        if self.async_crawler:
-            try:
-                # 创建一个新的事件循环来关闭 crawler
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self.async_crawler.close())
-                loop.close()
-                logger.info("AsyncWebCrawler closed successfully")
-            except Exception as e:
-                logger.error(f"Failed to close AsyncWebCrawler: {e}")
-
         if self.loginout_gui:
             self.loginout_gui.show()
         event.accept()
@@ -11024,3 +10982,4 @@ class MainWindow(QMainWindow):
 
         log3("Good Bye")
 
+print("maingui loaded....................")

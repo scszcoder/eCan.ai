@@ -71,7 +71,7 @@ async def create_my_twin_chatter_skill(mainwin):
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
 
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("relay", parrot)
         workflow.set_entry_point("relay")
         workflow.add_edge("relay", END)

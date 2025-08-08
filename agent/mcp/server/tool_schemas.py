@@ -1408,7 +1408,7 @@ def build_agent_mcp_tools_schemas():
                     "properties": {
                         "[component]": {
                             "type": "list",
-                            "description": "list of components'attributes.",
+                            "description": "list of components with basic attributes.",
                         }
                     },
                 }
@@ -1440,6 +1440,34 @@ def build_agent_mcp_tools_schemas():
                         "metadata": {
                             "type": "dict",
                             "description": "json data to make the api call for effective, for random image data, just leave this as {}.",
+                        },
+                        "end_point": {
+                            "type": "string",
+                            "description": "either local/lan/wan, local means the algorithm runs on this host, lan means the algorithm runs on a remote computer within the LAN, wan means the algorithm runs on a remote computer on the internet, outside of the LAN",
+                        },
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+
+    tool_schema = types.Tool(
+        name="api_ecan_ai_get_nodes_prompts",
+        description="run API to obtain the prompts for the langggraph nodes.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["[nodes]", "end_point"],
+                    "properties": {
+                        "[nodes]": {
+                            "type": "list",
+                            "description": "list of nodes json data each with keys 'askid' and 'name'.",
                         },
                         "end_point": {
                             "type": "string",
