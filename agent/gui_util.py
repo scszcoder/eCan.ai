@@ -32,7 +32,7 @@ class IPCBridge(QObject):
         diagram_json = json.loads(message)
         # translate diagram json to langgraph
         if diagram_json["nodes"]:
-            workflow = StateGraph(NodeState)
+            workflow = StateGraph(NodeState, WorkFlowContext)
 
             for node in diagram_json["nodes"]:
                 if node["type"] == "start":

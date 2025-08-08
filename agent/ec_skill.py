@@ -18,6 +18,8 @@ from langgraph.errors import NodeInterrupt
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import interrupt
 #from sqlalchemy.testing.suite.test_reflection import metadata
+from langgraph.runtime import Runtime
+from langgraph.store.base import BaseStore
 
 from typing_extensions import TypedDict
 from langgraph.prebuilt import tools_condition
@@ -175,9 +177,14 @@ def _bind_to_system_message(state):
 class Goal(TypedDict):
     name: str
     description: str
-    min_criteria: str
+    value_type: str
+    min_val: str
+    max_val: str
+    formula: str
+    lut: dict
     score: float
     weight: float
+    sub_goals: List[dict]
 
 class FileAttachment(TypedDict):
     name: str
@@ -190,6 +197,7 @@ class FileAttachment(TypedDict):
 class NodeState(TypedDict):
     input: str
     attachments: List[FileAttachment]
+    prompts: List[dict]
     messages: List[Any]
     attributes: dict
     result: dict
@@ -200,6 +208,30 @@ class NodeState(TypedDict):
     condition: bool
     case: str
     goals: List[Goal]
+
+
+class ToT_Context(TypedDict):
+    max_depth: int
+    threshold: float
+    k: int
+    beam_size: int
+
+
+class WorkFlowContext(TypedDict, total=False):
+    id: str
+    topic: str
+    summary: str
+    msg_thread_id: str
+    tot_context: dict
+    app_context: dict
+    this_node: dict
+
+def node_wrapper(fn, node_name):
+    def wrapped(state, *, runtime: Runtime[WorkFlowContext], store: BaseStore, **kwargs):
+        # Inject node name into context or config
+        runtime.context["this_node"] = {"name": node_name}
+        return fn(state, runtime=runtime, store=store, **kwargs)
+    return wrapped
 
 
 def is_json_parsable(s):
