@@ -7,37 +7,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
-from agent.mcp.local_client import local_mcp_call_tool
+from agent.mcp.local_client import mcp_call_tool
 import re
 
 
-async def mcp_call_tool(mcp_client, tool_name, args):
-    # async with mcp_client.session("E-Commerce Agents Service") as session:
-    print(f"MCP client calling tool: {tool_name} with args: {args}")
-    try:
-        # Call the tool and get the raw response
-        # response = await mcp_client.call_tool(tool_name, args)
-        url = "http://localhost:4668/mcp/"
-        response = await local_mcp_call_tool(url, tool_name, args)
-        print(f"Raw response type: {type(response)}")
-        print(f"Raw response: {response}")
-        
-        # 检查响应是否包含错误信息
-        if hasattr(response, 'isError') and response.isError:
-            print(f"Tool call error: {response}")
-            return response
-        elif hasattr(response, 'content') and len(response.content) > 0:
-            print(f"Tool call content: {response.content[0].text}")
-            return response
-        else:
-            # 如果响应格式不符合预期，返回一个标准格式
-            print(f"Unexpected response format: {response}")
-            return response
 
-    except Exception as e:
-        error_msg = f"Error calling {tool_name}: {str(e)}"
-        print(error_msg)
-        return {"content": [{"type": "text", "text": error_msg}], "isError": True}
 
 
 def go_to_site_node(state: NodeState) -> NodeState:
@@ -46,21 +20,21 @@ def go_to_site_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     try:
         print("about to connect to ads power:", type(state), state)
-        
+
         # 安全地获取或创建事件循环
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        
+
         # 调用工具
         tool_result = loop.run_until_complete(
             mcp_call_tool(mainwin.mcp_client, "os_connect_to_adspower", args={"input": state["tool_input"]})
         )
-        
+
         print("go_to_site_node tool completed:", type(tool_result), tool_result)
-        
+
         # 安全地处理结果
         if isinstance(tool_result, dict):
             # 如果返回的是字典
@@ -85,7 +59,7 @@ def go_to_site_node(state: NodeState) -> NodeState:
                 state["error"] = f"Invalid tool result object: {tool_result}"
 
         return state
-        
+
     except Exception as e:
         state["error"] = get_traceback(e, "ErrorGoToSiteNode")
         logger.debug(state["error"])

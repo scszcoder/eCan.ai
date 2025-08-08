@@ -92,7 +92,7 @@ async def create_rpa_helper_chatter_skill(mainwin):
 
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("llm_loop", helper_agent)
         workflow.add_node("verify", verify_resolved)
 
@@ -175,7 +175,7 @@ async def create_rpa_operator_chatter_skill(mainwin):
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
 
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("message_handler", operator_message_handler)
         workflow.set_entry_point("message_handler")  # where execution starts
         workflow.add_edge("message_handler", END)
@@ -265,7 +265,7 @@ async def create_rpa_supervisor_scheduling_chatter_skill(mainwin):
 
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("message_handler", supervisor_task_scheduler)
         workflow.set_entry_point("message_handler")  # where execution starts
         workflow.add_edge("message_handler", END)
@@ -418,7 +418,7 @@ async def create_rpa_supervisor_chatter_skill(mainwin):
 
 
         # 3) ----- Build a graph with ONE node ---------------------------------------
-        workflow = StateGraph(NodeState)
+        workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("message_handler", supervisor_message_handler)
         workflow.set_entry_point("message_handler")  # where execution starts
         workflow.add_edge("message_handler", END)

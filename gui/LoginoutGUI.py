@@ -12,6 +12,11 @@ from datetime import datetime
 from os.path import exists
 from pycognito import Cognito, AWSSRP
 from pycognito.utils import RequestsSrpAuth
+import traceback
+import base64
+import hmac
+import hashlib
+import jwt
 
 import boto3
 from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent, QSettings
@@ -29,11 +34,7 @@ from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
 from utils.fernet import encrypt_password, decrypt_password
-import traceback
-import base64
-import hmac
-import hashlib
-import jwt
+
 
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")

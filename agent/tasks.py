@@ -139,7 +139,7 @@ class ManagedTask(Task):
 
     # from langgraph.types import Command
 
-    def stream_run(self, in_msg="", *, config=None, **kwargs):
+    def stream_run(self, in_msg="", *, config=None, context=None, **kwargs):
         """Run the task's skill with streaming support.
 
         Args:
@@ -159,18 +159,30 @@ class ManagedTask(Task):
         if config is None:
             config = {
                 "configurable": {
-                    "thread_id": str(uuid.uuid4())
+                    "thread_id": str(uuid.uuid4()),
+                    "store": None
                     # "thread_id": str(uuid.uuid4()),
                     # "checkpoint_ns": "task_checkpoint",
                     # "checkpoint_id": str(self.id)
                 }
             }
 
-        agen = self.skill.runnable.stream(in_args, config=config, **kwargs)
+        if context is None:
+            context = {
+                "id": str(uuid.uuid4()),
+                "topic": "",
+                "summary": "",
+                "msg_thread_id": "",
+                "tot_context": {},
+                "app_context": {},
+                "this_node": {"name": ""},
+            }
+        print("current langgraph run time state0:", self.skill.runnable.get_state(config=config))
+        agen = self.skill.runnable.stream(in_args, config=config, context=context, **kwargs)
         try:
             print("running skill:", self.skill.name, in_msg)
             print("stream_run config:", config)
-
+            print("current langgraph run time state2:", self.skill.runnable.get_state(config=config))
             # Set up default config if not provided
 
             # Handle Command objects
@@ -884,6 +896,7 @@ class TaskRunner(Generic[Context]):
                                 # task_id = msg.params.id
                                 print("sending interrupt prompt1")
                                 if '__interrupt__' in response['step']:
+
                                     print("sending interrupt prompt2")
                                     interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
                                     prompt = interrupt_obj.value["prompt_to_human"]
@@ -907,7 +920,7 @@ class TaskRunner(Generic[Context]):
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                                 justStarted = False
                             else:
-                                print("no longer initial run", msg)
+                                print(f"interacted {task2run.skill.name} no longer initial run", msg)
                                 task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
 
                                 print("NI interacted task2run current state", task2run.metadata["state"])
@@ -924,8 +937,7 @@ class TaskRunner(Generic[Context]):
 
                                 if '__interrupt__' in response['step']:
                                     print("NI sending interrupt prompt2")
-                                    interrupt_obj = response["step"]["__interrupt__"][
-                                        0]  # [0] because it's a tuple with one item
+                                    interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
                                     print("NI prompt to human:", prompt)
@@ -937,10 +949,16 @@ class TaskRunner(Generic[Context]):
                                     hilData = sample_parameters_0
                                     # hilData = sample_metrics_0
                                     # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
-                                    self.sendChatFormToGUI(self.agent, chatId, hilData)
+                                    # self.sendChatFormToGUI(self.agent, chatId, hilData)
                                     # self.sendChatMessageToGUI(self.agent, chatId, hilData)
                                     # self.agent.mainwin.top_gui.push_message_to_chat(chatId, hilData)
-                                    # self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
+
+                                    if interrupt_obj.value.get("qa_form_to_human", None):
+                                        self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value.get["qa_form_to_human"])
+                                    elif interrupt_obj.value.get("notification_to_human", None):
+                                        self.sendChatNotificationToGUI(self.agent, chatId,  interrupt_obj.value.get["notification_to_human"])
+
                                     print("NI prompt sent to GUI<<<<<<<<<<<")
 
                                 if not isinstance(msg, dict):
