@@ -114,43 +114,88 @@ a = Analysis(
         
         if collect_data:
             spec_content += f'''
-# 收集数据文件
+# 安全收集数据文件
 from PyInstaller.utils.hooks import collect_data_files
-for module in {collect_data}:
+
+def safe_collect_data_files(module_name):
+    """安全地收集数据文件，确保格式正确"""
     try:
-        datas = collect_data_files(module)
-        a.datas += datas
-        print(f"[OPTIMIZER] Collected data for {{module}}: {{len(datas)}} files")
+        datas = collect_data_files(module_name)
+        valid_datas = []
+        for item in datas:
+            if isinstance(item, (tuple, list)) and len(item) >= 2:
+                # 确保是三元组格式 (source, dest, type)
+                if len(item) == 2:
+                    valid_datas.append((str(item[0]), str(item[1]), 'DATA'))
+                else:
+                    valid_datas.append((str(item[0]), str(item[1]), str(item[2])))
+        return valid_datas
     except Exception as e:
-        print(f"[OPTIMIZER] Failed to collect data for {{module}}: {{e}}")
+        print(f"[OPTIMIZER] Failed to collect data for {{module_name}}: {{e}}")
+        return []
+
+# 收集数据文件
+for module in {collect_data}:
+    valid_datas = safe_collect_data_files(module)
+    if valid_datas:
+        a.datas.extend(valid_datas)
+        print(f"[OPTIMIZER] Collected data for {{module}}: {{len(valid_datas)}} files")
 
 '''
         
         if collect_binaries:
             spec_content += f'''
-# 收集二进制文件
+# 安全收集二进制文件
 from PyInstaller.utils.hooks import collect_dynamic_libs
-for module in {collect_binaries}:
+
+def safe_collect_binaries(module_name):
+    """安全地收集二进制文件，确保格式正确"""
     try:
-        binaries = collect_dynamic_libs(module)
-        a.binaries += binaries
-        print(f"[OPTIMIZER] Collected binaries for {{module}}: {{len(binaries)}} files")
+        binaries = collect_dynamic_libs(module_name)
+        valid_binaries = []
+        for item in binaries:
+            if isinstance(item, (tuple, list)) and len(item) >= 2:
+                # 确保是三元组格式 (source, dest, type)
+                if len(item) == 2:
+                    valid_binaries.append((str(item[0]), str(item[1]), 'BINARY'))
+                else:
+                    valid_binaries.append((str(item[0]), str(item[1]), str(item[2])))
+        return valid_binaries
     except Exception as e:
-        print(f"[OPTIMIZER] Failed to collect binaries for {{module}}: {{e}}")
+        print(f"[OPTIMIZER] Failed to collect binaries for {{module_name}}: {{e}}")
+        return []
+
+# 收集二进制文件
+for module in {collect_binaries}:
+    valid_binaries = safe_collect_binaries(module)
+    if valid_binaries:
+        a.binaries.extend(valid_binaries)
+        print(f"[OPTIMIZER] Collected binaries for {{module}}: {{len(valid_binaries)}} files")
 
 '''
         
         if collect_submodules:
             spec_content += f'''
-# 收集子模块
+# 安全收集子模块
 from PyInstaller.utils.hooks import collect_submodules
-for module in {collect_submodules}:
+
+def safe_collect_submodules(module_name):
+    """安全地收集子模块"""
     try:
-        submodules = collect_submodules(module)
-        a.hiddenimports += submodules
-        print(f"[OPTIMIZER] Collected submodules for {{module}}: {{len(submodules)}} modules")
+        submodules = collect_submodules(module_name)
+        # 确保子模块名称是字符串格式
+        valid_submodules = [str(mod) for mod in submodules if mod]
+        return valid_submodules
     except Exception as e:
-        print(f"[OPTIMIZER] Failed to collect submodules for {{module}}: {{e}}")
+        print(f"[OPTIMIZER] Failed to collect submodules for {{module_name}}: {{e}}")
+        return []
+
+# 收集子模块
+for module in {collect_submodules}:
+    valid_submodules = safe_collect_submodules(module)
+    if valid_submodules:
+        a.hiddenimports.extend(valid_submodules)
+        print(f"[OPTIMIZER] Collected submodules for {{module}}: {{len(valid_submodules)}} modules")
 
 '''
         
@@ -239,9 +284,25 @@ exe = EXE(
             spec_content += f'''
 # 数据验证和清理
 print("[OPTIMIZER] Validating TOC entries...")
-a.binaries = [entry for entry in a.binaries if len(entry) >= 3]
-a.zipfiles = [entry for entry in a.zipfiles if len(entry) >= 3]
-a.datas = [entry for entry in a.datas if len(entry) >= 3]
+
+# 验证并修复数据格式
+def validate_toc_entries(entries, entry_type):
+    """验证并修复TOC条目格式"""
+    valid_entries = []
+    for entry in entries:
+        if isinstance(entry, (tuple, list)):
+            if len(entry) == 2:
+                # 二元组转换为三元组 (source, dest, type)
+                valid_entries.append((entry[0], entry[1], 'DATA'))
+            elif len(entry) >= 3:
+                # 已经是三元组或更多，保留前三个元素
+                valid_entries.append((entry[0], entry[1], entry[2]))
+    return valid_entries
+
+a.binaries = validate_toc_entries(a.binaries, 'BINARY')
+a.zipfiles = validate_toc_entries(a.zipfiles, 'ZIPFILE')
+a.datas = validate_toc_entries(a.datas, 'DATA')
+
 print(f"[OPTIMIZER] Validated binaries: {{len(a.binaries)}} entries")
 print(f"[OPTIMIZER] Validated zipfiles: {{len(a.zipfiles)}} entries")
 print(f"[OPTIMIZER] Validated datas: {{len(a.datas)}} entries")
