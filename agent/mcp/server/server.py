@@ -44,7 +44,7 @@ from utils.logger_helper import get_agent_by_id, get_traceback
 from .event_store import InMemoryEventStore
 from collections import defaultdict
 # from agent.ec_skills.dom.dom_utils import *
-from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components
+from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components, api_ecan_ai_get_nodes_prompts
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 
 
@@ -1424,7 +1424,8 @@ tool_function_mapping = {
         "os_connect_to_chrome": os_connect_to_chrome,
         "os_reconnect_wifi": os_reconnect_wifi,
         "api_ecan_ai_query_components": api_ecan_ai_query_components,
-        "api_ecan_ai_img2text_icons": api_ecan_ai_img2text_icons
+        "api_ecan_ai_img2text_icons": api_ecan_ai_img2text_icons,
+        "api_ecan_ai_get_nodes_prompts": api_ecan_ai_get_nodes_prompts
     }
 
 def set_server_main_win(mw):

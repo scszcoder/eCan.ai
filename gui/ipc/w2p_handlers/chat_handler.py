@@ -716,7 +716,14 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
                 }
                 echo_and_push_message_async(chatId, chat_args)
             else:
-                form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=int(time.time() * 1000) )
+                params["senderId"] = "b9a9bd0e29b94fe4aaf4542cba7f5a27"
+                params["senderName"] = "My Twin Agent"
+                params["role"] = "user"
+                params["createAt"] = int(time.time() * 1000)
+                params["status"] = "complete"
+                params["attachments"] = []
+                params["content"] = json.dumps(params.get("formData"))
+                form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=params["createAt"] )
                 print("a2a_send_chat form submit:", form_submit_req)
                 a2a_send_chat(main_window, form_submit_req)
             return create_success_response(request, result.get('data'))
