@@ -128,7 +128,7 @@ class EC_Agent(Agent):
 
 
 		# Start non-blocking LLM connection verification
-		print("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
+		logger.info("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
 
 		capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
 		def get_lan_ip():
@@ -159,7 +159,7 @@ class EC_Agent(Agent):
 			port=a2a_server_port,
 			endpoint="/a2a/",
 		)
-		print("host:", host, "a2a server port:", a2a_server_port)
+		logger.info("host:", host, "a2a server port:", a2a_server_port)
 		self.a2a_server.attach_agent(self)
 
 		self.runner = TaskRunner(self)
@@ -228,7 +228,7 @@ class EC_Agent(Agent):
 		return self.card
 
 	def get_a2a_server_port(self):
-		print(f"get a2a server port: {self.a2a_server.agent_card.url.split(':')[-1]}")
+		logger.info(f"get a2a server port: {self.a2a_server.agent_card.url.split(':')[-1]}")
 		return int(self.a2a_server.agent_card.url.split(":")[-1])
 
 	def is_busy(self):
@@ -256,51 +256,51 @@ class EC_Agent(Agent):
 	def start(self):
 		# kick off a2a server:
 		self.start_a2a_server_in_thread(self.a2a_server)
-		print("A2A server started....")
+		logger.info("A2A server started....")
 		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor
 		self.running_tasks = self.mainwin.threadPoolExecutor
 		for task in self.tasks:
 			# new_thread = self.new_thread(task.id)
-			print(f"{self.card.name} Starting task {task.name} with trigger {task.trigger}")
+			logger.info(f"{self.card.name} Starting task {task.name} with trigger {task.trigger}")
 			if task.trigger == "schedule":
-				print(" scheduled task name:", task.name)
+				logger.info(" scheduled task name:", task.name)
 				self.running_tasks.submit(self.runner.launch_scheduled_run,task)
 				# await self.runner.launch_scheduled_run(task)
 				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
 			elif task.trigger == "message":
-				print(" message task name:", task.name)
+				logger.info(" message task name:", task.name)
 				self.running_tasks.submit(self.runner.launch_reacted_run,task)
 
 				# await self.runner.launch_reacted_run(task)
 				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
 			elif task.trigger == "interaction":
-				print(" interaction task name:", task.name)
+				logger.info(" interaction task name:", task.name)
 				self.running_tasks.submit(self.runner.launch_interacted_run,task)
 
 				# await self.runner.launch_interacted_run(task)
 				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
 			else:
-				print("WARNING: UNRECOGNIZED task trigger type....")
+				logger.info("WARNING: UNRECOGNIZED task trigger type....")
 
 		# runnable = self.skill_set[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()
-		print("Ready to A2A chat....")
+		logger.info("Ready to A2A chat....")
 
 	async def hone_skills(self):
-		print("hone skills...")
+		logger.info("hone skills...")
 
 	def get_task_id_from_request(self, req):
 		task_id = req.params.id
-		print(f"TASK ID IN QUERY:{task_id}.")
+		logger.info(f"TASK ID IN QUERY:{task_id}.")
 		return task_id
 
 	@time_execution_async('--request_local_help (agent)')
 	async def request_local_help(self, recipient_agent=None):
 		# this is only available if myself is not a helper agent
 		helper = next((ag for ag in self.mainwin.agents if "helper" in self.get_card().name.lower()), None)
-		print("client card:", self.get_card().name.lower())
+		logger.info("client card:", self.get_card().name.lower())
 		if helper:
 			self.a2a_client.set_recipient(helper.get_card())
 			help_msg = Message(role="user", parts=[TextPart(type="text", text="Summarize this report")], metadata={"type": "send_task"})
@@ -312,11 +312,11 @@ class EC_Agent(Agent):
 				"skill": "resolve_rpa_failure"  # Or whatever your agent expects
 			}
 
-			print("client payload:", payload["id"])
+			logger.info("client payload:", payload["id"])
 			response = await self.a2a_client.send_task(payload)
-			print("A2A RESPONSE:", response)
+			logger.info("A2A RESPONSE:", response)
 		else:
-			print("client err:", self.get_card().name.lower())
+			logger.info("client err:", self.get_card().name.lower())
 
 	# class Message(BaseModel):
 	# 	role: Literal["user", "agent"]
@@ -327,11 +327,11 @@ class EC_Agent(Agent):
 	@time_execution_sync('--a2a_send_chat_message (agent, message)')
 	def a2a_send_chat_message(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
-		print("recipient card:", recipient_agent.get_card().name.lower())
-		print("sending message:", message)
+		logger.info("recipient card:", recipient_agent.get_card().name.lower())
+		logger.info("sending message:", message)
 		try:
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
-			print("a2a end point: ", a2a_end_point)
+			logger.info("a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
 			msg_parts = [TextPart(type="text", text=message['chat']['input'])]
 			if message['chat']['attachments']:
@@ -362,10 +362,10 @@ class EC_Agent(Agent):
 				}
 			)
 
-			print("client payload:", payload)
+			logger.info("client payload:", payload)
 			# response = await self.a2a_client.send_task(payload)
 			response = self.a2a_client.sync_send_task(payload.model_dump())
-			print("A2A RESPONSE:", response)
+			logger.info("A2A RESPONSE:", response)
 			return response
 		except Exception as e:
 			# Get the traceback information
@@ -375,4 +375,4 @@ class EC_Agent(Agent):
 				ex_stat = "ErrorA2ASend:" + traceback.format_exc() + " " + str(e)
 			else:
 				ex_stat = "ErrorA2ASend: traceback information not available:" + str(e)
-			print(ex_stat)
+			logger.error(ex_stat)
