@@ -84,18 +84,22 @@ class MenuManager:
         try:
             # Windows使用非原生菜单栏以获得更好的控制
             menubar.setNativeMenuBar(False)
-            logger.info("使用Qt菜单栏（Windows优化）")
-            
+
+            # 设置菜单栏样式，使其集成到标题栏中
+            self._setup_titlebar_menu_style(menubar)
+
+            logger.info("使用Qt菜单栏（Windows优化，集成到标题栏）")
+
         except Exception as e:
             logger.warning(f"Windows菜单设置失败: {e}")
-        
+
         # Windows上显示完整的应用程序菜单
         app_menu = menubar.addMenu('eCan')
         self._setup_app_menu(app_menu)
-        
+
         # 设置其他标准菜单
         self._setup_common_menus(menubar)
-        
+
         # Windows特有的Tools菜单
         tools_menu = menubar.addMenu('Tools')
         self._setup_tools_menu(tools_menu)
@@ -105,21 +109,124 @@ class MenuManager:
         try:
             # Linux通常使用Qt菜单栏
             menubar.setNativeMenuBar(False)
-            logger.info("使用Qt菜单栏（Linux）")
-            
+
+            # 设置菜单栏样式，使其集成到标题栏中
+            self._setup_titlebar_menu_style(menubar)
+
+            logger.info("使用Qt菜单栏（Linux，集成到标题栏）")
+
         except Exception as e:
             logger.warning(f"Linux菜单设置失败: {e}")
-        
+
         # Linux上的标准菜单布局
         app_menu = menubar.addMenu('eCan')
         self._setup_app_menu(app_menu)
-        
+
         # 设置其他标准菜单
         self._setup_common_menus(menubar)
-        
+
         # Linux可选的Tools菜单
         tools_menu = menubar.addMenu('Tools')
         self._setup_tools_menu(tools_menu)
+
+    def _setup_titlebar_menu_style(self, menubar):
+        """设置菜单栏样式，使其集成到标题栏中"""
+        try:
+            # 设置菜单栏的样式，使其看起来像是标题栏的一部分
+            menubar.setStyleSheet("""
+                QMenuBar {
+                    background-color: #2d2d2d;  /* 与标题栏颜色一致 */
+                    color: #e0e0e0;
+                    border: none;
+                    border-bottom: 1px solid #404040;  /* 添加底部边框分隔 */
+                    padding: 0px 8px;  /* 左右添加一些内边距 */
+                    margin: 0px;
+                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 13px;
+                    font-weight: 500;
+                    height: 30px;  /* 稍微减小高度，更紧凑 */
+                    spacing: 8px;  /* 菜单项之间的间距 */
+                }
+
+                QMenuBar::item {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    padding: 4px 10px;  /* 减小内边距，更紧凑 */
+                    margin: 2px 1px;  /* 添加小的外边距 */
+                    border-radius: 3px;  /* 稍微减小圆角 */
+                    min-width: 40px;  /* 最小宽度 */
+                }
+
+                QMenuBar::item:selected {
+                    background-color: #404040;
+                    color: #ffffff;
+                }
+
+                QMenuBar::item:pressed {
+                    background-color: #505050;
+                    color: #ffffff;
+                }
+
+                QMenu {
+                    background-color: #2d2d2d;
+                    color: #e0e0e0;
+                    border: 1px solid #404040;
+                    border-radius: 6px;
+                    padding: 4px 0px;
+                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 13px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);  /* 添加阴影效果 */
+                }
+
+                QMenu::item {
+                    background-color: transparent;
+                    color: #e0e0e0;
+                    padding: 8px 24px;  /* 增加内边距，更舒适 */
+                    margin: 1px 4px;
+                    border-radius: 4px;
+                    min-height: 20px;  /* 最小高度 */
+                }
+
+                QMenu::item:selected {
+                    background-color: #404040;
+                    color: #ffffff;
+                }
+
+                QMenu::item:disabled {
+                    color: #808080;  /* 禁用项的颜色 */
+                }
+
+                QMenu::separator {
+                    height: 1px;
+                    background-color: #404040;
+                    margin: 6px 12px;  /* 增加分隔符的边距 */
+                }
+
+                QMenu::indicator {
+                    width: 16px;
+                    height: 16px;
+                    margin-left: 4px;
+                }
+
+                QMenu::indicator:checked {
+                    background-color: #0078d4;  /* 使用蓝色表示选中状态 */
+                    border-radius: 2px;
+                }
+
+                QMenu::right-arrow {
+                    width: 12px;
+                    height: 12px;
+                    margin-right: 8px;
+                }
+            """)
+
+            # 设置菜单栏的固定高度，使其更紧凑
+            menubar.setFixedHeight(30)
+
+            logger.info("菜单栏样式已设置为标题栏集成模式")
+
+        except Exception as e:
+            logger.error(f"设置菜单栏样式失败: {e}")
     
     def _setup_common_menus(self, menubar):
         """设置所有平台通用的菜单"""
