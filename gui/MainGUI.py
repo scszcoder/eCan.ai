@@ -993,7 +993,7 @@ class MainWindow(QMainWindow):
                             wifi_info = None
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                     logger.warning(f"Failed to get WiFi info using airport: {str(e)}")
-                    print(f"macOS WiFi detection failed: {str(e)}")
+                    logger.warning(f"macOS WiFi detection failed: {str(e)}")
                     wifi_info = None
             else:
                 logger.warning("Airport command not found on macOS")
@@ -1031,7 +1031,7 @@ class MainWindow(QMainWindow):
                 logger.info("bot cloud done....")
             logger.info("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
-            print("find all bots")
+            logger.info("find all bots")
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
@@ -1039,9 +1039,9 @@ class MainWindow(QMainWindow):
 
             if not self.debug_mode or self.schedule_mode == "auto":
                 self.mission_service.sync_cloud_mission_data(self.session, self.tokens, self)
-            print("mission cloud synced")
+            logger.info("mission cloud synced")
             missions_data = self.mission_service.find_missions_by_createon()
-            print("local mission data:", missions_data)
+            logger.info("local mission data:", missions_data)
             # missions_data = []      # test hack
             self.loadLocalMissions(missions_data)
             log3("missions loaded")
@@ -1075,7 +1075,7 @@ class MainWindow(QMainWindow):
                         if hasattr(module, ins["handler"]):
                             RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
                             ARAIS[ins["instruction name"]] = getattr(module, ins["handler"])
-                            print("EXTENDING ARAIS", ins["instruction name"])
+                            logger.info("EXTENDING ARAIS", ins["instruction name"])
 
         # now load experience file which will speed up icon matching
         run_experience_file = self.my_ecb_data_homepath + "/run_experience.txt"
@@ -1186,7 +1186,7 @@ class MainWindow(QMainWindow):
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
-        print("Building agent skills.....")
+        logger.info("Building agent skills.....")
         asyncio.create_task(self.async_agents_init())
 
 
@@ -1207,7 +1207,7 @@ class MainWindow(QMainWindow):
 
 
         self.saveSettings()
-        print("vehicles after init:", [v.getName() for v in self.vehicles])
+        logger.info("vehicles after init:", [v.getName() for v in self.vehicles])
 
         # finally setup agents, note: local servers needs to be setup and running
         # before this.
@@ -1242,43 +1242,152 @@ class MainWindow(QMainWindow):
         self.lightrag_server = None
 
     async def async_agents_init(self):
-        logger.info("initing agents async.....")
-        local_server_port = self.get_local_server_port()
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
-        logger.info(f"local server ready.........{local_server_port}")
-        # result = await self.initialize_mcp()
-        # print("initialize_mcp.....result:", result)
-        # self.mcp_client = await create_mcp_client()
-        url = "http://localhost:4668/sse/"
-        url = "http://localhost:4668/mcp/"
-        # self.mcp_client_manager = Streamable_HTTP_Manager(url)
-        # self.mcp_client = await self.mcp_client_manager.session()
-        # self.mcp_client = await SSEManager.get(url).session()
-        # self.mcp_client = await create_sse_client()
-        logger.info("MCP client created....")
-        # tl = await self.mcp_client.list_tools()
-        tl = await local_mcp_list_tools(url)
-        # print("list of tools:", tl)
+        """
+        异步初始化代理，必须等待服务器就绪后才能继续后续逻辑
+        优化了PyInstaller环境下的超时处理
+        """
+        try:
+            logger.info("initing agents async.....")
+            local_server_port = self.get_local_server_port()
 
-        # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
+            # 等待本地服务器就绪 - 这是阻塞等待，必须完成
+            # 在PyInstaller环境中需要更长的超时时间
+            server_timeout = 45  # 增加超时时间到45秒以适应PyInstaller环境
+            logger.info(f"Waiting for local server on port {local_server_port} (timeout: {server_timeout}s)")
+            logger.info("注意：此步骤必须等待完成，后续代理初始化依赖于服务器就绪状态")
 
-        # print("MCP client tools listed....", tools)
-        self.agent_skills = []
-        self.agent_tasks = []
-        self.agent_tools = []
-        self.agent_knowledges = []
-        
-        self.agent_skills = await build_agent_skills(self)
-        self.agent_tasks = create_agent_tasks(self)
-        self.agent_tools = obtain_agent_tools(self)
-        self.agent_knowledges = build_agent_knowledges(self)
-        # tools = await mcp_load_tools()
-        print("DONE build agent skills.....", len(self.agent_skills))
-        build_agents(self)
-        print("DONE build agents.....")
-        # await self.launch_agents()
-        self.launch_agents()
-        print("DONE launch agents.....")
+            try:
+                # 这里必须等待完成，不能跳过
+                await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz", timeout=server_timeout)
+                logger.info(f"✅ Local server ready on port {local_server_port}")
+
+            except RuntimeError as e:
+                logger.error(f"❌ Failed to connect to local server after {server_timeout}s: {e}")
+                # 在PyInstaller环境中，服务器启动失败是严重问题
+                error_msg = f"本地服务器连接失败 (端口: {local_server_port})。\n" \
+                           f"超时时间: {server_timeout}秒\n" \
+                           f"错误详情: {str(e)}\n\n" \
+                           f"请检查：\n" \
+                           f"1. 服务器进程是否正常启动\n" \
+                           f"2. 端口 {local_server_port} 是否被占用\n" \
+                           f"3. 防火墙是否阻止了连接"
+                self.showMsg(error_msg)
+                # 抛出异常，因为后续逻辑无法正常工作
+                raise RuntimeError(f"Server connection failed: {e}")
+
+            except Exception as e:
+                logger.error(f"❌ Unexpected error while waiting for server: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                error_msg = f"连接本地服务器时发生意外错误: {str(e)}"
+                self.showMsg(error_msg)
+                # 抛出异常，因为后续逻辑无法正常工作
+                raise
+
+            # 服务器已就绪，开始初始化MCP客户端和代理
+            logger.info("🔄 Starting MCP client and agent initialization...")
+
+            # result = await self.initialize_mcp()
+            # print("initialize_mcp.....result:", result)
+            # self.mcp_client = await create_mcp_client()
+            url = "http://localhost:4668/sse/"
+            url = "http://localhost:4668/mcp/"
+            # self.mcp_client_manager = Streamable_HTTP_Manager(url)
+            # self.mcp_client = await self.mcp_client_manager.session()
+            # self.mcp_client = await SSEManager.get(url).session()
+            # self.mcp_client = await create_sse_client()
+            logger.info("MCP client created....")
+
+            # 获取MCP工具列表
+            try:
+                logger.info("📋 Listing MCP tools...")
+                # tl = await self.mcp_client.list_tools()
+                tl_result = await local_mcp_list_tools(url)
+
+                # 处理 ListToolsResult 对象
+                if hasattr(tl_result, 'tools'):
+                    tl = tl_result.tools  # 获取实际的工具列表
+                    logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
+                elif isinstance(tl_result, list):
+                    tl = tl_result  # 如果直接返回列表
+                    logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
+                else:
+                    logger.warning(f"Unexpected tools result type: {type(tl_result)}")
+                    tl = []
+
+                logger.debug(f"Tools result type: {type(tl_result)}")
+                if tl:
+                    logger.debug(f"First tool: {tl[0] if len(tl) > 0 else 'None'}")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to list MCP tools: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                # 继续执行，但记录错误
+                tl = []
+                logger.warning("Continuing with empty tool list...")
+
+            # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
+
+            # 初始化代理相关组件
+            logger.info("🤖 Initializing agent components...")
+            self.agent_skills = []
+            self.agent_tasks = []
+            self.agent_tools = []
+            self.agent_knowledges = []
+
+            try:
+                # 按顺序初始化各个组件，每个步骤都等待完成
+                logger.info("🔧 Building agent skills...")
+                self.agent_skills = await build_agent_skills(self)
+                logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
+
+                logger.info("📝 Creating agent tasks...")
+                self.agent_tasks = create_agent_tasks(self)
+                logger.info(f"✅ Created {len(self.agent_tasks)} agent tasks")
+
+                logger.info("🛠️ Obtaining agent tools...")
+                self.agent_tools = obtain_agent_tools(self)
+                logger.info(f"✅ Obtained {len(self.agent_tools)} agent tools")
+
+                logger.info("📚 Building agent knowledges...")
+                self.agent_knowledges = build_agent_knowledges(self)
+                logger.info(f"✅ Built {len(self.agent_knowledges)} agent knowledges")
+
+                # tools = await mcp_load_tools()
+                logger.info("DONE build agent skills.....", len(self.agent_skills))
+
+                logger.info("🚀 Building agents...")
+                build_agents(self)
+                logger.info("✅ DONE build agents.....")
+
+                logger.info("🎯 Launching agents...")
+                # await self.launch_agents()
+                self.launch_agents()
+                logger.info("✅ DONE launch agents.....")
+
+                logger.info("🎉 Agent initialization completed successfully!")
+
+            except Exception as e:
+                logger.error(f"❌ Error during agent initialization: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                error_msg = f"代理初始化过程中发生错误: {str(e)}\n\n" \
+                           f"这可能是由于：\n" \
+                           f"1. 依赖服务未完全启动\n" \
+                           f"2. 配置文件缺失或错误\n" \
+                           f"3. 网络连接问题\n\n" \
+                           f"请检查日志获取详细信息。"
+                self.showMsg(error_msg)
+                # 抛出异常，因为代理初始化失败会影响后续功能
+                raise
+
+        except Exception as e:
+            logger.error(f"Critical error in async_agents_init: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            error_msg = f"代理初始化失败: {str(e)}"
+            self.showMsg(error_msg)
 
         # self.top_gui.update_all(self)
         # await self.test_a2a()
@@ -1295,7 +1404,7 @@ class MainWindow(QMainWindow):
             try:
                 response = requests.get(url)
                 if response.status_code == 200:
-                    print("✅ Server is up!")
+                    logger.info("✅ Server is up!")
                     return True
             except requests.ConnectionError:
                 pass
