@@ -129,6 +129,7 @@ except ImportError:
 
 def main():
     """主函数"""
+    print("🚀 进入main函数...")
 
     # 启动热更新监控（开发模式）
     if app_settings.is_dev_mode:
@@ -145,10 +146,22 @@ def main():
         app = QApplication(sys.argv)
     
     # 设置应用程序信息和图标（统一管理）
-    from utils.app_setup_helper import setup_application_info, set_app_icon, set_app_icon_delayed
+    try:
+        from utils.app_setup_helper import setup_application_info, set_app_icon, set_app_icon_delayed
+        print("✅ 应用程序设置模块导入成功")
+    except Exception as e:
+        print(f"❌ 应用程序设置模块导入失败: {e}")
+        traceback.print_exc()
+        raise
     
     # 统一设置应用程序基本信息
-    setup_application_info(app, logger)
+    try:
+        setup_application_info(app, logger)
+        print("✅ 应用程序基本信息设置成功")
+    except Exception as e:
+        print(f"❌ 应用程序基本信息设置失败: {e}")
+        traceback.print_exc()
+        raise
     
 
     # 初始化全局 AppContext
@@ -198,26 +211,36 @@ def main():
 
     # 创建并显示 Web GUI
     try:
+        print("🚀 开始创建WebGUI实例...")
         logger.info("Creating WebGUI instance...")
         web_gui = WebGUI()
+        print("✅ WebGUI实例创建成功")
         logger.info("WebGUI instance created successfully")
 
         ctx.set_web_gui(web_gui)
         set_top_web_gui(web_gui)
 
+        print("🖥️  显示WebGUI窗口...")
         logger.info("Showing WebGUI...")
         web_gui.show()
+        print("✅ WebGUI窗口显示成功")
         logger.info("WebGUI shown successfully")
 
         utils.logger_helper.login.setTopGUI(web_gui)
         logger.info("WebGUI setup completed")
 
     except Exception as e:
-        logger.error(f"Failed to create or show WebGUI: {str(e)}")
+        error_msg = f"WebGUI创建或显示失败: {str(e)}"
+        print(f"❌ {error_msg}")
+        logger.error(error_msg)
+        
         import traceback
-        logger.error(traceback.format_exc())
-        # 即使 WebGUI 失败，也尝试继续运行
-        logger.info("Attempting to continue without WebGUI...")
+        error_trace = traceback.format_exc()
+        print(f"详细错误信息:\n{error_trace}")
+        logger.error(error_trace)
+        
+        # 重新抛出异常，让外层处理
+        raise
 
     # 运行主循环
     loop.run_forever()
@@ -228,7 +251,7 @@ if __name__ == '__main__':
     print(f"[PLATFORM] Running on {sys.platform}")
     if getattr(sys, 'frozen', False):
         print("[PYINSTALLER] Running from PyInstaller bundle")
-    setproctitle('ECBot')
+    setproctitle('eCan')
 
     # test_eb_orders_scraper()
     # test_etsy_label_gen()
@@ -264,6 +287,22 @@ if __name__ == '__main__':
         main()
     except Exception as e:
         error_info = traceback.format_exc()  # 获取完整的异常堆栈信息
-        logger.error(error_info)
+        
+        # 同时打印到控制台和记录到日志
+        print(f"\n❌ 应用程序启动失败:")
+        print(f"错误类型: {type(e).__name__}")
+        print(f"错误信息: {str(e)}")
+        print(f"\n完整异常堆栈:")
+        print(error_info)
+        
+        # 如果logger可用，也记录到日志
+        try:
+            logger.error(f"应用程序启动失败: {str(e)}")
+            logger.error(error_info)
+        except:
+            print("注意: 无法写入日志文件")
+        
+        # 确保程序以错误代码退出
+        sys.exit(1)
 
     # qasync.run(main())
