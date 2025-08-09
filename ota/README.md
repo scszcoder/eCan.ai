@@ -32,6 +32,17 @@ ota/
 
 ## 快速使用
 
+### 0. 构建应用程序
+
+**重要**：在生产环境中，Sparkle/winSparkle依赖会自动打包到应用程序中，用户无需手动安装。
+
+详细构建指南请参见：**[BUILD_GUIDE.md](../BUILD_GUIDE.md)**
+
+```bash
+# 一键构建（包含所有依赖）
+python build_app.py
+```
+
 ### 1. 基本导入
 
 ```python
@@ -68,7 +79,21 @@ dialog = UpdateDialog(parent_window)
 dialog.exec()
 ```
 
-### 4. 构建OTA组件
+### 4. 安装依赖
+
+```bash
+# 自动安装所有依赖（推荐）
+python ota/install_dependencies.py
+
+# 或手动安装Python依赖
+pip install -r requirements-windows.txt  # Windows
+pip install -r requirements-macos.txt    # macOS
+pip install -r requirements-base.txt     # Linux
+```
+
+**注意**: Sparkle和winSparkle不是Python包，需要单独安装。详见平台特定的安装指南。
+
+### 5. 构建OTA组件（可选）
 
 ```bash
 # 构建所有平台
@@ -82,7 +107,7 @@ python ota/build/sparkle_build.py windows
 python ota/build/sparkle_build.py clean
 ```
 
-### 5. 启动测试服务器
+### 6. 启动测试服务器
 
 ```bash
 python ota/server/update_server.py
@@ -132,16 +157,19 @@ export ECBOT_UPDATE_SERVER=https://updates.ecbot.com
 - 使用Sparkle框架
 - 支持DMG和ZIP更新包
 - 数字签名验证
+- **安装说明**: 参见 [platforms/SPARKLE_SETUP.md](platforms/SPARKLE_SETUP.md)
 
 ### Windows  
 - 使用winSparkle
 - 支持EXE和MSI更新包
 - Authenticode代码签名
+- **安装说明**: 参见 [platforms/WINSPARKLE_SETUP.md](platforms/WINSPARKLE_SETUP.md)
 
 ### Linux
 - 通用HTTP API
 - 支持TAR.GZ更新包
 - 通过安装脚本更新
+- **无需额外安装**: 使用标准Python库
 
 ## 开发
 
@@ -195,19 +223,33 @@ python -m pytest tests/test_ota.py
 
 ### 常见问题
 
-1. **Sparkle框架未找到**
+1. **依赖安装错误**
+   ```
+   ERROR: No matching distribution found for pywinsparkle>=1.6.0
+   ERROR: No matching distribution found for sparkle>=0.9.4
+   ```
+   **解决方案**: 这些不是Python包，需要单独安装：
+   - macOS: 参见 [platforms/SPARKLE_SETUP.md](platforms/SPARKLE_SETUP.md)
+   - Windows: 参见 [platforms/WINSPARKLE_SETUP.md](platforms/WINSPARKLE_SETUP.md)
+
+2. **Sparkle框架未找到**
    ```bash
    brew install sparkle
    ```
 
-2. **winSparkle编译失败**
+3. **winSparkle编译失败**
    - 检查Visual Studio安装
    - 验证依赖完整性
 
-3. **更新检查失败**
+4. **更新检查失败**
    - 检查网络连接
    - 验证服务器URL
    - 查看日志文件
+
+5. **开发环境HTTPS错误**
+   ```bash
+   export ECBOT_DEV_MODE=true
+   ```
 
 ### 日志
 

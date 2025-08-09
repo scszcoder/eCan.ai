@@ -18,6 +18,17 @@ from urllib.parse import urlparse
 
 import requests
 from utils.logger_helper import logger_helper as logger
+from .config import ota_config
+
+# 尝试导入加密库
+try:
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa, padding
+    from cryptography.exceptions import InvalidSignature
+    CRYPTO_AVAILABLE = True
+except ImportError:
+    logger.warning("cryptography library not available, digital signature verification will be limited")
+    CRYPTO_AVAILABLE = False
 
 
 class UpdatePackage:
@@ -136,6 +147,10 @@ class PackageManager:
                     logger.info("Hash verification successful")
                 else:
                     # 数字签名验证
+                    # 如果没有提供公钥路径，从配置中获取
+                    if not public_key_path:
+                        public_key_path = ota_config.get_public_key_path()
+                    
                     if not self._verify_digital_signature(package.download_path, package.signature, public_key_path):
                         logger.error("Digital signature verification failed")
                         return False
@@ -167,17 +182,51 @@ class PackageManager:
     def _verify_digital_signature(self, file_path: Path, signature: str, public_key_path: Optional[str]) -> bool:
         """验证数字签名"""
         try:
-            # 这里应该实现真正的数字签名验证
-            # 为了演示，我们只做基本检查
+            if not CRYPTO_AVAILABLE:
+                logger.warning("Cryptography library not available, skipping digital signature verification")
+                return True
+            
             if not public_key_path or not os.path.exists(public_key_path):
                 logger.warning("Public key not available, skipping digital signature verification")
-                return True  # 在没有公钥的情况下跳过验证
+                return True
             
-            # TODO: 实现真正的数字签名验证
-            # 可以使用 cryptography 库来实现
-            logger.info("Digital signature verification not fully implemented")
+            # 读取公钥
+            with open(public_key_path, 'rb') as key_file:
+                public_key = serialization.load_pem_public_key(key_file.read())
+            
+            # 读取文件内容
+            with open(file_path, 'rb') as f:
+                file_data = f.read()
+            
+            # 解码签名（假设是base64编码）
+            import base64
+            try:
+                signature_bytes = base64.b64decode(signature)
+            except Exception:
+                # 如果不是base64，尝试直接使用
+                signature_bytes = signature.encode('utf-8')
+            
+            # 验证签名
+            if isinstance(public_key, rsa.RSAPublicKey):
+                public_key.verify(
+                    signature_bytes,
+                    file_data,
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH
+                    ),
+                    hashes.SHA256()
+                )
+            else:
+                logger.error("Unsupported public key type for signature verification")
+                return False
+            
+            logger.info("Digital signature verification successful")
             return True
             
+        except InvalidSignature:
+            logger.error("Digital signature verification failed: Invalid signature")
+            return False
         except Exception as e:
             logger.error(f"Digital signature verification error: {e}")
             return False

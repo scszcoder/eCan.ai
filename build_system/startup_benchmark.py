@@ -26,12 +26,19 @@ class StartupBenchmark:
         executables = {}
         
         # 查找 onedir 模式
-        onedir_exe = self.dist_dir / "eCan" / "eCan.exe"
+        if sys.platform == "win32":
+            onedir_exe = self.dist_dir / "eCan" / "eCan.exe"
+            onefile_exe = self.dist_dir / "eCan.exe"
+        elif sys.platform == "darwin":
+            onedir_exe = self.dist_dir / "eCan.app" / "Contents" / "MacOS" / "eCan"
+            onefile_exe = self.dist_dir / "eCan"
+        else:  # Linux
+            onedir_exe = self.dist_dir / "eCan" / "eCan"
+            onefile_exe = self.dist_dir / "eCan"
+        
         if onedir_exe.exists():
             executables["onedir"] = onedir_exe
             
-        # 查找 onefile 模式
-        onefile_exe = self.dist_dir / "eCan.exe"
         if onefile_exe.exists():
             executables["onefile"] = onefile_exe
             

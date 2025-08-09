@@ -82,6 +82,8 @@ from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
 from bot.hrSkill import genWinChromeECBHrRecruitSkill, genWinChromeECBHrLayoffSkill
 from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBuyProductSkill
 from utils.logger_helper import login
+from utils.logger_helper import logger_helper as logger
+
 
 ecb_data_homepath = getECBotDataHome()
 
@@ -668,20 +670,20 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
     sk_parts = sk_full_name.split("_")
     sk_prefix = "_".join(sk_parts[:4])
     sk_name = "_".join(sk_parts[4:])
-    log3("sk_prefix"+" "+sk_prefix+" "+"sk_name: "+sk_name)
+    logger.trace("sk_prefix"+" "+sk_prefix+" "+"sk_name: "+sk_name)
     if privacy == "public":
         sk_file_name = root_path + "/resource/skills/public/" + sk_prefix+"/"+sk_name+".psk"
         my_sk_full_name = sk_full_name
     else:
         sk_file_name = root_path + "/my_skills/" + sk_prefix + "/" + sk_name + ".psk"
-        log3("gen private skill: " + sk_file_name)
+        logger.trace("gen private skill: " + sk_file_name)
         my_sk_full_name = sk_full_name + "_my"
 
     sk_file_dir = os.path.dirname(sk_file_name)
     os.makedirs(sk_file_dir, exist_ok=True)
 
-    log3("sk_file_dir"+sk_file_dir+" sk_full_name: "+sk_full_name+" my_sk_full_name:"+my_sk_full_name)
-    log3("opening skill file: "+sk_file_name+" start_step: "+json.dumps(start_step))
+    logger.trace("sk_file_dir"+sk_file_dir+" sk_full_name: "+sk_full_name+" my_sk_full_name:"+my_sk_full_name)
+    logger.trace("opening skill file: "+sk_file_name+" start_step: "+json.dumps(start_step))
 
     try:
         if my_sk_full_name in SkillGeneratorTable.keys():
@@ -689,7 +691,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
                 # at this time, the settings is not yet known, so simply set it to None, later on in reAddrAndUpdateSteps(), we set the true value of settings there..
                 this_step, step_words = SkillGeneratorTable[sk_full_name](None, start_step, theme)
             else:
-                log3("gen private....."+sk_full_name)
+                logger.trace("gen private....."+sk_full_name)
                 # at this time, the settings is not yet known, so simply set it to None, , later on in reAddrAndUpdateSteps(), we set the true value of settings there.
                 this_step, step_words = SkillGeneratorTable[my_sk_full_name](None, start_step, theme, PUBLIC)
 
@@ -705,7 +707,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
                 skf.write(psk_words)
                 skf.close()
         else:
-            log3("Private Skill: "+sk_full_name)
+            logger.trace("Private Skill: "+sk_full_name)
             # for private skill, skill are build locally, psk should have been there, but for safety, regenerate if missing.
             # regenerate should be from a .skd (skill diagram file), or alternatively, execute private .py file which uses
             # python script to generate PSK file.
@@ -720,7 +722,7 @@ def genSkillCode(sk_full_name, privacy, root_path, start_step, theme):
         else:
             ex_stat = "ErrorWritePSK traceback information not available"
 
-        log3(ex_stat)
+        logger.error(ex_stat)
 
     return this_step, sk_file_name
 

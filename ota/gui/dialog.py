@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 
 from utils.logger_helper import logger_helper as logger
+from ..core.errors import UpdateError, get_user_friendly_message
 
 
 class UpdateCheckerThread(QThread):
@@ -11,6 +12,7 @@ class UpdateCheckerThread(QThread):
     update_found = Signal(bool, str)
     check_finished = Signal()
     error_occurred = Signal(str)
+    update_error = Signal(object)  # 传递UpdateError对象
     
     def __init__(self, ota_updater, silent=False):
         super().__init__()
@@ -22,6 +24,13 @@ class UpdateCheckerThread(QThread):
             # 检查是否被中断
             if self.isInterruptionRequested():
                 return
+            
+            # 设置错误回调
+            def error_callback(error: UpdateError):
+                if not self.isInterruptionRequested():
+                    self.update_error.emit(error)
+            
+            self.ota_updater.set_error_callback(error_callback)
             
             # 再次检查中断
             if self.isInterruptionRequested():
@@ -35,6 +44,10 @@ class UpdateCheckerThread(QThread):
                     self.update_found.emit(True, "New update available")
                 else:
                     self.update_found.emit(False, "No updates available")
+                    
+        except UpdateError as e:
+            if not self.isInterruptionRequested():
+                self.update_error.emit(e)
         except Exception as e:
             if not self.isInterruptionRequested():
                 self.error_occurred.emit(str(e))
@@ -166,6 +179,7 @@ class UpdateDialog(QDialog):
         self.checker_thread.update_found.connect(self.on_update_found)
         self.checker_thread.check_finished.connect(self.on_check_finished)
         self.checker_thread.error_occurred.connect(self.on_error)
+        self.checker_thread.update_error.connect(self.on_update_error)
         self.checker_thread.start()
     
     def on_update_found(self, has_update, message):
@@ -191,6 +205,24 @@ class UpdateDialog(QDialog):
         self.check_button.setEnabled(True)
         self.progress_bar.setVisible(False)
         logger.error(f"Update check error: {error_message}")
+    
+    def on_update_error(self, error: UpdateError):
+        """更新错误处理"""
+        user_message = get_user_friendly_message(error)
+        self.status_label.setText(f"Error: {user_message}")
+        
+        # 显示详细错误信息
+        if error.details:
+            details_text = f"Error Code: {error.code.value}\n"
+            details_text += f"Message: {error.message}\n"
+            if error.details:
+                details_text += f"Details: {error.details}"
+            self.update_info.setPlainText(details_text)
+            self.update_info.setVisible(True)
+        
+        self.check_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        logger.error(f"Update error: {error}")
     
     def install_update(self):
         """安装更新"""

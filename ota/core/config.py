@@ -24,6 +24,9 @@ class OTAConfig:
             "download_path": None,
             "backup_enabled": True,
             "signature_verification": True,
+            "dev_mode": False,  # 开发模式
+            "allow_http_in_dev": True,  # 开发模式下允许HTTP
+            "public_key_path": None,  # 数字签名验证公钥路径
             "platforms": {
                 "darwin": {
                     "framework_path": "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
@@ -136,6 +139,36 @@ class OTAConfig:
     def is_signature_verification_enabled(self) -> bool:
         """是否启用签名验证"""
         return self.config.get("signature_verification", True)
+    
+    def is_dev_mode(self) -> bool:
+        """是否为开发模式"""
+        # 检查环境变量或配置
+        return (os.environ.get('ECBOT_DEV_MODE', '').lower() in ['true', '1', 'yes'] or 
+                self.config.get("dev_mode", False))
+    
+    def is_http_allowed(self) -> bool:
+        """是否允许HTTP（仅在开发模式下）"""
+        return self.is_dev_mode() and self.config.get("allow_http_in_dev", True)
+    
+    def get_public_key_path(self) -> Optional[str]:
+        """获取数字签名验证公钥路径"""
+        # 优先使用配置文件中的路径
+        config_path = self.config.get("public_key_path")
+        if config_path and os.path.exists(config_path):
+            return config_path
+        
+        # 尝试默认路径
+        default_paths = [
+            os.path.join(os.path.dirname(__file__), "..", "..", "keys", "public_key.pem"),
+            os.path.join(os.path.expanduser("~"), ".ecbot", "public_key.pem"),
+            "/etc/ecbot/public_key.pem"  # Linux系统路径
+        ]
+        
+        for path in default_paths:
+            if os.path.exists(path):
+                return path
+        
+        return None
 
 
 # 全局配置实例
