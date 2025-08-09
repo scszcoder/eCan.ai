@@ -3,5 +3,5 @@
 
 # Windows specific packages
 pywin32>=310; platform_system == "Windows"
-pywin32-ctypes==0.2.2; platform_system == "Windows"
+pywin32-ctypes>=0.2.2; platform_system == "Windows"
 pywinsparkle>=1.6.0; platform_system == "Windows"
