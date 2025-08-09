@@ -177,7 +177,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python build.py --check-env
+        python -c "import sys, platform; from pathlib import Path; print(f'Platform: {platform.system()}'); print(f'Python: {platform.python_version()}'); print(f'Architecture: {platform.architecture()[0]}'); print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}'); required_files = ['main.py', 'build_system/standard_optimizer.py', 'build_system/build_config.json']; [print(f'Required file {file_path}: {\"✅\" if Path(file_path).exists() else \"❌\"}') for file_path in required_files]"
     
     - name: Build Windows EXE
       run: |
@@ -331,7 +331,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python build.py --check-env
+        python -c "import sys, platform; from pathlib import Path; print(f'Platform: {platform.system()}'); print(f'Python: {platform.python_version()}'); print(f'Architecture: {platform.architecture()[0]}'); print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}'); required_files = ['main.py', 'build_system/standard_optimizer.py', 'build_system/build_config.json']; [print(f'Required file {file_path}: {\"✅\" if Path(file_path).exists() else \"❌\"}') for file_path in required_files]"
     
     - name: Build macOS App
       run: |
