@@ -102,9 +102,17 @@ try:
     detector = SmartDynamicDetector(project_root)
     smart_hiddenimports = detector.detect_smart_imports()
     print(f"[OPTIMIZER] Smart detector found {len(smart_hiddenimports)} hidden imports")
+    # 同步检测需要收集数据文件的第三方包（例如使用 importlib.resources 的包）
+    try:
+        smart_data_modules = detector.detect_resource_packages()
+        print(f"[OPTIMIZER] Smart detector suggested {len(smart_data_modules)} data modules")
+    except Exception as de:
+        print(f"[OPTIMIZER] Resource package detection failed: {de}")
+        smart_data_modules = []
 except Exception as e:
     print(f"[OPTIMIZER] Smart detector failed: {e}")
     smart_hiddenimports = []
+    smart_data_modules = []
 
 '''
         
@@ -126,7 +134,7 @@ a = Analysis(
     binaries=[],
     datas=data_files,
     hiddenimports={base_hiddenimports} + smart_hiddenimports + {force_includes},
-    hookspath=[],
+    hookspath=[str(project_root / 'build_system' / 'pyinstaller_hooks')],
     hooksconfig={{}},
     runtime_hooks=[],
     excludes={pyinstaller_config.get('excludes', [])},
@@ -165,12 +173,19 @@ def safe_collect_data_files(module_name):
         print(f"[OPTIMIZER] Failed to collect data for {{module_name}}: {{e}}")
         return []
 
-# 收集数据文件
+# 收集数据文件（静态配置）
 for module in {collect_data}:
     valid_datas = safe_collect_data_files(module)
     if valid_datas:
         a.datas.extend(valid_datas)
         print(f"[OPTIMIZER] Collected data for {{module}}: {{len(valid_datas)}} files")
+
+# 收集数据文件（智能检测建议）
+for module in smart_data_modules:
+    valid_datas = safe_collect_data_files(module)
+    if valid_datas:
+        a.datas.extend(valid_datas)
+        print(f"[OPTIMIZER] Collected data for {{module}} via smart detector: {{len(valid_datas)}} files")
 
 '''
         
