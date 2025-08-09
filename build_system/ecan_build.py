@@ -161,6 +161,24 @@ class FrontendBuilder:
         try:
             print("[FRONTEND] Building frontend...")
 
+            # 若 node_modules 不存在或强制模式，先执行 npm ci
+            need_install = force or not (self.frontend_dir / 'node_modules').exists()
+            if need_install:
+                print("[FRONTEND] Installing dependencies (npm ci)...")
+                install_cmd = "npm ci --legacy-peer-deps" if platform.system() == "Windows" else ["npm", "ci", "--legacy-peer-deps"]
+                install_shell = platform.system() == "Windows"
+                install_env = os.environ.copy()
+                if platform.system() == "Windows":
+                    install_env['PYTHONIOENCODING'] = 'utf-8'
+                    install_env['CHCP'] = '65001'
+                else:
+                    install_env['LC_ALL'] = 'en_US.UTF-8'
+                    install_env['LANG'] = 'en_US.UTF-8'
+                r = subprocess.run(install_cmd, cwd=self.frontend_dir, shell=install_shell, env=install_env)
+                if r.returncode != 0:
+                    print(f"[ERROR] npm ci failed with exit code: {r.returncode}")
+                    return False
+
             if platform.system() == "Windows":
                 cmd = "npm run build"
                 shell = True
@@ -308,22 +326,54 @@ class InstallerBuilder:
             solid_compression = str(mode_config.get("solid_compression", installer_config.get("solid_compression", False))).lower()
             internal_compress_level = mode_config.get("internal_compress_level", "normal")
 
+            # 读取构建模式中的 runtime_tmpdir（Windows 平台）
+            runtime_tmpdir = None
+            try:
+                build_modes = self.config.config.get("build_modes", {})
+                mode_cfg = build_modes.get(self.mode, {})
+                runtime_tmpdir = mode_cfg.get("runtime_tmpdir")
+                if isinstance(runtime_tmpdir, dict):
+                    runtime_tmpdir = runtime_tmpdir.get("windows")
+                if isinstance(runtime_tmpdir, str):
+                    runtime_tmpdir = runtime_tmpdir.replace("/", "\\")
+            except Exception:
+                runtime_tmpdir = None
+
+            # 根据是否提供 runtime_tmpdir 构造 [Dirs] 段
+            if runtime_tmpdir:
+                dirs_section = f"[Dirs]\nName: \"{runtime_tmpdir}\"; Flags: uninsneveruninstall\n\n"
+            else:
+                dirs_section = ""
+
+            # 选择文件源：优先使用 onedir 目录，否则使用单文件 EXE
+            onedir_dir = self.project_root / 'dist' / 'eCan'
+            onefile_exe = self.project_root / 'dist' / 'eCan.exe'
+            if onedir_dir.exists():
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
+                run_target = "{app}\\eCan.exe"
+            elif onefile_exe.exists():
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                run_target = "{app}\\eCan.exe"
+            else:
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                run_target = "{app}\\eCan.exe"
+
             iss_content = f"""
 ; eCan Installer Script
 [Setup]
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
 AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
-DefaultDirName={{autopf}}\\eCan
+DefaultDirName={{autopf}}\eCan
 DefaultGroupName=eCan
-OutputDir=..\\dist
+OutputDir=..\dist
 OutputBaseFilename=eCan-Setup
 Compression={compression}
 SolidCompression={solid_compression}
 PrivilegesRequired=lowest
 InternalCompressLevel={internal_compress_level}
-SetupIconFile=..\\eCan.ico
-UninstallDisplayIcon={{app}}\\eCan.exe
+SetupIconFile=..\eCan.ico
+UninstallDisplayIcon={{app}}\eCan.exe
 CreateUninstallRegKey=true
 AllowNoIcons=true
 DisableProgramGroupPage=auto
@@ -334,15 +384,15 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
 
-[Files]
-Source: "..\\dist\\eCan\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+{dirs_section}[Files]
+{files_section}
 
 [Icons]
-Name: "{{group}}\\eCan"; Filename: "{{app}}\\eCan.exe"
-Name: "{{userdesktop}}\\eCan"; Filename: "{{app}}\\eCan.exe"; Tasks: desktopicon
+Name: "{{group}}\eCan"; Filename: "{run_target}"
+Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; Tasks: desktopicon
 
 [Run]
-Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
+Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
 """
 
             iss_file = self.project_root / "build" / "setup.iss"
@@ -430,9 +480,10 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             # Create PKG installer
             pkg_file = self.dist_dir / f"{app_name}-{app_version}.pkg"
 
+            # 使用 .app 作为 root，配合 --install-location /Applications 将 .app 安装到 /Applications
             cmd = [
                 "pkgbuild",
-                "--root", str(app_bundle_dir.parent),
+                "--root", str(app_bundle_dir),
                 "--identifier", bundle_id,
                 "--version", app_version,
                 "--install-location", "/Applications",
@@ -670,6 +721,8 @@ class ECanBuild:
             if not skip_frontend:
                 if not self.frontend_builder.build(force):
                     return False
+            else:
+                print("[FRONTEND] Skipped by flag --skip-frontend")
 
             # Build main application
             if not self.pyinstaller_builder.build(self.mode, force):
