@@ -9,8 +9,21 @@ import traceback
 try:
     # 多进程保护 - 必须在所有其他导入之前
     if __name__ == '__main__':
-        from utils.single_instance import install_single_instance
-        install_single_instance()
+        # Worker-mode support for packaged subprocesses: execute external script and exit
+        import os
+        run_script = os.getenv('ECBOT_RUN_SCRIPT')
+        if run_script:
+            try:
+                with open(run_script, 'r', encoding='utf-8') as f:
+                    code = f.read()
+                exec(compile(code, run_script, 'exec'), {'__name__': '__main__'})
+            finally:
+                sys.exit(0)
+
+        # Single-instance guard (bypass when explicitly requested for worker subprocesses)
+        if os.getenv('ECBOT_BYPASS_SINGLE_INSTANCE') != '1':
+            from utils.single_instance import install_single_instance
+            install_single_instance()
 
         from utils.ecbot_crashlog import install_crash_logger
         install_crash_logger()

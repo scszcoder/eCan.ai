@@ -1222,7 +1222,7 @@ class MainWindow(QMainWindow):
 
     async def initialize_mcp(self):
         local_server_port = 4668
-        url = f"http://localhost:{local_server_port}/api/initialize"  # <-- you need to implement this
+        url = f"http://127.0.0.1:{local_server_port}/api/initialize"  # <-- you need to implement this
         payload = {
             "protocolVersion": "1.0",
             "capabilities": {},
@@ -1258,7 +1258,7 @@ class MainWindow(QMainWindow):
 
             try:
                 # 这里必须等待完成，不能跳过
-                await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz", timeout=server_timeout)
+                await wait_until_server_ready(f"http://127.0.0.1:{local_server_port}/healthz", timeout=server_timeout)
                 logger.info(f"✅ Local server ready on port {local_server_port}")
 
             except RuntimeError as e:
@@ -1290,8 +1290,8 @@ class MainWindow(QMainWindow):
             # result = await self.initialize_mcp()
             # print("initialize_mcp.....result:", result)
             # self.mcp_client = await create_mcp_client()
-            url = "http://localhost:4668/sse/"
-            url = "http://localhost:4668/mcp/"
+            url = "http://127.0.0.1:4668/sse/"
+            url = "http://127.0.0.1:4668/mcp/"
             # self.mcp_client_manager = Streamable_HTTP_Manager(url)
             # self.mcp_client = await self.mcp_client_manager.session()
             # self.mcp_client = await SSEManager.get(url).session()
@@ -1706,11 +1706,14 @@ class MainWindow(QMainWindow):
             )
             self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
         except Exception as e:
-            print(f"Warning: Failed to initialize web crawler with BrowserConfig: {e}")
- 
+            logger.error(f"Warning: Failed to initialize web crawler with BrowserConfig: {e}")
+
     def setupBrowserSession(self):
-        browser = self.async_crawler.crawler_strategy.browser_manager.browser
-        self.browser_session = BrowserSession(browser=browser)
+        try:
+            browser = self.async_crawler.crawler_strategy.browser_manager.browser
+            self.browser_session = BrowserSession(browser=browser)
+        except Exception as e:
+            logger.error(f"Warning: Failed to setup browser session: {e}")
 
     def setupBrowserUseController(self):
         display_files_in_done_text = True

@@ -214,7 +214,7 @@ async def wait_until_server_ready(url: str, timeout=5):
     raise RuntimeError(error_msg)
 
 async def test_post_to_messages():
-    url = "http://localhost:4668/messages"
+    url = "http://127.0.0.1:4668/messages"
 
     # Example MCP message format — adjust to match your server expectation
     payload = {
@@ -235,7 +235,7 @@ async def test_post_to_messages():
 
 
 def test_msg():
-    resp = requests.post("http://localhost:4668/messages", json={
+    resp = requests.post("http://127.0.0.1:4668/messages", json={
         "type": "ping",
         "payload": "test message"
     })

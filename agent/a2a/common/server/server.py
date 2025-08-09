@@ -22,9 +22,8 @@ import json
 from typing import AsyncIterable, Any
 from agent.a2a.common.server.task_manager import TaskManager
 
-import logging
+from utils.logger_helper import logger_helper as logger
 
-logger = logging.getLogger(__name__)
 
 
 class A2AServer:
@@ -56,9 +55,18 @@ class A2AServer:
         if self.task_manager is None:
             raise ValueError("request_handler is not defined")
 
-        import uvicorn
+        import uvicorn, traceback
 
-        uvicorn.run(self.app, host=self.host, port=self.port)
+        try:
+            config = uvicorn.Config(self.app, host=self.host or '127.0.0.1', port=self.port, log_level="info")
+            server = uvicorn.Server(config)
+            if hasattr(server, "install_signal_handlers"):
+                server.install_signal_handlers = False
+            server.run()
+        except Exception:
+            # Force-write startup exception for diagnosis in frozen envs
+            logger.error(traceback.format_exc())
+            raise
 
     def _health_check(self, request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
@@ -92,9 +100,9 @@ class A2AServer:
             else:
                 logger.warning(f"Unexpected request type: {type(json_rpc_request)}")
                 raise ValueError(f"Unexpected request type: {type(request)}")
-            print("result available")
+            logger.info("result available")
             returnable = self._create_response(result)
-            print("done processing request:", type(returnable), returnable)
+            logger.info("done processing request:", type(returnable), returnable)
             return returnable
 
         except Exception as e:

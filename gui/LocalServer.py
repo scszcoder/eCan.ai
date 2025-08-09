@@ -13,12 +13,14 @@ import uuid
 import json
 from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
-from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse, meca_streamable_http,handle_streamable_http, session_manager
+from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse, meca_streamable_http,handle_streamable_http, session_manager, set_server_main_win
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp.client.sse import sse_client
 from mcp.client.session import ClientSession
 from contextlib import asynccontextmanager
+from utils.logger_helper import logger_helper as logger
+from utils.gui_dispatch import run_on_main_thread, post_to_main_thread
 
 import sys
 import traceback
@@ -32,6 +34,12 @@ IMAGE_FOLDER = os.path.abspath("run_images")  # Ensure this is your intended pat
 base_dir = getattr(sys, '_MEIPASS', os.getcwd())
 
 static_dir = os.path.join(base_dir, 'agent', 'agent_files')
+if not os.path.isdir(static_dir):
+    # 兼容开发与打包路径差异：回退到相对路径
+    alt_dir = os.path.join(os.getcwd(), 'agent', 'agent_files')
+    if os.path.isdir(alt_dir):
+        static_dir = alt_dir
+
 # Endpoint to serve images
 async def serve_image(request):
     filename = request.path_params['filename']
@@ -42,31 +50,32 @@ async def serve_image(request):
 
 # API Endpoint equivalent to Flask route '/api/gen_feedbacks'
 async def gen_feedbacks(request):
-    print("serving gen_feedbacks.....")
+    logger.info("serving gen_feedbacks.....")
     mids = request.query_params.get('mids', "-1")  # Default value is "-1"
-    print("mids", mids)
+    logger.info("mids", mids)
 
-    data = MainWin.genFeedbacks(mids)
+    data = run_on_main_thread(lambda: MainWin.genFeedbacks(mids))
     return JSONResponse(data, status_code=200)
 
 # API Endpoint to handle GET mission reports
 async def get_mission_reports(request):
     start_date = request.query_params.get('start_date', "-1")
     end_date = request.query_params.get('end_date', "-1")
-    data = MainWin.getRPAReports(start_date, end_date)
+    data = run_on_main_thread(lambda: MainWin.getRPAReports(start_date, end_date))
     return JSONResponse(data, status_code=200)
 
 # API Endpoint to handle POST feedback data
 async def post_data(request):
     incoming_data = await request.json()
-    print(f"Received data: {incoming_data}")
+    logger.info(f"Received data: {incoming_data}")
     task_id = str(uuid.uuid4())
     future = asyncio.get_event_loop().create_future()
     response_dict[task_id] = future
-    MainWin.task_queue.put({
+    # Ensure any UI-side queue interactions happen on main thread
+    run_on_main_thread(lambda: MainWin.task_queue.put({
         "task_id": task_id,
         "data": incoming_data
-    })
+    }))
     result = await asyncio.wait_for(future, timeout=30)
     return JSONResponse({"status": "success", "result": result})
 
@@ -83,7 +92,7 @@ async def stream(request):
 async def sync_bots_missions(request):
     try:
         incoming_data = await request.json()
-        print("sync_bots_missions Received data:", incoming_data)
+        logger.info("sync_bots_missions Received data:", incoming_data)
 
         b_emails = incoming_data.get('bots', [])
         minfos = incoming_data.get('missions', [])
@@ -101,18 +110,18 @@ async def sync_bots_missions(request):
 
     except Exception as e:
         ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
-        print(ex_stat)
+        logger.error(ex_stat)
         return JSONResponse({"status": "failure", "result": ex_stat}, status_code=500)
 
 async def health_check(request):
-    print("health_check status returned................")
+    logger.debug("health_check status returned................")
     return JSONResponse({"status": "ok"})
 
 
 
 async def initialize(request):
     # Perform whatever server-side initialization you want
-    print("initialize() called")
+    logger.info("initialize() called")
     response = {
         "protocolVersion": "1.0",
         "serverCapabilities": {}
@@ -175,9 +184,13 @@ routes = [
     # Mount("/sse", sse_to_mcp),
     # Mount("/sse2mcp", app=meca_mcp_server.sse_app()),
     # Mount("/messages", app=sse_handle_messages),
-    Mount('/', StaticFiles(directory=static_dir, html=True), name='static'),
 ]
 
+# 仅在静态目录存在时挂载静态文件
+if os.path.isdir(static_dir):
+    routes.append(Mount('/', StaticFiles(directory=static_dir, html=True), name='static'))
+else:
+    logger.warning(f"Static dir missing, skipping mount: {static_dir}")
 
 mecaLocalServer = Starlette(debug=True, routes=routes, lifespan=lambda mecaLocalServer: session_manager.run(),)
 
@@ -190,8 +203,32 @@ mecaLocalServer.add_middleware(
 )
 
 def run_starlette(port=4668):
-    print(f"Starting Starlette server....on port {port}")
-    uvicorn.run(mecaLocalServer, host='0.0.0.0', port=port)
+    logger.info(f"Starting Starlette server....on port {port}")
+    try:
+        # Use explicit Config/Server to avoid installing signal handlers in a non-main thread
+        use_lifespan = (os.getenv("ECBOT_DISABLE_LIFESPAN") != "1")
+        config = uvicorn.Config(
+            app=mecaLocalServer,
+            host='127.0.0.1',
+            port=port,
+            log_level="info",
+            access_log=False,
+            loop="asyncio",
+            lifespan=("on" if use_lifespan else "off"),
+        )
+        server = uvicorn.Server(config)
+        # Disable signal handlers - we're running inside a thread
+        if hasattr(server, "install_signal_handlers"):
+            server.install_signal_handlers = False
+        server.run()
+    except Exception as e:
+        logger.exception(f"Failed to start local server: {e}")
+        # Force-write startup exception to file for diagnosis in frozen environments
+        try:
+            import traceback
+            logger.error(traceback.format_exc())
+        except Exception:
+            pass
 
 # Start Starlette server in a separate thread
 def start_local_server_in_thread(mwin):
@@ -204,7 +241,7 @@ def start_local_server_in_thread(mwin):
     MainWin.local_server_thread = starlette_thread
     starlette_thread.daemon = True  # Allows the thread to exit when the main program exits
     starlette_thread.start()
-    print("local server kicked off....................")
+    logger.info("local server kicked off....................")
 
 # if __name__ == '__main__':
 #     run_starlette()
