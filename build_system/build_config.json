@@ -64,10 +64,7 @@
       "anthropic",
       "langchain",
       "langchain_core",
-      "sentence_transformers",
-      "browser_use",
-      "fake_useragent",
-      "lightrag"
+      "sentence_transformers"
     ],
     "collect_binaries": [
       "torch",
@@ -158,8 +155,8 @@
       "collect_submodules": "all"
     },
     "fast": {
-      "debug": false,
-      "console": false,
+      "debug": true,
+      "console": true,
       "clean": false,
       "optimize": true,
       "onefile": false,
@@ -175,7 +172,7 @@
       "console": false,
       "clean": true,
       "optimize": true,
-      "onefile": true,
+      "onefile": false,
       "use_cache": false,
       "parallel": true,
       "strip_debug": true,
@@ -188,43 +185,6 @@
       "exclude_matplotlib": false,
       "lazy_imports": true,
       "runtime_tmpdir": {"windows": "C:/ecbot_cache", "macos": "~/Library/Caches/ecbot_cache", "linux": "/tmp/ecbot_cache"},
-      "bootloader_ignore_signals": false,
-      "disable_windowed_traceback": false
-    },
-    "onefile": {
-      "debug": false,
-      "console": false,
-      "clean": true,
-      "optimize": true,
-      "onefile": true,
-      "use_cache": false,
-      "parallel": true,
-      "strip_debug": true,
-      "collect_data": "all",
-      "collect_binaries": "all",
-      "collect_submodules": "all",
-      "compression": "zlib",
-      "upx_compress": false,
-      "lazy_imports": true,
-      "runtime_tmpdir": "C:/ecbot_cache"
-    },
-    "onefile_alt": {
-      "debug": false,
-      "console": false,
-      "clean": true,
-      "optimize": true,
-      "onefile": true,
-      "use_cache": false,
-      "parallel": true,
-      "strip_debug": true,
-      "collect_data": "minimal",
-      "collect_binaries": "minimal",
-      "compression": "lzma",
-      "upx_compress": true,
-      "exclude_tk": true,
-      "exclude_matplotlib": true,
-      "lazy_imports": true,
-      "runtime_tmpdir": null,
       "bootloader_ignore_signals": false,
       "disable_windowed_traceback": false
     }
@@ -258,7 +218,7 @@
       }
     },
     "windows": {
-      "app_id": "{{B8E6D1A2-F4C3-4D5E-8F9A-1B2C3D4E5F6A}",
+      "app_id": "{B8E6D1A2-F4C3-4D5E-8F9A-1B2C3D4E5F6A}",
       "publisher": "eCan Team",
       "publisher_url": "https://github.com/ecan-team",
       "support_url": "https://github.com/ecan-team/ecbot/issues",

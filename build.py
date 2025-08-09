@@ -201,7 +201,7 @@ Usage examples:
     # Positional arguments
     parser.add_argument(
         "mode",
-        choices=["fast", "dev", "prod", "onefile"],
+        choices=["fast", "dev", "prod"],
         default="fast",
         nargs="?",
         help="Build mode (default: fast)"

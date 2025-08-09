@@ -94,7 +94,7 @@ class FrontendBuilder:
             #         return False
             print("[FRONTEND] skip installing dependencies...")
             # Execute build
-            if not self._run_build():
+            if not self._run_build(force):
                 return False
             print("[SUCCESS] Frontend build completed")
             return True
@@ -156,7 +156,7 @@ class FrontendBuilder:
             print(f"[ERROR] Failed to install dependencies: {e}")
             return False
     
-    def _run_build(self) -> bool:
+    def _run_build(self, force: bool = False) -> bool:
         """Execute build"""
         try:
             print("[FRONTEND] Building frontend...")
