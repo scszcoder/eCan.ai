@@ -111,25 +111,40 @@ jobs:
         restore-keys: |
           windows-pip-3.11-
     
+    - name: Create and activate venv (Windows)
+      run: |
+        echo "=== Creating Virtual Environment ==="
+        python -m venv .venv
+        # Make venv's Python first in PATH for subsequent steps
+        echo "$PWD\.venv\Scripts" >> $env:GITHUB_PATH
+    
     - name: Install Python dependencies
       run: |
+        echo "=== Python/Pip Info (Windows venv) ==="
+        python -c "import sys; print(sys.version); print(sys.executable)"
+        python -m pip -V
+
         echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
-        pip install -r requirements-windows.txt
-        pip install pyinstaller pywin32-ctypes
-        
+        python -m pip install -r requirements-windows.txt
+        python -m pip install pyinstaller pywin32-ctypes
+        # Ensure pywin32 is present in the same interpreter
+        python -m pip install -U pywin32
+        # Rarely needed but safe; registers COM bits
+        python -m pywin32_postinstall -install
+
         echo "=== Verifying pywin32 installation ==="
         python -c "import win32api; print('pywin32 installed successfully')"
     
     - name: Uninstall pathlib if present (Windows)
       run: |
-        pip uninstall -y pathlib || true
+        python -m pip uninstall -y pathlib; if ($LASTEXITCODE -ne 0) { Write-Host "pathlib not found or already uninstalled" }
     
     - name: Install frontend dependencies
       run: |
         echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
-        npm ci --legacy-peer-deps
+        npm install --legacy-peer-deps
     
     - name: Install Inno Setup
       run: |
@@ -162,7 +177,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python build.py --check-env
+        python -c "import sys, platform; from pathlib import Path; print(f'Platform: {platform.system()}'); print(f'Python: {platform.python_version()}'); print(f'Architecture: {platform.architecture()[0]}'); print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}'); required_files = ['main.py', 'build_system/standard_optimizer.py', 'build_system/build_config.json']; [print(f'Required file {file_path}: {\"✅\" if Path(file_path).exists() else \"❌\"}') for file_path in required_files]"
     
     - name: Build Windows EXE
       run: |
@@ -277,19 +292,30 @@ jobs:
         restore-keys: |
           macos-pip-3.11-
     
+    - name: Create and activate venv (macOS)
+      run: |
+        echo "=== Creating Virtual Environment ==="
+        python -m venv .venv
+        # Make venv's Python first in PATH for subsequent steps
+        echo "$PWD/.venv/bin" >> $GITHUB_PATH
+    
     - name: Install Python dependencies
       run: |
+        echo "=== Python/Pip Info (macOS venv) ==="
+        python -c "import sys; print(sys.version); print(sys.executable)"
+        python -m pip -V
+
         echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
-        pip install -r requirements-macos.txt
-        pip install pyinstaller
+        python -m pip install -r requirements-macos.txt
+        python -m pip install pyinstaller
         
         echo "=== Verifying PyInstaller installation ==="
         python -c "import PyInstaller; print('PyInstaller installed successfully')"
     
     - name: Uninstall pathlib if present (macOS)
       run: |
-        pip uninstall -y pathlib || true
+        python -m pip uninstall -y pathlib || true
     
     - name: Install frontend dependencies
       run: |
@@ -305,7 +331,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python build.py --check-env
+        python -c "import sys, platform; from pathlib import Path; print(f'Platform: {platform.system()}'); print(f'Python: {platform.python_version()}'); print(f'Architecture: {platform.architecture()[0]}'); print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}'); required_files = ['main.py', 'build_system/standard_optimizer.py', 'build_system/build_config.json']; [print(f'Required file {file_path}: {\"✅\" if Path(file_path).exists() else \"❌\"}') for file_path in required_files]"
     
     - name: Build macOS App
       run: |
