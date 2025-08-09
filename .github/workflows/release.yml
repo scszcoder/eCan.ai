@@ -169,6 +169,14 @@ jobs:
             exit 1
         }
     
+    - name: Install OTA dependencies
+      run: |
+        echo "=== Installing OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py install --platform windows
+        
+        echo "=== Verifying OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py verify
+    
     - name: Create build directories
       run: |
         echo "=== Creating Build Directories ==="
@@ -177,7 +185,14 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python -c "import sys, platform; from pathlib import Path; print(f'Platform: {platform.system()}'); print(f'Python: {platform.python_version()}'); print(f'Architecture: {platform.architecture()[0]}'); print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}'); required_files = ['main.py', 'build_system/standard_optimizer.py', 'build_system/build_config.json']; [print(f'Required file {file_path}: {\"✅\" if Path(file_path).exists() else \"❌\"}') for file_path in required_files]"
+        python -c "import sys, platform; print(f'Platform: {platform.system()}')"
+        python -c "import sys, platform; print(f'Python: {platform.python_version()}')"
+        python -c "import sys, platform; print(f'Architecture: {platform.architecture()[0]}')"
+        python -c "import sys; print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}')"
+        echo "Checking required files:"
+        python -c "from pathlib import Path; print(f'main.py: {\"✅\" if Path(\"main.py\").exists() else \"❌\"}')"
+        python -c "from pathlib import Path; print(f'build_system/standard_optimizer.py: {\"✅\" if Path(\"build_system/standard_optimizer.py\").exists() else \"❌\"}')"
+        python -c "from pathlib import Path; print(f'build_system/build_config.json: {\"✅\" if Path(\"build_system/build_config.json\").exists() else \"❌\"}')"
     
     - name: Build Windows EXE
       run: |
@@ -323,6 +338,14 @@ jobs:
         cd gui_v2
         npm ci --legacy-peer-deps
     
+    - name: Install OTA dependencies
+      run: |
+        echo "=== Installing OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py install --platform darwin
+        
+        echo "=== Verifying OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py verify
+    
     - name: Create build directories
       run: |
         echo "=== Creating Build Directories ==="
@@ -331,7 +354,14 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python -c "import sys, platform; from pathlib import Path; print(f'Platform: {platform.system()}'); print(f'Python: {platform.python_version()}'); print(f'Architecture: {platform.architecture()[0]}'); print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}'); required_files = ['main.py', 'build_system/standard_optimizer.py', 'build_system/build_config.json']; [print(f'Required file {file_path}: {\"✅\" if Path(file_path).exists() else \"❌\"}') for file_path in required_files]"
+        python -c "import sys, platform; print(f'Platform: {platform.system()}')"
+        python -c "import sys, platform; print(f'Python: {platform.python_version()}')"
+        python -c "import sys, platform; print(f'Architecture: {platform.architecture()[0]}')"
+        python -c "import sys; print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}')"
+        echo "Checking required files:"
+        python -c "from pathlib import Path; print(f'main.py: {\"✅\" if Path(\"main.py\").exists() else \"❌\"}')"
+        python -c "from pathlib import Path; print(f'build_system/standard_optimizer.py: {\"✅\" if Path(\"build_system/standard_optimizer.py\").exists() else \"❌\"}')"
+        python -c "from pathlib import Path; print(f'build_system/build_config.json: {\"✅\" if Path(\"build_system/build_config.json\").exists() else \"❌\"}')"
     
     - name: Build macOS App
       run: |
@@ -437,13 +467,27 @@ jobs:
         name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
         path: macos-artifacts
     
+    - name: Prepare release files list
+      id: prep_files
+      run: |
+        echo "Listing downloaded artifacts..."
+        ls -la windows-artifacts || true
+        ls -la macos-artifacts || true
+        echo "files<<EOF" >> $GITHUB_OUTPUT
+        if ls windows-artifacts/*.exe 1> /dev/null 2>&1; then
+          for f in windows-artifacts/*.exe; do echo "$f" >> $GITHUB_OUTPUT; done
+        fi
+        if ls macos-artifacts/*.pkg 1> /dev/null 2>&1; then
+          for f in macos-artifacts/*.pkg; do echo "$f" >> $GITHUB_OUTPUT; done
+        fi
+        if ls macos-artifacts/*.zip 1> /dev/null 2>&1; then
+          for f in macos-artifacts/*.zip; do echo "$f" >> $GITHUB_OUTPUT; done
+        fi
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
-          dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
-          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.pkg
-          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip
+        files: ${{ steps.prep_files.outputs.files }}
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

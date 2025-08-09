@@ -1561,17 +1561,17 @@ class MainWindow(QMainWindow):
         for ski, sk in enumerate(self.skills):
             # next_step is not used,
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
-            log3("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name, "fetchSchedule", self)
+            logger.trace("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name, "fetchSchedule", self)
             if sk.getPrivacy() == "public":
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
             else:
                 self.showMsg("GEN PRIVATE SKILL PSK::::::" + sk_full_name)
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.my_ecb_data_homepath, first_step, "light")
-            log3("PSK FILE:::::::::::::::::::::::::"+psk_file, "fetchSchedule", self)
+            logger.trace("PSK FILE:::::::::::::::::::::::::"+psk_file, "fetchSchedule", self)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
-            print("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
+            logger.trace("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
 
     def get_helper_agent(self):
         return self.helper_agent
@@ -6980,9 +6980,9 @@ class MainWindow(QMainWindow):
         # "skill_path": "public/win_chrome_etsy_orders",
         # "skill_args": "gs_input",
         # "output": "total_label_cost"
-        log3("TRYING...."+main_file, "fetchSchedule", self)
+        logger.trace("TRYING...."+main_file, "fetchSchedule", self)
         if os.path.exists(main_file):
-            log3("OPENING...."+main_file, "fetchSchedule", self)
+            logger.trace("OPENING...."+main_file, "fetchSchedule", self)
             with open(main_file, 'r') as psk_file:
                 code_jsons = json.load(psk_file)
 
@@ -7049,7 +7049,7 @@ class MainWindow(QMainWindow):
         json_files = []
 
         skdir = self.homepath + "/resource/skills/public/"
-        print("LISTING pub skills:", skdir, os.walk(skdir))
+        logger.info("LISTING pub skills:", skdir, os.walk(skdir))
         # Iterate over all files in the directory
         # Walk through the directory tree recursively
         for root, dirs, files in os.walk(skdir):
@@ -7057,15 +7057,15 @@ class MainWindow(QMainWindow):
                 if file.endswith(".json"):
                     file_path = os.path.join(root, file)
                     skill_def_files.append(file_path)
-                    print("load all public skill definition json file:" + file + "::" + file_path)
+                    logger.debug("load all public skill definition json file:" + file + "::" + file_path)
 
         # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
         # if json exists, use json to guide what to do
         existing_skids = [sk.getSkid() for sk in self.skills]
-        print("existing public skids:", existing_skids)
+        logger.info("existing public skids:", existing_skids)
         for file_path in skill_def_files:
-            print("working on:", file_path)
+            logger.debug("working on:", file_path)
             with open(file_path) as json_file:
                 sk_data = json.load(json_file)
                 json_file.close()
@@ -7074,7 +7074,7 @@ class MainWindow(QMainWindow):
                     new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
                     new_skill.loadJson(sk_data)
                     self.skills.append(new_skill)
-                    print("added public new skill:", sk_data["skid"], new_skill.getSkid(), new_skill.getPskFileName(),
+                    logger.debug("added public new skill:", sk_data["skid"], new_skill.getSkid(), new_skill.getPskFileName(),
                           new_skill.getPath())
                 else:
                     existingSkill = next((x for i, x in enumerate(self.skills) if x.getSkid() == sk_data["skid"]), None)
@@ -7099,7 +7099,7 @@ class MainWindow(QMainWindow):
             json_files = []
 
             skdir = self.my_ecb_data_homepath + "/my_skills/"
-            print("LISTING myskills:", skdir, os.walk(skdir))
+            logger.info("LISTING myskills:", skdir, os.walk(skdir))
             # Iterate over all files in the directory
             # Walk through the directory tree recursively
             for root, dirs, files in os.walk(skdir):
@@ -7107,24 +7107,24 @@ class MainWindow(QMainWindow):
                     if file.endswith(".json"):
                         file_path = os.path.join(root, file)
                         skill_def_files.append(file_path)
-                        print("load private skill definition json file:" + file+"::"+file_path)
+                        logger.debug("load private skill definition json file:" + file+"::"+file_path)
 
             # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
             # if json exists, use json to guide what to do
             existing_skids = [sk.getSkid() for sk in self.skills]
             for file_path in skill_def_files:
-                print("working on:", file_path)
+                logger.debug("working on:", file_path)
                 with open(file_path) as json_file:
                     sk_data = json.load(json_file)
                     json_file.close()
-                    print("sk_data::", sk_data)
+                    logger.debug("sk_data::", sk_data)
                     self.showMsg("loading private skill f: "+str(sk_data["skid"])+" "+file_path)
                     if sk_data["skid"] in existing_skids:
                         new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
                         new_skill.loadJson(sk_data)
                         self.skills.append(new_skill)
-                        print("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
+                        logger.debug("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
                     else:
                         #update the existing skill or no even needed?
                         found_skill = next((x for x in self.skills if x.getSkid()==sk_data["skid"]), None)

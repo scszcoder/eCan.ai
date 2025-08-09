@@ -94,7 +94,7 @@ class FrontendBuilder:
             #         return False
             print("[FRONTEND] skip installing dependencies...")
             # Execute build
-            if not self._run_build():
+            if not self._run_build(force):
                 return False
             print("[SUCCESS] Frontend build completed")
             return True
@@ -156,7 +156,7 @@ class FrontendBuilder:
             print(f"[ERROR] Failed to install dependencies: {e}")
             return False
     
-    def _run_build(self) -> bool:
+    def _run_build(self, force: bool = False) -> bool:
         """Execute build"""
         try:
             print("[FRONTEND] Building frontend...")
@@ -714,6 +714,9 @@ class ECanBuild:
         print("=" * 60)
 
         try:
+            # Check OTA dependencies (CI should have installed them)
+            self._check_ota_dependencies()
+            
             # Build frontend (if needed)
             if skip_frontend is None:
                 skip_frontend = self.mode == "prod"
@@ -747,6 +750,43 @@ class ECanBuild:
             print(f"[ERROR] Build failed: {e}")
             return False
 
+    def _check_ota_dependencies(self):
+        """检查OTA依赖是否已安装（由CI安装）"""
+        ota_dir = self.project_root / "ota" / "dependencies"
+        install_info_file = ota_dir / "install_info.json"
+        
+        if not ota_dir.exists():
+            print("[OTA] OTA dependencies directory not found")
+            print("[OTA] OTA functionality will use fallback HTTP updates")
+            return
+        
+        if not install_info_file.exists():
+            print("[OTA] OTA install info not found")
+            print("[OTA] Dependencies may not be properly installed")
+            return
+        
+        try:
+            with open(install_info_file, 'r') as f:
+                install_info = json.load(f)
+            
+            platform = install_info.get("platform", "unknown")
+            install_method = install_info.get("install_method", "unknown")
+            installed_deps = install_info.get("installed_dependencies", {})
+            
+            print(f"[OTA] Dependencies installed via {install_method} for {platform}")
+            
+            for name, dep_info in installed_deps.items():
+                if dep_info.get("installed", False):
+                    print(f"[OTA] {name} v{dep_info.get('version', 'unknown')}")
+                else:
+                    print(f"[OTA] {name} not properly installed")
+            
+            if not installed_deps:
+                print("[OTA] No dependencies found for current platform")
+                
+        except Exception as e:
+            print(f"[OTA] Failed to read install info: {e}")
+    
     def _show_result(self, start_time: float):
         """Display build results"""
         build_time = time.time() - start_time

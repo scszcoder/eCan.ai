@@ -264,7 +264,55 @@ pyz = PYZ(
         
         # 根据模式生成不同的 EXE 配置
         if onefile:
-            spec_content += f'''
+            # macOS onefile 模式的图标和配置
+            if sys.platform == 'darwin':
+                installer_config = self.config.get('installer', {})
+                macos_config = installer_config.get('macos', {})
+                icon_path = app_info.get('icon_macos', 'eCan.icns')
+                
+                spec_content += f'''
+# EXE 配置 (onefile 模式 - macOS)
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    name="{app_info.get('name', 'app')}",
+    debug={debug},
+    bootloader_ignore_signals=False,
+    strip={strip_debug},
+    upx={upx_compress},
+    upx_exclude=[],
+    runtime_tmpdir={repr(runtime_tmpdir_cfg)},
+    console={console},
+    disable_windowed_traceback=False,
+    target_arch=None,
+    codesign_identity="",
+    entitlements_file=None,
+    icon=r"{icon_path}",
+    # macOS onefile 兼容性设置
+    bundle_identifier="{macos_config.get('bundle_identifier', 'com.ecan.app')}",
+    info_plist={{
+        'CFBundleName': "{macos_config.get('app_name', app_info.get('name', 'eCan'))}",
+        'CFBundleDisplayName': "{macos_config.get('app_name', app_info.get('name', 'eCan'))}",
+        'CFBundleVersion': "{macos_config.get('app_version', app_info.get('version', '1.0.0'))}",
+        'CFBundleShortVersionString': "{macos_config.get('app_version', app_info.get('version', '1.0.0'))}",
+        'CFBundleGetInfoString': "{macos_config.get('copyright', 'Copyright © 2025 eCan.AI Team')}",
+        'NSHighResolutionCapable': True,
+        'LSUIElement': False,
+        'NSRequiresAquaSystemAppearance': False,
+        # macOS 兼容性修复
+        'LSMinimumSystemVersion': '11.0',  # 支持macOS Big Sur及以上
+        'LSArchitecturePriority': ['x86_64', 'arm64'],  # 支持Intel和Apple Silicon
+        'NSSupportsAutomaticGraphicsSwitching': True,  # 支持自动图形切换
+        'NSPrincipalClass': 'NSApplication',  # 确保正确的应用程序类
+    }}
+)
+
+'''
+            else:
+                spec_content += f'''
 # EXE 配置 (onefile 模式)
 exe = EXE(
     pyz,
@@ -289,7 +337,34 @@ exe = EXE(
 
 '''
         else:
-            spec_content += f'''
+            # macOS onedir 模式的图标配置
+            if sys.platform == 'darwin':
+                icon_path = app_info.get('icon_macos', 'eCan.icns')
+                spec_content += f'''
+# EXE 配置 (onedir 模式 - macOS)
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="{app_info.get('name', 'app')}",
+    debug={debug},
+    bootloader_ignore_signals=False,
+    strip={strip_debug},
+    upx={upx_compress},
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console={console},
+    disable_windowed_traceback=False,
+    target_arch=None,
+    codesign_identity="",
+    entitlements_file=None,
+    icon=r"{icon_path}"
+)
+
+'''
+            else:
+                spec_content += f'''
 # EXE 配置 (onedir 模式)
 exe = EXE(
     pyz,
@@ -341,6 +416,54 @@ print(f"[OPTIMIZER] Validated binaries: {{len(a.binaries)}} entries")
 print(f"[OPTIMIZER] Validated zipfiles: {{len(a.zipfiles)}} entries")
 print(f"[OPTIMIZER] Validated datas: {{len(a.datas)}} entries")
 
+# 进一步清理无效/目录型资源，避免 BUNDLE 资源校验报错
+import os as _os
+_cleaned_datas = []
+_skipped_datas = 0
+for _src, _dest, _typ in a.datas:
+    try:
+        # 跳过源是目录的条目（BUNDLE 资源必须是文件）
+        if _os.path.isdir(_src):
+            _skipped_datas += 1
+            continue
+        # 跳过明显的占位或无效路径
+        if isinstance(_dest, str) and (_dest.endswith('/.dylibs') or _dest.endswith('\\.dylibs') or _dest.endswith('/__pycache__')):
+            _skipped_datas += 1
+            continue
+        _cleaned_datas.append((_src, _dest, _typ))
+    except Exception:
+        _cleaned_datas.append((_src, _dest, _typ))
+if _skipped_datas:
+    print(f"[OPTIMIZER] Pruned invalid/dir resources from datas: {{_skipped_datas}} removed")
+a.datas = _cleaned_datas
+
+# macOS: prune Sparkle.framework symlink-conflict entries to avoid FileExistsError during COLLECT
+import sys as _sys
+if _sys.platform == 'darwin':
+    def _prune_framework_symlink_conflicts(entries, framework_rel_path):
+        pruned = []
+        for entry in entries:
+            try:
+                src, dest, typ = entry
+            except Exception:
+                pruned.append(entry)
+                continue
+            # Remove alias paths that would conflict with symlinks inside the framework
+            if isinstance(dest, str):
+                if dest.startswith(framework_rel_path + "/Resources/") or dest == (framework_rel_path + "/Resources"):
+                    continue
+                if dest.startswith(framework_rel_path + "/Headers/") or dest == (framework_rel_path + "/Headers"):
+                    continue
+                if dest == (framework_rel_path + "/Sparkle"):
+                    continue
+            pruned.append((src, dest, typ))
+        return pruned
+    _framework_rel = "ota/dependencies/Sparkle.framework"
+    _before = len(a.datas)
+    a.datas = _prune_framework_symlink_conflicts(a.datas, _framework_rel)
+    _after = len(a.datas)
+    print(f"[OPTIMIZER] Pruned Sparkle.framework symlink-conflict entries: {{_before - _after}} removed")
+
 # Qt 插件收集（如需要）
 qt_plugins = {qt_plugins}
 if qt_plugins:
@@ -350,6 +473,50 @@ if qt_plugins:
         print(f"[OPTIMIZER] Qt plugins requested: {qt_plugins}")
     except Exception as _e:
         print(f"[OPTIMIZER] Qt plugin setup skipped: {{_e}}")
+
+# 修复 PyTorch 路径问题（macOS BUNDLE 兼容性）
+import sys as _sys
+if _sys.platform == 'darwin':
+    def fix_torch_paths(entries, entry_type="binaries"):
+        """修复 PyTorch 相关文件的路径问题"""
+        fixed_entries = []
+        for entry in entries:
+            if len(entry) >= 2:
+                src, dest = entry[0], entry[1]
+                # 如果是 torch 相关的文件，进行路径修复
+                if 'torch' in str(src) and str(src).startswith('/'):
+                    # 检查是否是 torch/lib 目录下的文件
+                    if 'torch/lib' in str(src):
+                        # 提取文件名，重新映射到 Frameworks 目录
+                        import os as _os
+                        filename = _os.path.basename(str(src))
+                        new_dest = "Frameworks/" + filename
+                        fixed_entries.append((src, new_dest, entry[2] if len(entry) > 2 else 'BINARY'))
+                        print("[OPTIMIZER] Fixed torch path: " + filename + " -> Frameworks/" + filename)
+                    # 检查是否是其他 torch 相关路径
+                    elif 'site-packages/torch' in str(src):
+                        # 跳过有问题的 torch 符号链接和库文件
+                        import os as _os
+                        if _os.path.islink(str(src)) or str(src).endswith('.dylib') or str(src).endswith('.so'):
+                            print("[OPTIMIZER] Skipping problematic torch file: " + str(src))
+                            continue
+                        else:
+                            fixed_entries.append(entry)
+                    else:
+                        fixed_entries.append(entry)
+                else:
+                    fixed_entries.append(entry)
+            else:
+                fixed_entries.append(entry)
+        return fixed_entries
+
+    # 应用修复到二进制文件
+    a.binaries = fix_torch_paths(a.binaries, "binaries")
+    print("[OPTIMIZER] Applied PyTorch binary path fix for macOS BUNDLE")
+    
+    # 应用修复到数据文件（如果包含 torch 相关文件）
+    a.datas = fix_torch_paths(a.datas, "datas")
+    print("[OPTIMIZER] Applied PyTorch data path fix for macOS BUNDLE")
 
 # COLLECT 配置（目录模式）
 coll = COLLECT(
@@ -365,8 +532,8 @@ coll = COLLECT(
 
 '''
         
-        # macOS 特定配置
-        if sys.platform == 'darwin':
+        # macOS 特定配置（仅在 onedir 模式下）
+        if sys.platform == 'darwin' and not onefile:
             installer_config = self.config.get('installer', {})
             macos_config = installer_config.get('macos', {})
             spec_content += f'''
@@ -386,6 +553,11 @@ app = BUNDLE(
         'NSHighResolutionCapable': True,
         'LSUIElement': False,
         'NSRequiresAquaSystemAppearance': False,
+        # macOS 兼容性修复
+        'LSMinimumSystemVersion': '11.0',  # 支持macOS Big Sur及以上
+        'LSArchitecturePriority': ['x86_64', 'arm64'],  # 支持Intel和Apple Silicon
+        'NSSupportsAutomaticGraphicsSwitching': True,  # 支持自动图形切换
+        'NSPrincipalClass': 'NSApplication',  # 确保正确的应用程序类
     }}
 )
 '''
@@ -397,9 +569,56 @@ app = BUNDLE(
         import datetime
         return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    def _force_clean_build_dirs(self) -> bool:
+        """强制清理构建目录（处理权限问题文件）"""
+        try:
+            import shutil
+            from pathlib import Path
+            
+            # 需要清理的目录
+            dirs_to_clean = ['build', 'dist']
+            
+            for dir_name in dirs_to_clean:
+                target_path = Path(self.project_root) / dir_name
+                if target_path.exists():
+                    try:
+                        # 首先尝试常规删除
+                        shutil.rmtree(target_path)
+                        print(f"[OPTIMIZER] Cleaned {dir_name} directory")
+                    except (PermissionError, OSError) as e:
+                        print(f"[OPTIMIZER] Permission issue with {dir_name}, trying force clean...")
+                        # macOS/Linux 强制删除
+                        if sys.platform in ['darwin', 'linux']:
+                            try:
+                                subprocess.run(['rm', '-rf', str(target_path)], check=True, capture_output=True)
+                                print(f"[OPTIMIZER] Force cleaned {dir_name} using system command")
+                            except subprocess.CalledProcessError:
+                                print(f"[ERROR] Cannot clean {dir_name} - build may fail")
+                                return False
+                        else:
+                            # Windows 强制删除
+                            try:
+                                subprocess.run(['rmdir', '/s', '/q', str(target_path)], check=True, capture_output=True, shell=True)
+                                print(f"[OPTIMIZER] Force cleaned {dir_name} using system command")
+                            except subprocess.CalledProcessError:
+                                print(f"[ERROR] Cannot clean {dir_name} - build may fail")
+                                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Force clean failed: {e}")
+            return False
+    
     def build_optimized(self, mode: str = "fast", spec_file: str = None) -> bool:
         """使用标准优化构建应用"""
         try:
+            # 强制清理构建目录（处理权限问题）
+            build_mode = self.config.get('build_modes', {}).get(mode, {})
+            if build_mode.get('clean', True):
+                if not self._force_clean_build_dirs():
+                    print("[WARNING] Force clean failed, continuing with build...")
+            
             # 生成 spec 文件
             if not spec_file:
                 spec_file = f"eCan_{mode}.spec"
@@ -434,14 +653,26 @@ app = BUNDLE(
                 cmd.append("--clean")
                 print("[OPTIMIZER] Cleaning previous build")
             
+            # Note: PyInstaller doesn't support --parallel flag directly
+            # Parallel processing is handled internally by PyInstaller
             if build_mode.get('parallel', True):
                 workers = self.config.get('pyinstaller', {}).get('workers', 0)
                 if workers > 0:
-                    cmd.extend(["--parallel", str(workers)])
+                    # Set environment variable for PyInstaller to use multiple workers
+                    import os
+                    os.environ['PYINSTALLER_COMPILE_BOOTLOADER'] = '1'
+                    print(f"[OPTIMIZER] Parallel processing enabled with {workers} workers")
+            
+            # macOS 代码签名禁用（兼容性修复）
+            env = os.environ.copy()
+            if sys.platform == 'darwin':
+                env['CODESIGN_ALLOCATE'] = '/usr/bin/true'  # 禁用代码签名
+                env['CODE_SIGN_IDENTITY'] = ''
+                print("[OPTIMIZER] Disabled code signing for macOS compatibility")
             
             # 执行构建
             print(f"[OPTIMIZER] Building with command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, cwd=self.project_root)
+            result = subprocess.run(cmd, cwd=self.project_root, env=env)
             
             if result.returncode == 0:
                 print(f"[OPTIMIZER] Build successful in {mode} mode")

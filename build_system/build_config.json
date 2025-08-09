@@ -24,7 +24,8 @@
       "settings",
       "skills",
       "telemetry",
-      "gui_v2/dist"
+      "gui_v2/dist",
+      "ota"
     ],
     "files": [
       "app_context.py",
@@ -38,7 +39,7 @@
   },
   "pyinstaller": {
     "parallel": true,
-    "workers": 0,
+    "workers": 4,
     "cache_dir": "build/pyinstaller_cache",
     "distpath": "dist",
     "workpath": "build",
@@ -285,7 +286,7 @@
       "install_location": "/Applications",
       "create_desktop_shortcut": true,
       "create_launchpad_shortcut": true,
-      "min_os_version": "10.14",
+      "min_os_version": "11.0",
       "codesign": {
         "enabled": false,
         "identity": "Developer ID Application: Chunk Liu",
@@ -310,5 +311,12 @@
         "microphone"
       ]
     }
+  },
+  "ota": {
+    "enabled": true,
+    "dependencies_managed_by_ci": true,
+    "dependencies_path": "ota/dependencies",
+    "fallback_to_http": true,
+    "note": "OTA dependencies are installed by CI/CD pipeline, not by build script"
   }
 }

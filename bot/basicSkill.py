@@ -33,6 +33,7 @@ from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_clou
     send_update_missions_ex_status_to_cloud, send_reg_steps_to_cloud
 from bot.lanAPI import req_lan_read_screen8, req_lan_read_screen
 from bot.Logger import log3, log6, log68
+from utils.logger_helper import logger_helper as logger
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from bot.missions import EBMISSION
@@ -4854,7 +4855,7 @@ def processScrollToLocation(step, i):
 def genScrollDownUntilLoc(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG genScrollDownUntilLoc...")
+    logger.trace("DEBUG genScrollDownUntilLoc...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
@@ -4889,7 +4890,7 @@ def genScrollDownUntilLoc(target_anchor, target_type, tilpos, page, section, adj
 def genScrollDownUntil(target_anchor, target_type, page, section, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG genScrollDownUntil...")
+    logger.trace("DEBUG genScrollDownUntil...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
@@ -4918,7 +4919,7 @@ def genScrollDownUntil(target_anchor, target_type, page, section, stepN, workset
 def genScrollUpUntilLoc(target_anchor, target_type, tilpos, page, section, adjust_val, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG genScrollUpUntilLoc...")
+    logger.trace("DEBUG genScrollUpUntilLoc...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
@@ -4951,7 +4952,7 @@ def genScrollUpUntilLoc(target_anchor, target_type, tilpos, page, section, adjus
 def genScrollUpUntil(target_anchor, target_type, page, section, stepN, worksettings, site, theme):
     psk_words = ""
     ex_stat = DEFAULT_RUN_STATUS
-    log3("DEBUG genScrollUpUntil...")
+    logger.trace("DEBUG genScrollUpUntil...")
     this_step, step_words = genStepFillData("direct", "False", "position_reached", "", stepN)
     psk_words = psk_words + step_words
 
