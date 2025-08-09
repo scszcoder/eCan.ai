@@ -1429,6 +1429,8 @@ tool_function_mapping = {
     }
 
 def set_server_main_win(mw):
+    # Ensure server_main_win is only set from the GUI thread
+    # If needed from worker threads, dispatch via gui_dispatch
     global server_main_win
     server_main_win = mw
 

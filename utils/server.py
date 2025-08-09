@@ -128,7 +128,7 @@ class HttpServer:
         """
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(('localhost', 0))
+                s.bind(('127.0.0.1', 0))
                 return s.getsockname()[1]
         except Exception as e:
             print(f"Error finding free port: {e}")
@@ -139,7 +139,7 @@ class HttpServer:
         """
         try:
             os.chdir(directory)  # 切换到指定目录
-            httpd = HTTPServer(('localhost', port), CustomHandler)
+            httpd = HTTPServer(('127.0.0.1', port), CustomHandler)
             httpd_thread = Thread(target=httpd.serve_forever)
             httpd_thread.daemon = True
             httpd_thread.start()
