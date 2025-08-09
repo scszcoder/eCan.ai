@@ -37,9 +37,35 @@ class PyInstallerOptimizer:
         build_mode = self.config.get('build_modes', {}).get(mode, {})
         optimization = pyinstaller_config.get('optimization', {})
         
-        # 合并配置
+        # 合并配置（build_mode 覆盖 pyinstaller_config）
         final_config = {**pyinstaller_config, **build_mode}
-        
+
+        # 规范化 collect_* 配置：支持 "all"/"minimal"/列表
+        def _norm_list(key: str, default_list: list):
+            v = final_config.get(key, default_list)
+            if isinstance(v, str):
+                if v.lower() == 'all':
+                    return default_list
+                if v.lower() == 'minimal':
+                    return []
+            return v or []
+
+        collect_data_cfg = _norm_list('collect_data', pyinstaller_config.get('collect_data', []))
+        collect_bins_cfg = _norm_list('collect_binaries', pyinstaller_config.get('collect_binaries', []))
+        collect_submods_cfg = _norm_list('collect_submodules', pyinstaller_config.get('collect_submodules', []))
+        collect_all_modules = pyinstaller_config.get('collect_all', [])
+
+        # 平台分路径支持：runtime_tmpdir 可为字符串或 {windows|macos|linux} 映射
+        runtime_tmpdir_cfg = final_config.get('runtime_tmpdir', None)
+        if isinstance(runtime_tmpdir_cfg, dict):
+            plat = sys.platform
+            plat_key = 'windows' if plat.startswith('win') else ('macos' if plat == 'darwin' else 'linux')
+            runtime_tmpdir_cfg = runtime_tmpdir_cfg.get(plat_key)
+        # 展开用户目录符号
+        if isinstance(runtime_tmpdir_cfg, str) and ('~' in runtime_tmpdir_cfg or runtime_tmpdir_cfg.startswith('~')):
+            from os.path import expanduser
+            runtime_tmpdir_cfg = expanduser(runtime_tmpdir_cfg)
+
         spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 # PyInstaller 标准优化配置
 # 生成时间: {self._get_timestamp()}
@@ -54,13 +80,15 @@ project_root = Path(r"{self.project_root}")
 data_files = []
 '''
         
-        # 添加数据文件
+        # 添加数据文件（prod 模式剔除 tests 目录）
         data_files = self.config.get('data_files', {})
         if data_files.get('directories'):
             spec_content += "\n# 目录数据文件\n"
             for directory in data_files['directories']:
+                # if mode == 'prod' and directory.strip().lower() == 'tests':
+                #     continue
                 spec_content += f'data_files.append((r"{directory}", r"{directory}"))\n'
-        
+
         if data_files.get('files'):
             spec_content += "\n# 单个数据文件\n"
             for file in data_files['files']:
@@ -85,6 +113,9 @@ except Exception as e:
 
         # 强制包含的模块
         force_includes = pyinstaller_config.get('force_includes', [])
+
+        # Qt 插件
+        qt_plugins = pyinstaller_config.get('qt_plugins', [])
         
         # Analysis 配置
         spec_content += f'''
@@ -107,11 +138,11 @@ a = Analysis(
 
 '''
         
-        # 收集数据和二进制文件
-        collect_data = pyinstaller_config.get('collect_data', [])
-        collect_binaries = pyinstaller_config.get('collect_binaries', [])
-        collect_submodules = pyinstaller_config.get('collect_submodules', [])
-        
+        # 收集数据和二进制文件（使用合并后的配置）
+        collect_data = collect_data_cfg
+        collect_binaries = collect_bins_cfg
+        collect_submodules = collect_submods_cfg
+
         if collect_data:
             spec_content += f'''
 # 安全收集数据文件
@@ -216,17 +247,20 @@ pyz = PYZ(
         debug = final_config.get('debug', False)
         strip_debug = final_config.get('strip_debug', True)
         upx_compress = final_config.get('upx_compress', False)
+        compression = final_config.get('compression', None)
 
         # onefile 模式特定优化
         if onefile:
             print("[OPTIMIZER] Applying onefile-specific optimizations...")
             # 减少不必要的数据收集
-            if final_config.get('collect_data') == 'minimal':
+            if str(final_config.get('collect_data', '')).lower() == 'minimal':
                 print("  • Minimal data collection enabled")
             if final_config.get('lazy_imports', False):
                 print("  • Lazy imports enabled")
             if upx_compress:
                 print("  • UPX compression enabled")
+            if compression:
+                print(f"  • Archive compression: {compression}")
         
         # 根据模式生成不同的 EXE 配置
         if onefile:
@@ -244,7 +278,7 @@ exe = EXE(
     strip={strip_debug},
     upx={upx_compress},
     upx_exclude=[],
-    runtime_tmpdir=None,
+    runtime_tmpdir={repr(runtime_tmpdir_cfg)},
     console={console},
     disable_windowed_traceback=False,
     target_arch=None,
@@ -306,6 +340,16 @@ a.datas = validate_toc_entries(a.datas, 'DATA')
 print(f"[OPTIMIZER] Validated binaries: {{len(a.binaries)}} entries")
 print(f"[OPTIMIZER] Validated zipfiles: {{len(a.zipfiles)}} entries")
 print(f"[OPTIMIZER] Validated datas: {{len(a.datas)}} entries")
+
+# Qt 插件收集（如需要）
+qt_plugins = {qt_plugins}
+if qt_plugins:
+    try:
+        from PyInstaller.utils.hooks.qt import add_qt5_dependencies
+        add_qt5_dependencies(a)
+        print(f"[OPTIMIZER] Qt plugins requested: {qt_plugins}")
+    except Exception as _e:
+        print(f"[OPTIMIZER] Qt plugin setup skipped: {{_e}}")
 
 # COLLECT 配置（目录模式）
 coll = COLLECT(
