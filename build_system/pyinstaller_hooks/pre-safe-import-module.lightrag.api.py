@@ -1,7 +1,9 @@
-# Prevent argparse from evaluating sys.argv during Analysis isolation child
+# Pre-safe import hook for lightrag.api
+# Prevent argparse in lightrag.api submodules from parsing PyInstaller isolated child args
 import sys
-
-# Some lightrag.api modules import config at import time; clear extraneous args
-if hasattr(sys, 'argv') and len(sys.argv) > 1:
-    sys.argv = [sys.argv[0]]
+try:
+    if hasattr(sys, 'argv') and isinstance(sys.argv, list) and len(sys.argv) > 1:
+        sys.argv[:] = sys.argv[:1]
+except Exception:
+    pass
 

@@ -12,3 +12,16 @@ hiddenimports = [
     'lightrag.api.config',
 ]
 
+
+
+# Sanitize argv before importing lightrag.api in PyInstaller isolated child
+# This prevents lightrag.api.config from parsing PyInstaller's own args
+
+def pre_safe_import_module(api):
+    import sys
+    try:
+        if hasattr(sys, 'argv') and isinstance(sys.argv, list) and len(sys.argv) > 1:
+            # keep only script name to avoid unrecognized arguments
+            sys.argv[:] = sys.argv[:1]
+    except Exception:
+        pass
