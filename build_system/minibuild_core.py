@@ -172,8 +172,13 @@ class MiniSpecBuilder:
         spec_lines.append("    excludes=" + repr(self.cfg.get("pyinstaller", {}).get("excludes", [])) + ",")
         spec_lines.append("    win_no_prefer_redirects=False,")
         spec_lines.append("    win_private_assemblies=False,")
+        # Get optimization settings
+        opt_cfg = self.cfg.get("pyinstaller", {}).get("optimization", {})
+        copy_metadata = opt_cfg.get("copy_metadata", True)
+        
         spec_lines.append("    cipher=None,")
         spec_lines.append("    noarchive=False,")
+        spec_lines.append(f"    copy_metadata={copy_metadata},")
         spec_lines.append(")")
         spec_lines.append("")
         spec_lines.append("pyz = PYZ(a.pure, a.zipped_data, cipher=None)")
@@ -224,7 +229,8 @@ class MiniSpecBuilder:
             spec_lines.append("    strip=True,")
             spec_lines.append("    upx=False,")
             spec_lines.append("    upx_exclude=[],")
-            spec_lines.append(f"    name='{app_name}'")
+            spec_lines.append("    exclude_binaries=False,")
+            spec_lines.append("    name='{app_name}'".format(app_name=app_name))
             spec_lines.append(")")
             spec_lines.append("")
             # macOS app bundle wrapper
