@@ -178,18 +178,28 @@ jobs:
         python scripts/install_ota_dependencies.py verify
         
         echo "=== Checking winSparkle Installation ==="
-        if (Test-Path "ota/dependencies/winsparkle/winsparkle.dll") {
-          Write-Host "✅ winSparkle DLL found"
-          $dll = Get-Item "ota/dependencies/winsparkle/winsparkle.dll"
-          Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
-        } else {
-          Write-Host "❌ winSparkle DLL not found"
+        $dllPaths = @(
+          "ota/dependencies/lib/winsparkle.dll",
+          "ota/dependencies/winsparkle/winsparkle.dll"
+        )
+        $found = $false
+        foreach ($p in $dllPaths) {
+          if (Test-Path $p) {
+            Write-Host "✅ winSparkle DLL found at: $p"
+            $dll = Get-Item $p
+            Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
+            $found = $true
+            break
+          }
+        }
+        if (-not $found) {
+          Write-Host "❌ winSparkle DLL not found in expected locations"
           Write-Host "Searching for winSparkle files..."
           Get-ChildItem -Path "ota" -Recurse -Filter "*sparkle*" | ForEach-Object {
             Write-Host "   Found: $($_.FullName)"
           }
         }
-    
+
     - name: Create build directories
       run: |
         echo "=== Creating Build Directories ==="
@@ -236,7 +246,26 @@ jobs:
         }
         
         echo "✅ Build completed successfully"
-    
+
+        echo "=== Verifying OTA artifacts in dist ==="
+        $distWinSparkle = @(
+          "dist/eCan/ota/dependencies/lib/winsparkle.dll",
+          "dist/ota/dependencies/lib/winsparkle.dll"
+        )
+        $distFound = $false
+        foreach ($p in $distWinSparkle) {
+          if (Test-Path $p) {
+            Write-Host "✅ winSparkle DLL packaged at: $p"
+            $dll = Get-Item $p
+            Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
+            $distFound = $true
+            break
+          }
+        }
+        if (-not $distFound) {
+          Write-Host "⚠️  winSparkle DLL not found in dist; OTA (Windows) may be disabled"
+        }
+
     - name: Check build result
       run: |
         echo "=== Build Result Check ==="
