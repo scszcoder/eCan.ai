@@ -5,9 +5,13 @@ OTA功能测试脚本
 
 import sys
 import os
+import importlib.util
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+def has_module(mod_name: str) -> bool:
+    return importlib.util.find_spec(mod_name) is not None
 
 def test_ota_import():
     """测试OTA包导入"""
@@ -21,7 +25,7 @@ def test_ota_import():
         return False
 
 def test_ota_updater():
-    """测试OTA更新器功能"""
+    """测试OTA更新器功能（使用本地桩，避免网络或外部CLI依赖）"""
     print("\nTesting OTA updater functionality...")
     try:
         from ota import OTAUpdater
@@ -29,13 +33,19 @@ def test_ota_updater():
         # 创建OTA更新器实例
         ota_updater = OTAUpdater()
         
+        # 打桩平台更新器的检查逻辑，避免真实网络/CLI 调用
+        def stub_check_for_updates(silent=False, return_info=False):
+            # 无更新场景
+            return (False, None) if return_info else False
+        ota_updater.platform_updater.check_for_updates = stub_check_for_updates  # type: ignore
+        
         # 测试基本属性
         print(f"Platform: {ota_updater.platform}")
         print(f"App version: {ota_updater.app_version}")
         print(f"Update server: {ota_updater.update_server_url}")
         
         # 测试更新检查（静默模式）
-        print("Testing update check (silent mode)...")
+        print("Testing update check (silent mode, stubbed)...")
         has_update = ota_updater.check_for_updates(silent=True)
         print(f"Update available: {has_update}")
         
@@ -46,8 +56,11 @@ def test_ota_updater():
         return False
 
 def test_gui_components():
-    """测试GUI组件"""
+    """测试GUI组件（如缺少 PySide6 则跳过）"""
     print("\nTesting GUI components...")
+    if not has_module('PySide6'):
+        print("- Skipped: PySide6 not installed")
+        return True
     try:
         from ota.gui.dialog import UpdateDialog, UpdateNotificationDialog
         print("✓ GUI components imported successfully")
@@ -79,8 +92,11 @@ def test_build_tools():
         return False
 
 def test_server():
-    """测试更新服务器"""
+    """测试更新服务器（如缺少 Flask 则跳过）"""
     print("\nTesting update server...")
+    if not has_module('flask'):
+        print("- Skipped: Flask not installed")
+        return True
     try:
         from ota.server import update_server_app
         print("✓ Update server imported successfully")

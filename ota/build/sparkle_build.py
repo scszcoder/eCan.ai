@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Sparkle和winSparkle构建脚本
-用于构建OTA更新组件
+Sparkle和winSparkle构建脚本（示例/占位）
+- 仅用于参考与本地实验，不建议在生产/CI 中直接执行
+- 需要本机具备 Xcode/MSVC 等工具链与相应依赖
+- 默认处于禁用状态：作为脚本运行时需设置环境变量 ECBOT_ALLOW_BUILD_SCRIPTS=1 才会执行
 """
 
 import os
@@ -237,6 +239,12 @@ class SparkleBuilder:
 
 
 def main():
+    # 默认禁用：仅在明确允许时执行
+    if os.environ.get("ECBOT_ALLOW_BUILD_SCRIPTS", "").lower() not in ("1", "true", "yes", "on"):
+        print("[sparkle_build] This is an example/placeholder build script and is disabled by default.\n"
+              "Set ECBOT_ALLOW_BUILD_SCRIPTS=1 to enable execution.")
+        return
+
     builder = SparkleBuilder()
     
     if len(sys.argv) > 1:

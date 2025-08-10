@@ -1,272 +1,151 @@
-# ECBot OTA 更新功能
+# ECBot OTA 使用说明（ota 目录）
 
-本文档介绍了如何使用和配置ECBot的OTA（Over-The-Air）更新功能。
+本文档介绍 ota 目录下 OTA（Over‑The‑Air）更新能力的使用方法、开发模式配置、安全校验与测试方法。
 
-## 功能概述
-
-ECBot的OTA更新功能支持：
-
-- **自动更新检查** - 定期检查新版本
-- **手动更新检查** - 通过菜单手动检查
-- **跨平台支持** - macOS (Sparkle)、Windows (winSparkle)、Linux (通用)
-- **安全更新** - 数字签名验证
-- **用户友好界面** - 直观的更新对话框
-
-## 文件结构
+## 目录结构
 
 ```
-ECBot/
-├── utils/
-│   └── ota_updater.py              # OTA更新管理器
-├── gui/
-│   └── UpdateDialog.py             # 更新对话框GUI
-├── build_system/
-│   ├── sparkle_integration.swift   # macOS Sparkle集成
-│   ├── winsparkle_integration.cpp  # Windows winSparkle集成
-│   ├── sparkle_build.py           # 构建脚本
-│   ├── build_with_ota.py          # OTA构建脚本
-│   ├── update_server.py           # 测试更新服务器
-│   └── appcast.xml                # 更新配置文件
-└── VERSION                        # 版本文件
+ota/
+├── build/                    # 构建相关（样例/占位）
+├── core/                     # OTA 核心：配置、错误、平台与包管理
+│   ├── config.py             # 配置（支持开发模式）
+│   ├── errors.py             # 统一错误码/异常
+│   ├── package_manager.py    # 下载/校验/安装
+│   ├── platforms.py          # Sparkle/WinSparkle/Generic 实现
+│   └── updater.py            # OTAUpdater 调度器
+├── dependencies/             # 本地依赖（含 Sparkle.framework）
+├── gui/                      # PySide6 GUI 对话框
+├── server/                   # Flask 测试/演示更新服务
+│   ├── update_server.py      # /api/check, /appcast.xml 等
+│   └── appcast.xml           # Sparkle/winSparkle appcast 示例
+├── test_ota.py               # 简单自检脚本（本地桩）
+└── README/本文件
 ```
 
 ## 快速开始
 
-### 1. 构建OTA组件
+- 安装依赖（按需）
+  - 可运行 server/update_server.py 需要 Flask
+  - 数字签名验证推荐安装 cryptography
+  - GUI 需要 PySide6（非必需）
 
-```bash
-# 安装依赖
-cd build_system
-python sparkle_build.py deps
-
-# 构建所有组件
-python sparkle_build.py build
-
-# 或者针对特定平台
-python sparkle_build.py macos    # macOS only
-python sparkle_build.py windows  # Windows only
-```
-
-### 2. 构建带OTA功能的应用
-
-```bash
-# 构建完整应用
-python build_with_ota.py build
-
-# 创建更新包
-python build_with_ota.py package
-
-# 一键构建和打包
-python build_with_ota.py all
-```
-
-### 3. 启动测试服务器
-
-```bash
-# 启动本地更新服务器
-python build_with_ota.py server
-```
-
-服务器将在 `http://localhost:8080` 启动，提供以下端点：
-
-- `GET /api/check-update` - 检查更新
-- `GET /api/download-latest` - 下载最新版本
-- `GET /appcast.xml` - Sparkle/winSparkle配置
-- `GET /health` - 健康检查
-
-## 使用方法
-
-### 代码集成
-
-在您的主应用程序中：
-
+- 最小示例
 ```python
-from utils.ota_updater import ota_updater
-
-# 设置更新回调
-def on_update_available(has_update):
-    if has_update:
-        # 显示更新通知
-        pass
-
-ota_updater.set_update_callback(on_update_available)
-
-# 启动自动更新检查（生产模式下）
-if not app_settings.is_dev_mode:
-    ota_updater.start_auto_check()
-
-# 手动检查更新
-has_update = ota_updater.check_for_updates()
-
-# 安装更新
-success = ota_updater.install_update()
+from ota import OTAUpdater
+u = OTAUpdater()
+has_update = u.check_for_updates(silent=True)
+if has_update:
+    u.install_update()
 ```
 
-### GUI集成
+## 开发模式（Dev Mode）
 
-更新功能已集成到主菜单：
+启用方式：设置环境变量
 
-1. **帮助菜单** -> **检查更新** - 手动检查更新
-2. **帮助菜单** -> **关于ECBot** - 查看版本信息
+- macOS/Linux: `export ECBOT_DEV_MODE=1`
+- Windows: `set ECBOT_DEV_MODE=1`
 
-### 自动更新
+启用后默认行为：
+- 默认更新服务器切换为本地 `http://127.0.0.1:8080`
+- 强制使用通用更新器 GenericUpdater（避免 Sparkle/winSparkle 依赖）
 
-应用程序会：
-
-- 每小时自动检查一次更新（可配置）
-- 在开发模式下禁用自动检查
-- 发现更新时显示通知对话框
-- 允许用户选择立即安装或稍后安装
-
-## 配置
-
-### 环境变量
-
-- `ECBOT_UPDATE_SERVER` - 更新服务器URL（默认：https://updates.ecbot.com）
-
-### 版本管理
-
-版本号存储在根目录的 `VERSION` 文件中：
-
-```
-1.0.0
-```
-
-### 更新服务器配置
-
-编辑 `build_system/appcast.xml` 来配置更新信息：
-
-```xml
-<item>
-    <title>ECBot 1.1.0</title>
-    <description>新功能和错误修复</description>
-    <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-    <enclosure url="https://updates.ecbot.com/downloads/ECBot-1.1.0.dmg"
-               sparkle:version="1.1.0"
-               sparkle:os="macos"
-               length="52428800"
-               type="application/octet-stream"
-               sparkle:edSignature="ABC123..." />
-</item>
-```
-
-## 平台特定说明
-
-### macOS (Sparkle)
-
-- 需要安装Xcode和Sparkle框架
-- 使用 `brew install sparkle` 安装依赖
-- 支持DMG和ZIP格式的更新包
-- 支持Ed25519数字签名
-
-### Windows (winSparkle)
-
-- 需要Visual Studio或MSVC编译器
-- 自动下载winSparkle依赖
-- 支持EXE和MSI格式的更新包
-- 支持Authenticode代码签名
-
-### Linux (通用)
-
-- 使用HTTP API进行更新检查
-- 支持TAR.GZ格式的更新包
-- 通过安装脚本进行更新
-
-## 安全性
-
-### 数字签名
-
-所有更新包都应该进行数字签名：
-
-- **macOS**: 使用Ed25519签名
-- **Windows**: 使用Authenticode签名
-- **Linux**: 使用GPG签名
-
-### HTTPS
-
-生产环境必须使用HTTPS：
-
+可通过代码读取/设置：
 ```python
-# 配置HTTPS更新服务器
-os.environ['ECBOT_UPDATE_SERVER'] = 'https://updates.ecbot.com'
+from ota.core.config import ota_config
+print('dev?', ota_config.is_dev_mode())
+ota_config.set('dev_update_server', 'http://127.0.0.1:8080')
 ```
 
-## 故障排除
+关键配置项（ota_config.get/set）：
+- update_server: 生产更新服务器（默认 https://updates.ecbot.com）
+- dev_update_server: 开发模式更新服务器（默认 http://127.0.0.1:8080）
+- force_generic_updater_in_dev: 开发模式强制使用 GenericUpdater（默认 True）
+- allow_http_in_dev: 开发模式允许 HTTP（默认 True）
+- public_key_path: 签名验证公钥 PEM
+- dev_installer_enabled: 开发模式启用占位安装器（默认 False）
+- dev_installer_quiet: 占位安装器尝试静默安装（默认 True）
+- dmg_target_dir: macOS .dmg 安装目标目录（默认 /Applications）
 
-### 常见问题
+## 测试更新服务器
 
-1. **Sparkle框架未找到**
-   ```bash
-   brew install sparkle
-   ```
-
-2. **winSparkle编译失败**
-   - 确保安装了Visual Studio
-   - 检查winSparkle依赖是否下载完整
-
-3. **更新检查失败**
-   - 检查网络连接
-   - 验证更新服务器URL
-   - 查看日志文件
-
-### 日志
-
-OTA更新日志将记录在：
-
-- **macOS**: `~/Library/Logs/ECBot/`
-- **Windows**: `%LOCALAPPDATA%/ECBot/Logs/`
-- **Linux**: `~/.local/share/ECBot/logs/`
-
-## 开发和测试
-
-### 本地测试
-
-1. 启动测试服务器：
-   ```bash
-   python build_system/update_server.py
-   ```
-
-2. 设置环境变量：
-   ```bash
-   export ECBOT_UPDATE_SERVER=http://localhost:8080
-   ```
-
-3. 运行应用程序并测试更新功能
-
-### 构建发布版本
-
+运行演示服务（需 Flask）：
 ```bash
-# 完整构建流程
-python build_system/build_with_ota.py all
-
-# 验证构建结果
-ls dist/
+python ota/server/update_server.py
+# 服务默认监听 http://0.0.0.0:8080
 ```
+提供端点：
+- GET /api/check 或 /api/check-update：检查更新（已实现语义版本比较）
+- GET /appcast.xml：Sparkle/winSparkle appcast 文件
+- GET /health：健康检查
 
-## 部署
+语义版本比较已避免 1.10.0 与 1.2.0 的字符串误判。
 
-### 更新服务器部署
+## 签名与完整性校验
 
-1. 部署更新服务器到云平台
-2. 配置HTTPS和域名
-3. 上传更新包和appcast.xml
-4. 测试更新流程
+PackageManager.verify_package() 执行：
+1) 计算 SHA256 哈希
+2) 签名验证（如提供 signature）：
+   - 若 signature 为 32/40/64 位 hex，视为简单哈希比对
+   - 否则尝试数字签名验证（需要 cryptography）
+     - 支持 RSA-PSS(SHA256)
+     - 支持 Ed25519（Sparkle 2 的 edSignature，Base64 编码）
+   - 公钥路径：参数 public_key_path 或配置 ota_config.public_key_path
+3) 包格式校验（ZIP/TAR 完整性、路径安全）
+4) 基础安全扫描（大小限制、扩展名白名单）
 
-### 应用程序发布
+建议：
+- Sparkle 使用 Ed25519，确保提供 PEM 格式的 Ed25519 公钥
+- 生产环境安装 cryptography 并启用严格验证
 
-1. 构建签名的更新包
-2. 上传到更新服务器
-3. 更新appcast.xml
-4. 通知用户新版本可用
+## 安装策略与占位安装器
 
-## 支持
+GenericUpdater 安装策略：
+- .zip/.tar/.gz/.bz2：下载→验证→解压安装
+- .dmg/.exe/.msi：在下载前即直接拒绝并提示“当前不支持”，避免无效下载
 
-如有问题，请查看：
+开发模式占位安装器（仅本地调试，默认关闭）：
+- 开启：`ECBOT_DEV_MODE=1` 且 `ota_config.set('dev_installer_enabled', True)`
+- macOS .dmg：hdiutil attach → 复制 .app 至 dmg_target_dir → hdiutil detach
+- Windows .exe/.msi：尝试静默参数（/quiet 或 msiexec /quiet），实际参数依安装器而异
+- 非测试环境请勿启用；执行安装器可能需要管理员权限
 
-1. [ECBot GitHub Issues](https://github.com/ecbot/ecbot/issues)
-2. [Sparkle文档](https://sparkle-project.org/)
-3. [winSparkle文档](https://winsparkle.org/)
+## GUI 使用
+
+- 顶层导入已解耦 GUI：
+  - `from ota import OTAUpdater` 不再强制要求 PySide6
+  - GUI 组件可直接 `from ota import UpdateDialog, UpdateNotificationDialog`（懒加载）
+
+## 自检与单元测试
+
+- 快速自检（无依赖环境也可运行）
+```bash
+python ota/test_ota.py
+```
+该脚本对更新检查使用本地桩，避免联网/外部 CLI 依赖。
+
+- 单元测试（推荐使用 python3）
+```bash
+python3 -m unittest -q tests/test_ota_core.py tests/test_ota_installers.py
+```
+覆盖内容：
+- 权限异常映射（内建 PermissionError → PERMISSION_DENIED）
+- 语义版本比较端点用例
+- Ed25519 签名正反用例
+- 安装器预检查与开发模式占位安装器开关
+
+## 常见问题
+
+- cryptography 未安装：将跳过严格签名验证（记录警告）。生产环境请安装 cryptography 并配置 public_key_path。
+- HTTP/HTTPS：生产环境必须使用 HTTPS；仅在开发模式允许 HTTP（allow_http_in_dev=True）。
+- Sparkle/WinSparkle 依赖：开发模式下默认使用 GenericUpdater，避免平台依赖。
+
+## 变更摘要（相较于早期版本）
+- 顶层 import 解耦 GUI（lazy import）
+- 错误映射修正（内建 PermissionError 正确映射）
+- 语义版本比较替换字符串比较
+- 支持 Ed25519 数字签名验证
+- 明确拒绝 .dmg/.exe/.msi（并提供开发模式占位安装器）
+- 开发模式默认本地服务器与通用更新器
 
 ---
-
-© 2024 ECBot Team. All rights reserved.
+以上配置/接口仅供演示与开发使用。生产环境请按平台安全规范与签名策略完善构建与部署流程。

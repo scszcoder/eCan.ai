@@ -7,7 +7,6 @@ from typing import Optional, Callable
 from threading import Lock, Event
 
 import sys
-import os
 from pathlib import Path
 
 # 添加项目根目录到Python路径
@@ -63,6 +62,12 @@ class OTAUpdater:
     
     def _create_platform_updater(self):
         """创建平台特定的更新器"""
+        # 开发模式可强制使用通用更新器，便于本地无平台依赖的调试
+        try:
+            if ota_config.is_dev_mode() and ota_config.get("force_generic_updater_in_dev", True):
+                return GenericUpdater(self)
+        except Exception:
+            pass
         if self.platform == "Darwin":
             return SparkleUpdater(self)
         elif self.platform == "Windows":
