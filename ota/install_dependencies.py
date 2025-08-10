@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-OTA Dependencies Installation Script
+OTA Dependencies Installation Script（示例/占位）
 
 This script helps install the correct dependencies for OTA functionality
 on different platforms.
+
+注意：此脚本为示例代码，建议使用主构建系统的依赖管理功能
 """
 
 import os
