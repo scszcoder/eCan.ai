@@ -55,7 +55,10 @@
       "webenginewidgets"
     ],
     "collect_all": [
-      "PySide6"
+      "PySide6",
+      "browser_use",
+      "agent",
+      "lightrag"
     ],
     "force_includes": [
       "pkg_resources",
@@ -75,7 +78,12 @@
       "jaraco.classes",
       "jaraco.logging",
       "jaraco.path",
-      "jaraco.stream"
+      "jaraco.stream",
+      "browser_use",
+      "browser_use.agent",
+      "browser_use.agent.prompts",
+      "browser_use.browser",
+      "browser_use.llm"
     ],
     "force_pre_safe": [
       "lightrag",
@@ -90,6 +98,7 @@
       "jupyter",
       "pytest",
       "test",
+      "tests",
       "testing",
       "pip",
       "wheel",
