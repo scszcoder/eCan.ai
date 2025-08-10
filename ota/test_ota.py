@@ -80,17 +80,6 @@ def test_platform_updaters():
         print(f"✗ Platform updaters import failed: {e}")
         return False
 
-def test_build_tools():
-    """测试构建工具"""
-    print("\nTesting build tools...")
-    try:
-        from ota.build import SparkleBuilder
-        print("✓ Build tools imported successfully")
-        return True
-    except Exception as e:
-        print(f"✗ Build tools import failed: {e}")
-        return False
-
 def test_server():
     """测试更新服务器（如缺少 Flask 则跳过）"""
     print("\nTesting update server...")
@@ -115,7 +104,6 @@ def main():
         test_ota_updater,
         test_gui_components,
         test_platform_updaters,
-        test_build_tools,
         test_server
     ]
     

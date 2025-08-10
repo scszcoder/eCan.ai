@@ -1,4 +1,4 @@
-name: Release Build
+name: Release Build eCan
 #
 # 通过 workflow_dispatch 参数 platform/arch 可选择打包平台和 CPU 架构：
 #   - platform: windows, macos, all

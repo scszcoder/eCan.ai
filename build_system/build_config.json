@@ -189,7 +189,9 @@
       "compress_binaries": true,
       "strip_debug_info": true,
       "optimize_imports": true,
-      "bundle_identifier": "com.ecan.app"
+      "bundle_identifier": "com.ecan.app",
+      "copy_metadata": true,
+      "avoid_symlinks": true
     }
   },
   "build_modes": {

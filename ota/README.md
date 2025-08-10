@@ -20,10 +20,10 @@ ota/
 │   ├── __init__.py
 │   ├── sparkle_integration.swift    # macOS Sparkle
 │   └── winsparkle_integration.cpp   # Windows winSparkle
-├── build/                 # 构建工具
+├── build/                 # 构建工具（示例/占位）
 │   ├── __init__.py
-│   ├── sparkle_build.py   # Sparkle构建脚本
-│   └── build_with_ota.py  # OTA构建脚本
+│   ├── sparkle_build.py   # Sparkle构建脚本（示例）
+│   └── build_with_ota.py  # OTA构建脚本（示例）
 └── server/                # 更新服务器
     ├── __init__.py
     ├── update_server.py    # 测试服务器
@@ -93,9 +93,14 @@ pip install -r requirements-base.txt     # Linux
 
 **注意**: Sparkle和winSparkle不是Python包，需要单独安装。详见平台特定的安装指南。
 
-### 5. 构建OTA组件（可选）
+### 5. 构建OTA组件（示例/占位）
+
+**注意**: 以下构建脚本为示例代码，默认禁用。如需使用请设置环境变量：
 
 ```bash
+# 启用示例构建脚本
+export ECBOT_ALLOW_BUILD_SCRIPTS=1
+
 # 构建所有平台
 python ota/build/sparkle_build.py build
 
@@ -106,6 +111,8 @@ python ota/build/sparkle_build.py windows
 # 清理构建文件
 python ota/build/sparkle_build.py clean
 ```
+
+**重要**: 这些脚本仅用于参考与本地实验，不建议在生产/CI中直接执行。
 
 ### 6. 启动测试服务器
 
