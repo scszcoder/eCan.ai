@@ -172,6 +172,20 @@ class SmartDynamicDetector:
                 continue
         return sorted(resource_pkgs)
 
+    def detect_pre_safe_modules(self) -> List[str]:
+        """Return modules that likely parse sys.argv at import-time and need pre-safe hooks.
+        Start with a conservative curated list; can be expanded via heuristics later.
+        """
+        candidates = [
+            'lightrag.api',
+            'lightrag.api.config',
+            # Some third-party packages ship a top-level 'build' module that parses argv
+            'build',
+        ]
+        # Do NOT import candidates here to avoid triggering argparse side-effects at import-time
+        # Return the curated list directly; PyInstaller will apply pre-safe hooks before importing them
+        return candidates
+
     def _detect_actual_code_imports(self) -> Set[str]:
         """Detect actual dynamic imports in code v2.0"""
         dynamic_imports = set()
@@ -916,4 +930,4 @@ class SmartDynamicDetector:
             'jaraco.functools', 'jaraco.context', 'jaraco.collections',
             'jaraco.stream', 'jaraco.itertools', 'jaraco.logging', "jaraco.path",
         ]
-        return any(module.startswith(lib) for lib in critical_libs) 
+        return any(module.startswith(lib) for lib in critical_libs)
