@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-OTA依赖库打包脚本（独立版本）
-自动下载并打包Sparkle/winSparkle到应用程序中
+OTA依赖库打包脚本（示例/占位）
+- 仅用于参考与本地实验，不建议在生产/CI 中直接执行
+- 需要本机具备网络访问和相应平台工具链
+- 默认处于禁用状态：作为脚本运行时需设置环境变量 ECBOT_ALLOW_BUILD_SCRIPTS=1 才会执行
 
 注意：此脚本已集成到主构建系统中 (build_system/ota_dependency_manager.py)
 建议使用: python build.py [mode] 进行构建
@@ -339,6 +341,12 @@ exit /b 1
 
 def main():
     """主函数"""
+    # 默认禁用：仅在明确允许时执行
+    if os.environ.get("ECBOT_ALLOW_BUILD_SCRIPTS", "").lower() not in ("1", "true", "yes", "on"):
+        print("[bundle_dependencies] This is an example/placeholder build script and is disabled by default.\n"
+              "Set ECBOT_ALLOW_BUILD_SCRIPTS=1 to enable execution.")
+        return 0
+    
     import argparse
     
     parser = argparse.ArgumentParser(description="Bundle OTA dependencies")
