@@ -238,6 +238,18 @@ Usage examples:
         help="Show detailed build information"
     )
 
+    parser.add_argument(
+        "--enable-sparkle",
+        action="store_true",
+        help="Enable Sparkle/winSparkle OTA update support (requires dependencies)"
+    )
+
+    parser.add_argument(
+        "--verify-sparkle",
+        action="store_true",
+        help="Verify Sparkle/winSparkle installation before build"
+    )
+
     args = parser.parse_args()
 
     # Validate environment
@@ -268,7 +280,9 @@ Usage examples:
         success = builder.build(
             force=args.force,
             skip_frontend=args.skip_frontend,
-            skip_installer=args.skip_installer
+            skip_installer=args.skip_installer,
+            enable_sparkle=args.enable_sparkle,
+            verify_sparkle=args.verify_sparkle
         )
 
         if not success:

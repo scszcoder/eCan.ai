@@ -169,13 +169,26 @@ jobs:
             exit 1
         }
     
-    - name: Install OTA dependencies
+    - name: Install OTA dependencies (including winSparkle)
       run: |
         echo "=== Installing OTA Dependencies ==="
         python scripts/install_ota_dependencies.py install --platform windows
         
         echo "=== Verifying OTA Dependencies ==="
         python scripts/install_ota_dependencies.py verify
+        
+        echo "=== Checking winSparkle Installation ==="
+        if (Test-Path "ota/dependencies/winsparkle/winsparkle.dll") {
+          Write-Host "✅ winSparkle DLL found"
+          $dll = Get-Item "ota/dependencies/winsparkle/winsparkle.dll"
+          Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
+        } else {
+          Write-Host "❌ winSparkle DLL not found"
+          Write-Host "Searching for winSparkle files..."
+          Get-ChildItem -Path "ota" -Recurse -Filter "*sparkle*" | ForEach-Object {
+            Write-Host "   Found: $($_.FullName)"
+          }
+        }
     
     - name: Create build directories
       run: |
@@ -203,8 +216,8 @@ jobs:
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
         
-        # Run build with detailed output
-        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
+        # Run build with detailed output (including Sparkle support)
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
         
         # 重命名产物，规范为 eCan-windows-x86_64-v{version}.exe
         if (Test-Path "dist/eCan/eCan.exe") {
@@ -338,13 +351,37 @@ jobs:
         cd gui_v2
         npm ci --legacy-peer-deps
     
-    - name: Install OTA dependencies
+    - name: Install OTA dependencies (including Sparkle)
       run: |
         echo "=== Installing OTA Dependencies ==="
         python scripts/install_ota_dependencies.py install --platform darwin
         
         echo "=== Verifying OTA Dependencies ==="
         python scripts/install_ota_dependencies.py verify
+        
+        echo "=== Checking Sparkle Framework Installation ==="
+        if [ -d "ota/dependencies/Sparkle.framework" ]; then
+          echo "✅ Sparkle.framework found"
+          framework_size=$(du -sh ota/dependencies/Sparkle.framework | cut -f1)
+          echo "   Size: $framework_size"
+          
+          # Check framework structure
+          if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Sparkle" ]; then
+            echo "✅ Sparkle binary found in framework"
+          else
+            echo "⚠️  Sparkle binary not found in expected location"
+          fi
+          
+          if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Resources/sparkle-cli" ]; then
+            echo "✅ Sparkle CLI found"
+          else
+            echo "⚠️  Sparkle CLI not found"
+          fi
+        else
+          echo "❌ Sparkle.framework not found"
+          echo "Searching for Sparkle files..."
+          find ota -name "*parkle*" -type f 2>/dev/null || echo "No Sparkle files found"
+        fi
     
     - name: Create build directories
       run: |
@@ -372,8 +409,8 @@ jobs:
         export PYTHONPATH="$PWD"
         export PYTHONUNBUFFERED=1
         
-        # Run build with detailed output
-        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        # Run build with detailed output (including Sparkle support)
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
         
         # 规范产物命名
         if [ -f "dist/eCan.pkg" ]; then

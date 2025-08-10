@@ -109,7 +109,7 @@ class FrontendBuilder:
 
             # Set command and environment variables based on platform
             if platform.system() == "Windows":
-                cmd = "npm ci --legacy-peer-deps"
+                cmd = "npm install --legacy-peer-deps"
                 shell = True
                 # Windows encoding settings
                 env = os.environ.copy()
@@ -165,7 +165,7 @@ class FrontendBuilder:
             need_install = force or not (self.frontend_dir / 'node_modules').exists()
             if need_install:
                 print("[FRONTEND] Installing dependencies (npm ci)...")
-                install_cmd = "npm ci --legacy-peer-deps" if platform.system() == "Windows" else ["npm", "ci", "--legacy-peer-deps"]
+                install_cmd = "npm install --legacy-peer-deps" if platform.system() == "Windows" else ["npm", "ci", "--legacy-peer-deps"]
                 install_shell = platform.system() == "Windows"
                 install_env = os.environ.copy()
                 if platform.system() == "Windows":
@@ -705,7 +705,8 @@ class ECanBuild:
         self.pyinstaller_builder = PyInstallerBuilder(self.config, self.env, self.project_root)
         self.installer_builder = InstallerBuilder(self.config, self.env, self.project_root, self.mode)
 
-    def build(self, force: bool = False, skip_frontend: bool = None, skip_installer: bool = False) -> bool:
+    def build(self, force: bool = False, skip_frontend: bool = None, skip_installer: bool = False, 
+              enable_sparkle: bool = False, verify_sparkle: bool = False) -> bool:
         """Execute build"""
         start_time = time.time()
 
@@ -715,7 +716,15 @@ class ECanBuild:
 
         try:
             # Check OTA dependencies (CI should have installed them)
+            if enable_sparkle or verify_sparkle:
+                print("[BUILD] Sparkle support enabled - checking dependencies...")
             self._check_ota_dependencies()
+            
+            # 如果启用了 Sparkle 验证，进行额外检查
+            if verify_sparkle:
+                if not self._verify_sparkle_environment():
+                    print("[ERROR] Sparkle verification failed!")
+                    return False
             
             # Build frontend (if needed)
             if skip_frontend is None:
@@ -781,11 +790,111 @@ class ECanBuild:
                 else:
                     print(f"[OTA] {name} not properly installed")
             
+            # Sparkle 特定验证
+            self._verify_sparkle_installation(ota_dir, platform)
+            
             if not installed_deps:
                 print("[OTA] No dependencies found for current platform")
                 
         except Exception as e:
             print(f"[OTA] Failed to read install info: {e}")
+    
+    def _verify_sparkle_installation(self, ota_dir: Path, platform: str):
+        """验证 Sparkle/winSparkle 安装"""
+        if platform == "darwin":
+            # 检查 Sparkle.framework
+            sparkle_framework = ota_dir / "Sparkle.framework"
+            if sparkle_framework.exists():
+                print("[OTA] ✅ Sparkle.framework found")
+                
+                # 检查关键文件
+                sparkle_binary = sparkle_framework / "Versions" / "Current" / "Sparkle"
+                sparkle_cli = sparkle_framework / "Versions" / "Current" / "Resources" / "sparkle-cli"
+                
+                if sparkle_binary.exists():
+                    print("[OTA] ✅ Sparkle binary verified")
+                else:
+                    print("[OTA] ⚠️  Sparkle binary not found")
+                
+                if sparkle_cli.exists():
+                    print("[OTA] ✅ Sparkle CLI verified")
+                else:
+                    print("[OTA] ⚠️  Sparkle CLI not found")
+            else:
+                print("[OTA] ❌ Sparkle.framework not found")
+                
+        elif platform == "windows":
+            # 检查 winSparkle
+            winsparkle_dir = ota_dir / "winsparkle"
+            if winsparkle_dir.exists():
+                print("[OTA] ✅ winSparkle directory found")
+                
+                # 检查关键文件
+                winsparkle_dll = winsparkle_dir / "winsparkle.dll"
+                winsparkle_lib = winsparkle_dir / "winsparkle.lib"
+                
+                if winsparkle_dll.exists():
+                    print("[OTA] ✅ winSparkle DLL verified")
+                else:
+                    print("[OTA] ❌ winSparkle DLL not found")
+                
+                if winsparkle_lib.exists():
+                    print("[OTA] ✅ winSparkle LIB verified")
+                else:
+                    print("[OTA] ⚠️  winSparkle LIB not found")
+            else:
+                print("[OTA] ❌ winSparkle directory not found")
+    
+    def _verify_sparkle_environment(self) -> bool:
+        """验证 Sparkle 环境是否完整"""
+        ota_dir = self.project_root / "ota" / "dependencies"
+        
+        if not ota_dir.exists():
+            print("[SPARKLE] ❌ OTA dependencies directory not found")
+            return False
+        
+        platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
+        
+        if platform == "darwin":
+            # 验证 Sparkle.framework
+            sparkle_framework = ota_dir / "Sparkle.framework"
+            if not sparkle_framework.exists():
+                print("[SPARKLE] ❌ Sparkle.framework not found")
+                return False
+            
+            # 检查关键组件
+            required_files = [
+                sparkle_framework / "Versions" / "Current" / "Sparkle",
+                sparkle_framework / "Versions" / "Current" / "Resources" / "Info.plist",
+            ]
+            
+            for file_path in required_files:
+                if not file_path.exists():
+                    print(f"[SPARKLE] ❌ Required file missing: {file_path.name}")
+                    return False
+            
+            print("[SPARKLE] ✅ Sparkle.framework verification passed")
+            return True
+            
+        elif platform == "windows":
+            # 验证 winSparkle
+            winsparkle_dir = ota_dir / "winsparkle"
+            if not winsparkle_dir.exists():
+                print("[SPARKLE] ❌ winSparkle directory not found")
+                return False
+            
+            # 检查关键文件
+            winsparkle_dll = winsparkle_dir / "winsparkle.dll"
+            if not winsparkle_dll.exists():
+                print("[SPARKLE] ❌ winsparkle.dll not found")
+                return False
+            
+            print("[SPARKLE] ✅ winSparkle verification passed")
+            return True
+        
+        else:
+            print(f"[SPARKLE] ⚠️  Unsupported platform: {platform}")
+            return True  # 不阻止构建
     
     def _show_result(self, start_time: float):
         """Display build results"""
