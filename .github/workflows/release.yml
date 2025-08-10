@@ -193,7 +193,7 @@ jobs:
           }
         }
         if (-not $found) {
-          Write-Host "❌ winSparkle DLL not found in expected locations"
+          Write-Host "[WARN] winSparkle DLL not found in expected locations"
           Write-Host "Searching for winSparkle files..."
           Get-ChildItem -Path "ota" -Recurse -Filter "*sparkle*" | ForEach-Object {
             Write-Host "   Found: $($_.FullName)"
@@ -232,13 +232,13 @@ jobs:
         
         # Check exit code
         if ($LASTEXITCODE -ne 0) {
-            echo "❌ Build failed with exit code: $LASTEXITCODE"
+            echo "[ERROR] Build failed with exit code: $LASTEXITCODE"
             echo "=== Build Log ==="
             Get-Content "build.log"
             exit 1
         }
         
-        echo "✅ Build completed successfully"
+        echo "[OK] Build completed successfully"
 
         echo "=== Verifying OTA artifacts in dist ==="
         $distWinSparkle = @(
@@ -248,7 +248,7 @@ jobs:
         $distFound = $false
         foreach ($p in $distWinSparkle) {
           if (Test-Path $p) {
-            Write-Host "✅ winSparkle DLL packaged at: $p"
+            Write-Host "[OK] winSparkle DLL packaged at: $p"
             $dll = Get-Item $p
             Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
             $distFound = $true
@@ -256,7 +256,7 @@ jobs:
           }
         }
         if (-not $distFound) {
-          Write-Host "⚠️  winSparkle DLL not found in dist; OTA (Windows) may be disabled"
+          Write-Host "[WARN] winSparkle DLL not found in dist; OTA (Windows) may be disabled"
         }
 
     - name: Check build result
@@ -395,12 +395,12 @@ jobs:
           fi
           
           if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Resources/sparkle-cli" ]; then
-            echo "✅ Sparkle CLI found"
+            echo "[OK] Sparkle CLI found"
           else
-            echo "⚠️  Sparkle CLI not found"
+            echo "[WARN] Sparkle CLI not found"
           fi
         else
-          echo "❌ Sparkle.framework not found"
+          echo "[ERROR] Sparkle.framework not found"
           echo "Searching for Sparkle files..."
           find ota -name "*parkle*" -type f 2>/dev/null || echo "No Sparkle files found"
         fi

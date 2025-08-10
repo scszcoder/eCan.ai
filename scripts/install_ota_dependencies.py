@@ -75,7 +75,7 @@ class CIOTAInstaller:
             if config.get("platform") == self.platform:
                 if self._install_single_dependency(name, config, force):
                     installed_count += 1
-                    print(f"[CI-OTA] ✅ {name} installed successfully")
+                    print(f"[CI-OTA] [OK] {name} installed successfully")
                 else:
                     print(f"[CI-OTA] ❌ Failed to install {name}")
                     success = False
@@ -83,9 +83,9 @@ class CIOTAInstaller:
         if success and installed_count > 0:
             self._create_cli_wrappers()
             self._create_install_info()
-            print(f"[CI-OTA] ✅ Successfully installed {installed_count} dependencies")
+            print(f"[CI-OTA] [OK] Successfully installed {installed_count} dependencies")
         elif installed_count == 0:
-            print(f"[CI-OTA] ℹ️  No dependencies to install for platform {self.platform}")
+            print(f"[CI-OTA] [INFO] No dependencies to install for platform {self.platform}")
 
         return success
 
@@ -189,9 +189,9 @@ class CIOTAInstaller:
 
             # 验证安装
             if (target_path / "Versions" / "Current" / "Sparkle").exists():
-                print("[CI-OTA] ✅ Sparkle framework installation verified")
+                print("[CI-OTA] [OK] Sparkle framework installation verified")
             else:
-                print("[CI-OTA] ⚠️  Sparkle framework structure may be incomplete")
+                print("[CI-OTA] [WARN] Sparkle framework structure may be incomplete")
 
             # 清理临时文件
             shutil.rmtree(extract_dir)
@@ -265,9 +265,9 @@ class CIOTAInstaller:
             # 验证安装（以标准化路径为准）
             dll_path = lib_dir / "winsparkle.dll"
             if dll_path.exists():
-                print(f"[CI-OTA] ✅ winSparkle DLL installation verified: {dll_path}")
+                print(f"[CI-OTA] [OK] winSparkle DLL installation verified: {dll_path}")
             else:
-                print("[CI-OTA] ⚠️  winSparkle DLL not found")
+                print("[CI-OTA] [WARN] winSparkle DLL not found")
 
             # 清理临时文件
             shutil.rmtree(extract_dir)
@@ -440,22 +440,22 @@ exit /b 1
 
             installed_deps = info.get("installed_dependencies", {})
             if not installed_deps:
-                print("[CI-OTA] ❌ No dependencies installed")
+                print("[CI-OTA] [ERROR] No dependencies installed")
                 return False
 
             all_verified = True
             for name, dep_info in installed_deps.items():
                 target_path = Path(dep_info["target_path"])
                 if target_path.exists():
-                    print(f"[CI-OTA] ✅ {name} verified at: {target_path}")
+                    print(f"[CI-OTA] [OK] {name} verified at: {target_path}")
                 else:
-                    print(f"[CI-OTA] ❌ {name} not found at: {target_path}")
+                    print(f"[CI-OTA] [ERROR] {name} not found at: {target_path}")
                     all_verified = False
 
             return all_verified
 
         except Exception as e:
-            print(f"[CI-OTA] ❌ Failed to verify installation: {e}")
+            print(f"[CI-OTA] [ERROR] Failed to verify installation: {e}")
             return False
 
 
@@ -492,13 +492,13 @@ def main():
         if success:
             # 验证安装
             if installer.verify_installation():
-                print("\n[CI-OTA] 🎉 OTA dependencies installed and verified successfully!")
+                print("\n[CI-OTA] [OK] OTA dependencies installed and verified successfully!")
                 return 0
             else:
-                print("\n[CI-OTA] ❌ Installation verification failed")
+                print("\n[CI-OTA] [ERROR] Installation verification failed")
                 return 1
         else:
-            print("\n[CI-OTA] ❌ Installation failed")
+            print("\n[CI-OTA] [ERROR] Installation failed")
             return 1
 
 

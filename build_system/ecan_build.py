@@ -877,52 +877,52 @@ class ECanBuild:
             # 检查 Sparkle.framework
             sparkle_framework = ota_dir / "Sparkle.framework"
             if sparkle_framework.exists():
-                print("[OTA] ✅ Sparkle.framework found")
+                print("[OTA] [OK] Sparkle.framework found")
                 
                 # 检查关键文件
                 sparkle_binary = sparkle_framework / "Versions" / "Current" / "Sparkle"
                 sparkle_cli = sparkle_framework / "Versions" / "Current" / "Resources" / "sparkle-cli"
                 
                 if sparkle_binary.exists():
-                    print("[OTA] ✅ Sparkle binary verified")
+                    print("[OTA] [OK] Sparkle binary verified")
                 else:
-                    print("[OTA] ⚠️  Sparkle binary not found")
+                    print("[OTA] [WARN] Sparkle binary not found")
                 
                 if sparkle_cli.exists():
-                    print("[OTA] ✅ Sparkle CLI verified")
+                    print("[OTA] [OK] Sparkle CLI verified")
                 else:
-                    print("[OTA] ⚠️  Sparkle CLI not found")
+                    print("[OTA] [WARN] Sparkle CLI not found")
             else:
-                print("[OTA] ❌ Sparkle.framework not found")
+                print("[OTA] [ERROR] Sparkle.framework not found")
                 
         elif platform == "windows":
             # 检查 winSparkle
             winsparkle_dir = ota_dir / "winsparkle"
             if winsparkle_dir.exists():
-                print("[OTA] ✅ winSparkle directory found")
+                print("[OTA] [OK] winSparkle directory found")
                 
                 # 检查关键文件
                 winsparkle_dll = winsparkle_dir / "winsparkle.dll"
                 winsparkle_lib = winsparkle_dir / "winsparkle.lib"
                 
                 if winsparkle_dll.exists():
-                    print("[OTA] ✅ winSparkle DLL verified")
+                    print("[OTA] [OK] winSparkle DLL verified")
                 else:
-                    print("[OTA] ❌ winSparkle DLL not found")
+                    print("[OTA] [ERROR] winSparkle DLL not found")
                 
                 if winsparkle_lib.exists():
-                    print("[OTA] ✅ winSparkle LIB verified")
+                    print("[OTA] [OK] winSparkle LIB verified")
                 else:
-                    print("[OTA] ⚠️  winSparkle LIB not found")
+                    print("[OTA] [WARN] winSparkle LIB not found")
             else:
-                print("[OTA] ❌ winSparkle directory not found")
+                print("[OTA] [ERROR] winSparkle directory not found")
     
     def _verify_sparkle_environment(self) -> bool:
         """验证 Sparkle 环境是否完整"""
         ota_dir = self.project_root / "ota" / "dependencies"
         
         if not ota_dir.exists():
-            print("[SPARKLE] ❌ OTA dependencies directory not found")
+            print("[SPARKLE] [ERROR] OTA dependencies directory not found")
             return False
         
         platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
@@ -931,7 +931,7 @@ class ECanBuild:
             # 验证 Sparkle.framework
             sparkle_framework = ota_dir / "Sparkle.framework"
             if not sparkle_framework.exists():
-                print("[SPARKLE] ❌ Sparkle.framework not found")
+                print("[SPARKLE] [ERROR] Sparkle.framework not found")
                 return False
             
             # 检查关键组件
@@ -942,30 +942,30 @@ class ECanBuild:
             
             for file_path in required_files:
                 if not file_path.exists():
-                    print(f"[SPARKLE] ❌ Required file missing: {file_path.name}")
+                    print(f"[SPARKLE] [ERROR] Required file missing: {file_path.name}")
                     return False
             
-            print("[SPARKLE] ✅ Sparkle.framework verification passed")
+            print("[SPARKLE] [OK] Sparkle.framework verification passed")
             return True
             
         elif platform == "windows":
             # 验证 winSparkle
             winsparkle_dir = ota_dir / "winsparkle"
             if not winsparkle_dir.exists():
-                print("[SPARKLE] ❌ winSparkle directory not found")
+                print("[SPARKLE] [ERROR] winSparkle directory not found")
                 return False
             
             # 检查关键文件
             winsparkle_dll = winsparkle_dir / "winsparkle.dll"
             if not winsparkle_dll.exists():
-                print("[SPARKLE] ❌ winsparkle.dll not found")
+                print("[SPARKLE] [ERROR] winsparkle.dll not found")
                 return False
             
-            print("[SPARKLE] ✅ winSparkle verification passed")
+            print("[SPARKLE] [OK] winSparkle verification passed")
             return True
         
         else:
-            print(f"[SPARKLE] ⚠️  Unsupported platform: {platform}")
+            print(f"[SPARKLE] [WARN] Unsupported platform: {platform}")
             return True  # 不阻止构建
     
     def _show_result(self, start_time: float):
@@ -983,8 +983,8 @@ class ECanBuild:
 
 def main():
     """Deprecated: Use build.py instead"""
-    print("❌ 请使用 build.py 作为构建入口点")
-    print("✅ 正确用法: python build.py fast")
+    print("[ERROR] 请使用 build.py 作为构建入口点")
+    print("[OK] 正确用法: python build.py fast")
     sys.exit(1)
 
 
