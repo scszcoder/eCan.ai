@@ -59,10 +59,11 @@
       "PySide6.QtWebEngineCore",
       "PySide6.QtWebEngineWidgets",
       "PySide6.QtWebEngine",
-      "lightrag",
+
       "lightrag.api",
       "lightrag.api.config",
       "lightrag.api.lightrag_server",
+
       "jaraco.text",
       "jaraco.functools",
       "jaraco.context",

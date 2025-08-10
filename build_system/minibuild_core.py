@@ -36,7 +36,7 @@ class MiniSpecBuilder:
         # Ensure minimal pre-safe hooks for modules that parse argv at import-time
         # Generate pre-safe hooks for known offenders + dynamically detected argparse-at-import modules
         cfg_pre_safe = set(self.cfg.get("pyinstaller", {}).get("force_pre_safe", []) or [])
-        candidates = {"lightrag", "lightrag.api", "lightrag.api.config", "jaraco", "jaraco.text", "jaraco.functools", "more_itertools"}
+        candidates = {"lightrag", "lightrag.api", "lightrag.api.config", "jaraco", "jaraco.text", "jaraco.functools", "more_itertools", "argparse"}
         detected = set(self._detect_argparse_import_side_effects())
         self._ensure_pre_safe_hooks(sorted(cfg_pre_safe | candidates | detected))
         self._last_spec_path = self._write_spec(mode)
@@ -64,7 +64,7 @@ class MiniSpecBuilder:
                 "lightrag", "lightrag.api", "lightrag.api.config",
                 "jaraco", "jaraco.text", "jaraco.functools", "jaraco.context",
                 "jaraco.collections", "jaraco.itertools", "jaraco.classes", "jaraco.logging",
-                "jaraco.path", "jaraco.stream", "more_itertools"
+                "jaraco.path", "jaraco.stream", "more_itertools", "argparse"
             }
             self._ensure_pre_safe_hooks(sorted(broaden))
             # Re-run PyInstaller once
