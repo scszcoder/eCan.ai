@@ -57,7 +57,9 @@
     "collect_all": [
       "PySide6",
       "browser_use",
-      "agent",
+      "agent"
+    ],
+    "collect_data_only": [
       "lightrag"
     ],
     "force_includes": [
