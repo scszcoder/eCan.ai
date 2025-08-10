@@ -205,22 +205,51 @@ mecaLocalServer.add_middleware(
 def run_starlette(port=4668):
     logger.info(f"Starting Starlette server....on port {port}")
     try:
-        # Use explicit Config/Server to avoid installing signal handlers in a non-main thread
-        use_lifespan = (os.getenv("ECBOT_DISABLE_LIFESPAN") != "1")
-        config = uvicorn.Config(
-            app=mecaLocalServer,
-            host='127.0.0.1',
-            port=port,
-            log_level="info",
-            access_log=False,
-            loop="asyncio",
-            lifespan=("on" if use_lifespan else "off"),
-        )
-        server = uvicorn.Server(config)
-        # Disable signal handlers - we're running inside a thread
-        if hasattr(server, "install_signal_handlers"):
-            server.install_signal_handlers = False
-        server.run()
+        # On Windows, ensure we use a selector policy when running uvicorn in a thread
+        try:
+            if os.name == 'nt':
+                import asyncio as _asyncio
+                _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+        except Exception as _e:
+            logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {_e}")
+
+        # Decide lifespan mode without mutating environment variables
+        try:
+            import sys as _sys
+            is_frozen = bool(getattr(_sys, '_MEIPASS', None))
+        except Exception:
+            is_frozen = False
+
+        # Optional external override via ECBOT_LIFESPAN (on/off/true/false/1/0)
+        flag = os.getenv("ECBOT_LIFESPAN", "").lower()
+        if flag in ("1", "true", "on"):
+            use_lifespan = True
+        elif flag in ("0", "false", "off"):
+            use_lifespan = False
+        else:
+            # Default: dev env -> on; frozen env -> off
+            use_lifespan = (not is_frozen)
+
+        def _make_server(_lifespan_on: bool):
+            cfg = uvicorn.Config(
+                app=mecaLocalServer,
+                host='127.0.0.1',
+                port=port,
+                log_level="info",
+                access_log=False,
+                loop="asyncio",
+                lifespan=("on" if _lifespan_on else "off"),
+            )
+            srv = uvicorn.Server(cfg)
+            if hasattr(srv, "install_signal_handlers"):
+                srv.install_signal_handlers = False
+            return srv
+
+        server = _make_server(use_lifespan)
+        try:
+            server.run()
+        except Exception as e1:
+            logger.warning(f"Uvicorn failed with lifespan={'on' if use_lifespan else 'off'}: {e1}")
     except Exception as e:
         logger.exception(f"Failed to start local server: {e}")
         # Force-write startup exception to file for diagnosis in frozen environments
