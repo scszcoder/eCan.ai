@@ -487,7 +487,8 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                     shutil.rmtree(pkg_root)
                 pkg_root.mkdir(parents=True, exist_ok=True)
                 dest_app = pkg_root / f"{app_name}.app"
-                shutil.copytree(app_bundle_dir, dest_app)
+                # Preserve symlinks inside the .app (Qt frameworks/WebEngine contain many)
+                shutil.copytree(app_bundle_dir, dest_app, symlinks=True)
             except Exception as e:
                 print(f"[ERROR] Failed to prepare pkg root: {e}")
                 return False
