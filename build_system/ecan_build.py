@@ -536,6 +536,11 @@ exit 0
             cmd.append(str(pkg_file))
 
             print(f"[INSTALLER] Creating PKG: {pkg_file}")
+            print(f"[INSTALLER] Command: {' '.join(cmd)}")
+            print(f"[INSTALLER] PKG root contents:")
+            if pkg_root.exists():
+                for item in pkg_root.iterdir():
+                    print(f"  - {item.name} ({'dir' if item.is_dir() else 'file'})")
 
             result = subprocess.run(
                 cmd,
@@ -551,7 +556,28 @@ exit 0
                 print(f"[ERROR] STDERR: {result.stderr}")
                 return False
 
-            print("[SUCCESS] macOS installer created")
+            # Verify PKG was created and has content
+            if not pkg_file.exists():
+                print(f"[ERROR] PKG file was not created: {pkg_file}")
+                return False
+            
+            pkg_size = pkg_file.stat().st_size
+            if pkg_size == 0:
+                print(f"[ERROR] PKG file is empty (0 bytes): {pkg_file}")
+                return False
+            
+            print(f"[SUCCESS] macOS installer created: {pkg_file} ({pkg_size / (1024*1024):.1f} MB)")
+
+            # Clean up temporary files
+            try:
+                if pkg_root.exists():
+                    shutil.rmtree(pkg_root)
+                    print(f"[CLEANUP] Removed pkgroot: {pkg_root}")
+                if scripts_dir and scripts_dir.exists():
+                    shutil.rmtree(scripts_dir)
+                    print(f"[CLEANUP] Removed pkg_scripts: {scripts_dir}")
+            except Exception as e:
+                print(f"[WARNING] Failed to cleanup temporary files: {e}")
 
             # Optional: Code signing
             if macos_config.get("codesign", {}).get("enabled", False):
