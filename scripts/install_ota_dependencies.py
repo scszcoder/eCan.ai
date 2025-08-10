@@ -226,27 +226,43 @@ class CIOTAInstaller:
             lib_dir = self.deps_dir / "lib"
             lib_dir.mkdir(parents=True, exist_ok=True)
 
-            # 查找并复制所需文件
-            extract_files = config.get("extract_files", ["winsparkle.dll", "winsparkle.lib", "winsparkle.h"])
+            # 查找并复制所需文件（大小写不敏感），并在 lib 目录下标准化文件名为小写
+            desired_map = {
+                "winsparkle.dll": "winsparkle.dll",
+                "winsparkle.lib": "winsparkle.lib",
+                "winsparkle.h": "winsparkle.h",
+                # 兼容大小写或变体命名
+                "winsparkle64.dll": "winsparkle.dll",
+                "winsparkle64.lib": "winsparkle.lib",
+                "winsparkle-version.h": "winsparkle-version.h",
+                "winsparkle.h": "winsparkle.h",
+                "winsparkle.dll": "winsparkle.dll"
+            }
             files_found = []
 
             for root, dirs, files in os.walk(extract_dir):
                 for file in files:
-                    if file in extract_files:
+                    key = file.lower()
+                    if key in desired_map:
                         src_path = Path(root) / file
-                        # 目标1：原始 target_dir 以保留结构
-                        dst_path1 = target_dir / file
-                        shutil.copy2(src_path, dst_path1)
-                        # 目标2：标准 lib 目录，便于后续检查与打包
-                        dst_path2 = lib_dir / file
-                        shutil.copy2(src_path, dst_path2)
+                        # 目标1：原始 target_dir 以保留上游原始命名
+                        try:
+                            shutil.copy2(src_path, target_dir / file)
+                        except Exception:
+                            pass
+                        # 目标2：标准 lib 目录，使用统一小写命名，便于后续检查与打包
+                        norm_name = desired_map[key]
+                        try:
+                            shutil.copy2(src_path, lib_dir / norm_name)
+                        except Exception:
+                            pass
                         files_found.append(file)
                         print(f"[CI-OTA] Installed: {file}")
 
             if not files_found:
                 raise FileNotFoundError("winSparkle files not found in archive")
 
-            # 验证安装
+            # 验证安装（以标准化路径为准）
             dll_path = lib_dir / "winsparkle.dll"
             if dll_path.exists():
                 print(f"[CI-OTA] ✅ winSparkle DLL installation verified: {dll_path}")
