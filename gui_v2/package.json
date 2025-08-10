@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "copy-monaco": "rm -rf public/monaco-editor && cp -r node_modules/monaco-editor/min/vs public/monaco-editor/",
-    "postbuild": "rimraf \"dist/**/*.map\""
+    "postbuild": "rimraf --glob \"dist/**/*.map\""
   },
   "dependencies": {
     "@ant-design/icons": "^6.0.0",
