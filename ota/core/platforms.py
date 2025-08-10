@@ -395,19 +395,34 @@ class GenericUpdater:
             return False
     
     def install_update(self, package_manager=None) -> bool:
-        """安装更新"""
+        """安装更新（通用安装器）。注意：对 .dmg/.exe/.msi 不提供安装实现。"""
         try:
             import requests
+            import os
+            from urllib.parse import urlparse
             
             # 先获取最新更新信息
             has_update, update_info = self.check_for_updates(silent=True, return_info=True)
             if not has_update or not update_info:
                 logger.info("No update available for installation.")
                 return False
+            
+            download_url = update_info.get("download_url", "")
+            # 基于扩展名的预检查，避免无谓下载
+            path = urlparse(download_url).path if download_url else ""
+            ext = os.path.splitext(path)[1].lower() if path else ""
+            unsupported_installer_ext = {".dmg", ".exe", ".msi"}
+            if ext in unsupported_installer_ext:
+                logger.error(
+                    f"Installer format not implemented for GenericUpdater: {ext}. "
+                    f"Use platform-specific updater or manual install. URL={download_url}"
+                )
+                return False
+            
             # 构建UpdatePackage
             package = UpdatePackage(
                 version=update_info.get("latest_version", ""),
-                download_url=update_info.get("download_url", ""),
+                download_url=download_url,
                 file_size=update_info.get("file_size", 0),
                 signature=update_info.get("signature", ""),
                 description=update_info.get("description", "")

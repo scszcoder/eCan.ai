@@ -8,7 +8,13 @@ ECBot OTA (Over-The-Air) Update Package
 """
 
 from .core.updater import OTAUpdater
-from .gui.dialog import UpdateDialog, UpdateNotificationDialog
+# Lazy import GUI components to avoid hard dependency at import time
+
+def __getattr__(name):
+    if name in ("UpdateDialog", "UpdateNotificationDialog"):
+        from .gui.dialog import UpdateDialog, UpdateNotificationDialog
+        return {"UpdateDialog": UpdateDialog, "UpdateNotificationDialog": UpdateNotificationDialog}[name]
+    raise AttributeError(f"module 'ota' has no attribute {name!r}")
 
 __version__ = "1.0.0"
 __all__ = [

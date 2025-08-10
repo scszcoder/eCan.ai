@@ -118,6 +118,7 @@ def get_user_friendly_message(error: UpdateError) -> str:
 def create_error_from_exception(exc: Exception, context: str = "") -> UpdateError:
     """从标准异常创建UpdateError"""
     import requests
+    import builtins as _bi
     
     if isinstance(exc, requests.exceptions.ConnectionError):
         return NetworkError(
@@ -136,7 +137,7 @@ def create_error_from_exception(exc: Exception, context: str = "") -> UpdateErro
             f"文件未找到: {str(exc)}",
             {"context": context, "original_error": str(exc)}
         )
-    elif isinstance(exc, PermissionError):
+    elif isinstance(exc, _bi.PermissionError):
         return PermissionError(
             f"权限不足: {str(exc)}",
             {"context": context, "original_error": str(exc)}

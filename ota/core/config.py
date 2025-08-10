@@ -18,6 +18,7 @@ class OTAConfig:
         self.config_file = self._get_config_path()
         self.default_config = {
             "update_server": "https://updates.ecbot.com",
+            "dev_update_server": "http://127.0.0.1:8080",  # 开发模式下默认本地服务器
             "check_interval": 3600,  # 1小时
             "auto_check": True,
             "silent_mode": False,
@@ -26,7 +27,12 @@ class OTAConfig:
             "signature_verification": True,
             "dev_mode": False,  # 开发模式
             "allow_http_in_dev": True,  # 开发模式下允许HTTP
+            "force_generic_updater_in_dev": True,  # 开发模式下强制使用通用更新器
             "public_key_path": None,  # 数字签名验证公钥路径
+            # 开发模式安装器开关与参数（默认关闭，避免误执行）
+            "dev_installer_enabled": False,
+            "dev_installer_quiet": True,
+            "dmg_target_dir": "/Applications",
             "platforms": {
                 "darwin": {
                     "framework_path": "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
@@ -117,7 +123,11 @@ class OTAConfig:
         return self.config.get("platforms", {}).get(platform_name, {})
     
     def get_update_server(self) -> str:
-        """获取更新服务器URL"""
+        """获取更新服务器URL。开发模式下优先使用本地服务器配置"""
+        if self.is_dev_mode():
+            dev_srv = self.config.get("dev_update_server")
+            if dev_srv:
+                return dev_srv
         return self.config.get("update_server", "https://updates.ecbot.com")
     
     def get_check_interval(self) -> int:

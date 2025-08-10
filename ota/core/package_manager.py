@@ -23,7 +23,7 @@ from .config import ota_config
 # 尝试导入加密库
 try:
     from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa, padding
+    from cryptography.hazmat.primitives.asymmetric import rsa, padding, ed25519
     from cryptography.exceptions import InvalidSignature
     CRYPTO_AVAILABLE = True
 except ImportError:
@@ -206,7 +206,7 @@ class PackageManager:
                 # 如果不是base64，尝试直接使用
                 signature_bytes = signature.encode('utf-8')
             
-            # 验证签名
+            # 验证签名（支持 RSA-PSS 与 Ed25519）
             if isinstance(public_key, rsa.RSAPublicKey):
                 public_key.verify(
                     signature_bytes,
@@ -217,6 +217,9 @@ class PackageManager:
                     ),
                     hashes.SHA256()
                 )
+            elif isinstance(public_key, ed25519.Ed25519PublicKey):
+                # Sparkle 2 edSignature 使用 Ed25519 对整个下载文件签名（Base64 编码）
+                public_key.verify(signature_bytes, file_data)
             else:
                 logger.error("Unsupported public key type for signature verification")
                 return False
@@ -426,8 +429,16 @@ class PackageManager:
         shutil.copytree(backup_path, install_dir)
     
     def _extract_and_install(self, package_path: Path, install_dir: str) -> bool:
-        """解压并安装包"""
+        """解压并安装包；在开发模式下提供最小占位安装器支持 .dmg/.exe/.msi（默认关闭）。"""
         try:
+            # 开发模式占位安装器路径
+            from .config import ota_config
+            if package_path.suffix.lower() in ['.dmg', '.exe', '.msi']:
+                if not ota_config.is_dev_mode() or not ota_config.get("dev_installer_enabled", False):
+                    logger.error(f"Installer format not implemented yet: {package_path.suffix}")
+                    return False
+                return self._dev_install_installer(package_path)
+
             extract_dir = self.download_dir / "extract"
             if extract_dir.exists():
                 shutil.rmtree(extract_dir)
@@ -465,6 +476,64 @@ class PackageManager:
             
         except Exception as e:
             logger.error(f"Extract and install failed: {e}")
+            return False
+
+    def _dev_install_installer(self, package_path: Path) -> bool:
+        """开发模式：最小占位安装器
+        - macOS .dmg：hdiutil attach -> 复制到目标目录 -> hdiutil detach
+        - Windows .exe/.msi：直接调用，是否静默由配置控制
+        """
+        try:
+            from .config import ota_config
+            suffix = package_path.suffix.lower()
+            if suffix == '.dmg' and sys.platform == 'darwin':
+                target_dir = Path(ota_config.get("dmg_target_dir", "/Applications"))
+                # 挂载 dmg
+                attach = subprocess.run(["hdiutil", "attach", str(package_path), "-nobrowse", "-quiet"], capture_output=True, text=True)
+                if attach.returncode != 0:
+                    logger.error(f"Failed to attach dmg: {attach.stderr}")
+                    return False
+                # 查找挂载点（简单假设第一个Volume）
+                try:
+                    import plistlib
+                    info = subprocess.run(["hdiutil", "info", "-plist"], capture_output=True)
+                    plist = plistlib.loads(info.stdout)
+                    mount_points = []
+                    for img in plist.get('images', []):
+                        for ent in img.get('system-entities', []):
+                            mp = ent.get('mount-point')
+                            if mp:
+                                mount_points.append(mp)
+                    mount_point = mount_points[-1] if mount_points else None
+                    if not mount_point:
+                        logger.error("Mount point not found for dmg")
+                        return False
+                    # 复制 .app 到目标目录（如果存在）
+                    apps = [p for p in Path(mount_point).glob('*.app')]
+                    if not apps:
+                        logger.error("No .app found in dmg")
+                        return False
+                    for app in apps:
+                        subprocess.run(["cp", "-R", str(app), str(target_dir)], check=False)
+                finally:
+                    # 卸载 dmg
+                    subprocess.run(["hdiutil", "detach", mount_point or ""], capture_output=True)
+                return True
+            elif suffix in ('.exe', '.msi') and sys.platform.startswith('win'):
+                quiet = ota_config.get("dev_installer_quiet", True)
+                args = [str(package_path)]
+                if quiet and suffix == '.msi':
+                    args = ["msiexec", "/i", str(package_path), "/quiet"]
+                elif quiet and suffix == '.exe':
+                    # 常见静默参数；不同安装器可能不一致，仅作占位
+                    args.append("/quiet")
+                result = subprocess.run(args)
+                return result.returncode == 0
+            else:
+                logger.error(f"Dev installer not supported for {suffix} on {sys.platform}")
+                return False
+        except Exception as e:
+            logger.error(f"Dev installer failed: {e}")
             return False
 
 

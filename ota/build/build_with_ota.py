@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-带OTA更新功能的构建脚本
+带OTA更新功能的构建脚本（示例/占位）
+- 仅用于参考与本地实验，不建议在生产/CI 中直接执行
+- 默认禁用：作为脚本运行时需设置环境变量 ECBOT_ALLOW_BUILD_SCRIPTS=1 才会执行
 """
 
 import os
@@ -197,6 +199,11 @@ def start_update_server():
 
 def main():
     """主函数"""
+    # 默认禁用：仅在明确允许时执行
+    if os.environ.get("ECBOT_ALLOW_BUILD_SCRIPTS", "").lower() not in ("1", "true", "yes", "on"):
+        print("[build_with_ota] This is an example/placeholder build script and is disabled by default.\n"
+              "Set ECBOT_ALLOW_BUILD_SCRIPTS=1 to enable execution.")
+        return
     
     if len(sys.argv) > 1:
         command = sys.argv[1]

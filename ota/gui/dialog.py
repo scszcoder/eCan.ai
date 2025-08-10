@@ -1,7 +1,6 @@
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                                QPushButton, QProgressBar, QTextEdit, QCheckBox)
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
-from PySide6.QtGui import QIcon, QPixmap
 
 from utils.logger_helper import logger_helper as logger
 from ..core.errors import UpdateError, get_user_friendly_message

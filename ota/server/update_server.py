@@ -5,8 +5,6 @@
 """
 
 from flask import Flask, jsonify, request, send_file
-import os
-import json
 from pathlib import Path
 
 app = Flask(__name__)
@@ -54,7 +52,22 @@ def check_update():
         
         # 检查是否有更新
         latest_version = UPDATE_CONFIG['latest_version']
-        has_update = current_version < latest_version
+        # 语义化版本比较（无第三方依赖的简化实现）
+        def _to_version_tuple(v: str):
+            import re
+            parts = re.split(r'[.+-]', v)
+            nums = []
+            for p in parts:
+                if p.isdigit():
+                    nums.append(int(p))
+                else:
+                    # 非数字段停止，以避免把预发布标签纳入比较
+                    break
+            # 统一长度，避免 1.2 与 1.2.0 比较不一致
+            while len(nums) < 3:
+                nums.append(0)
+            return tuple(nums[:3])
+        has_update = _to_version_tuple(current_version) < _to_version_tuple(latest_version)
         
         response = {
             "update_available": has_update,
