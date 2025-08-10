@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
+from bot.missions import EBMISSION
 from common.models import VehicleModel
 from knowledge.lightrag_server import LightragServer
 from utils.time_util import TimeUtil
@@ -70,9 +71,10 @@ from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage, 
 from lzstring import LZString
 import openpyxl
 import tzlocal
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import platform
 from pynput.mouse import Controller as MouseController
+from typing import List
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
@@ -80,8 +82,8 @@ from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper as logger
-from tests.unittests import *
-from tests.agent_tests import *
+# from tests.unittests import *  # removed from production build
+# from tests.agent_tests import *  # removed from production build
 import pandas as pd
 from gui.encrypt import *
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
@@ -1717,7 +1719,7 @@ class MainWindow(QMainWindow):
 
     def setupBrowserUseController(self):
         display_files_in_done_text = True
-        self.browser_use_controller = Controller(display_files_in_done_text=display_files_in_done_text)
+        self.browser_use_controller = BrowserUseController(display_files_in_done_text=display_files_in_done_text)
 
     def getBrowserSession(self):
         return self.browser_session
@@ -2357,7 +2359,7 @@ class MainWindow(QMainWindow):
         return self.display_resolution
 
     def test_scroll(self):
-        mouse = Controller()
+        mouse = MouseController()
         self.showMsg("testing scrolling....")
         url = 'https://www.amazon.com/s?k=yoga+mats&crid=2Y3M8P4537BWF&sprefix=%2Caps%2C331&ref=nb_sb_ss_recent_1_0_recent'
         webbrowser.open(url, new=0, autoraise=True)
@@ -2416,7 +2418,7 @@ class MainWindow(QMainWindow):
 
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
         # testSyncPrivateCloudImageAPI(self)
-        asyncio.ensure_future(test_helper(self))
+        # asyncio.ensure_future(test_helper(self))  # removed: test code not available in production
         # testReportVehicles(self)
         # testDequeue(self)
         # Start Gradio in a separate thread
@@ -6568,8 +6570,8 @@ class MainWindow(QMainWindow):
         self.showMsg("filling mission data")
         nm.setNetRespJsonData(nmjson)
 
-    def addMissionsToLocalDB(self, missions: [EBMISSION]):
-        local_missions: [MissionModel] = []
+    def addMissionsToLocalDB(self, missions: List[EBMISSION]):
+        local_missions: List[MissionModel] = []
 
         # Extract all mids from the new missions
         new_mids = [mission.getMid() for mission in missions]
@@ -6682,7 +6684,7 @@ class MainWindow(QMainWindow):
                                 # now that add is successfull, update local file as well.
 
                                 # now add missions to local DB.
-                                new_missions: [EBMISSION] = []
+                                new_missions: List[EBMISSION] = []
                                 for i in range(len(jbody)):
                                     self.showMsg(str(i))
                                     new_mission = EBMISSION(self)
@@ -7221,7 +7223,7 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self, db_data: [BotModel]):
+    def loadLocalBots(self, db_data: List[BotModel]):
         try:
             dict_results = [result.to_dict() for result in db_data]
             self.showMsg("get local bots from DB::" + json.dumps(dict_results))
@@ -7268,7 +7270,7 @@ class MainWindow(QMainWindow):
             self.showMsg("WARNING: bot vehicle NOT ASSIGNED!")
 
     # load locally stored mission, but only for the past 7 days, otherwise, there would be too much......
-    def loadLocalMissions(self, db_data: [MissionModel]):
+    def loadLocalMissions(self, db_data: List[MissionModel]):
         dict_results = [result.to_dict() for result in db_data]
         # self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:

@@ -176,13 +176,18 @@ def set_top_web_gui(web_gui):
     top_web_gui = web_gui
 
 def get_agent_by_id(agent_id):
-    # global top_web_gui
-    from gui.MainGUI import MainWindow
-    app_ctx = AppContext()
-    main_window: MainWindow = app_ctx.main_window
-    agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
-    # print("by id found agent: ", agent_id, agent.card)
-    return agent
+    """Safely fetch agent by id from the current main window.
+    Returns None if main window or agents are not yet initialized.
+    """
+    try:
+        app_ctx = AppContext()
+        main_window = getattr(app_ctx, 'main_window', None)
+        if not main_window:
+            return None
+        agents = getattr(main_window, 'agents', []) or []
+        return next((ag for ag in agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None)
+    except Exception:
+        return None
 
 def get_traceback(e, eType="Error"):
     traceback_info = traceback.extract_tb(e.__traceback__)

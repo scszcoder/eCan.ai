@@ -133,11 +133,12 @@ try:
     from gui.WebGUI import WebGUI
 
     # 测试模块（可选）
-    try:
-        from tests.unittests import *
-        from tests.scraper_test import *
-    except ImportError:
-        pass  # 测试模块不存在时忽略
+    # Do not import test modules in production build
+    # try:
+    #     from tests.unittests import *
+    #     from tests.scraper_test import *
+    # except ImportError:
+    #     pass  # 测试模块不存在时忽略
 
     def main():
         """主函数"""
