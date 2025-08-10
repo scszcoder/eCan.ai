@@ -19,7 +19,6 @@
       "common",
       "utils",
       "agent",
-      "tests",
       "knowledge",
       "settings",
       "skills",
@@ -44,43 +43,9 @@
     "distpath": "dist",
     "workpath": "build",
     "specpath": ".",
-    "collect_data": [
-      "transformers",
-      "torch",
-      "sklearn",
-      "pandas",
-      "numpy",
-      "PIL",
-      "cv2",
-      "selenium",
-      "pydantic",
-      "fastapi",
-      "uvicorn",
-      "jinja2",
-      "certifi",
-      "charset_normalizer",
-      "urllib3",
-      "requests",
-      "openai",
-      "anthropic",
-      "langchain",
-      "langchain_core",
-      "sentence_transformers"
-    ],
-    "collect_binaries": [
-      "torch",
-      "cv2",
-      "sklearn",
-      "scipy",
-      "numpy"
-    ],
-    "collect_submodules": [
-      "transformers",
-      "langchain",
-      "langchain_community",
-      "langchain_core",
-      "pydantic"
-    ],
+    "collect_data": [],
+    "collect_binaries": [],
+    "collect_submodules": [],
     "qt_plugins": [
       "platforms",
       "imageformats",
@@ -93,6 +58,15 @@
       "PySide6"
     ],
     "force_includes": [
+      "pkg_resources",
+      "setuptools.dist",
+      "importlib.metadata",
+      "importlib_metadata"
+    ],
+    "force_hiddenimports": [
+      "PySide6.QtWebEngineCore",
+      "PySide6.QtWebEngineWidgets",
+      "PySide6.QtWebEngine",
       "jaraco.text",
       "jaraco.functools",
       "jaraco.context",
@@ -101,11 +75,16 @@
       "jaraco.classes",
       "jaraco.logging",
       "jaraco.path",
-      "jaraco.stream",
-      "pkg_resources",
-      "setuptools.dist",
-      "importlib.metadata",
-      "importlib_metadata"
+      "jaraco.stream"
+    ],
+    "force_pre_safe": [
+      "lightrag",
+      "lightrag.api",
+      "lightrag.api.config",
+      "jaraco",
+      "jaraco.text",
+      "jaraco.functools",
+      "more_itertools"
     ],
     "excludes": [
       "jupyter",
@@ -129,7 +108,23 @@
       "IPython",
       "notebook",
       "ensurepip",
-      "venv"
+      "venv",
+      "tensorflow",
+      "torch.utils.tensorboard",
+      "PySide6.Qt3DCore",
+      "PySide6.Qt3DLogic",
+      "PySide6.Qt3DRender",
+      "PySide6.Qt3DAnimation",
+      "PySide6.QtCharts",
+      "PySide6.QtSensors",
+      "PySide6.QtStateMachine",
+      "PySide6.QtScxml",
+      "PySide6.QtDataVisualization",
+      "PySide6.QtSpatialAudio",
+      "PySide6.QtRemoteObjects",
+      "PySide6.QtOpenGLWidgets",
+      "PySide6.QtQuick3DAssetImport",
+      "PySide6.QtQuick3DRuntimeRender"
     ],
     "optimization": {
       "onedir_mode": true,

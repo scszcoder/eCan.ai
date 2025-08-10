@@ -225,7 +225,7 @@ class FrontendBuilder:
 
 
 class PyInstallerBuilder:
-    """PyInstaller builder using standard optimizer"""
+    """PyInstaller builder using MiniSpecBuilder (unified path)"""
 
     def __init__(self, config: BuildConfig, env: BuildEnvironment, project_root: Path):
         self.config = config
@@ -233,23 +233,20 @@ class PyInstallerBuilder:
         self.project_root = project_root
 
     def build(self, mode: str, force: bool = False) -> bool:
-        """Build application using standard optimizer"""
-        print(f"[PYINSTALLER] Starting PyInstaller build using standard optimizer...")
+        """Build application using MiniSpecBuilder (align with build.py)"""
+        print(f"[PYINSTALLER] Starting PyInstaller build using MiniSpecBuilder...")
 
         try:
-            # 使用标准优化器
-            from build_system.standard_optimizer import PyInstallerOptimizer
-            
-            optimizer = PyInstallerOptimizer()
-            success = optimizer.build_optimized(mode)
-            
+            from build_system.minibuild_core import MiniSpecBuilder
+            minispec = MiniSpecBuilder()
+            success = minispec.build(mode)
+
             if success:
                 print("[SUCCESS] PyInstaller build completed")
                 return True
             else:
                 print("[ERROR] PyInstaller build failed")
                 return False
-            
         except Exception as e:
             print(f"[ERROR] PyInstaller build failed: {e}")
             return False
