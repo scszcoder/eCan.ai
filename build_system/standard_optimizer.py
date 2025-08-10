@@ -489,49 +489,86 @@ if qt_plugins:
     except Exception as _e:
         print(f"[OPTIMIZER] Qt plugin setup skipped: {{_e}}")
 
-# 修复 PyTorch 路径问题（macOS BUNDLE 兼容性）
+# 修复库路径问题（macOS BUNDLE 兼容性）
 import sys as _sys
 if _sys.platform == 'darwin':
-    def fix_torch_paths(entries, entry_type="binaries"):
-        """修复 PyTorch 相关文件的路径问题"""
+    def fix_library_paths(entries, entry_type="binaries"):
+        """修复库文件的路径问题"""
         fixed_entries = []
+        skipped_count = 0
+        problematic_libs = ['torch', 'cv2', 'numpy', 'scipy', 'sklearn', 'pandas', 'PIL', 'transformers', 'selenium', 'openai', 'anthropic', 'langchain', 'sentence_transformers', 'pydantic', 'fastapi', 'uvicorn', 'jinja2', 'certifi', 'charset_normalizer', 'urllib3', 'requests']
+        
         for entry in entries:
             if len(entry) >= 2:
                 src, dest = entry[0], entry[1]
-                # 如果是 torch 相关的文件，进行路径修复
-                if 'torch' in str(src) and str(src).startswith('/'):
-                    # 检查是否是 torch/lib 目录下的文件
-                    if 'torch/lib' in str(src):
-                        # 提取文件名，重新映射到 Frameworks 目录
-                        import os as _os
-                        filename = _os.path.basename(str(src))
-                        new_dest = "Frameworks/" + filename
-                        fixed_entries.append((src, new_dest, entry[2] if len(entry) > 2 else 'BINARY'))
-                        print("[OPTIMIZER] Fixed torch path: " + filename + " -> Frameworks/" + filename)
-                    # 检查是否是其他 torch 相关路径
-                    elif 'site-packages/torch' in str(src):
-                        # 跳过有问题的 torch 符号链接和库文件
-                        import os as _os
-                        if _os.path.islink(str(src)) or str(src).endswith('.dylib') or str(src).endswith('.so'):
-                            print("[OPTIMIZER] Skipping problematic torch file: " + str(src))
-                            continue
+                src_str = str(src)
+                
+                # 检查是否是可能有问题的库的绝对路径
+                should_skip = False
+                skip_reason = ""
+                found_lib = ""
+                
+                # 通用绝对路径拦截
+                if src_str.startswith('/') and ('site-packages' in src_str or '/venv/' in src_str or '/lib/python' in src_str):
+                    import os as _os
+                    print("[OPTIMIZER] Skipping absolute path: " + _os.path.basename(src_str))
+                    skipped_count += 1
+                    continue
+                
+                for lib in problematic_libs:
+                    if lib in src_str and src_str.startswith('/'):
+                        found_lib = lib
+                        
+                        # 跳过所有 lib 目录下的文件
+                        if lib + '/lib' in src_str or lib + '/.dylibs' in src_str:
+                            should_skip = True
+                            skip_reason = lib + " lib/dylibs directory"
+                            break
+                        
+                        # 跳过所有包含 site-packages 的绝对路径
+                        elif 'site-packages' in src_str:
+                            should_skip = True
+                            skip_reason = "site-packages " + lib + " absolute path"
+                            break
+                        
+                        # 跳过所有 venv 中的路径
+                        elif '/venv/' in src_str:
+                            should_skip = True
+                            skip_reason = "venv " + lib + " path"
+                            break
+                        
+                        # 跳过所有包含 lib/python 的路径
+                        elif '/lib/python' in src_str:
+                            should_skip = True
+                            skip_reason = "lib/python " + lib + " path"
+                            break
+                        
+                        # 跳过所有其他绝对路径（保守策略）
                         else:
-                            fixed_entries.append(entry)
-                    else:
-                        fixed_entries.append(entry)
+                            should_skip = True
+                            skip_reason = lib + " absolute path"
+                            break
+                
+                if should_skip:
+                    import os as _os
+                    print("[OPTIMIZER] Skipping " + skip_reason + ": " + _os.path.basename(src_str))
+                    skipped_count += 1
                 else:
                     fixed_entries.append(entry)
             else:
                 fixed_entries.append(entry)
+        
+        if skipped_count > 0:
+            print("[OPTIMIZER] Skipped " + str(skipped_count) + " problematic library entries")
         return fixed_entries
 
     # 应用修复到二进制文件
-    a.binaries = fix_torch_paths(a.binaries, "binaries")
-    print("[OPTIMIZER] Applied PyTorch binary path fix for macOS BUNDLE")
+    a.binaries = fix_library_paths(a.binaries, "binaries")
+    print("[OPTIMIZER] Applied library binary path fix for macOS BUNDLE")
     
-    # 应用修复到数据文件（如果包含 torch 相关文件）
-    a.datas = fix_torch_paths(a.datas, "datas")
-    print("[OPTIMIZER] Applied PyTorch data path fix for macOS BUNDLE")
+    # 应用修复到数据文件
+    a.datas = fix_library_paths(a.datas, "datas")
+    print("[OPTIMIZER] Applied library data path fix for macOS BUNDLE")
 
 # COLLECT 配置（目录模式）
 coll = COLLECT(
