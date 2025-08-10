@@ -15,40 +15,40 @@ from pathlib import Path
 
 class BuildEnvironment:
     """Build environment detection and management"""
-    
+
     def __init__(self):
         self.platform = platform.system()
         self.is_windows = self.platform == "Windows"
         self.is_macos = self.platform == "Darwin"
         self.is_linux = self.platform == "Linux"
         self.is_ci = self._detect_ci_environment()
-        
+
     def _detect_ci_environment(self) -> bool:
         """Detect if running in CI environment"""
         ci_vars = ['GITHUB_ACTIONS', 'CI', 'TRAVIS', 'CIRCLECI']
         return any(os.getenv(var) for var in ci_vars)
-    
+
     def validate_environment(self) -> bool:
         """Validate build environment"""
         print(f"[ENV] Platform: {self.platform}")
         print(f"[ENV] Python: {platform.python_version()}")
         print(f"[ENV] Architecture: {platform.architecture()[0]}")
         print(f"[ENV] CI Environment: {self.is_ci}")
-        
+
         # Check Python version
         if not self._check_python_version():
             return False
-            
+
         # Check virtual environment
         if not self._check_virtual_environment():
             return False
-            
+
         # Check required files
         if not self._check_required_files():
             return False
-            
+
         return True
-    
+
     def _check_python_version(self) -> bool:
         """Check Python version"""
         version = sys.version_info
@@ -56,7 +56,7 @@ class BuildEnvironment:
             print(f"[ERROR] Python 3.8+ required, current: {version.major}.{version.minor}")
             return False
         return True
-    
+
     def _check_required_files(self) -> bool:
         """Check required files"""
         required_files = [
@@ -64,14 +64,14 @@ class BuildEnvironment:
             "build_system/standard_optimizer.py",
             "build_system/build_config.json"
         ]
-        
+
         for file_path in required_files:
             if not Path(file_path).exists():
                 print(f"[ERROR] Required file not found: {file_path}")
                 return False
-        
+
         return True
-    
+
     def _check_virtual_environment(self) -> bool:
         """Check virtual environment"""
         if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
@@ -81,14 +81,14 @@ class BuildEnvironment:
             print("[WARNING] Virtual environment directory exists but not activated")
             print("[INFO] Activating virtual environment...")
             return self._activate_virtual_environment()
-    
+
     def _activate_virtual_environment(self) -> bool:
         """Activate virtual environment"""
         venv_path = Path("venv")
         if not venv_path.exists():
             print("[ERROR] Virtual environment not found")
             return False
-        
+
         # Activate virtual environment on Windows
         if self.is_windows:
             activate_script = venv_path / "Scripts" / "activate.bat"
@@ -105,7 +105,7 @@ class BuildEnvironment:
                 os.environ['PATH'] = str(venv_path / "bin") + os.pathsep + os.environ['PATH']
                 print("[SUCCESS] Virtual environment activated")
                 return True
-        
+
         print("[ERROR] Failed to activate virtual environment")
         return False
 
@@ -239,6 +239,15 @@ Usage examples:
     )
 
     args = parser.parse_args()
+
+    # Sanitize argv to avoid third-party modules (imported later) parsing our original CLI args like 'prod'
+    try:
+        import sys as _sys
+        if isinstance(getattr(_sys, 'argv', None), list) and len(_sys.argv) > 1:
+            _sys.argv[:] = _sys.argv[:1]
+    except Exception:
+        pass
+
 
     # Validate environment
     env = BuildEnvironment()
