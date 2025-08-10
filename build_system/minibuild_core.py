@@ -150,6 +150,14 @@ class MiniSpecBuilder:
             spec_lines.append("    binaries += _b")
             spec_lines.append("    hiddenimports += _h")
             spec_lines.append("")
+
+        # collect data-only for some packages that cannot be imported in isolated child (e.g., lightrag)
+        collect_data_only = self.cfg.get("pyinstaller", {}).get("collect_data_only", []) or []
+        if collect_data_only:
+            spec_lines.append("from PyInstaller.utils.hooks import collect_data_files")
+            spec_lines.append("for _pkg in " + repr(collect_data_only) + ":")
+            spec_lines.append("    data_files += collect_data_files(_pkg)")
+            spec_lines.append("")
         spec_lines.append("a = Analysis([")
         spec_lines.append(f"    r'{main_script}'",
         )
