@@ -39,10 +39,15 @@ class MiniSpecBuilder:
         candidates = {"lightrag", "lightrag.api", "lightrag.api.config", "jaraco", "jaraco.text", "jaraco.functools", "more_itertools", "argparse"}
         detected = set(self._detect_argparse_import_side_effects())
         self._ensure_pre_safe_hooks(sorted(cfg_pre_safe | candidates | detected))
+        self._ensure_global_sitecustomize()
         self._last_spec_path = self._write_spec(mode)
         cmd = [sys.executable, "-m", "PyInstaller", str(self._last_spec_path), "--noconfirm", "--clean"]
         print(f"[MINIBUILD] Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, cwd=str(self.project_root))
+        env = os.environ.copy()
+        py_path = str(self.gen_hooks_dir)
+        env["PYTHONPATH"] = (py_path + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else ""))
+        env["PYTHONUTF8"] = "1"
+        result = subprocess.run(cmd, cwd=str(self.project_root), env=env)
         if result.returncode != 0:
             print(f"[MINIBUILD] Build failed with code {result.returncode}")
             # Auto-heal: if argparse-side-effect detected in logs, add to pre-safe and retry once
@@ -70,7 +75,11 @@ class MiniSpecBuilder:
             # Re-run PyInstaller once
             cmd = [sys.executable, "-m", "PyInstaller", str(self._last_spec_path), "--noconfirm", "--clean"]
             print(f"[MINIBUILD] Auto-heal: retrying build with broader pre-safe hooks...")
-            result = subprocess.run(cmd, cwd=str(self.project_root))
+            env2 = os.environ.copy()
+            py_path = str(self.gen_hooks_dir)
+            env2["PYTHONPATH"] = (py_path + (os.pathsep + env2.get("PYTHONPATH", "") if env2.get("PYTHONPATH") else ""))
+            env2["PYTHONUTF8"] = "1"
+            result = subprocess.run(cmd, cwd=str(self.project_root), env=env2)
             if result.returncode == 0:
                 print("[MINIBUILD] Auto-heal succeeded")
                 return True
