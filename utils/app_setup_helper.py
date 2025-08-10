@@ -137,7 +137,7 @@ def _setup_windows_app_info(app, logger=None):
     try:
         if sys.platform == 'win32' and ctypes:
             # 设置应用程序用户模型 ID
-            app_id = "eCan.AI.Application.1.0"
+            app_id = "eCan.AI.App"
             shell32 = ctypes.windll.shell32
             shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
             
@@ -159,7 +159,7 @@ def set_windows_taskbar_icon(app, icon_path, logger=None):
         print(f"[DEBUG] Setting Windows taskbar icon: {icon_path}")
 
         # 方法1: 设置应用程序用户模型 ID (AppUserModelID)
-        app_id = "eCan.AI.Application.1.0"
+        app_id = "eCan.AI.App"
         shell32 = ctypes.windll.shell32
         shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
 

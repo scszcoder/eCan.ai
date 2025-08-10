@@ -316,6 +316,9 @@ class InstallerBuilder:
             windows_config = installer_config.get("windows", {})
             app_info = self.config.get_app_info()
 
+            # AppId (GUID) from config for Inno Setup
+            app_id = windows_config.get("app_id", "{6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1}")
+
             # Get compression settings based on build mode
             compression_modes = installer_config.get("compression_modes", {})
             mode_config = compression_modes.get(self.mode, {})
@@ -359,6 +362,7 @@ class InstallerBuilder:
             iss_content = f"""
 ; eCan Installer Script
 [Setup]
+AppId={app_id}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
 AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
@@ -368,6 +372,7 @@ OutputDir=..\dist
 OutputBaseFilename=eCan-Setup
 Compression={compression}
 SolidCompression={solid_compression}
+UsePreviousAppDir=no
 PrivilegesRequired=lowest
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
