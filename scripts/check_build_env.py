@@ -11,25 +11,33 @@ from pathlib import Path
 
 def check_environment():
     """Check build environment"""
+    # Force UTF-8 on Windows CI to avoid cp1252 codec errors
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
     print(f'Platform: {platform.system()}')
     print(f'Python: {platform.python_version()}')
     print(f'Architecture: {platform.architecture()[0]}')
-    
+
     # Check virtual environment
     is_venv = hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
     print(f'Virtual Environment: {is_venv}')
-    
+
     print("Checking required files:")
-    
+
     # Check required files
     files_to_check = [
         "main.py",
         "build_system/build_config.json"
     ]
-    
+
     for file_path in files_to_check:
         exists = Path(file_path).exists()
-        status = "✅" if exists else "❌"
+        # Avoid emojis on Windows default console encodings; use ASCII fallback
+        status = "OK" if exists else "MISSING"
         print(f'{file_path}: {status}')
 
 if __name__ == "__main__":
