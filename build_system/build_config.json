@@ -57,10 +57,15 @@
     "collect_all": [
       "PySide6",
       "browser_use",
-      "agent"
+      "agent",
+      "crawl4ai"
     ],
     "collect_data_only": [
-      "lightrag"
+      "lightrag",
+      "browser_use",
+      "browser_use.browser",
+      "browser_use.agent",
+      "browser_use.agent.prompts"
     ],
     "force_includes": [
       "pkg_resources",
@@ -72,6 +77,10 @@
       "PySide6.QtWebEngineCore",
       "PySide6.QtWebEngineWidgets",
       "PySide6.QtWebEngine",
+      "lightrag",
+      "lightrag.api",
+      "lightrag.api.config",
+      "lightrag.api.lightrag_server",
       "jaraco.text",
       "jaraco.functools",
       "jaraco.context",
