@@ -98,7 +98,7 @@ class WebGUI(QMainWindow):
             <!DOCTYPE html>
             <html>
             <head>
-                <title>eCan.AI - Error</title>
+                <title>eCan.ai - Error</title>
                 <style>
                     body {{
                         font-family: Arial, sans-serif;
@@ -141,7 +141,7 @@ class WebGUI(QMainWindow):
             <body>
                 <div class="error-container">
                     <h1>⚠️ Application Error</h1>
-                    <p>eCan.AI encountered an error during startup:</p>
+                    <p>eCan.ai encountered an error during startup:</p>
                     <div class="error-message">{error_message}</div>
                     <p>This usually happens when:</p>
                     <ul style="text-align: left; display: inline-block;">
@@ -756,7 +756,7 @@ class WebGUI(QMainWindow):
             titlebar_layout.addStretch()
 
             # 添加标题（居中显示）
-            self.title_label = QLabel("eCan.AI")
+            self.title_label = QLabel("eCan.ai")
             self.title_label.setAlignment(Qt.AlignCenter)
             self.title_label.setStyleSheet("""
                 QLabel {
@@ -824,8 +824,8 @@ class WebGUI(QMainWindow):
     def _add_app_menu_items(self, menu):
         """添加应用菜单项"""
         # 关于
-        about_action = QAction('About eCan.AI', self)
-        about_action.setStatusTip('Show information about eCan.AI')
+        about_action = QAction('About eCan.ai', self)
+        about_action.setStatusTip('Show information about eCan.ai')
         about_action.triggered.connect(self._show_about)
         menu.addAction(about_action)
 
@@ -845,7 +845,7 @@ class WebGUI(QMainWindow):
         menu.addSeparator()
 
         # 退出
-        quit_action = QAction('Quit eCan.AI', self)
+        quit_action = QAction('Quit eCan.ai', self)
         quit_action.setShortcut('Ctrl+Q')
         quit_action.setStatusTip('Quit the application')
         quit_action.triggered.connect(self.close)
@@ -1124,8 +1124,8 @@ class WebGUI(QMainWindow):
         menu.addSeparator()
 
         # 关于
-        about_action = QAction('About eCan.AI', self)
-        about_action.setStatusTip('Show information about eCan.AI')
+        about_action = QAction('About eCan.ai', self)
+        about_action.setStatusTip('Show information about eCan.ai')
         about_action.triggered.connect(self._show_about)
         menu.addAction(about_action)
 
