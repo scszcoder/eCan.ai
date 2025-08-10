@@ -2,24 +2,24 @@
 
 ## Overview
 
-The eCan build system integrates automated dynamic import detection functionality, automatically detecting all dynamic imports in the project and generating a complete hiddenimports list to ensure all dependencies are correctly packaged.
+The eCan build system provides a unified and simplified build flow powered by MiniSpecBuilder. It builds the core app via PyInstaller spec generation and optionally builds frontend and installers.
 
 ## Core Features
 
-### 1. Automated Dynamic Import Detection
-- **No manual maintenance of package name lists required**
-- **Automatically detects all dynamic import patterns**
-- **Intelligently identifies scientific computing libraries, machine learning libraries, web frameworks, etc.**
+### 1. Unified Build Path
+- Single entry: build.py
+- Core builder: build_system/minibuild_core.py (MiniSpecBuilder)
+- Optional: FrontendBuilder and InstallerBuilder (build_system/ecan_build.py)
 
 ### 2. Multi-mode Build Support
 - **fast**: Fast build (for development and debugging)
 - **dev**: Development build (with debug information)
 - **prod**: Production build (fully optimized)
 
-### 3. Intelligent Package Detection
-- Automatically detects all submodules of installed packages
-- Intelligently identifies project-specific package structures
-- Automatically tests module importability
+### 3. Minimal Spec Generation
+- Generate pre-safe hooks for known argparse-at-import modules
+- Honor build_system/build_config.json for data files, excludes, hiddenimports
+- Keep spec and build logs easy to reason about
 
 ## Usage
 
@@ -45,25 +45,17 @@ python build.py prod --skip-frontend
 python build.py prod --skip-installer
 ```
 
-### Run Detector Independently
+### Build Commands
 
 ```bash
-# Run smart dynamic import detection
-python build_system/smart_dynamic_detector.py
+# Fast build (dev onedir)
+python build.py fast --skip-frontend
 
-# Output example:
-🧠 Starting smart dynamic import detection...
-📝 Phase 1: Detecting project-specific dynamic imports...
-Found project-specific imports: 200
-💻 Phase 2: Detecting actual dynamic imports in code...
-Analyzing 150 Python files...
-Found code dynamic imports: 25
-🔑 Phase 3: Detecting critical dependency dynamic imports...
-Detecting 100 critical dynamic import patterns...
-Found critical dependencies: 80
-🔄 Phase 4: Intelligent merging and optimization...
-✅ Smart detection completed: 305 modules
-💾 Smart detection results saved to: build_system/smart_detected_modules.json
+# Production build with installer
+python build.py prod
+
+# Development build with console
+python build.py dev --skip-installer
 ```
 
 ## Problems Solved

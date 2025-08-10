@@ -412,14 +412,14 @@ jobs:
         # Run build with detailed output (including Sparkle support)
         python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
         
-        # 规范产物命名
-        if [ -f "dist/eCan.pkg" ]; then
-          mv "dist/eCan.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
+        # 规范产物命名（适配新版 InstallerBuilder 输出 eCan-${{ needs.validate-tag.outputs.version }}.pkg）
+        if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
+          mv "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
         fi
         if [ -d "dist/eCan.app" ]; then
           ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
         fi
-        
+
         # Check exit code
         if [ $? -ne 0 ]; then
             echo "❌ Build failed"
@@ -437,15 +437,15 @@ jobs:
         ls -la dist/
         
         # Check for .pkg installer
-        if [ -f "dist/eCan.pkg" ]; then
-            echo "✅ macOS PKG installer found: dist/eCan.pkg"
-            pkg_size=$(du -sh dist/eCan.pkg | cut -f1)
+        if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
+            echo "✅ macOS PKG installer found: dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg"
+            pkg_size=$(du -sh dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg | cut -f1)
             echo "   Size: $pkg_size"
         elif [ -d "dist/eCan.app" ]; then
             echo "✅ macOS App found: dist/eCan.app"
             app_size=$(du -sh dist/eCan.app | cut -f1)
             echo "   Size: $app_size"
-            
+
             # Check app structure
             echo "   App structure:"
             find dist/eCan.app -type f -name "eCan" | head -5

@@ -61,7 +61,6 @@ class BuildEnvironment:
         """Check required files"""
         required_files = [
             "main.py",
-            "build_system/standard_optimizer.py",
             "build_system/build_config.json"
         ]
 
@@ -275,24 +274,39 @@ Usage examples:
 
     print_mode_info(args.mode, fast_mode)
 
-    # 调用完整的构建系统 (保留所有功能)
+    # 使用更简洁的 MiniSpecBuilder 直接进行 PyInstaller 构建；前端与安装包按需执行
     try:
-        from build_system.ecan_build import ECanBuild
+        from build_system.minibuild_core import MiniSpecBuilder
+        from build_system.ecan_build import FrontendBuilder, InstallerBuilder, BuildConfig
 
-        print(f"[BUILD] Starting {build_mode} build using eCan build system...")
+        print(f"[BUILD] Starting {build_mode} build using MiniBuild...")
         print("=" * 60)
 
-        # 创建构建器实例
-        builder = ECanBuild(build_mode, version=args.version)
+        env = BuildEnvironment()
+        cfg = BuildConfig(Path("build_system")/"build_config.json")
+        if args.version:
+            cfg.update_version(args.version)
+        frontend = FrontendBuilder(Path.cwd())
+        installer = InstallerBuilder(cfg, env, Path.cwd(), mode=build_mode)
+        minispec = MiniSpecBuilder()
 
-        # 执行构建
-        success = builder.build(
-            force=args.force,
-            skip_frontend=args.skip_frontend,
-            skip_installer=args.skip_installer,
-            enable_sparkle=args.enable_sparkle,
-            verify_sparkle=args.verify_sparkle
-        )
+        # 1) Frontend
+        if not args.skip_frontend:
+            if not frontend.build(force=args.force):
+                print("[ERROR] Frontend build failed")
+                return 1
+        else:
+            print("[FRONTEND] Skipped")
+
+        # 2) Core app build
+        success = minispec.build(build_mode)
+
+        # 3) Installer
+        if success and not args.skip_installer:
+            if not installer.build():
+                print("[WARNING] Installer creation failed; continuing")
+        else:
+            print("[INSTALLER] Skipped")
 
         if not success:
             print("\n[ERROR] Build failed!")
