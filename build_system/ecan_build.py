@@ -11,6 +11,7 @@ import json
 import time
 import subprocess
 import platform
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -474,18 +475,60 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             if macos_config.get("permissions"):
                 self._create_entitlements_file(macos_config)
 
+            # Prepare a pkg root that contains the .app at top-level so it installs to /Applications/<App>.app
+            pkg_root = self.dist_dir / "pkgroot"
+            try:
+                if pkg_root.exists():
+                    shutil.rmtree(pkg_root)
+                pkg_root.mkdir(parents=True, exist_ok=True)
+                dest_app = pkg_root / f"{app_name}.app"
+                shutil.copytree(app_bundle_dir, dest_app)
+            except Exception as e:
+                print(f"[ERROR] Failed to prepare pkg root: {e}")
+                return False
+
+            # Optional: create a postinstall script to make a Desktop alias if configured
+            scripts_dir = None
+            if macos_config.get("create_desktop_shortcut", False):
+                try:
+                    scripts_dir = self.dist_dir / "pkg_scripts"
+                    scripts_dir.mkdir(parents=True, exist_ok=True)
+                    postinstall = scripts_dir / "postinstall"
+                    postinstall.write_text(f"""#!/bin/bash
+APP_NAME=\"{app_name}.app\"
+APP_PATH=\"/Applications/$APP_NAME\"
+# Find the active console user (not root)
+CONSOLE_USER=\"$(stat -f %Su /dev/console 2>/dev/null || echo \"$SUDO_USER\")\"
+if [ -n \"$CONSOLE_USER\" ] && [ \"$CONSOLE_USER\" != \"root\" ]; then
+  USER_HOME=\"$(dscl . -read /Users/$CONSOLE_USER NFSHomeDirectory 2>/dev/null | awk '{{print $2}}')\"
+  [ -z \"$USER_HOME\" ] && USER_HOME=\"/Users/$CONSOLE_USER\"
+  DESKTOP=\"$USER_HOME/Desktop\"
+  if [ -d \"$DESKTOP\" ] && [ -d \"$APP_PATH\" ]; then
+    ln -snf \"$APP_PATH\" \"$DESKTOP/$APP_NAME\"
+    chown -h \"$CONSOLE_USER\" \"$DESKTOP/$APP_NAME\"
+  fi
+fi
+exit 0
+""", encoding="utf-8")
+                    os.chmod(postinstall, 0o755)
+                except Exception as e:
+                    print(f"[WARNING] Failed to create postinstall script: {e}")
+                    scripts_dir = None
+
             # Create PKG installer
             pkg_file = self.dist_dir / f"{app_name}-{app_version}.pkg"
 
-            # 使用 .app 作为 root，配合 --install-location /Applications 将 .app 安装到 /Applications
+            # Build with correct root; pkgbuild installs contents of root into --install-location
             cmd = [
                 "pkgbuild",
-                "--root", str(app_bundle_dir),
+                "--root", str(pkg_root),
                 "--identifier", bundle_id,
                 "--version", app_version,
                 "--install-location", "/Applications",
-                str(pkg_file)
             ]
+            if scripts_dir:
+                cmd.extend(["--scripts", str(scripts_dir)])
+            cmd.append(str(pkg_file))
 
             print(f"[INSTALLER] Creating PKG: {pkg_file}")
 
