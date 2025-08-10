@@ -732,10 +732,19 @@ if __name__ == '__main__':
             env = self.build_env()
             stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
 
-            # 检查端口是否被占用（优先选择可用端口，避免误杀他进程）
-            if not self._try_alternative_port(int(self.extra_env.get("PORT", "9621"))):
+            # 检查并确定最终端口（以 env 为准，必要时寻找可用端口），保持 env 与 extra_env 一致
+            try:
+                desired_port = int(env.get("PORT", "9621"))
+            except (ValueError, TypeError):
+                desired_port = 9621
+                logger.warning("[LightragServer] Invalid PORT in env, falling back to 9621")
+
+            if not self._try_alternative_port(desired_port):
                 logger.error("[LightragServer] No available port found, cannot start server")
                 return False
+
+            # _try_alternative_port 会把选中的端口写回 self.extra_env['PORT']，这里同步到 env，确保子进程读取一致
+            env["PORT"] = str(self.extra_env.get("PORT", desired_port))
 
             # 尝试找到虚拟环境中的 Python 解释器
             python_executable = self._get_virtual_env_python()

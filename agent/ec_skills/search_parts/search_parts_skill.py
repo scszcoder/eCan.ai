@@ -8,7 +8,7 @@ from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
 from agent.mcp.local_client import mcp_call_tool
-from tests.agent_tests import SEARCH_PARTS_RESULTS
+from agent.ec_skills.search_parts.search_parts_testdata import SEARCH_PARTS_RESULTS
 import re
 from agent.ec_skills.search_parts.decision_utils import *
 
@@ -18,6 +18,9 @@ from agent.ec_skills.search_parts.decision_utils import *
 def go_to_next_site_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     try:
         print("about to connect to ads power:", type(state), state)
@@ -70,6 +73,9 @@ def go_to_next_site_node(state: NodeState) -> NodeState:
 def check_captcha_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     try:
         # result_state = await mainwin.mcp_client.call_tool(
@@ -165,6 +171,9 @@ def check_captcha_node(state: NodeState) -> NodeState:
 def solve_captcha_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     try:
         # result_state = await mainwin.mcp_client.call_tool(
@@ -261,6 +270,9 @@ def solve_captcha_node(state: NodeState) -> NodeState:
 def search_parametric_filters_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     webdriver = mainwin.webdriver
     try:
@@ -289,6 +301,9 @@ def search_parametric_filters_node(state: NodeState) -> NodeState:
 def collect_search_results_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     webdriver = mainwin.webdriver
     try:
@@ -318,6 +333,9 @@ def collect_search_results_node(state: NodeState) -> NodeState:
 def final_select_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     webdriver = mainwin.webdriver
     try:
@@ -341,6 +359,9 @@ def final_select_node(state: NodeState) -> NodeState:
 def check_goals_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     webdriver = mainwin.webdriver
     try:
@@ -368,6 +389,9 @@ def check_goals_node(state: NodeState) -> NodeState:
 def send_results_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
     mainwin = agent.mainwin
     twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
