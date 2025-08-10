@@ -208,14 +208,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python -c "import sys, platform; print(f'Platform: {platform.system()}')"
-        python -c "import sys, platform; print(f'Python: {platform.python_version()}')"
-        python -c "import sys, platform; print(f'Architecture: {platform.architecture()[0]}')"
-        python -c "import sys; print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}')"
-        echo "Checking required files:"
-        python -c "from pathlib import Path; print(f'main.py: {\"✅\" if Path(\"main.py\").exists() else \"❌\"}')"
-        python -c "from pathlib import Path; print(f'build_system/standard_optimizer.py: {\"✅\" if Path(\"build_system/standard_optimizer.py\").exists() else \"❌\"}')"
-        python -c "from pathlib import Path; print(f'build_system/build_config.json: {\"✅\" if Path(\"build_system/build_config.json\").exists() else \"❌\"}')"
+        python scripts/check_build_env.py
     
     - name: Build Windows EXE
       run: |
@@ -420,14 +413,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python -c "import sys, platform; print(f'Platform: {platform.system()}')"
-        python -c "import sys, platform; print(f'Python: {platform.python_version()}')"
-        python -c "import sys, platform; print(f'Architecture: {platform.architecture()[0]}')"
-        python -c "import sys; print(f'Virtual Environment: {hasattr(sys, \"real_prefix\") or (hasattr(sys, \"base_prefix\") and sys.base_prefix != sys.prefix)}')"
-        echo "Checking required files:"
-        python -c "from pathlib import Path; print(f'main.py: {\"✅\" if Path(\"main.py\").exists() else \"❌\"}')"
-        python -c "from pathlib import Path; print(f'build_system/standard_optimizer.py: {\"✅\" if Path(\"build_system/standard_optimizer.py\").exists() else \"❌\"}')"
-        python -c "from pathlib import Path; print(f'build_system/build_config.json: {\"✅\" if Path(\"build_system/build_config.json\").exists() else \"❌\"}')"
+        python scripts/check_build_env.py
     
     - name: Build macOS App
       run: |
