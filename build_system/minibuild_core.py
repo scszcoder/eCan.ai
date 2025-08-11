@@ -19,6 +19,7 @@ import subprocess
 import os
 from pathlib import Path
 from typing import Dict, List, Set, Any, Optional
+import shutil
 
 
 class MiniSpecBuilder:
@@ -41,12 +42,18 @@ class MiniSpecBuilder:
         self._ensure_pre_safe_hooks(sorted(cfg_pre_safe | candidates | detected))
         self._ensure_global_sitecustomize()
         self._last_spec_path = self._write_spec(mode)
+        
+        # On macOS, first clean up potential symlink conflicts
+        if sys.platform == "darwin":
+            self._clean_macos_symlinks_before_build()
+        
         cmd = [sys.executable, "-m", "PyInstaller", str(self._last_spec_path), "--noconfirm", "--clean"]
         print(f"[MINIBUILD] Running: {' '.join(cmd)}")
         env = os.environ.copy()
         py_path = str(self.gen_hooks_dir)
         env["PYTHONPATH"] = (py_path + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else ""))
         env["PYTHONUTF8"] = "1"
+        
         result = subprocess.run(cmd, cwd=str(self.project_root), env=env)
         if result.returncode != 0:
             print(f"[MINIBUILD] Build failed with code {result.returncode}")
@@ -275,6 +282,9 @@ class MiniSpecBuilder:
             # macOS app bundle wrapper
             spec_lines.append("import sys as _sys")
             spec_lines.append("if _sys.platform == 'darwin':")
+            spec_lines.append("    # macOS symlink conflict prevention")
+            spec_lines.append("    import os")
+            spec_lines.append("    os.environ['PYINSTALLER_AVOID_SYMLINKS'] = '1'")
             spec_lines.append("    app = BUNDLE(")
             spec_lines.append("        coll,")
             spec_lines.append(f"        name='{app_name}.app',")
@@ -383,6 +393,75 @@ class MiniSpecBuilder:
                                 suspicious.add(mod)
                                 break
         return sorted(suspicious)
+
+    def _clean_macos_symlinks_before_build(self) -> None:
+        """Clean up symlink conflicts on macOS"""
+        try:
+            print("[MINIBUILD] Automatically cleaning macOS symlink conflicts...")
+            
+            # Clean up potential build artifacts
+            dist_dir = self.project_root / "dist"
+            build_dir = self.project_root / "build"
+            
+            if dist_dir.exists():
+                print(f"[MINIBUILD] Cleaning dist directory: {dist_dir}")
+                self._safe_remove_directory(dist_dir)
+            
+            if build_dir.exists():
+                print(f"[MINIBUILD] Cleaning build directory: {build_dir}")
+                self._safe_remove_directory(build_dir)
+            
+            # Clean up potential .spec file artifacts
+            for spec_file in self.project_root.glob("*.spec"):
+                if spec_file.exists():
+                    print(f"[MINIBUILD] Deleting spec file: {spec_file}")
+                    try:
+                        spec_file.unlink()
+                    except Exception as e:
+                        print(f"[MINIBUILD] Warning: Cannot delete {spec_file}: {e}")
+            
+            # Clean up Python cache
+            cache_dirs = [".pyinstaller", "__pycache__"]
+            for cache_name in cache_dirs:
+                cache_dir = self.project_root / cache_name
+                if cache_dir.exists():
+                    print(f"[MINIBUILD] Cleaning cache directory: {cache_dir}")
+                    self._safe_remove_directory(cache_dir)
+                    
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: Error occurred during cleanup: {e}")
+    
+    def _safe_remove_directory(self, directory: Path) -> None:
+        """Safely remove directory, handling symlink conflicts"""
+        if not directory.exists():
+            return
+            
+        try:
+            # First delete all symlinks
+            for item in directory.rglob("*"):
+                if item.is_symlink():
+                    try:
+                        item.unlink()
+                        print(f"[MINIBUILD] Deleting symlink: {item}")
+                    except Exception:
+                        pass
+            
+            # Then delete the directory
+            shutil.rmtree(directory)
+            print(f"[MINIBUILD] Successfully deleted directory: {directory}")
+            
+        except Exception as e:
+            print(f"[MINIBUILD] Warning: Cannot delete {directory}: {e}")
+            # Try using system commands to force delete
+            try:
+                if sys.platform == "darwin":
+                    subprocess.run(["rm", "-rf", str(directory)], check=True, capture_output=True)
+                    print(f"[MINIBUILD] Force delete successful: {directory}")
+                else:
+                    subprocess.run(["rmdir", "/s", "/q", str(directory)], check=True, capture_output=True, shell=True)
+                    print(f"[MINIBUILD] Force delete successful: {directory}")
+            except Exception:
+                print(f"[MINIBUILD] Warning: Force delete also failed: {directory}")
 
 
 __all__ = ["MiniSpecBuilder"]
