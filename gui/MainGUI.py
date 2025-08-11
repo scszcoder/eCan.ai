@@ -1252,38 +1252,20 @@ class MainWindow(QMainWindow):
             logger.info("initing agents async.....")
             local_server_port = self.get_local_server_port()
 
-            # 等待本地服务器就绪 - 这是阻塞等待，必须完成
-            # 在PyInstaller环境中需要更长的超时时间
-            server_timeout = 45  # 增加超时时间到45秒以适应PyInstaller环境
+            # 简化的服务器连接逻辑
+            server_timeout = 30  # 合理的超时时间
             logger.info(f"Waiting for local server on port {local_server_port} (timeout: {server_timeout}s)")
-            logger.info("注意：此步骤必须等待完成，后续代理初始化依赖于服务器就绪状态")
 
             try:
-                # 这里必须等待完成，不能跳过
                 await wait_until_server_ready(f"http://127.0.0.1:{local_server_port}/healthz", timeout=server_timeout)
                 logger.info(f"✅ Local server ready on port {local_server_port}")
-
             except RuntimeError as e:
-                logger.error(f"❌ Failed to connect to local server after {server_timeout}s: {e}")
-                # 在PyInstaller环境中，服务器启动失败是严重问题
-                error_msg = f"本地服务器连接失败 (端口: {local_server_port})。\n" \
-                           f"超时时间: {server_timeout}秒\n" \
-                           f"错误详情: {str(e)}\n\n" \
-                           f"请检查：\n" \
-                           f"1. 服务器进程是否正常启动\n" \
-                           f"2. 端口 {local_server_port} 是否被占用\n" \
-                           f"3. 防火墙是否阻止了连接"
+                logger.error(f"❌ Failed to connect to local server: {e}")
+                error_msg = f"本地服务器连接失败 (端口: {local_server_port})。\n错误详情: {str(e)}"
                 self.showMsg(error_msg)
-                # 抛出异常，因为后续逻辑无法正常工作
                 raise RuntimeError(f"Server connection failed: {e}")
-
             except Exception as e:
-                logger.error(f"❌ Unexpected error while waiting for server: {e}")
-                import traceback
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                error_msg = f"连接本地服务器时发生意外错误: {str(e)}"
-                self.showMsg(error_msg)
-                # 抛出异常，因为后续逻辑无法正常工作
+                logger.error(f"❌ Unexpected error: {e}")
                 raise
 
             # 服务器已就绪，开始初始化MCP客户端和代理
@@ -1300,10 +1282,9 @@ class MainWindow(QMainWindow):
             # self.mcp_client = await create_sse_client()
             logger.info("MCP client created....")
 
-            # 获取MCP工具列表
+            # 获取MCP工具列表 - 使用标准MCP客户端
             try:
                 logger.info("📋 Listing MCP tools...")
-                # tl = await self.mcp_client.list_tools()
                 tl_result = await local_mcp_list_tools(url)
 
                 # 处理 ListToolsResult 对象
