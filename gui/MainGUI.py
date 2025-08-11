@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
+from bot.missions import EBMISSION
 from common.models import VehicleModel
 from knowledge.lightrag_server import LightragServer
 from utils.time_util import TimeUtil
@@ -70,9 +71,10 @@ from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage, 
 from lzstring import LZString
 import openpyxl
 import tzlocal
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import platform
 from pynput.mouse import Controller as MouseController
+from typing import List
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
@@ -80,8 +82,8 @@ from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper as logger
-from tests.unittests import *
-from tests.agent_tests import *
+# from tests.unittests import *  # removed from production build
+# from tests.agent_tests import *  # removed from production build
 import pandas as pd
 from gui.encrypt import *
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
@@ -927,7 +929,6 @@ class MainWindow(QMainWindow):
         self.websocket = None
         self.setWindowTitle("My E-Commerce Agents ("+self.user+") - "+self.machine_role)
         self.vehicleMonitor = VehicleMonitorWin(self)
-        self.vehicleMonitor.hide()  # 确保窗口在后台创建，不显示
         self.showMsg("================= DONE with GUI Setup ==============================")
 
 
@@ -945,35 +946,26 @@ class MainWindow(QMainWindow):
         wifi_info = None
         if self.platform == "win":
             try:
-                # Use subprocess.run instead of check_output for better error handling
-                result = subprocess.run(['netsh', 'WLAN', 'show', 'interfaces'],
-                                      capture_output=True,
-                                      text=False,
-                                      timeout=10,
-                                      check=False)  # Don't raise exception on non-zero exit
-
-                if result.returncode == 0:
-                    wifi_info = result.stdout
-                else:
-                    logger.info(f"netsh WLAN command returned code {result.returncode}, trying alternative method")
-                    raise subprocess.CalledProcessError(result.returncode, 'netsh')
-
+                wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'],
+                                                  stderr=subprocess.DEVNULL,
+                                                  timeout=10)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                logger.info(f"Primary WiFi detection method failed (this is normal on some systems): {type(e).__name__}")
+                logger.warning(f"Failed to get WiFi info using netsh: {str(e)}")
+                print(f"WiFi detection failed: {str(e)}")
                 # Try alternative method for Windows
                 try:
                     # Get network interfaces (psutil is already imported globally)
                     interfaces = psutil.net_if_stats()
                     wifi_interfaces = [name for name in interfaces.keys() if 'wi-fi' in name.lower() or 'wireless' in name.lower() or 'wlan' in name.lower()]
                     if wifi_interfaces:
-                        logger.info(f"Found WiFi interfaces using alternative method: {wifi_interfaces}")
+                        logger.info(f"Found WiFi interfaces: {wifi_interfaces}")
                         # Create a mock wifi_info to indicate WiFi is available but SSID unknown
                         wifi_info = b"    SSID                   : Unknown\n"
                     else:
-                        logger.info("No WiFi interfaces found using alternative method")
+                        logger.info("No WiFi interfaces found")
                         wifi_info = None
                 except Exception as e2:
-                    logger.info(f"Alternative WiFi detection also failed: {str(e2)}")
+                    logger.warning(f"Alternative WiFi detection failed: {str(e2)}")
                     wifi_info = None
         elif self.platform == 'dar':
             # Try to find the airport command
@@ -1003,7 +995,7 @@ class MainWindow(QMainWindow):
                             wifi_info = None
                 except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                     logger.warning(f"Failed to get WiFi info using airport: {str(e)}")
-                    print(f"macOS WiFi detection failed: {str(e)}")
+                    logger.warning(f"macOS WiFi detection failed: {str(e)}")
                     wifi_info = None
             else:
                 logger.warning("Airport command not found on macOS")
@@ -1085,7 +1077,7 @@ class MainWindow(QMainWindow):
                         if hasattr(module, ins["handler"]):
                             RAIS[ins["instruction name"]] = getattr(module, ins["handler"])
                             ARAIS[ins["instruction name"]] = getattr(module, ins["handler"])
-                            print("EXTENDING ARAIS", ins["instruction name"])
+                            logger.info("EXTENDING ARAIS", ins["instruction name"])
 
         # now load experience file which will speed up icon matching
         run_experience_file = self.my_ecb_data_homepath + "/run_experience.txt"
@@ -1226,21 +1218,13 @@ class MainWindow(QMainWindow):
         # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
-        try:
-            self.newWebCrawler()
-            self.setupBrowserSession()
-            self.setupBrowserUseController()
-            logger.info("Browser components initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize browser components: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-
-        # 确保 MainWindow 在初始化时不显示，避免闪现
-        self.setVisible(False)
+        self.newWebCrawler()
+        self.setupBrowserSession()
+        self.setupBrowserUseController()
 
     async def initialize_mcp(self):
         local_server_port = 4668
-        url = f"http://localhost:{local_server_port}/api/initialize"  # <-- you need to implement this
+        url = f"http://127.0.0.1:{local_server_port}/api/initialize"  # <-- you need to implement this
         payload = {
             "protocolVersion": "1.0",
             "capabilities": {},
@@ -1260,43 +1244,133 @@ class MainWindow(QMainWindow):
         self.lightrag_server = None
 
     async def async_agents_init(self):
-        logger.info("initing agents async.....")
-        local_server_port = self.get_local_server_port()
-        await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
-        logger.info(f"local server ready.........{local_server_port}")
-        # result = await self.initialize_mcp()
-        # print("initialize_mcp.....result:", result)
-        # self.mcp_client = await create_mcp_client()
-        url = "http://localhost:4668/sse/"
-        url = "http://localhost:4668/mcp/"
-        # self.mcp_client_manager = Streamable_HTTP_Manager(url)
-        # self.mcp_client = await self.mcp_client_manager.session()
-        # self.mcp_client = await SSEManager.get(url).session()
-        # self.mcp_client = await create_sse_client()
-        logger.info("MCP client created....")
-        # tl = await self.mcp_client.list_tools()
-        tl = await local_mcp_list_tools(url)
-        # print("list of tools:", tl)
+        """
+        异步初始化代理，必须等待服务器就绪后才能继续后续逻辑
+        优化了PyInstaller环境下的超时处理
+        """
+        try:
+            logger.info("initing agents async.....")
+            local_server_port = self.get_local_server_port()
 
-        # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
+            # 简化的服务器连接逻辑
+            server_timeout = 30  # 合理的超时时间
+            logger.info(f"Waiting for local server on port {local_server_port} (timeout: {server_timeout}s)")
 
-        # print("MCP client tools listed....", tools)
-        self.agent_skills = []
-        self.agent_tasks = []
-        self.agent_tools = []
-        self.agent_knowledges = []
-        
-        self.agent_skills = await build_agent_skills(self)
-        self.agent_tasks = create_agent_tasks(self)
-        self.agent_tools = obtain_agent_tools(self)
-        self.agent_knowledges = build_agent_knowledges(self)
-        # tools = await mcp_load_tools()
-        logger.info("DONE build agent skills.....", len(self.agent_skills))
-        build_agents(self)
-        logger.info("DONE build agents.....")
-        # await self.launch_agents()
-        self.launch_agents()
-        logger.info("DONE launch agents.....")
+            try:
+                await wait_until_server_ready(f"http://127.0.0.1:{local_server_port}/healthz", timeout=server_timeout)
+                logger.info(f"✅ Local server ready on port {local_server_port}")
+            except RuntimeError as e:
+                logger.error(f"❌ Failed to connect to local server: {e}")
+                error_msg = f"本地服务器连接失败 (端口: {local_server_port})。\n错误详情: {str(e)}"
+                self.showMsg(error_msg)
+                raise RuntimeError(f"Server connection failed: {e}")
+            except Exception as e:
+                logger.error(f"❌ Unexpected error: {e}")
+                raise
+
+            # 服务器已就绪，开始初始化MCP客户端和代理
+            logger.info("🔄 Starting MCP client and agent initialization...")
+
+            # result = await self.initialize_mcp()
+            # print("initialize_mcp.....result:", result)
+            # self.mcp_client = await create_mcp_client()
+            url = "http://127.0.0.1:4668/sse/"
+            url = "http://127.0.0.1:4668/mcp/"
+            # self.mcp_client_manager = Streamable_HTTP_Manager(url)
+            # self.mcp_client = await self.mcp_client_manager.session()
+            # self.mcp_client = await SSEManager.get(url).session()
+            # self.mcp_client = await create_sse_client()
+            logger.info("MCP client created....")
+
+            # 获取MCP工具列表 - 使用标准MCP客户端
+            try:
+                logger.info("📋 Listing MCP tools...")
+                tl_result = await local_mcp_list_tools(url)
+
+                # 处理 ListToolsResult 对象
+                if hasattr(tl_result, 'tools'):
+                    tl = tl_result.tools  # 获取实际的工具列表
+                    logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
+                elif isinstance(tl_result, list):
+                    tl = tl_result  # 如果直接返回列表
+                    logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
+                else:
+                    logger.warning(f"Unexpected tools result type: {type(tl_result)}")
+                    tl = []
+
+                logger.debug(f"Tools result type: {type(tl_result)}")
+                if tl:
+                    logger.debug(f"First tool: {tl[0] if len(tl) > 0 else 'None'}")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to list MCP tools: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                # 继续执行，但记录错误
+                tl = []
+                logger.warning("Continuing with empty tool list...")
+
+            # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
+
+            # 初始化代理相关组件
+            logger.info("🤖 Initializing agent components...")
+            self.agent_skills = []
+            self.agent_tasks = []
+            self.agent_tools = []
+            self.agent_knowledges = []
+
+            try:
+                # 按顺序初始化各个组件，每个步骤都等待完成
+                logger.info("🔧 Building agent skills...")
+                self.agent_skills = await build_agent_skills(self)
+                logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
+
+                logger.info("📝 Creating agent tasks...")
+                self.agent_tasks = create_agent_tasks(self)
+                logger.info(f"✅ Created {len(self.agent_tasks)} agent tasks")
+
+                logger.info("🛠️ Obtaining agent tools...")
+                self.agent_tools = obtain_agent_tools(self)
+                logger.info(f"✅ Obtained {len(self.agent_tools)} agent tools")
+
+                logger.info("📚 Building agent knowledges...")
+                self.agent_knowledges = build_agent_knowledges(self)
+                logger.info(f"✅ Built {len(self.agent_knowledges)} agent knowledges")
+
+                # tools = await mcp_load_tools()
+                logger.info("DONE build agent skills.....", len(self.agent_skills))
+
+                logger.info("🚀 Building agents...")
+                build_agents(self)
+                logger.info("✅ DONE build agents.....")
+
+                logger.info("🎯 Launching agents...")
+                # await self.launch_agents()
+                self.launch_agents()
+                logger.info("✅ DONE launch agents.....")
+
+                logger.info("🎉 Agent initialization completed successfully!")
+
+            except Exception as e:
+                logger.error(f"❌ Error during agent initialization: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                error_msg = f"代理初始化过程中发生错误: {str(e)}\n\n" \
+                           f"这可能是由于：\n" \
+                           f"1. 依赖服务未完全启动\n" \
+                           f"2. 配置文件缺失或错误\n" \
+                           f"3. 网络连接问题\n\n" \
+                           f"请检查日志获取详细信息。"
+                self.showMsg(error_msg)
+                # 抛出异常，因为代理初始化失败会影响后续功能
+                raise
+
+        except Exception as e:
+            logger.error(f"Critical error in async_agents_init: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            error_msg = f"代理初始化失败: {str(e)}"
+            self.showMsg(error_msg)
 
         # self.top_gui.update_all(self)
         # await self.test_a2a()
@@ -1313,7 +1387,7 @@ class MainWindow(QMainWindow):
             try:
                 response = requests.get(url)
                 if response.status_code == 200:
-                    print("✅ Server is up!")
+                    logger.info("✅ Server is up!")
                     return True
             except requests.ConnectionError:
                 pass
@@ -1470,17 +1544,17 @@ class MainWindow(QMainWindow):
         for ski, sk in enumerate(self.skills):
             # next_step is not used,
             sk_full_name = sk.getPlatform()+"_"+sk.getApp()+"_"+sk.getSiteName()+"_"+sk.getPage()+"_"+sk.getName()
-            log3("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name, "fetchSchedule", self)
+            logger.trace("PSK FILE NAME::::::::::"+str(ski)+"::["+str(sk.getSkid())+"::"+sk.getPrivacy()+":::::"+sk_full_name, "fetchSchedule", self)
             if sk.getPrivacy() == "public":
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.homepath, first_step, "light")
             else:
                 self.showMsg("GEN PRIVATE SKILL PSK::::::" + sk_full_name)
                 next_step, psk_file = genSkillCode(sk_full_name, sk.getPrivacy(), self.my_ecb_data_homepath, first_step, "light")
-            log3("PSK FILE:::::::::::::::::::::::::"+psk_file, "fetchSchedule", self)
+            logger.trace("PSK FILE:::::::::::::::::::::::::"+psk_file, "fetchSchedule", self)
             sk.setPskFileName(psk_file)
             # fill out each skill's depencies attribute
             sk.setDependencies(self.analyzeMainSkillDependencies(psk_file))
-            print("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
+            logger.trace("RESULTING DEPENDENCIES:["+str(sk.getSkid())+"] ", sk.getDependencies())
 
     def get_helper_agent(self):
         return self.helper_agent
@@ -1614,22 +1688,15 @@ class MainWindow(QMainWindow):
                 viewport_height=1080
             )
             self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
-            logger.info("Web crawler initialized and started successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize web crawler with BrowserConfig: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            self.async_crawler = None
- 
+            logger.error(f"Warning: Failed to initialize web crawler with BrowserConfig: {e}")
+
     def setupBrowserSession(self):
-        if self.async_crawler is None:
-            logger.error("async_crawler is None, cannot setup browser session")
-            return
         try:
             browser = self.async_crawler.crawler_strategy.browser_manager.browser
             self.browser_session = BrowserSession(browser=browser)
         except Exception as e:
-            logger.error(f"Failed to setup browser session: {e}")
-            self.browser_session = None
+            logger.error(f"Warning: Failed to setup browser session: {e}")
 
     def setupBrowserUseController(self):
         display_files_in_done_text = True
@@ -2332,7 +2399,7 @@ class MainWindow(QMainWindow):
 
         # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
         # testSyncPrivateCloudImageAPI(self)
-        asyncio.ensure_future(test_helper(self))
+        # asyncio.ensure_future(test_helper(self))  # removed: test code not available in production
         # testReportVehicles(self)
         # testDequeue(self)
         # Start Gradio in a separate thread
@@ -6484,8 +6551,8 @@ class MainWindow(QMainWindow):
         self.showMsg("filling mission data")
         nm.setNetRespJsonData(nmjson)
 
-    def addMissionsToLocalDB(self, missions: [EBMISSION]):
-        local_missions: [MissionModel] = []
+    def addMissionsToLocalDB(self, missions: List[EBMISSION]):
+        local_missions: List[MissionModel] = []
 
         # Extract all mids from the new missions
         new_mids = [mission.getMid() for mission in missions]
@@ -6598,7 +6665,7 @@ class MainWindow(QMainWindow):
                                 # now that add is successfull, update local file as well.
 
                                 # now add missions to local DB.
-                                new_missions: [EBMISSION] = []
+                                new_missions: List[EBMISSION] = []
                                 for i in range(len(jbody)):
                                     self.showMsg(str(i))
                                     new_mission = EBMISSION(self)
@@ -6896,9 +6963,9 @@ class MainWindow(QMainWindow):
         # "skill_path": "public/win_chrome_etsy_orders",
         # "skill_args": "gs_input",
         # "output": "total_label_cost"
-        log3("TRYING...."+main_file, "fetchSchedule", self)
+        logger.trace("TRYING...."+main_file, "fetchSchedule", self)
         if os.path.exists(main_file):
-            log3("OPENING...."+main_file, "fetchSchedule", self)
+            logger.trace("OPENING...."+main_file, "fetchSchedule", self)
             with open(main_file, 'r') as psk_file:
                 code_jsons = json.load(psk_file)
 
@@ -6965,7 +7032,7 @@ class MainWindow(QMainWindow):
         json_files = []
 
         skdir = self.homepath + "/resource/skills/public/"
-        print("LISTING pub skills:", skdir, os.walk(skdir))
+        logger.info("LISTING pub skills:", skdir, os.walk(skdir))
         # Iterate over all files in the directory
         # Walk through the directory tree recursively
         for root, dirs, files in os.walk(skdir):
@@ -6973,15 +7040,15 @@ class MainWindow(QMainWindow):
                 if file.endswith(".json"):
                     file_path = os.path.join(root, file)
                     skill_def_files.append(file_path)
-                    print("load all public skill definition json file:" + file + "::" + file_path)
+                    logger.debug("load all public skill definition json file:" + file + "::" + file_path)
 
         # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
         # if json exists, use json to guide what to do
         existing_skids = [sk.getSkid() for sk in self.skills]
-        print("existing public skids:", existing_skids)
+        logger.info("existing public skids:", existing_skids)
         for file_path in skill_def_files:
-            print("working on:", file_path)
+            logger.debug("working on:", file_path)
             with open(file_path) as json_file:
                 sk_data = json.load(json_file)
                 json_file.close()
@@ -6990,7 +7057,7 @@ class MainWindow(QMainWindow):
                     new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
                     new_skill.loadJson(sk_data)
                     self.skills.append(new_skill)
-                    print("added public new skill:", sk_data["skid"], new_skill.getSkid(), new_skill.getPskFileName(),
+                    logger.debug("added public new skill:", sk_data["skid"], new_skill.getSkid(), new_skill.getPskFileName(),
                           new_skill.getPath())
                 else:
                     existingSkill = next((x for i, x in enumerate(self.skills) if x.getSkid() == sk_data["skid"]), None)
@@ -7015,7 +7082,7 @@ class MainWindow(QMainWindow):
             json_files = []
 
             skdir = self.my_ecb_data_homepath + "/my_skills/"
-            print("LISTING myskills:", skdir, os.walk(skdir))
+            logger.info("LISTING myskills:", skdir, os.walk(skdir))
             # Iterate over all files in the directory
             # Walk through the directory tree recursively
             for root, dirs, files in os.walk(skdir):
@@ -7023,24 +7090,24 @@ class MainWindow(QMainWindow):
                     if file.endswith(".json"):
                         file_path = os.path.join(root, file)
                         skill_def_files.append(file_path)
-                        print("load private skill definition json file:" + file+"::"+file_path)
+                        logger.debug("load private skill definition json file:" + file+"::"+file_path)
 
             # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
             # if json exists, use json to guide what to do
             existing_skids = [sk.getSkid() for sk in self.skills]
             for file_path in skill_def_files:
-                print("working on:", file_path)
+                logger.debug("working on:", file_path)
                 with open(file_path) as json_file:
                     sk_data = json.load(json_file)
                     json_file.close()
-                    print("sk_data::", sk_data)
+                    logger.debug("sk_data::", sk_data)
                     self.showMsg("loading private skill f: "+str(sk_data["skid"])+" "+file_path)
                     if sk_data["skid"] in existing_skids:
                         new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
                         new_skill.loadJson(sk_data)
                         self.skills.append(new_skill)
-                        print("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
+                        logger.debug("added private new skill:", new_skill.getSkid(), new_skill.getPskFileName(), new_skill.getPath())
                     else:
                         #update the existing skill or no even needed?
                         found_skill = next((x for x in self.skills if x.getSkid()==sk_data["skid"]), None)
@@ -7137,7 +7204,7 @@ class MainWindow(QMainWindow):
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
-    def loadLocalBots(self, db_data: [BotModel]):
+    def loadLocalBots(self, db_data: List[BotModel]):
         try:
             dict_results = [result.to_dict() for result in db_data]
             self.showMsg("get local bots from DB::" + json.dumps(dict_results))
@@ -7184,7 +7251,7 @@ class MainWindow(QMainWindow):
             self.showMsg("WARNING: bot vehicle NOT ASSIGNED!")
 
     # load locally stored mission, but only for the past 7 days, otherwise, there would be too much......
-    def loadLocalMissions(self, db_data: [MissionModel]):
+    def loadLocalMissions(self, db_data: List[MissionModel]):
         dict_results = [result.to_dict() for result in db_data]
         # self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:
@@ -8823,19 +8890,6 @@ class MainWindow(QMainWindow):
 
             if not task.done():
                 task.cancel()
-
-        # 清理 async_crawler
-        if self.async_crawler:
-            try:
-                # 创建一个新的事件循环来关闭 crawler
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self.async_crawler.close())
-                loop.close()
-                logger.info("AsyncWebCrawler closed successfully")
-            except Exception as e:
-                logger.error(f"Failed to close AsyncWebCrawler: {e}")
-
         if self.loginout_gui:
             self.loginout_gui.show()
         event.accept()
@@ -11023,3 +11077,4 @@ class MainWindow(QMainWindow):
 
         log3("Good Bye")
 
+print("maingui loaded....................")

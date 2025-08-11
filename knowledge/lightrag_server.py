@@ -3,6 +3,7 @@ import os
 import sys
 import signal
 from pathlib import Path
+from dataclasses import dataclass
 import threading
 import time
 from utils.logger_helper import logger_helper as logger
@@ -13,6 +14,7 @@ try:
     load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 except ImportError:
     pass
+
 
 class LightragServer:
     def __init__(self, extra_env=None):
@@ -98,15 +100,25 @@ class LightragServer:
         # 强力修复 Windows 编码问题
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
+        env['PYTHONUNBUFFERED'] = '1'  # 强制子进程无缓冲输出，避免日志缺失
         env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
         env['LANG'] = 'en_US.UTF-8'
         env['LC_ALL'] = 'en_US.UTF-8'
 
         # 设置默认值
-        env.setdefault('HOST', '0.0.0.0')
+        env.setdefault('HOST', '127.0.0.1')
         env.setdefault('PORT', '9621')
         env.setdefault('MAX_RESTARTS', '3')
         env.setdefault('RESTART_COOLDOWN', '5')
+        # 禁用 LightRAG 彩色输出/启动横幅（可通过环境变量覆盖）
+        env.setdefault('ECBOT_LIGHTRAG_DISABLE_SPLASH', '1')
+        env.setdefault('NO_COLOR', '1')
+        env.setdefault('ASCII_COLORS_DISABLE', '1')
+
+        # 健康检查参数（可通过环境变量配置）
+        env.setdefault('LIGHTRAG_HEALTH_TIMEOUT', '45')  # seconds
+        env.setdefault('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5')  # seconds
+        env.setdefault('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5')  # seconds
 
         if self.extra_env:
             env.update({str(k): str(v) for k, v in self.extra_env.items()})
@@ -117,6 +129,10 @@ class LightragServer:
             env.pop("PYTHONPATH", None)
             env.pop("PYTHONHOME", None)
             logger.info("[LightragServer] Cleaned Python environment variables for packaged environment")
+            # 强制绑定到 127.0.0.1，避免打包环境下 .env 中的 0.0.0.0 影响健康检查
+            host = str(env.get('HOST', '127.0.0.1')).strip()
+            if host in ('0.0.0.0', '::', ''):
+                env['HOST'] = '127.0.0.1'
 
         # 设置路径相关的环境变量
         if 'APP_DATA_PATH' in env:
@@ -201,7 +217,7 @@ class LightragServer:
             working_dir = self.extra_env.get('WORKING_DIR', '').replace('\\', '/')
             input_dir = self.extra_env.get('INPUT_DIR', '').replace('\\', '/')
             log_dir = self.extra_env.get('LOG_DIR', '').replace('\\', '/')
-            host = self.extra_env.get('HOST', '0.0.0.0')
+            host = self.extra_env.get('HOST', '127.0.0.1')
             port = self.extra_env.get('PORT', '9621')
 
             # 创建临时启动脚本
@@ -394,6 +410,23 @@ LightRAG简单启动脚本
 
 import sys
 import os
+import io
+
+# 强制设置 UTF-8 编码，避免 Windows GBK 控制台编码导致的 UnicodeEncodeError
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+os.environ.setdefault('PYTHONUTF8', '1')
+# 多数着色库支持 NO_COLOR 关闭彩色输出，尽量减少非 ASCII 字符
+os.environ.setdefault('NO_COLOR', '1')
+
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    else:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 def setup_lightrag_environment():
     """设置LightRAG环境"""
@@ -465,25 +498,25 @@ if __name__ == '__main__':
             import platform
             import subprocess
             import time
-            
+
             port = int(self.extra_env.get("PORT", "9621"))
             is_windows = platform.system().lower().startswith('win')
-            
+
             # 检查端口是否被占用
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1)
             result = sock.connect_ex(('localhost', port))
             sock.close()
-            
+
             if result == 0:
                 # 端口被占用，尝试释放
                 logger.warning(f"[LightragServer] Port {port} is in use, attempting to free it...")
-                
+
                 pids = self._find_processes_using_port(port, is_windows)
-                
+
                 if pids:
                     logger.info(f"[LightragServer] Found {len(pids)} process(es) using port {port}: {pids}")
-                    
+
                     # 尝试杀死进程
                     killed_count = 0
                     for pid in pids:
@@ -492,7 +525,7 @@ if __name__ == '__main__':
                             logger.info(f"[LightragServer] Successfully killed process {pid}")
                         else:
                             logger.warning(f"[LightragServer] Failed to kill process {pid}")
-                    
+
                     if killed_count > 0:
                         # 等待端口释放
                         for i in range(15):  # 最多等待15秒
@@ -504,11 +537,11 @@ if __name__ == '__main__':
                                 logger.info(f"[LightragServer] Port {port} is now free after killing {killed_count} process(es)")
                                 return True
                             time.sleep(1)
-                        
+
                         logger.warning(f"[LightragServer] Port {port} is still in use after killing processes")
                     else:
                         logger.warning(f"[LightragServer] Could not kill any processes using port {port}")
-                    
+
                     # 如果无法杀死进程，尝试使用不同的端口
                     return self._try_alternative_port(port)
                 else:
@@ -517,7 +550,7 @@ if __name__ == '__main__':
             else:
                 # 端口可用
                 return True
-                
+
         except Exception as e:
             logger.warning(f"[LightragServer] Error checking port: {e}")
             return True  # 如果检查失败，假设端口可用
@@ -528,7 +561,7 @@ if __name__ == '__main__':
             if is_windows:
                 # Windows: 使用 netstat
                 result = subprocess.run(
-                    ['netstat', '-ano'], 
+                    ['netstat', '-ano'],
                     capture_output=True, text=True, timeout=10
                 )
                 if result.returncode == 0:
@@ -544,12 +577,12 @@ if __name__ == '__main__':
             else:
                 # Unix/Linux/macOS: 使用 lsof
                 result = subprocess.run(
-                    ['lsof', '-ti', f':{port}'], 
+                    ['lsof', '-ti', f':{port}'],
                     capture_output=True, text=True, timeout=10
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     return result.stdout.strip().split('\n')
-            
+
             return []
         except Exception as e:
             logger.warning(f"[LightragServer] Error finding processes using port {port}: {e}")
@@ -561,14 +594,14 @@ if __name__ == '__main__':
             if is_windows:
                 # Windows: 使用 taskkill
                 result = subprocess.run(
-                    ['taskkill', '/PID', str(pid), '/F'], 
+                    ['taskkill', '/PID', str(pid), '/F'],
                     capture_output=True, text=True, timeout=10
                 )
                 return result.returncode == 0
             else:
                 # Unix/Linux/macOS: 使用 kill
                 result = subprocess.run(
-                    ['kill', '-9', str(pid)], 
+                    ['kill', '-9', str(pid)],
                     capture_output=True, text=True, timeout=10
                 )
                 return result.returncode == 0
@@ -580,23 +613,23 @@ if __name__ == '__main__':
         """尝试使用替代端口"""
         try:
             import socket
-            
+
             # 尝试端口范围 9621-9630
             for port in range(original_port, original_port + 10):
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1)
                 result = sock.connect_ex(('localhost', port))
                 sock.close()
-                
+
                 if result != 0:
                     # 找到可用端口
                     logger.info(f"[LightragServer] Found alternative port {port}")
                     self.extra_env["PORT"] = str(port)
                     return True
-            
+
             logger.error(f"[LightragServer] No available ports found in range {original_port}-{original_port + 9}")
             return False
-            
+
         except Exception as e:
             logger.warning(f"[LightragServer] Error trying alternative ports: {e}")
             return False
@@ -727,10 +760,19 @@ if __name__ == '__main__':
             env = self.build_env()
             stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
 
-            # 检查端口是否被占用
-            if not self._check_and_free_port():
-                logger.error("[LightragServer] Failed to free port, cannot start server")
+            # 检查并确定最终端口（以 env 为准，必要时寻找可用端口），保持 env 与 extra_env 一致
+            try:
+                desired_port = int(env.get("PORT", "9621"))
+            except (ValueError, TypeError):
+                desired_port = 9621
+                logger.warning("[LightragServer] Invalid PORT in env, falling back to 9621")
+
+            if not self._try_alternative_port(desired_port):
+                logger.error("[LightragServer] No available port found, cannot start server")
                 return False
+
+            # _try_alternative_port 会把选中的端口写回 self.extra_env['PORT']，这里同步到 env，确保子进程读取一致
+            env["PORT"] = str(self.extra_env.get("PORT", desired_port))
 
             # 尝试找到虚拟环境中的 Python 解释器
             python_executable = self._get_virtual_env_python()
@@ -755,7 +797,7 @@ if __name__ == '__main__':
                     logger.warning("[LightragServer] lightrag module not available in packaged environment")
                     logger.warning("[LightragServer] LightRAG server will be disabled")
                     return False
-            
+
             import platform
 
             # 构建启动命令
@@ -769,13 +811,28 @@ if __name__ == '__main__':
                     logger.error("[LightragServer] Failed to create startup script")
                     return False
 
-                cmd = [python_executable, script_path]
-                logger.info(f"[LightragServer] PyInstaller mode command: {' '.join(cmd)}")
+                # 保存脚本路径以便停止时清理
+                self._script_path = script_path
+
+                # Use environment variable to deliver script path to main.exe (worker mode)
+                env['ECBOT_RUN_SCRIPT'] = script_path
+                env['ECBOT_BYPASS_SINGLE_INSTANCE'] = '1'
+                cmd = [python_executable]  # 无需 -u，这里已通过 PYTHONUNBUFFERED=1 强制无缓冲
+                logger.info(f"[LightragServer] PyInstaller mode command: {cmd} with ECBOT_RUN_SCRIPT={script_path}")
             else:
-                cmd = [python_executable, "-m", "lightrag.api.lightrag_server"]
+                # 开发环境：使用 -u 打印无缓冲输出，便于快速定位错误
+                cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
                 logger.info(f"[LightragServer] Development mode command: {' '.join(cmd)}")
 
             if platform.system().lower().startswith('win'):
+                # Hide console window in production by default; enable via env for debugging
+                show_console = os.getenv("ECBOT_CHILD_SHOW_CONSOLE") == "1"
+                creation_flags = 0
+                if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+                    creation_flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+                if not show_console and hasattr(subprocess, 'CREATE_NO_WINDOW'):
+                    creation_flags |= subprocess.CREATE_NO_WINDOW
+
                 self.proc = subprocess.Popen(
                     cmd,
                     env=env,
@@ -785,7 +842,7 @@ if __name__ == '__main__':
                     text=True,
                     encoding='utf-8',
                     errors='replace',
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') else 0
+                    creationflags=creation_flags
                 )
                 try:
                     self.proc.stdin.write("yes\n")
@@ -807,9 +864,9 @@ if __name__ == '__main__':
                     preexec_fn=os.setsid if hasattr(os, 'setsid') else None
                 )
 
-            final_host = env.get("HOST", "0.0.0.0")
+            final_host = env.get("HOST", "127.0.0.1")
             final_port = env.get("PORT", "9621")
-            
+
             # 确保端口是有效的数字
             try:
                 final_port = str(int(final_port))
@@ -817,11 +874,53 @@ if __name__ == '__main__':
                 final_port = "9621"
                 logger.warning(f"[LightragServer] Invalid port, using default: 9621")
 
-            logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
-            logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
             logger.info(f"[LightragServer] Logs: {stdout_log_path}, {stderr_log_path}")
 
-            return True
+            # Health-check gating to confirm server is actually listening（参数化 + 指数退避）
+            try:
+                import httpx
+                health_host = '127.0.0.1' if str(final_host) in ('0.0.0.0', '::', '') else str(final_host)
+                hc_url = f"http://{health_host}:{final_port}/healthz"
+                total_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', '45'))
+                interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5'))
+                max_interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5'))
+                deadline = time.time() + total_timeout
+                last_err = None
+                # 快速检测是否瞬时退出，便于尽早给出日志
+                time.sleep(0.2)
+                if self.proc and self.proc.poll() is not None:
+                    logger.error(f"[LightragServer] Server process exited immediately with code {self.proc.returncode}")
+                    _stderr_tail = _safe_tail(stderr_log_path)
+                    _stdout_tail = _safe_tail(stdout_log_path)
+                    if _stderr_tail:
+                        logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
+                    if _stdout_tail:
+                        logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
+                    return False
+
+                while time.time() < deadline:
+                    try:
+                        r = httpx.get(hc_url, timeout=2.0)
+                        if r.status_code < 500:
+                            logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
+                            logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
+                            return True
+                    except Exception as e:
+                        last_err = e
+                    time.sleep(interval)
+                    interval = min(max_interval, interval * 1.2)
+                logger.error(f"[LightragServer] Health check failed for {hc_url}: {last_err}")
+                # Try to surface last few stderr/stdout lines to parent log for quick diagnosis
+                _stderr_tail = _safe_tail(stderr_log_path)
+                _stdout_tail = _safe_tail(stdout_log_path)
+                if _stderr_tail:
+                    logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
+                if _stdout_tail:
+                    logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
+            except Exception as e:
+                logger.error(f"[LightragServer] Health check gating error: {e}")
+
+            return False
 
         except Exception as e:
             logger.error(f"[LightragServer] Failed to start server: {e}")
@@ -839,9 +938,11 @@ if __name__ == '__main__':
         if not self._start_server_process():
             return None
 
+        # 任何监控开启都需要运行标志
+        self._monitor_running = True
+
         # 启动父进程监控线程
         if not self.disable_parent_monitoring and self.parent_pid is not None:
-            self._monitor_running = True
             self._monitor_thread = threading.Thread(target=self._monitor_parent, daemon=True)
             self._monitor_thread.start()
             logger.info(f"[LightragServer] Parent process monitoring enabled for PID {self.parent_pid}")
@@ -850,8 +951,8 @@ if __name__ == '__main__':
 
         # 启动进程监控线程（用于自动重启）
         if self.max_restarts > 0:
-            process_monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
-            process_monitor_thread.start()
+            self._proc_monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
+            self._proc_monitor_thread.start()
             logger.info("[LightragServer] Process monitoring enabled for auto-restart")
 
         return self.proc
@@ -865,6 +966,12 @@ if __name__ == '__main__':
         if self._monitor_thread is not None:
             self._monitor_thread.join(timeout=2)
             self._monitor_thread = None
+        if getattr(self, "_proc_monitor_thread", None) is not None:
+            try:
+                self._proc_monitor_thread.join(timeout=2)
+            except Exception:
+                pass
+            self._proc_monitor_thread = None
 
         # 停止服务器进程
         if self.proc is not None:
@@ -890,6 +997,14 @@ if __name__ == '__main__':
         else:
             logger.info("[LightragServer] Server is not running")
 
+        # 清理临时启动脚本
+        try:
+            if getattr(self, "_script_path", None):
+                os.remove(self._script_path)
+                self._script_path = None
+        except Exception:
+            pass
+
     def is_running(self):
         """检查服务器是否在运行"""
         return self.proc is not None and self.proc.poll() is None
@@ -907,14 +1022,26 @@ if __name__ == '__main__':
     def get_server_url(self):
         """获取服务器URL"""
         port = self.get_current_port()
-        host = self.extra_env.get("HOST", "0.0.0.0")
+        host = self.extra_env.get("HOST", "127.0.0.1")
         return f"http://{host}:{port}"
 
     def get_webui_url(self):
         """获取WebUI URL"""
         port = self.get_current_port()
-        host = self.extra_env.get("HOST", "0.0.0.0")
+        host = self.extra_env.get("HOST", "127.0.0.1")
         return f"http://{host}:{port}/webui"
+
+
+# -------- helpers --------
+def _safe_tail(file_path: str, num_lines: int = 80) -> str:
+    try:
+        if not file_path or not os.path.exists(file_path):
+            return ""
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+            return ''.join(lines[-num_lines:])
+    except Exception:
+        return ""
 
 if __name__ == "__main__":
     server = LightragServer()

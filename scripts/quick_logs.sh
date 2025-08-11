@@ -1,5 +1,7 @@
 #!/bin/bash
-# ECBot 快速日志查看脚本
+# ECBot 快速日志查看脚本 (示例)
+# NOTE: This is an example helper script intended for local debugging.
+# It is not required for production builds and may be safely removed from packaging.
 # 用于快速查看生产环境的启动日志和崩溃日志
 
 # 颜色定义

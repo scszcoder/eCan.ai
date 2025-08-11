@@ -11,6 +11,7 @@ import json
 import time
 import subprocess
 import platform
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -94,7 +95,7 @@ class FrontendBuilder:
             #         return False
             print("[FRONTEND] skip installing dependencies...")
             # Execute build
-            if not self._run_build():
+            if not self._run_build(force):
                 return False
             print("[SUCCESS] Frontend build completed")
             return True
@@ -109,7 +110,7 @@ class FrontendBuilder:
 
             # Set command and environment variables based on platform
             if platform.system() == "Windows":
-                cmd = "npm ci --legacy-peer-deps"
+                cmd = "npm install --legacy-peer-deps"
                 shell = True
                 # Windows encoding settings
                 env = os.environ.copy()
@@ -156,10 +157,28 @@ class FrontendBuilder:
             print(f"[ERROR] Failed to install dependencies: {e}")
             return False
     
-    def _run_build(self) -> bool:
+    def _run_build(self, force: bool = False) -> bool:
         """Execute build"""
         try:
             print("[FRONTEND] Building frontend...")
+
+            # 若 node_modules 不存在或强制模式，先执行 npm ci
+            need_install = force or not (self.frontend_dir / 'node_modules').exists()
+            if need_install:
+                print("[FRONTEND] Installing dependencies (npm ci)...")
+                install_cmd = "npm install --legacy-peer-deps" if platform.system() == "Windows" else ["npm", "ci", "--legacy-peer-deps"]
+                install_shell = platform.system() == "Windows"
+                install_env = os.environ.copy()
+                if platform.system() == "Windows":
+                    install_env['PYTHONIOENCODING'] = 'utf-8'
+                    install_env['CHCP'] = '65001'
+                else:
+                    install_env['LC_ALL'] = 'en_US.UTF-8'
+                    install_env['LANG'] = 'en_US.UTF-8'
+                r = subprocess.run(install_cmd, cwd=self.frontend_dir, shell=install_shell, env=install_env)
+                if r.returncode != 0:
+                    print(f"[ERROR] npm ci failed with exit code: {r.returncode}")
+                    return False
 
             if platform.system() == "Windows":
                 cmd = "npm run build"
@@ -207,7 +226,7 @@ class FrontendBuilder:
 
 
 class PyInstallerBuilder:
-    """PyInstaller builder using standard optimizer"""
+    """PyInstaller builder using MiniSpecBuilder (unified path)"""
 
     def __init__(self, config: BuildConfig, env: BuildEnvironment, project_root: Path):
         self.config = config
@@ -215,23 +234,20 @@ class PyInstallerBuilder:
         self.project_root = project_root
 
     def build(self, mode: str, force: bool = False) -> bool:
-        """Build application using standard optimizer"""
-        print(f"[PYINSTALLER] Starting PyInstaller build using standard optimizer...")
+        """Build application using MiniSpecBuilder (align with build.py)"""
+        print(f"[PYINSTALLER] Starting PyInstaller build using MiniSpecBuilder...")
 
         try:
-            # 使用标准优化器
-            from build_system.standard_optimizer import PyInstallerOptimizer
-            
-            optimizer = PyInstallerOptimizer()
-            success = optimizer.build_optimized(mode)
-            
+            from build_system.minibuild_core import MiniSpecBuilder
+            minispec = MiniSpecBuilder()
+            success = minispec.build(mode)
+
             if success:
                 print("[SUCCESS] PyInstaller build completed")
                 return True
             else:
                 print("[ERROR] PyInstaller build failed")
                 return False
-            
         except Exception as e:
             print(f"[ERROR] PyInstaller build failed: {e}")
             return False
@@ -300,6 +316,11 @@ class InstallerBuilder:
             windows_config = installer_config.get("windows", {})
             app_info = self.config.get_app_info()
 
+            # AppId (GUID) from config for Inno Setup
+            raw_app_id = windows_config.get("app_id", "6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1")
+            # Normalize: strip any braces and whitespace; Inno requires GUID in double braces in .iss to avoid constant expansion
+            app_id = str(raw_app_id).strip().strip("{}").strip()
+
             # Get compression settings based on build mode
             compression_modes = installer_config.get("compression_modes", {})
             mode_config = compression_modes.get(self.mode, {})
@@ -308,22 +329,56 @@ class InstallerBuilder:
             solid_compression = str(mode_config.get("solid_compression", installer_config.get("solid_compression", False))).lower()
             internal_compress_level = mode_config.get("internal_compress_level", "normal")
 
+            # 读取构建模式中的 runtime_tmpdir（Windows 平台）
+            runtime_tmpdir = None
+            try:
+                build_modes = self.config.config.get("build_modes", {})
+                mode_cfg = build_modes.get(self.mode, {})
+                runtime_tmpdir = mode_cfg.get("runtime_tmpdir")
+                if isinstance(runtime_tmpdir, dict):
+                    runtime_tmpdir = runtime_tmpdir.get("windows")
+                if isinstance(runtime_tmpdir, str):
+                    runtime_tmpdir = runtime_tmpdir.replace("/", "\\")
+            except Exception:
+                runtime_tmpdir = None
+
+            # 根据是否提供 runtime_tmpdir 构造 [Dirs] 段
+            if runtime_tmpdir:
+                dirs_section = f"[Dirs]\nName: \"{runtime_tmpdir}\"; Flags: uninsneveruninstall\n\n"
+            else:
+                dirs_section = ""
+
+            # 选择文件源：优先使用 onedir 目录，否则使用单文件 EXE
+            onedir_dir = self.project_root / 'dist' / 'eCan'
+            onefile_exe = self.project_root / 'dist' / 'eCan.exe'
+            if onedir_dir.exists():
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
+                run_target = "{app}\\eCan.exe"
+            elif onefile_exe.exists():
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                run_target = "{app}\\eCan.exe"
+            else:
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                run_target = "{app}\\eCan.exe"
+
             iss_content = f"""
 ; eCan Installer Script
 [Setup]
+AppId={{{{{app_id}}}}}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
 AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
-DefaultDirName={{autopf}}\\eCan
+DefaultDirName={{autopf}}\eCan
 DefaultGroupName=eCan
-OutputDir=..\\dist
+OutputDir=..\dist
 OutputBaseFilename=eCan-Setup
 Compression={compression}
 SolidCompression={solid_compression}
+UsePreviousAppDir=no
 PrivilegesRequired=lowest
 InternalCompressLevel={internal_compress_level}
-SetupIconFile=..\\eCan.ico
-UninstallDisplayIcon={{app}}\\eCan.exe
+SetupIconFile=..\eCan.ico
+UninstallDisplayIcon={{app}}\eCan.exe
 CreateUninstallRegKey=true
 AllowNoIcons=true
 DisableProgramGroupPage=auto
@@ -334,15 +389,15 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
 
-[Files]
-Source: "..\\dist\\eCan\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+{dirs_section}[Files]
+{files_section}
 
 [Icons]
-Name: "{{group}}\\eCan"; Filename: "{{app}}\\eCan.exe"
-Name: "{{userdesktop}}\\eCan"; Filename: "{{app}}\\eCan.exe"; Tasks: desktopicon
+Name: "{{group}}\eCan"; Filename: "{run_target}"
+Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; Tasks: desktopicon
 
 [Run]
-Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
+Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
 """
 
             iss_file = self.project_root / "build" / "setup.iss"
@@ -427,19 +482,68 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
             if macos_config.get("permissions"):
                 self._create_entitlements_file(macos_config)
 
+            # Prepare a pkg root that contains the .app at top-level so it installs to /Applications/<App>.app
+            pkg_root = self.dist_dir / "pkgroot"
+            try:
+                if pkg_root.exists():
+                    shutil.rmtree(pkg_root)
+                pkg_root.mkdir(parents=True, exist_ok=True)
+                dest_app = pkg_root / f"{app_name}.app"
+                # Preserve symlinks inside the .app (Qt frameworks/WebEngine contain many)
+                shutil.copytree(app_bundle_dir, dest_app, symlinks=True)
+            except Exception as e:
+                print(f"[ERROR] Failed to prepare pkg root: {e}")
+                return False
+
+            # Optional: create a postinstall script to make a Desktop alias if configured
+            scripts_dir = None
+            if macos_config.get("create_desktop_shortcut", False):
+                try:
+                    scripts_dir = self.dist_dir / "pkg_scripts"
+                    scripts_dir.mkdir(parents=True, exist_ok=True)
+                    postinstall = scripts_dir / "postinstall"
+                    postinstall.write_text(f"""#!/bin/bash
+APP_NAME=\"{app_name}.app\"
+APP_PATH=\"/Applications/$APP_NAME\"
+# Find the active console user (not root)
+CONSOLE_USER=\"$(stat -f %Su /dev/console 2>/dev/null || echo \"$SUDO_USER\")\"
+if [ -n \"$CONSOLE_USER\" ] && [ \"$CONSOLE_USER\" != \"root\" ]; then
+  USER_HOME=\"$(dscl . -read /Users/$CONSOLE_USER NFSHomeDirectory 2>/dev/null | awk '{{print $2}}')\"
+  [ -z \"$USER_HOME\" ] && USER_HOME=\"/Users/$CONSOLE_USER\"
+  DESKTOP=\"$USER_HOME/Desktop\"
+  if [ -d \"$DESKTOP\" ] && [ -d \"$APP_PATH\" ]; then
+    ln -snf \"$APP_PATH\" \"$DESKTOP/$APP_NAME\"
+    chown -h \"$CONSOLE_USER\" \"$DESKTOP/$APP_NAME\"
+  fi
+fi
+exit 0
+""", encoding="utf-8")
+                    os.chmod(postinstall, 0o755)
+                except Exception as e:
+                    print(f"[WARNING] Failed to create postinstall script: {e}")
+                    scripts_dir = None
+
             # Create PKG installer
             pkg_file = self.dist_dir / f"{app_name}-{app_version}.pkg"
 
+            # Build with correct root; pkgbuild installs contents of root into --install-location
             cmd = [
                 "pkgbuild",
-                "--root", str(app_bundle_dir.parent),
+                "--root", str(pkg_root),
                 "--identifier", bundle_id,
                 "--version", app_version,
                 "--install-location", "/Applications",
-                str(pkg_file)
             ]
+            if scripts_dir:
+                cmd.extend(["--scripts", str(scripts_dir)])
+            cmd.append(str(pkg_file))
 
             print(f"[INSTALLER] Creating PKG: {pkg_file}")
+            print(f"[INSTALLER] Command: {' '.join(cmd)}")
+            print(f"[INSTALLER] PKG root contents:")
+            if pkg_root.exists():
+                for item in pkg_root.iterdir():
+                    print(f"  - {item.name} ({'dir' if item.is_dir() else 'file'})")
 
             result = subprocess.run(
                 cmd,
@@ -455,7 +559,28 @@ Filename: "{{app}}\\eCan.exe"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: 
                 print(f"[ERROR] STDERR: {result.stderr}")
                 return False
 
-            print("[SUCCESS] macOS installer created")
+            # Verify PKG was created and has content
+            if not pkg_file.exists():
+                print(f"[ERROR] PKG file was not created: {pkg_file}")
+                return False
+            
+            pkg_size = pkg_file.stat().st_size
+            if pkg_size == 0:
+                print(f"[ERROR] PKG file is empty (0 bytes): {pkg_file}")
+                return False
+            
+            print(f"[SUCCESS] macOS installer created: {pkg_file} ({pkg_size / (1024*1024):.1f} MB)")
+
+            # Clean up temporary files
+            try:
+                if pkg_root.exists():
+                    shutil.rmtree(pkg_root)
+                    print(f"[CLEANUP] Removed pkgroot: {pkg_root}")
+                if scripts_dir and scripts_dir.exists():
+                    shutil.rmtree(scripts_dir)
+                    print(f"[CLEANUP] Removed pkg_scripts: {scripts_dir}")
+            except Exception as e:
+                print(f"[WARNING] Failed to cleanup temporary files: {e}")
 
             # Optional: Code signing
             if macos_config.get("codesign", {}).get("enabled", False):
@@ -654,7 +779,8 @@ class ECanBuild:
         self.pyinstaller_builder = PyInstallerBuilder(self.config, self.env, self.project_root)
         self.installer_builder = InstallerBuilder(self.config, self.env, self.project_root, self.mode)
 
-    def build(self, force: bool = False, skip_frontend: bool = None, skip_installer: bool = False) -> bool:
+    def build(self, force: bool = False, skip_frontend: bool = None, skip_installer: bool = False, 
+              enable_sparkle: bool = False, verify_sparkle: bool = False) -> bool:
         """Execute build"""
         start_time = time.time()
 
@@ -663,6 +789,17 @@ class ECanBuild:
         print("=" * 60)
 
         try:
+            # Check OTA dependencies (CI should have installed them)
+            if enable_sparkle or verify_sparkle:
+                print("[BUILD] Sparkle support enabled - checking dependencies...")
+            self._check_ota_dependencies()
+            
+            # 如果启用了 Sparkle 验证，进行额外检查
+            if verify_sparkle:
+                if not self._verify_sparkle_environment():
+                    print("[ERROR] Sparkle verification failed!")
+                    return False
+            
             # Build frontend (if needed)
             if skip_frontend is None:
                 skip_frontend = self.mode == "prod"
@@ -670,6 +807,8 @@ class ECanBuild:
             if not skip_frontend:
                 if not self.frontend_builder.build(force):
                     return False
+            else:
+                print("[FRONTEND] Skipped by flag --skip-frontend")
 
             # Build main application
             if not self.pyinstaller_builder.build(self.mode, force):
@@ -694,6 +833,143 @@ class ECanBuild:
             print(f"[ERROR] Build failed: {e}")
             return False
 
+    def _check_ota_dependencies(self):
+        """检查OTA依赖是否已安装（由CI安装）"""
+        ota_dir = self.project_root / "ota" / "dependencies"
+        install_info_file = ota_dir / "install_info.json"
+        
+        if not ota_dir.exists():
+            print("[OTA] OTA dependencies directory not found")
+            print("[OTA] OTA functionality will use fallback HTTP updates")
+            return
+        
+        if not install_info_file.exists():
+            print("[OTA] OTA install info not found")
+            print("[OTA] Dependencies may not be properly installed")
+            return
+        
+        try:
+            with open(install_info_file, 'r') as f:
+                install_info = json.load(f)
+            
+            platform = install_info.get("platform", "unknown")
+            install_method = install_info.get("install_method", "unknown")
+            installed_deps = install_info.get("installed_dependencies", {})
+            
+            print(f"[OTA] Dependencies installed via {install_method} for {platform}")
+            
+            for name, dep_info in installed_deps.items():
+                if dep_info.get("installed", False):
+                    print(f"[OTA] {name} v{dep_info.get('version', 'unknown')}")
+                else:
+                    print(f"[OTA] {name} not properly installed")
+            
+            # Sparkle 特定验证
+            self._verify_sparkle_installation(ota_dir, platform)
+            
+            if not installed_deps:
+                print("[OTA] No dependencies found for current platform")
+                
+        except Exception as e:
+            print(f"[OTA] Failed to read install info: {e}")
+    
+    def _verify_sparkle_installation(self, ota_dir: Path, platform: str):
+        """验证 Sparkle/winSparkle 安装"""
+        if platform == "darwin":
+            # 检查 Sparkle.framework
+            sparkle_framework = ota_dir / "Sparkle.framework"
+            if sparkle_framework.exists():
+                print("[OTA] [OK] Sparkle.framework found")
+                
+                # 检查关键文件
+                sparkle_binary = sparkle_framework / "Versions" / "Current" / "Sparkle"
+                sparkle_cli = sparkle_framework / "Versions" / "Current" / "Resources" / "sparkle-cli"
+                
+                if sparkle_binary.exists():
+                    print("[OTA] [OK] Sparkle binary verified")
+                else:
+                    print("[OTA] [WARN] Sparkle binary not found")
+                
+                if sparkle_cli.exists():
+                    print("[OTA] [OK] Sparkle CLI verified")
+                else:
+                    print("[OTA] [WARN] Sparkle CLI not found")
+            else:
+                print("[OTA] [ERROR] Sparkle.framework not found")
+                
+        elif platform == "windows":
+            # 检查 winSparkle
+            winsparkle_dir = ota_dir / "winsparkle"
+            if winsparkle_dir.exists():
+                print("[OTA] [OK] winSparkle directory found")
+                
+                # 检查关键文件
+                winsparkle_dll = winsparkle_dir / "winsparkle.dll"
+                winsparkle_lib = winsparkle_dir / "winsparkle.lib"
+                
+                if winsparkle_dll.exists():
+                    print("[OTA] [OK] winSparkle DLL verified")
+                else:
+                    print("[OTA] [ERROR] winSparkle DLL not found")
+                
+                if winsparkle_lib.exists():
+                    print("[OTA] [OK] winSparkle LIB verified")
+                else:
+                    print("[OTA] [WARN] winSparkle LIB not found")
+            else:
+                print("[OTA] [ERROR] winSparkle directory not found")
+    
+    def _verify_sparkle_environment(self) -> bool:
+        """验证 Sparkle 环境是否完整"""
+        ota_dir = self.project_root / "ota" / "dependencies"
+        
+        if not ota_dir.exists():
+            print("[SPARKLE] [ERROR] OTA dependencies directory not found")
+            return False
+        
+        platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
+        
+        if platform == "darwin":
+            # 验证 Sparkle.framework
+            sparkle_framework = ota_dir / "Sparkle.framework"
+            if not sparkle_framework.exists():
+                print("[SPARKLE] [ERROR] Sparkle.framework not found")
+                return False
+            
+            # 检查关键组件
+            required_files = [
+                sparkle_framework / "Versions" / "Current" / "Sparkle",
+                sparkle_framework / "Versions" / "Current" / "Resources" / "Info.plist",
+            ]
+            
+            for file_path in required_files:
+                if not file_path.exists():
+                    print(f"[SPARKLE] [ERROR] Required file missing: {file_path.name}")
+                    return False
+            
+            print("[SPARKLE] [OK] Sparkle.framework verification passed")
+            return True
+            
+        elif platform == "windows":
+            # 验证 winSparkle
+            winsparkle_dir = ota_dir / "winsparkle"
+            if not winsparkle_dir.exists():
+                print("[SPARKLE] [ERROR] winSparkle directory not found")
+                return False
+            
+            # 检查关键文件
+            winsparkle_dll = winsparkle_dir / "winsparkle.dll"
+            if not winsparkle_dll.exists():
+                print("[SPARKLE] [ERROR] winsparkle.dll not found")
+                return False
+            
+            print("[SPARKLE] [OK] winSparkle verification passed")
+            return True
+        
+        else:
+            print(f"[SPARKLE] [WARN] Unsupported platform: {platform}")
+            return True  # 不阻止构建
+    
     def _show_result(self, start_time: float):
         """Display build results"""
         build_time = time.time() - start_time
@@ -709,8 +985,8 @@ class ECanBuild:
 
 def main():
     """Deprecated: Use build.py instead"""
-    print("❌ 请使用 build.py 作为构建入口点")
-    print("✅ 正确用法: python build.py fast")
+    print("[ERROR] 请使用 build.py 作为构建入口点")
+    print("[OK] 正确用法: python build.py fast")
     sys.exit(1)
 
 

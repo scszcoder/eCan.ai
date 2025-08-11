@@ -28,16 +28,21 @@ def get_exchange_rate(
         A dictionary containing the exchange rate data, or an error message if the request fails.
     """    
     try:
-        response = httpx.get(
-            f"https://api.frankfurter.app/{currency_date}",
-            params={"from": currency_from, "to": currency_to},
-        )
-        response.raise_for_status()
+        # 使用带超时的HTTP客户端，避免在PyInstaller环境中阻塞
+        timeout = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(
+                f"https://api.frankfurter.app/{currency_date}",
+                params={"from": currency_from, "to": currency_to},
+            )
+            response.raise_for_status()
 
-        data = response.json()
-        if "rates" not in data:
-            return {"error": "Invalid API response format."}
-        return data
+            data = response.json()
+            if "rates" not in data:
+                return {"error": "Invalid API response format."}
+            return data
+    except httpx.TimeoutException as e:
+        return {"error": f"Request timeout: {e}"}
     except httpx.HTTPError as e:
         return {"error": f"API request failed: {e}"}
     except ValueError:

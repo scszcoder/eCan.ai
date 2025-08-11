@@ -101,14 +101,45 @@ async def create_streamable_http_client(url):
 
 
 async def local_mcp_list_tools(url):
-    # "http://localhost:4668/mcp/"
-    tools = {}
-    async with streamablehttp_client(url) as streams:
-        async with ClientSession(streams[0], streams[1]) as session:
-            await session.initialize()
-            tools = await session.list_tools()
-            # await session.complete()
-            return tools
+    """
+    获取MCP工具列表
+
+    Args:
+        url: MCP服务器URL，例如 "http://localhost:4668/mcp/"
+
+    Returns:
+        ListToolsResult对象，包含tools属性
+
+    Raises:
+        Exception: 连接或获取工具列表失败
+    """
+    from utils.logger_helper import logger_helper as logger
+
+    try:
+        logger.debug(f"Connecting to MCP server at {url}")
+        async with streamablehttp_client(url) as streams:
+            async with ClientSession(streams[0], streams[1]) as session:
+                logger.debug("Initializing MCP session...")
+                await session.initialize()
+
+                logger.debug("Listing tools...")
+                tools_result = await session.list_tools()
+
+                # 记录结果信息
+                if hasattr(tools_result, 'tools'):
+                    logger.debug(f"Retrieved {len(tools_result.tools)} tools")
+                    if tools_result.tools:
+                        logger.debug(f"First tool: {tools_result.tools[0].name if hasattr(tools_result.tools[0], 'name') else 'Unknown'}")
+                else:
+                    logger.debug(f"Tools result type: {type(tools_result)}")
+
+                return tools_result
+
+    except Exception as e:
+        logger.error(f"Failed to list MCP tools from {url}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
 async def local_mcp_call_tool(url, tool_name, arguments):
     # "http://localhost:4668/mcp/"

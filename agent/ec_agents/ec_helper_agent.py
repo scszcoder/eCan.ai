@@ -23,19 +23,19 @@ def set_up_ec_helper_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"),None)
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"),None)
-        logger.info("worker_skill", worker_skill.name)
-        logger.info("chatter_skill", chatter_skill.name)
+        worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"), None)
+        logger.info("worker_skill", getattr(worker_skill, 'name', None))
+        logger.info("chatter_skill", getattr(chatter_skill, 'name', None))
         agent_card = AgentCard(
-                name="ECBot Helper Agent",
-                description="Helps with ECBot RPA works",
-                url=get_a2a_server_url(mainwin) or "http://localhost:3600",
-                version="1.0.0",
-                defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-                defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-                capabilities=capabilities,
-                skills=[worker_skill, chatter_skill],
+            name="ECBot Helper Agent",
+            description="Helps with ECBot RPA works",
+            url=get_a2a_server_url(mainwin) or "http://127.0.0.1:3600",
+            version="1.0.0",
+            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            capabilities=capabilities,
+            skills=[worker_skill, chatter_skill],
         )
 
         logger.info("agent card created:", agent_card.name, agent_card.url)
@@ -45,20 +45,19 @@ def set_up_ec_helper_agent(mainwin):
 
         # 尝试创建 EC_Agent，如果失败则使用备用方案
         try:
-            helper = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+            helper = EC_Agent(
+                mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="",
+                card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task]
+            )
         except RuntimeError as re:
             logger.error(f"Warning: browser_use resource loading failed in PyInstaller environment: {re}")
             logger.error("Attempting to create EC_Agent without browser_use features...")
-
     except Exception as e:
-        # Get the traceback information
         traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
         if traceback_info:
             ex_stat = "ErrorSetUpECBOTHelperAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECBOTHelperAgent: traceback information not available:" + str(e)
-        # mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         return None
     return helper

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>ECBot Updates</title>
+        <description>Most recent updates to ECBot</description>
+        <language>en</language>
+        
+        <item>
+            <title>ECBot 1.1.0</title>
+            <description>
+                <![CDATA[
+                <h2>What's New in ECBot 1.1.0</h2>
+                <ul>
+                    <li>Added OTA update functionality</li>
+                    <li>Improved performance and stability</li>
+                    <li>Bug fixes and enhancements</li>
+                </ul>
+                ]]>
+            </description>
+            <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
+            <enclosure url="https://updates.ecbot.com/downloads/ECBot-1.1.0.dmg"
+                       sparkle:version="1.1.0"
+                       sparkle:os="macos"
+                       length="52428800"
+                       type="application/octet-stream"
+                       sparkle:edSignature="ABC123..." />
+        </item>
+        
+        <item>
+            <title>ECBot 1.1.0</title>
+            <description>
+                <![CDATA[
+                <h2>What's New in ECBot 1.1.0</h2>
+                <ul>
+                    <li>Added OTA update functionality</li>
+                    <li>Improved performance and stability</li>
+                    <li>Bug fixes and enhancements</li>
+                </ul>
+                ]]>
+            </description>
+            <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
+            <enclosure url="https://updates.ecbot.com/downloads/ECBot-1.1.0.exe"
+                       sparkle:version="1.1.0"
+                       sparkle:os="windows"
+                       length="41943040"
+                       type="application/octet-stream"
+                       sparkle:edSignature="DEF456..." />
+        </item>
+    </channel>
+</rss> 

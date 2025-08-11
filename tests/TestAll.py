@@ -54,6 +54,8 @@
 
 
 import unittest
+import os
+import sys
 
 
 
@@ -63,9 +65,21 @@ class Tester():
         self.type = "NA"
 
     def runAllTests(self):
-        # load tests list file.
-        print("hello")
-        #run thru the list.
+        """Discover and run all tests under the tests/ directory matching test_*.py"""
+        start_dir = os.path.dirname(__file__)
+        # Ensure project root is on sys.path so 'ota' and other top-level modules can be imported
+        project_root = os.path.dirname(start_dir)
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        print(f"Discovering tests in: {start_dir} (project_root={project_root})")
+        suite = unittest.defaultTestLoader.discover(start_dir=start_dir, pattern='test_*.py')
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+        return 0 if result.wasSuccessful() else 1
 
-        #
+
+if __name__ == "__main__":
+    tester = Tester()
+    code = tester.runAllTests()
+    sys.exit(code)
 
