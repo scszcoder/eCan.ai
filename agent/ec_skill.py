@@ -151,16 +151,15 @@ async def wait_until_server_ready(url: str, timeout=5):
             break
 
         try:
-            # 设置较短的请求超时，避免在PyInstaller环境中阻塞
-            # 但确保每次请求都有合理的超时时间
+            # 简化的超时设置
             request_timeout = min(3.0, max(1.0, remaining_time))
 
             # 使用异步客户端，设置明确的超时配置
             timeout_config = httpx.Timeout(
-                connect=min(2.0, request_timeout/2),  # 连接超时
-                read=request_timeout,                  # 读取超时
-                write=min(1.0, request_timeout/3),    # 写入超时
-                pool=min(1.0, request_timeout/3)      # 连接池超时
+                connect=2.0,  # 连接超时
+                read=request_timeout,  # 读取超时
+                write=1.0,    # 写入超时
+                pool=1.0      # 连接池超时
             )
 
             async with httpx.AsyncClient(timeout=timeout_config) as client:
@@ -203,7 +202,7 @@ async def wait_until_server_ready(url: str, timeout=5):
         if time.time() >= deadline:
             break
 
-        # 等待一段时间后重试，但不超过剩余时间
+        # 简化的重试间隔
         sleep_time = min(0.5, deadline - time.time())
         if sleep_time > 0:
             logger.debug(f"Waiting {sleep_time:.1f}s before next attempt...")

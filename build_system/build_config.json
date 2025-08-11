@@ -32,8 +32,7 @@
       "eCan.icns",
       "ecbot.qm",
       "ecbot_zh.qm",
-      "role.json",
-      ".env"
+      "role.json"
     ]
   },
   "pyinstaller": {
@@ -41,10 +40,16 @@
       "PySide6",
       "browser_use",
       "agent",
-      "crawl4ai"
+      "crawl4ai",
+      "playwright",
+      "lightrag",
+      "langchain",
+      "langgraph",
+      "langchain_openai",
+      "langchain_mcp_adapters",
+      "mcp"
     ],
     "collect_data_only": [
-      "lightrag",
       "browser_use",
       "browser_use.browser",
       "browser_use.agent",
@@ -81,7 +86,16 @@
       "browser_use.agent",
       "browser_use.agent.prompts",
       "browser_use.browser",
-      "browser_use.llm"
+      "browser_use.llm",
+      "playwright",
+      "playwright.async_api",
+      "playwright.sync_api",
+      "langchain",
+      "langchain_core",
+      "langgraph",
+      "langchain_openai",
+      "langchain_mcp_adapters",
+      "mcp"
     ],
     "force_pre_safe": [
       "lightrag",
