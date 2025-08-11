@@ -24,7 +24,8 @@
       "skills",
       "telemetry",
       "gui_v2/dist",
-      "ota"
+      "ota",
+      "third_party/ms-playwright"
     ],
     "files": [
       "app_context.py",

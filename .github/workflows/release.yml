@@ -222,14 +222,25 @@ jobs:
         # Run build with detailed output (including Sparkle support)
         python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
         
-        # 重命名产物，规范为 eCan-windows-x86_64-v{version}.exe
-        if (Test-Path "dist/eCan/eCan.exe") {
-          Rename-Item "dist/eCan/eCan.exe" "dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        # 导出/规范命名产物到 dist 根目录（避免跨目录 Rename-Item 报错）
+        $srcExe = "dist/eCan/eCan.exe"
+        $dstExe = "dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        if (Test-Path $srcExe) {
+          Copy-Item -LiteralPath $srcExe -Destination $dstExe -Force
+          Write-Host "Exported: $dstExe"
+        } else {
+          Write-Host "[WARN] $srcExe not found; skip exporting"
         }
-        if (Test-Path "dist/eCan-Setup.exe") {
-          Rename-Item "dist/eCan-Setup.exe" "dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+
+        $srcSetup = "dist/eCan-Setup.exe"
+        $dstSetup = "dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        if (Test-Path $srcSetup) {
+          Rename-Item -LiteralPath $srcSetup -NewName (Split-Path -Leaf $dstSetup)
+          Write-Host "Renamed: $dstSetup"
+        } else {
+          Write-Host "[WARN] $srcSetup not found; skip renaming"
         }
-        
+
         # Check exit code
         if ($LASTEXITCODE -ne 0) {
             echo "[ERROR] Build failed with exit code: $LASTEXITCODE"
