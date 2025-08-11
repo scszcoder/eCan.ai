@@ -161,9 +161,12 @@ async def save_skill_graph(skill_graph, skg_file):
 # sse_router = Router([
 #     Route("/", endpoint=handle_sse, methods=["GET"])
 # ])
+# 简化的MCP路由，直接委托给已初始化的session_manager
+async def mcp_asgi(scope, receive, send):
+    await session_manager.handle_request(scope, receive, send)
 
 routes = [
-    Mount("/mcp", app=session_manager.handle_request),
+    Mount("/mcp", app=mcp_asgi),
     Mount("/sse", app=handle_sse),
     Mount("/messages/", app=meca_sse.handle_post_message),
     Mount("/mcp_messages/", app=meca_streamable_http.handle_request),
@@ -192,7 +195,7 @@ if os.path.isdir(static_dir):
 else:
     logger.warning(f"Static dir missing, skipping mount: {static_dir}")
 
-mecaLocalServer = Starlette(debug=True, routes=routes, lifespan=lambda mecaLocalServer: session_manager.run(),)
+mecaLocalServer = Starlette(debug=True, routes=routes)
 
 # CORS Middleware setup (same as Flask-CORS)
 mecaLocalServer.add_middleware(
@@ -213,22 +216,17 @@ def run_starlette(port=4668):
         except Exception as _e:
             logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {_e}")
 
-        # Decide lifespan mode without mutating environment variables
-        try:
-            import sys as _sys
-            is_frozen = bool(getattr(_sys, '_MEIPASS', None))
-        except Exception:
-            is_frozen = False
+        use_lifespan = False
 
-        # Optional external override via ECBOT_LIFESPAN (on/off/true/false/1/0)
-        flag = os.getenv("ECBOT_LIFESPAN", "").lower()
-        if flag in ("1", "true", "on"):
-            use_lifespan = True
-        elif flag in ("0", "false", "off"):
-            use_lifespan = False
-        else:
-            # Default: dev env -> on; frozen env -> off
-            use_lifespan = (not is_frozen)
+        # 直接初始化 session_manager（在 uvicorn 启动前）
+        async def init_mcp():
+            await session_manager.run().__aenter__()
+            logger.info("StreamableHTTPSessionManager started")
+
+        # 在事件循环中初始化
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(init_mcp())
 
         def _make_server(_lifespan_on: bool):
             cfg = uvicorn.Config(
