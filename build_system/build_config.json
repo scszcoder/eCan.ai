@@ -60,6 +60,9 @@
       "PySide6.QtWebEngineCore",
       "PySide6.QtWebEngineWidgets",
       "PySide6.QtWebEngine",
+      "PySide6.QtWebChannel",
+      "PySide6.QtWebSockets",
+      "PySide6.QtWebView",
 
       "lightrag.api",
       "lightrag.api.config",
@@ -126,7 +129,6 @@
       "PySide6.QtDataVisualization",
       "PySide6.QtSpatialAudio",
       "PySide6.QtRemoteObjects",
-      "PySide6.QtOpenGLWidgets",
       "PySide6.QtQuick3DAssetImport",
       "PySide6.QtQuick3DRuntimeRender",
       "PySide6.Qt3DInput",
@@ -150,21 +152,13 @@
       "PySide6.QtQuick3DParticles",
       "PySide6.QtQuick3DPhysics",
       "PySide6.QtQuick3DUtils",
-      "PySide6.QtMultimedia",
-      "PySide6.QtMultimediaWidgets",
       "PySide6.QtBluetooth",
       "PySide6.QtNfc",
       "PySide6.QtPositioning",
       "PySide6.QtLocation",
-      "PySide6.QtWebChannel",
-      "PySide6.QtWebSockets",
-      "PySide6.QtWebView",
       "PySide6.QtHelp",
       "PySide6.QtDesigner",
-      "PySide6.QtUiTools",
-      "PySide6.QtTest",
-      "PySide6.QtConcurrent",
-      "PySide6.QtDBus"
+      "PySide6.QtTest"
     ],
     "optimization": {
       "copy_metadata": true

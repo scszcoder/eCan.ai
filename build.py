@@ -138,14 +138,14 @@ def print_mode_info(mode: str, fast: bool = False):
         print("  * Full optimization and cleanup")
         print("  * Debug symbols stripped")
         print("  * LZMA best compression")
-        print("  ✓ Estimated time: 15-25 minutes")
+        print("  - Estimated time: 15-25 minutes")
 
     print("=" * 60)
 
 
 def _show_build_results():
     """显示构建结果"""
-    print("\n📁 Build Results:")
+    print("\n[RESULT] Build Results:")
 
     dist_dir = Path("dist")
     if dist_dir.exists():
@@ -153,28 +153,28 @@ def _show_build_results():
             if item.is_dir():
                 size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
                 size_mb = size / (1024 * 1024)
-                print(f"  📂 {item.name} ({size_mb:.1f} MB)")
+                print(f"  floder {item.name} ({size_mb:.1f} MB)")
             elif item.is_file():
                 size_mb = item.stat().st_size / (1024 * 1024)
-                print(f"  📄 {item.name} ({size_mb:.1f} MB)")
+                print(f"  file {item.name} ({size_mb:.1f} MB)")
 
     # 显示平台特定信息
     if platform.system() == "Windows":
         exe_name = "eCan.exe"
-        print(f"\n🚀 Executable: ./dist/eCan/{exe_name}")
+        print(f"\n[INFO] Executable: ./dist/eCan/{exe_name}")
     elif platform.system() == "Darwin":
         exe_name = "eCan"
-        print(f"\n🚀 Executable: ./dist/eCan/{exe_name}")
+        print(f"\n[INFO] Executable: ./dist/eCan/{exe_name}")
     else:
         exe_name = "eCan"
-        print(f"\n🚀 Executable: ./dist/eCan/{exe_name}")
+        print(f"\n[INFO] Executable: ./dist/eCan/{exe_name}")
 
-    print("\n✅ Standard optimization features:")
-    print("  • PyInstaller native optimization")
-    print("  • Smart hidden imports detection")
-    print("  • Exclude unnecessary modules")
-    print("  • Binary compression")
-    print("  • Debug info stripping")
+    print("\n[OK] Standard optimization features:")
+    print("  - PyInstaller native optimization")
+    print("  - Smart hidden imports detection")
+    print("  - Exclude unnecessary modules")
+    print("  - Binary compression")
+    print("  - Debug info stripping")
 
 def main():
     """Main function"""
@@ -194,7 +194,7 @@ Usage examples:
   python build.py prod --version 2.1.0  # Build with specified version
   python build.py fast --skip-frontend  # Fast build skipping frontend
   python build.py prod --skip-installer # Skip installer creation
-        """
+""",
     )
 
     # Positional arguments
