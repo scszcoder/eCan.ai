@@ -41,11 +41,13 @@ class MiniSpecBuilder:
         detected = set(self._detect_argparse_import_side_effects())
         self._ensure_pre_safe_hooks(sorted(cfg_pre_safe | candidates | detected))
         self._ensure_global_sitecustomize()
-        self._last_spec_path = self._write_spec(mode)
-        
-        # On macOS, first clean up potential symlink conflicts
+
+        # On macOS, clean up potential symlink conflicts BEFORE writing the spec
         if sys.platform == "darwin":
             self._clean_macos_symlinks_before_build()
+
+        # Write spec after cleanup so it won't be removed inadvertently
+        self._last_spec_path = self._write_spec(mode)
         
         cmd = [sys.executable, "-m", "PyInstaller", str(self._last_spec_path), "--noconfirm", "--clean"]
         print(f"[MINIBUILD] Running: {' '.join(cmd)}")
