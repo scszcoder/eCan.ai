@@ -32,8 +32,7 @@
       "eCan.icns",
       "ecbot.qm",
       "ecbot_zh.qm",
-      "role.json",
-      ".env"
+      "role.json"
     ]
   },
   "pyinstaller": {
