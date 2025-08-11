@@ -13,7 +13,7 @@ import uuid
 import json
 from concurrent.futures import Future
 from asyncio import Future as AsyncFuture
-from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse, meca_streamable_http,handle_streamable_http, session_manager, set_server_main_win
+from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse, meca_streamable_http, handle_streamable_http, session_manager, set_server_main_win, lifespan
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp.client.sse import sse_client
@@ -195,7 +195,7 @@ if os.path.isdir(static_dir):
 else:
     logger.warning(f"Static dir missing, skipping mount: {static_dir}")
 
-mecaLocalServer = Starlette(debug=True, routes=routes)
+mecaLocalServer = Starlette(debug=True, routes=routes, lifespan=lifespan)
 
 # CORS Middleware setup (same as Flask-CORS)
 mecaLocalServer.add_middleware(
@@ -208,6 +208,23 @@ mecaLocalServer.add_middleware(
 def run_starlette(port=4668):
     logger.info(f"Starting Starlette server....on port {port}")
     try:
+        # PyInstaller 环境中的特殊处理
+        import sys
+        is_frozen = getattr(sys, 'frozen', False)  # 正常检测
+
+        if is_frozen:
+            logger.info("🔧 Detected PyInstaller environment, applying special configurations...")
+
+            # 在 PyInstaller 环境中，强制使用新的事件循环
+            import asyncio
+            try:
+                # 创建新的事件循环，避免与主线程的事件循环冲突
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                logger.info("✅ Created new event loop for PyInstaller environment")
+            except Exception as e:
+                logger.warning(f"Failed to create new event loop: {e}")
+
         # On Windows, ensure we use a selector policy when running uvicorn in a thread
         try:
             if os.name == 'nt':
@@ -216,24 +233,7 @@ def run_starlette(port=4668):
         except Exception as _e:
             logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {_e}")
 
-        # 异步后台初始化 MCP(长期存活的上下文)，避免阻塞本地 HTTP 服务器启动与 /healthz 检测
-        async def mcp_runner_forever():
-            try:
-                # 保持上下文在后台长期存活
-                async with session_manager.run():
-                    logger.info("StreamableHTTPSessionManager started")
-                    stop = asyncio.Event()
-                    await stop.wait()
-            except Exception as mcp_e:
-                logger.error(f"MCP manager error: {mcp_e}")
-
-        def start_mcp_in_background():
-            try:
-                asyncio.run(mcp_runner_forever())
-            except Exception as be:
-                logger.error(f"MCP background loop crashed: {be}")
-
-        threading.Thread(target=start_mcp_in_background, daemon=True).start()
+        # MCP 会话管理器将在 Starlette 应用的 lifespan 中正确管理
 
         def _make_server(_lifespan_on: bool):
             cfg = uvicorn.Config(
@@ -250,20 +250,30 @@ def run_starlette(port=4668):
                 srv.install_signal_handlers = False
             return srv
 
-        use_lifespan = False
+        # PyInstaller 环境中的 lifespan 处理策略
+        if is_frozen:
+            # 在 PyInstaller 环境中，不使用 lifespan 避免阻塞
+            logger.info("🔧 PyInstaller environment: disabling lifespan to avoid blocking...")
+            use_lifespan = False
+        else:
+            # 开发环境中启用 lifespan
+            use_lifespan = True
+
         server = _make_server(use_lifespan)
         try:
+            logger.info(f"✅ Starting Uvicorn server on 127.0.0.1:{port}")
             server.run()
         except Exception as e1:
             logger.warning(f"Uvicorn failed with lifespan={'on' if use_lifespan else 'off'}: {e1}")
     except Exception as e:
-        logger.exception(f"Failed to start local server: {e}")
+        logger.exception(f"Failed to start local server on port {port}: {e}")
         # Force-write startup exception to file for diagnosis in frozen environments
         try:
             import traceback
             logger.error(traceback.format_exc())
         except Exception:
             pass
+        raise
 
 # Start Starlette server in a separate thread
 def start_local_server_in_thread(mwin):
