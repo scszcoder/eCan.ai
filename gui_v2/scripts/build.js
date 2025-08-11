@@ -5,13 +5,10 @@ async function build() {
     // 构建项目
     console.log('Building project...');
     
-    // 解析命令行参数
+    // 解析命令行参数（默认关闭 sourcemap，显式传参才开启）
     const args = process.argv.slice(2);
-    if (args.includes('--no-source-map')) {
-      process.env.VITE_SOURCEMAP = 'false';
-    } else {
-      process.env.VITE_SOURCEMAP = 'true'; // 启用 sourcemap 以便调试
-    }
+    const enableSourceMap = args.includes('--source-map') || args.includes('--sourcemap');
+    process.env.VITE_SOURCEMAP = enableSourceMap ? 'true' : 'false';
     
     // 设置环境变量以优化构建性能
     process.env.NODE_ENV = 'production';

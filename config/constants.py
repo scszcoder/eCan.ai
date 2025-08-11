@@ -1,4 +1,4 @@
-APP_NAME = 'ecbot'
+APP_NAME = 'eCan'
 
 RESOURCE = "resource"
 FOLDER_DATA = "data"

@@ -247,14 +247,14 @@ zope.interface==6.4.post2
 zstandard==0.23.0
 pytesseract==0.3.13
 jwcrypto==1.5.6
-langgraph==0.5.4
+langgraph==0.6.4
 mcp==1.12.2
 lzstring==1.0.4
 mem0ai==0.1.109
 pytest-cov>=4.1.0
 pytest==8.2.2
 pytest-asyncio==1.0.0
-langmem==0.0.27
+langmem==0.0.29
 lightrag-hku>=1.4.6
 faiss-cpu>=1.11.0.post1
 browser-use==0.5.5

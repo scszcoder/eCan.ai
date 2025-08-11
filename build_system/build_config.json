@@ -19,12 +19,13 @@
       "common",
       "utils",
       "agent",
-      "tests",
       "knowledge",
       "settings",
       "skills",
       "telemetry",
-      "gui_v2/dist"
+      "gui_v2/dist",
+      "ota",
+      "third_party/ms-playwright"
     ],
     "files": [
       "app_context.py",
@@ -32,69 +33,51 @@
       "eCan.icns",
       "ecbot.qm",
       "ecbot_zh.qm",
-      "role.json",
-      ".env"
+      "role.json"
     ]
   },
   "pyinstaller": {
-    "parallel": true,
-    "workers": 0,
-    "cache_dir": "build/pyinstaller_cache",
-    "distpath": "dist",
-    "workpath": "build",
-    "specpath": ".",
-    "collect_data": [
-      "transformers",
-      "torch",
-      "sklearn",
-      "pandas",
-      "numpy",
-      "PIL",
-      "cv2",
-      "selenium",
-      "pydantic",
-      "fastapi",
-      "uvicorn",
-      "jinja2",
-      "certifi",
-      "charset_normalizer",
-      "urllib3",
-      "requests",
-      "openai",
-      "anthropic",
-      "langchain",
-      "langchain_core",
-      "sentence_transformers",
-      "browser_use",
-      "fake_useragent",
-      "lightrag"
-    ],
-    "collect_binaries": [
-      "torch",
-      "cv2",
-      "sklearn",
-      "scipy",
-      "numpy"
-    ],
-    "collect_submodules": [
-      "transformers",
-      "langchain",
-      "langchain_community",
-      "langchain_core",
-      "pydantic"
-    ],
-    "qt_plugins": [
-      "platforms",
-      "imageformats",
-      "iconengines",
-      "styles",
-      "webengine",
-      "webenginewidgets"
-    ],
     "collect_all": [
-      "PySide6"
+      "PySide6",
+      "browser_use",
+      "agent",
+      "crawl4ai",
+      "playwright",
+      "langchain",
+      "langgraph",
+      "langchain_openai",
+      "langchain_mcp_adapters",
+      "mcp"
+    ],
+    "collect_data_only": [
+      "browser_use",
+      "browser_use.browser",
+      "browser_use.agent",
+      "browser_use.agent.prompts",
+      "lightrag",
+      "lightrag.api",
+      "tiktoken",
+      "tiktoken_ext",
+      "tiktoken_ext.openai_public"
     ],
     "force_includes": [
+      "pkg_resources",
+      "setuptools.dist",
+      "importlib.metadata",
+      "importlib_metadata"
+    ],
+    "force_hiddenimports": [
+      "PySide6.QtWebEngineCore",
+      "PySide6.QtWebEngineWidgets",
+      "PySide6.QtWebEngine",
+      "PySide6.QtWebChannel",
+      "PySide6.QtWebSockets",
+      "PySide6.QtWebView",
+
+      "lightrag.api",
+      "lightrag.api.config",
+      "lightrag.api.lightrag_server",
+
       "jaraco.text",
       "jaraco.functools",
       "jaraco.context",
@@ -104,15 +87,36 @@
       "jaraco.logging",
       "jaraco.path",
       "jaraco.stream",
-      "pkg_resources",
-      "setuptools.dist",
-      "importlib.metadata",
-      "importlib_metadata"
+      "browser_use",
+      "browser_use.agent",
+      "browser_use.agent.prompts",
+      "browser_use.browser",
+      "browser_use.llm",
+      "playwright",
+      "playwright.async_api",
+      "playwright.sync_api",
+      "langchain",
+      "langchain_core",
+      "langgraph",
+      "langchain_openai",
+      "langchain_mcp_adapters",
+      "mcp",
+      "tiktoken_ext.openai_public"
+    ],
+    "force_pre_safe": [
+      "lightrag",
+      "lightrag.api",
+      "lightrag.api.config",
+      "jaraco",
+      "jaraco.text",
+      "jaraco.functools",
+      "more_itertools"
     ],
     "excludes": [
       "jupyter",
       "pytest",
       "test",
+      "tests",
       "testing",
       "pip",
       "wheel",
@@ -131,85 +135,71 @@
       "IPython",
       "notebook",
       "ensurepip",
-      "venv"
+      "venv",
+      "tensorflow",
+      "torch.utils.tensorboard",
+      "PySide6.Qt3DCore",
+      "PySide6.Qt3DLogic",
+      "PySide6.Qt3DRender",
+      "PySide6.Qt3DAnimation",
+      "PySide6.QtCharts",
+      "PySide6.QtSensors",
+      "PySide6.QtStateMachine",
+      "PySide6.QtScxml",
+      "PySide6.QtDataVisualization",
+      "PySide6.QtSpatialAudio",
+      "PySide6.QtRemoteObjects",
+      "PySide6.QtQuick3DAssetImport",
+      "PySide6.QtQuick3DRuntimeRender",
+      "PySide6.Qt3DInput",
+      "PySide6.Qt3DExtras",
+      "PySide6.QtQuick",
+      "PySide6.QtQuickControls2",
+      "PySide6.QtQuickWidgets",
+      "PySide6.QtQml",
+      "PySide6.QtQmlModels",
+      "PySide6.QtQmlCore",
+      "PySide6.QtQmlWorkScript",
+      "PySide6.QtQuickTest",
+      "PySide6.QtQuickShapes",
+      "PySide6.QtQuickParticles",
+      "PySide6.QtQuickTimeline",
+      "PySide6.QtQuick3D",
+      "PySide6.QtQuick3DAssetUtils",
+      "PySide6.QtQuick3DEffects",
+      "PySide6.QtQuick3DHelpers",
+      "PySide6.QtQuick3DIblBaker",
+      "PySide6.QtQuick3DParticles",
+      "PySide6.QtQuick3DPhysics",
+      "PySide6.QtQuick3DUtils",
+      "PySide6.QtBluetooth",
+      "PySide6.QtNfc",
+      "PySide6.QtPositioning",
+      "PySide6.QtLocation",
+      "PySide6.QtHelp",
+      "PySide6.QtDesigner",
+      "PySide6.QtTest"
     ],
     "optimization": {
-      "onedir_mode": true,
-      "lazy_imports": true,
-      "exclude_unused_modules": true,
-      "compress_binaries": true,
-      "strip_debug_info": true,
-      "optimize_imports": true,
-      "bundle_identifier": "com.ecan.app"
+      "copy_metadata": true
     }
   },
   "build_modes": {
     "dev": {
       "debug": true,
       "console": true,
-      "clean": false,
-      "optimize": false,
-      "onefile": false,
-      "use_cache": false,
-      "parallel": true,
-      "strip_debug": false,
-      "collect_data": "all",
-      "collect_binaries": "all",
-      "collect_submodules": "all"
+      "onefile": false
     },
     "fast": {
-      "debug": false,
-      "console": false,
-      "clean": false,
-      "optimize": true,
-      "onefile": false,
-      "use_cache": true,
-      "parallel": true,
-      "strip_debug": true,
-      "collect_data": "all",
-      "collect_binaries": "all",
-      "collect_submodules": "all"
+      "debug": true,
+      "console": true,
+      "onefile": false
     },
     "prod": {
       "debug": false,
       "console": false,
-      "clean": true,
-      "optimize": true,
-      "onefile": true,
-      "use_cache": false,
-      "parallel": true,
-      "strip_debug": true,
-      "collect_data": "all",
-      "collect_binaries": "all",
-      "collect_submodules": "all",
-      "compression": "lzma",
-      "upx_compress": true,
-      "exclude_tk": false,
-      "exclude_matplotlib": false,
-      "lazy_imports": true,
-      "runtime_tmpdir": null,
-      "bootloader_ignore_signals": false,
-      "disable_windowed_traceback": false
-    },
-    "onefile": {
-      "debug": false,
-      "console": false,
-      "clean": true,
-      "optimize": true,
-      "onefile": true,
-      "use_cache": false,
-      "parallel": true,
-      "strip_debug": true,
-      "collect_data": "minimal",
-      "collect_binaries": "minimal",
-      "compression": "lzma",
-      "upx_compress": true,
-      "exclude_tk": true,
-      "exclude_matplotlib": true,
-      "lazy_imports": true,
-      "runtime_tmpdir": null,
-      "bootloader_ignore_signals": false,
-      "disable_windowed_traceback": false
+      "onefile": false,
+      "runtime_tmpdir": {"windows": "C:/ecan_cache", "macos": "~/Library/Caches/ecan_cache", "linux": "/tmp/ecan_cache"}
     }
   },
   "installer": {
@@ -241,7 +231,7 @@
       }
     },
     "windows": {
-      "app_id": "{{B8E6D1A2-F4C3-4D5E-8F9A-1B2C3D4E5F6A}",
+      "app_id": "{6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1}",
       "publisher": "eCan Team",
       "publisher_url": "https://github.com/ecan-team",
       "support_url": "https://github.com/ecan-team/ecbot/issues",
@@ -268,10 +258,10 @@
       "install_location": "/Applications",
       "create_desktop_shortcut": true,
       "create_launchpad_shortcut": true,
-      "min_os_version": "10.14",
+      "min_os_version": "11.0",
       "codesign": {
         "enabled": false,
-        "identity": "Developer ID Application: Chunk Liu",
+        "identity": "Developer ID Application: eCan AI Developer",
         "entitlements": ""
       },
       "notarization": {
@@ -293,5 +283,12 @@
         "microphone"
       ]
     }
+  },
+  "ota": {
+    "enabled": true,
+    "dependencies_managed_by_ci": true,
+    "dependencies_path": "ota/dependencies",
+    "fallback_to_http": true,
+    "note": "OTA dependencies are installed by CI/CD pipeline, not by build script"
   }
 }

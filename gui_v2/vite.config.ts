@@ -56,7 +56,12 @@ export default defineConfig({
         }
       }
     },
-    chunkSizeWarningLimit: 5000 // 提高警告阈值到 5MB
+    chunkSizeWarningLimit: 5000, // 提高警告阈值到 5MB
+    // 优化动态导入
+    commonjsOptions: {
+      include: [/node_modules/],
+      transformMixedEsModules: true
+    }
   },
   resolve: {
     alias: {
@@ -69,8 +74,17 @@ export default defineConfig({
       'monaco-editor/esm/vs/language/json/json.worker',
       'monaco-editor/esm/vs/language/css/css.worker',
       'monaco-editor/esm/vs/language/html/html.worker',
-      'monaco-editor/esm/vs/language/typescript/ts.worker'
-    ]
+      'monaco-editor/esm/vs/language/typescript/ts.worker',
+      'react-split-pane',
+      'react',
+      'react-dom',
+      'antd',
+      '@ant-design/icons',
+      '@douyinfe/semi-ui',
+      'monaco-editor'
+    ],
+    exclude: [],
+    force: false
   },
   worker: {
     format: 'es',

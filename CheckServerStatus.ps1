@@ -1,3 +1,5 @@
+# Example helper script to check a server endpoint availability.
+# Not part of the production build; treat as a sample.
 param (
     [string]$url
 )

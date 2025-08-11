@@ -1,4 +1,4 @@
-name: Release Build
+name: Release Build eCan
 #
 # 通过 workflow_dispatch 参数 platform/arch 可选择打包平台和 CPU 架构：
 #   - platform: windows, macos, all
@@ -102,7 +102,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
     
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -112,25 +111,40 @@ jobs:
         restore-keys: |
           windows-pip-3.11-
     
+    - name: Create and activate venv (Windows)
+      run: |
+        echo "=== Creating Virtual Environment ==="
+        python -m venv .venv
+        # Make venv's Python first in PATH for subsequent steps
+        echo "$PWD\.venv\Scripts" >> $env:GITHUB_PATH
+    
     - name: Install Python dependencies
       run: |
+        echo "=== Python/Pip Info (Windows venv) ==="
+        python -c "import sys; print(sys.version); print(sys.executable)"
+        python -m pip -V
+
         echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
-        pip install -r requirements-windows.txt
-        pip install pyinstaller pywin32-ctypes
-        
+        python -m pip install -r requirements-windows.txt
+        python -m pip install pyinstaller pywin32-ctypes
+        # Ensure pywin32 is present in the same interpreter
+        python -m pip install -U pywin32
+        # Rarely needed but safe; registers COM bits
+        python -m pywin32_postinstall -install
+
         echo "=== Verifying pywin32 installation ==="
         python -c "import win32api; print('pywin32 installed successfully')"
     
     - name: Uninstall pathlib if present (Windows)
       run: |
-        pip uninstall -y pathlib || true
+        python -m pip uninstall -y pathlib; if ($LASTEXITCODE -ne 0) { Write-Host "pathlib not found or already uninstalled" }
     
     - name: Install frontend dependencies
       run: |
         echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
-        npm ci --legacy-peer-deps
+        npm install --legacy-peer-deps
     
     - name: Install Inno Setup
       run: |
@@ -155,6 +169,37 @@ jobs:
             exit 1
         }
     
+    - name: Install OTA dependencies (including winSparkle)
+      run: |
+        echo "=== Installing OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py install --platform windows
+        
+        echo "=== Verifying OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py verify
+        
+        echo "=== Checking winSparkle Installation ==="
+        $dllPaths = @(
+          "ota/dependencies/lib/winsparkle.dll",
+          "ota/dependencies/winsparkle/winsparkle.dll"
+        )
+        $found = $false
+        foreach ($p in $dllPaths) {
+          if (Test-Path $p) {
+            Write-Host "✅ winSparkle DLL found at: $p"
+            $dll = Get-Item $p
+            Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
+            $found = $true
+            break
+          }
+        }
+        if (-not $found) {
+          Write-Host "[WARN] winSparkle DLL not found in expected locations"
+          Write-Host "Searching for winSparkle files..."
+          Get-ChildItem -Path "ota" -Recurse -Filter "*sparkle*" | ForEach-Object {
+            Write-Host "   Found: $($_.FullName)"
+          }
+        }
+
     - name: Create build directories
       run: |
         echo "=== Creating Build Directories ==="
@@ -163,7 +208,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python build.py --check-env
+        python scripts/check_build_env.py
     
     - name: Build Windows EXE
       run: |
@@ -174,27 +219,57 @@ jobs:
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
         
-        # Run build with detailed output
-        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
+        # Run build with detailed output (including Sparkle support)
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
         
-        # 重命名产物，规范为 eCan-windows-x86_64-v{version}.exe
-        if (Test-Path "dist/eCan/eCan.exe") {
-          Rename-Item "dist/eCan/eCan.exe" "dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        # 导出/规范命名产物到 dist 根目录（避免跨目录 Rename-Item 报错）
+        $srcExe = "dist/eCan/eCan.exe"
+        $dstExe = "dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        if (Test-Path $srcExe) {
+          Copy-Item -LiteralPath $srcExe -Destination $dstExe -Force
+          Write-Host "Exported: $dstExe"
+        } else {
+          Write-Host "[WARN] $srcExe not found; skip exporting"
         }
-        if (Test-Path "dist/eCan-Setup.exe") {
-          Rename-Item "dist/eCan-Setup.exe" "dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+
+        $srcSetup = "dist/eCan-Setup.exe"
+        $dstSetup = "dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        if (Test-Path $srcSetup) {
+          Rename-Item -LiteralPath $srcSetup -NewName (Split-Path -Leaf $dstSetup)
+          Write-Host "Renamed: $dstSetup"
+        } else {
+          Write-Host "[WARN] $srcSetup not found; skip renaming"
         }
-        
+
         # Check exit code
         if ($LASTEXITCODE -ne 0) {
-            echo "❌ Build failed with exit code: $LASTEXITCODE"
+            echo "[ERROR] Build failed with exit code: $LASTEXITCODE"
             echo "=== Build Log ==="
             Get-Content "build.log"
             exit 1
         }
         
-        echo "✅ Build completed successfully"
-    
+        echo "[OK] Build completed successfully"
+
+        echo "=== Verifying OTA artifacts in dist ==="
+        $distWinSparkle = @(
+          "dist/eCan/ota/dependencies/lib/winsparkle.dll",
+          "dist/ota/dependencies/lib/winsparkle.dll"
+        )
+        $distFound = $false
+        foreach ($p in $distWinSparkle) {
+          if (Test-Path $p) {
+            Write-Host "[OK] winSparkle DLL packaged at: $p"
+            $dll = Get-Item $p
+            Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
+            $distFound = $true
+            break
+          }
+        }
+        if (-not $distFound) {
+          Write-Host "[WARN] winSparkle DLL not found in dist; OTA (Windows) may be disabled"
+        }
+
     - name: Check build result
       run: |
         echo "=== Build Result Check ==="
@@ -269,7 +344,6 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
     
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -279,25 +353,68 @@ jobs:
         restore-keys: |
           macos-pip-3.11-
     
+    - name: Create and activate venv (macOS)
+      run: |
+        echo "=== Creating Virtual Environment ==="
+        python -m venv .venv
+        # Make venv's Python first in PATH for subsequent steps
+        echo "$PWD/.venv/bin" >> $GITHUB_PATH
+    
     - name: Install Python dependencies
       run: |
+        echo "=== Python/Pip Info (macOS venv) ==="
+        python -c "import sys; print(sys.version); print(sys.executable)"
+        python -m pip -V
+
         echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
-        pip install -r requirements-macos.txt
-        pip install pyinstaller
+        python -m pip install -r requirements-macos.txt
+        python -m pip install pyinstaller
         
         echo "=== Verifying PyInstaller installation ==="
         python -c "import PyInstaller; print('PyInstaller installed successfully')"
     
     - name: Uninstall pathlib if present (macOS)
       run: |
-        pip uninstall -y pathlib || true
+        python -m pip uninstall -y pathlib || true
     
     - name: Install frontend dependencies
       run: |
         echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
-        npm ci --legacy-peer-deps
+        npm install --legacy-peer-deps
+    
+    - name: Install OTA dependencies (including Sparkle)
+      run: |
+        echo "=== Installing OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py install --platform darwin
+        
+        echo "=== Verifying OTA Dependencies ==="
+        python scripts/install_ota_dependencies.py verify
+        
+        echo "=== Checking Sparkle Framework Installation ==="
+        if [ -d "ota/dependencies/Sparkle.framework" ]; then
+          echo "✅ Sparkle.framework found"
+          framework_size=$(du -sh ota/dependencies/Sparkle.framework | cut -f1)
+          echo "   Size: $framework_size"
+          
+          # Check framework structure
+          if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Sparkle" ]; then
+            echo "✅ Sparkle binary found in framework"
+          else
+            echo "⚠️  Sparkle binary not found in expected location"
+          fi
+          
+          if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Resources/sparkle-cli" ]; then
+            echo "[OK] Sparkle CLI found"
+          else
+            echo "[WARN] Sparkle CLI not found"
+          fi
+        else
+          echo "[ERROR] Sparkle.framework not found"
+          echo "Searching for Sparkle files..."
+          find ota -name "*parkle*" -type f 2>/dev/null || echo "No Sparkle files found"
+        fi
     
     - name: Create build directories
       run: |
@@ -307,7 +424,7 @@ jobs:
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
-        python build.py --check-env
+        python scripts/check_build_env.py
     
     - name: Build macOS App
       run: |
@@ -318,17 +435,17 @@ jobs:
         export PYTHONPATH="$PWD"
         export PYTHONUNBUFFERED=1
         
-        # Run build with detailed output
-        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
+        # Run build with detailed output (including Sparkle support)
+        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
         
-        # 规范产物命名
-        if [ -f "dist/eCan.pkg" ]; then
-          mv "dist/eCan.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
+        # 规范产物命名（适配新版 InstallerBuilder 输出 eCan-${{ needs.validate-tag.outputs.version }}.pkg）
+        if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
+          mv "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
         fi
         if [ -d "dist/eCan.app" ]; then
           ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
         fi
-        
+
         # Check exit code
         if [ $? -ne 0 ]; then
             echo "❌ Build failed"
@@ -346,15 +463,15 @@ jobs:
         ls -la dist/
         
         # Check for .pkg installer
-        if [ -f "dist/eCan.pkg" ]; then
-            echo "✅ macOS PKG installer found: dist/eCan.pkg"
-            pkg_size=$(du -sh dist/eCan.pkg | cut -f1)
+        if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
+            echo "✅ macOS PKG installer found: dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg"
+            pkg_size=$(du -sh dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg | cut -f1)
             echo "   Size: $pkg_size"
         elif [ -d "dist/eCan.app" ]; then
             echo "✅ macOS App found: dist/eCan.app"
             app_size=$(du -sh dist/eCan.app | cut -f1)
             echo "   Size: $app_size"
-            
+
             # Check app structure
             echo "   App structure:"
             find dist/eCan.app -type f -name "eCan" | head -5
@@ -413,13 +530,27 @@ jobs:
         name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
         path: macos-artifacts
     
+    - name: Prepare release files list
+      id: prep_files
+      run: |
+        echo "Listing downloaded artifacts..."
+        ls -la windows-artifacts || true
+        ls -la macos-artifacts || true
+        echo "files<<EOF" >> $GITHUB_OUTPUT
+        if ls windows-artifacts/*.exe 1> /dev/null 2>&1; then
+          for f in windows-artifacts/*.exe; do echo "$f" >> $GITHUB_OUTPUT; done
+        fi
+        if ls macos-artifacts/*.pkg 1> /dev/null 2>&1; then
+          for f in macos-artifacts/*.pkg; do echo "$f" >> $GITHUB_OUTPUT; done
+        fi
+        if ls macos-artifacts/*.zip 1> /dev/null 2>&1; then
+          for f in macos-artifacts/*.zip; do echo "$f" >> $GITHUB_OUTPUT; done
+        fi
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
-          dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
-          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.pkg
-          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip
+        files: ${{ steps.prep_files.outputs.files }}
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
