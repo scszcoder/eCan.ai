@@ -1461,12 +1461,28 @@ async def handle_streamable_http(
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette) -> AsyncIterator[None]:
     """Context manager for managing session manager lifecycle."""
-    async with session_manager.run():
-        logger.info("Application started with StreamableHTTP session manager!")
-        try:
+    import sys
+    is_frozen = getattr(sys, 'frozen', False)  # 正常检测
+
+    # 统一的错误处理策略：总是尝试完整的 session_manager.run()，如果失败则继续运行
+    try:
+        async with session_manager.run():
+            if is_frozen:
+                logger.info("✅ Application started with StreamableHTTP session manager (PyInstaller mode)!")
+            else:
+                logger.info("✅ Application started with StreamableHTTP session manager!")
             yield
-        finally:
-            logger.info("Application shutting down...")
+    except Exception as e:
+        logger.error(f"MCP session manager error: {e}")
+        import traceback
+        logger.debug(f"Session manager error traceback: {traceback.format_exc()}")
+
+        if is_frozen:
+            logger.warning("⚠️ PyInstaller environment: MCP session manager failed, continuing without it")
+        else:
+            logger.warning("⚠️ Development environment: MCP session manager failed, continuing without it")
+    finally:
+        logger.info("Application shutting down...")
 
 # async def handle_sse(scope, receive, send):
 #     print(">>> sse connected")
