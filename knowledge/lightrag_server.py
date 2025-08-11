@@ -108,6 +108,9 @@ class LightragServer:
         env.setdefault('PORT', '9621')
         env.setdefault('MAX_RESTARTS', '3')
         env.setdefault('RESTART_COOLDOWN', '5')
+        # 禁用 LightRAG 彩色输出/启动横幅（可通过环境变量覆盖）
+        env.setdefault('ECBOT_LIGHTRAG_DISABLE_SPLASH', '1')
+        env.setdefault('NO_COLOR', '1')
 
         if self.extra_env:
             env.update({str(k): str(v) for k, v in self.extra_env.items()})
@@ -399,6 +402,23 @@ LightRAG简单启动脚本
 
 import sys
 import os
+import io
+
+# 强制设置 UTF-8 编码，避免 Windows GBK 控制台编码导致的 UnicodeEncodeError
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+os.environ.setdefault('PYTHONUTF8', '1')
+# 多数着色库支持 NO_COLOR 关闭彩色输出，尽量减少非 ASCII 字符
+os.environ.setdefault('NO_COLOR', '1')
+
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    else:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 def setup_lightrag_environment():
     """设置LightRAG环境"""

@@ -288,12 +288,25 @@ class MiniSpecBuilder:
 
     # ---- Helpers ----
     def _datas_from_config(self) -> List[str]:
+        """Generate spec lines for data files/dirs, skipping entries that don't exist.
+        This prevents PyInstaller from failing when optional files like .env are absent.
+        """
         lines: List[str] = []
         data_cfg = self.cfg.get("data_files", {})
+        # Directories
         for d in data_cfg.get("directories", []) or []:
-            lines.append(f"data_files.append((r'{d}', r'{d}'))")
+            d_path = (self.project_root / d)
+            if d_path.exists():
+                lines.append(f"data_files.append((r'{d}', r'{d}'))")
+            else:
+                print(f"[MINIBUILD] Warning: data directory not found, skipping: {d_path}")
+        # Files
         for f in data_cfg.get("files", []) or []:
-            lines.append(f"data_files.append((r'{f}', r'.'))")
+            f_path = (self.project_root / f)
+            if f_path.exists():
+                lines.append(f"data_files.append((r'{f}', r'.'))")
+            else:
+                print(f"[MINIBUILD] Warning: data file not found, skipping: {f_path}")
         return lines
 
     def _hiddenimports_minimal(self) -> List[str]:
