@@ -131,13 +131,13 @@ class AppInfo:
     def _appdata_temp_path(self):
         """获取应用临时目录"""
         if platform.system() == 'Windows':
-            # 使用 LOCALAPPDATA 下的 ECBot 临时目录
+            # 使用 LOCALAPPDATA 下的 APP_NAME 临时目录
             appdata_local = os.environ.get('LOCALAPPDATA', tempfile.gettempdir())
-            temp_path = os.path.join(appdata_local, "ECBot", "Temp")
+            temp_path = os.path.join(appdata_local, APP_NAME, "Temp")
         else:  # macOS/Linux
-            # 使用用户主目录下的隐藏临时目录
+            # 使用用户主目录下的隐藏临时目录，跟随 APP_NAME
             home_dir = str(Path.home())
-            temp_path = os.path.join(home_dir, ".ecbot", "temp")
+            temp_path = os.path.join(home_dir, f".{APP_NAME}", "temp")
 
         # 确保目录存在
         if not os.path.exists(temp_path):
