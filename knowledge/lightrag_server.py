@@ -3,6 +3,7 @@ import os
 import sys
 import signal
 from pathlib import Path
+from dataclasses import dataclass
 import threading
 import time
 from utils.logger_helper import logger_helper as logger
@@ -99,6 +100,7 @@ class LightragServer:
         # 强力修复 Windows 编码问题
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
+        env['PYTHONUNBUFFERED'] = '1'  # 强制子进程无缓冲输出，避免日志缺失
         env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
         env['LANG'] = 'en_US.UTF-8'
         env['LC_ALL'] = 'en_US.UTF-8'
@@ -111,6 +113,12 @@ class LightragServer:
         # 禁用 LightRAG 彩色输出/启动横幅（可通过环境变量覆盖）
         env.setdefault('ECBOT_LIGHTRAG_DISABLE_SPLASH', '1')
         env.setdefault('NO_COLOR', '1')
+        env.setdefault('ASCII_COLORS_DISABLE', '1')
+
+        # 健康检查参数（可通过环境变量配置）
+        env.setdefault('LIGHTRAG_HEALTH_TIMEOUT', '45')  # seconds
+        env.setdefault('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5')  # seconds
+        env.setdefault('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5')  # seconds
 
         if self.extra_env:
             env.update({str(k): str(v) for k, v in self.extra_env.items()})
@@ -809,10 +817,11 @@ if __name__ == '__main__':
                 # Use environment variable to deliver script path to main.exe (worker mode)
                 env['ECBOT_RUN_SCRIPT'] = script_path
                 env['ECBOT_BYPASS_SINGLE_INSTANCE'] = '1'
-                cmd = [python_executable]
+                cmd = [python_executable]  # 无需 -u，这里已通过 PYTHONUNBUFFERED=1 强制无缓冲
                 logger.info(f"[LightragServer] PyInstaller mode command: {cmd} with ECBOT_RUN_SCRIPT={script_path}")
             else:
-                cmd = [python_executable, "-m", "lightrag.api.lightrag_server"]
+                # 开发环境：使用 -u 打印无缓冲输出，便于快速定位错误
+                cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
                 logger.info(f"[LightragServer] Development mode command: {' '.join(cmd)}")
 
             if platform.system().lower().startswith('win'):
@@ -867,14 +876,28 @@ if __name__ == '__main__':
 
             logger.info(f"[LightragServer] Logs: {stdout_log_path}, {stderr_log_path}")
 
-            # Health-check gating to confirm server is actually listening
+            # Health-check gating to confirm server is actually listening（参数化 + 指数退避）
             try:
                 import httpx
-                # Map wildcard/bind-all addresses to loopback for client health check
                 health_host = '127.0.0.1' if str(final_host) in ('0.0.0.0', '::', '') else str(final_host)
                 hc_url = f"http://{health_host}:{final_port}/healthz"
-                deadline = time.time() + 20
+                total_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', '45'))
+                interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5'))
+                max_interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5'))
+                deadline = time.time() + total_timeout
                 last_err = None
+                # 快速检测是否瞬时退出，便于尽早给出日志
+                time.sleep(0.2)
+                if self.proc and self.proc.poll() is not None:
+                    logger.error(f"[LightragServer] Server process exited immediately with code {self.proc.returncode}")
+                    _stderr_tail = _safe_tail(stderr_log_path)
+                    _stdout_tail = _safe_tail(stdout_log_path)
+                    if _stderr_tail:
+                        logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
+                    if _stdout_tail:
+                        logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
+                    return False
+
                 while time.time() < deadline:
                     try:
                         r = httpx.get(hc_url, timeout=2.0)
@@ -884,15 +907,16 @@ if __name__ == '__main__':
                             return True
                     except Exception as e:
                         last_err = e
-                    time.sleep(0.5)
+                    time.sleep(interval)
+                    interval = min(max_interval, interval * 1.2)
                 logger.error(f"[LightragServer] Health check failed for {hc_url}: {last_err}")
-                # Try to surface last few stderr lines to parent log for quick diagnosis
-                try:
-                    with open(stderr_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        tail = ''.join(f.readlines()[-50:])
-                        logger.error(f"[LightragServer] stderr tail:\n{tail}")
-                except Exception:
-                    pass
+                # Try to surface last few stderr/stdout lines to parent log for quick diagnosis
+                _stderr_tail = _safe_tail(stderr_log_path)
+                _stdout_tail = _safe_tail(stdout_log_path)
+                if _stderr_tail:
+                    logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
+                if _stdout_tail:
+                    logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
             except Exception as e:
                 logger.error(f"[LightragServer] Health check gating error: {e}")
 
@@ -1006,6 +1030,18 @@ if __name__ == '__main__':
         port = self.get_current_port()
         host = self.extra_env.get("HOST", "127.0.0.1")
         return f"http://{host}:{port}/webui"
+
+
+# -------- helpers --------
+def _safe_tail(file_path: str, num_lines: int = 80) -> str:
+    try:
+        if not file_path or not os.path.exists(file_path):
+            return ""
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+            return ''.join(lines[-num_lines:])
+    except Exception:
+        return ""
 
 if __name__ == "__main__":
     server = LightragServer()

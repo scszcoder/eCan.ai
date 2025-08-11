@@ -382,7 +382,7 @@ jobs:
       run: |
         echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
-        npm ci --legacy-peer-deps
+        npm install --legacy-peer-deps
     
     - name: Install OTA dependencies (including Sparkle)
       run: |
