@@ -43,7 +43,6 @@
       "agent",
       "crawl4ai",
       "playwright",
-      "lightrag",
       "langchain",
       "langgraph",
       "langchain_openai",
@@ -54,7 +53,9 @@
       "browser_use",
       "browser_use.browser",
       "browser_use.agent",
-      "browser_use.agent.prompts"
+      "browser_use.agent.prompts",
+      "lightrag",
+      "lightrag.api"
     ],
     "force_includes": [
       "pkg_resources",
