@@ -181,6 +181,10 @@ class MiniSpecBuilder:
         spec_lines.append("from pathlib import Path")
         spec_lines.append("project_root = Path(r'" + str(self.project_root) + "')")
         spec_lines.append("")
+        # Ensure macOS avoids framework symlink collisions during COLLECT
+        spec_lines.append("import os as _os, sys as _sys")
+        spec_lines.append("if _sys.platform == 'darwin': _os.environ['PYINSTALLER_AVOID_SYMLINKS'] = '1'")
+        spec_lines.append("")
         spec_lines.append("data_files = []")
         spec_lines.append("binaries = []")
         spec_lines.append("hiddenimports = " + repr(hiddenimports))

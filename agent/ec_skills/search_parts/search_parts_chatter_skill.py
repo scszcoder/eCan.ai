@@ -396,7 +396,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            tool_result = loop.run_until_complete(mcp_call_tool(mainwin.mcp_client,"api_ecan_ai_query_components", args={"input": state["tool_input"]} ))
+            tool_result = loop.run_until_complete(mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]} ))
             # tool_result = await mainwin.mcp_client.call_tool(
             #     "os_connect_to_adspower", arguments={"input": state.tool_input}
             # )
@@ -417,7 +417,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
     else:
         try:
             tool_result = loop.run_until_complete(
-                mcp_call_tool(mainwin.mcp_client, "api_ecan_ai_query_components", args={"input": state["tool_input"]}))
+                mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]}))
             # tool_result = await mainwin.mcp_client.call_tool(
             #     "os_connect_to_adspower", arguments={"input": state.tool_input}
             # )

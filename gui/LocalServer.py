@@ -216,17 +216,24 @@ def run_starlette(port=4668):
         except Exception as _e:
             logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {_e}")
 
-        use_lifespan = False
+        # 异步后台初始化 MCP(长期存活的上下文)，避免阻塞本地 HTTP 服务器启动与 /healthz 检测
+        async def mcp_runner_forever():
+            try:
+                # 保持上下文在后台长期存活
+                async with session_manager.run():
+                    logger.info("StreamableHTTPSessionManager started")
+                    stop = asyncio.Event()
+                    await stop.wait()
+            except Exception as mcp_e:
+                logger.error(f"MCP manager error: {mcp_e}")
 
-        # 直接初始化 session_manager（在 uvicorn 启动前）
-        async def init_mcp():
-            await session_manager.run().__aenter__()
-            logger.info("StreamableHTTPSessionManager started")
+        def start_mcp_in_background():
+            try:
+                asyncio.run(mcp_runner_forever())
+            except Exception as be:
+                logger.error(f"MCP background loop crashed: {be}")
 
-        # 在事件循环中初始化
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(init_mcp())
+        threading.Thread(target=start_mcp_in_background, daemon=True).start()
 
         def _make_server(_lifespan_on: bool):
             cfg = uvicorn.Config(
@@ -243,6 +250,7 @@ def run_starlette(port=4668):
                 srv.install_signal_handlers = False
             return srv
 
+        use_lifespan = False
         server = _make_server(use_lifespan)
         try:
             server.run()

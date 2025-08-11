@@ -34,7 +34,7 @@ def go_to_next_site_node(state: NodeState) -> NodeState:
 
         # 调用工具
         tool_result = loop.run_until_complete(
-            mcp_call_tool(mainwin.mcp_client, "in_browser_open_tab", args={"input": state["tool_input"]})
+            mcp_call_tool("in_browser_open_tab", {"input": state["tool_input"]})
         )
 
         print("go_to_site_node tool completed:", type(tool_result), tool_result)
