@@ -38,7 +38,6 @@
   },
       "pyinstaller": {
       "collect_all": [
-        "PySide6",
         "browser_use",
         "agent",
         "crawl4ai",
