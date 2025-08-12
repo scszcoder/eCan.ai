@@ -534,17 +534,74 @@ class Login(QDialog):
         return self.signed_in
 
     def authenticate_with_backoff(self, inAwsSRP, max_retries=MAX_RETRIES):
+        """改进的 AWS 认证重试机制，包含超时处理"""
         for attempt in range(max_retries):
             try:
+                logger.info(f"AWS authentication attempt {attempt + 1}/{max_retries}")
+                
+                # 设置更长的超时时间
+                import boto3
+                from botocore.config import Config
+                
+                # 创建带有超时配置的客户端
+                config = Config(
+                    connect_timeout=60,  # 连接超时60秒
+                    read_timeout=60,    # 读取超时60秒
+                    retries={'max_attempts': 3}
+                )
+                
+                # 如果 inAwsSRP 有 client 属性，更新其配置
+                if hasattr(inAwsSRP, 'client') and inAwsSRP.client:
+                    inAwsSRP.client.config = config
+                
                 return inAwsSRP.authenticate_user()
+                
             except botocore.exceptions.ClientError as e:
-                if e.response['Error']['Code'] == 'TooManyRequestsException':
-                    wait_time = 2 ** attempt
-                    print("Too many requests, retrying in %d seconds...", wait_time)
+                error_code = e.response['Error']['Code']
+                logger.warning(f"AWS authentication error (attempt {attempt + 1}): {error_code}")
+                
+                if error_code == 'TooManyRequestsException':
+                    wait_time = min(2 ** attempt, 30)  # 最大等待30秒
+                    logger.info(f"Too many requests, retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                elif error_code == 'NetworkError':
+                    wait_time = min(2 ** attempt, 15)  # 网络错误等待时间
+                    logger.info(f"Network error, retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
                 else:
+                    logger.error(f"Unrecoverable AWS error: {error_code}")
                     raise e
-        raise Exception("Max retries exceeded")
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error during authentication (attempt {attempt + 1}): {e}")
+                if attempt == max_retries - 1:
+                    raise e
+                wait_time = min(2 ** attempt, 10)
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+        
+        raise Exception(f"Max retries ({max_retries}) exceeded for AWS authentication")
+
+    def _check_network_connection(self):
+        """检查网络连接状态"""
+        try:
+            import socket
+            import requests
+            
+            # 检查基本网络连接
+            socket.create_connection(("8.8.8.8", 53), timeout=10)
+            
+            # 检查 AWS 服务可用性
+            try:
+                response = requests.get("https://cognito-idp.us-east-1.amazonaws.com", timeout=10)
+                return response.status_code < 500  # 只要不是服务器错误就认为可用
+            except:
+                # 如果 AWS 检查失败，至少基本网络是通的
+                return True
+                
+        except Exception as e:
+            logger.warning(f"Network connection check failed: {e}")
+            return False
 
     def handleGetLastLogin(self):
         return {"machine_role": self.machine_role, "username": self.textName.text(), "password": self.textPass.text()}
@@ -552,6 +609,12 @@ class Login(QDialog):
 
     def handleLogin(self, uname="", pw="", mrole = ""):
         logger.info("logging in....", self.textPass.text())
+        
+        # 首先检查网络连接
+        if not self._check_network_connection():
+            logger.error("Network connection check failed")
+            return "NetworkError"
+        
         # global commanderServer
         # global commanderXport
 

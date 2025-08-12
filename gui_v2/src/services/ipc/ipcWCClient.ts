@@ -16,7 +16,7 @@ import { IPCWebChannel } from './types';
 import { getHandlers } from './handlers';
 import { logger } from '../../utils/logger';
 
-const DEFAULT_REQUEST_TIMEOUT = 30000; // 默认30秒超时
+const DEFAULT_REQUEST_TIMEOUT = 60000; // 默认60秒超时（1分钟）
 
 /**
  * IPC 客户端类
@@ -130,13 +130,22 @@ export class IPCWCClient {
         const truncatedParams = paramsStr.length > 500 ? paramsStr.substring(0, 500) + '...' : paramsStr;
         logger.debug(`[IPCWCClient] Sending request: ${method}`, params ? `with params: ${truncatedParams}` : '');
 
+        // 对于登录请求，使用更长的超时时间
+        if (method === 'login') {
+            timeout = Math.max(timeout, 180000); // 登录至少3分钟超时
+            logger.info(`[IPCWCClient] Login request detected, using extended timeout: ${timeout/1000}s`);
+        }
+
         // 1. 设置一个超时Promise
         let timeoutId: number;
         const timeoutPromise = new Promise((_, reject) => {
             timeoutId = window.setTimeout(() => {
                 // 如果超时发生，从管理器中主动删除，这是它唯一的清理点
                 this.pendingRequests.delete(request.id);
-                reject(createErrorResponse(request.id, 'TIMEOUT_ERROR', `Request timed out after ${timeout / 1000} seconds.`));
+                const errorMessage = method === 'login' 
+                    ? `Login request timed out after ${timeout / 1000} seconds. This may be due to slow network or AWS service response.`
+                    : `Request timed out after ${timeout / 1000} seconds.`;
+                reject(createErrorResponse(request.id, 'TIMEOUT_ERROR', errorMessage));
             }, timeout);
         });
 

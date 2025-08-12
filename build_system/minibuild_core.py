@@ -190,6 +190,7 @@ class MiniSpecBuilder:
         spec_lines.append("hiddenimports = " + repr(hiddenimports))
         spec_lines.extend(datas_lines)
         spec_lines.append("")
+
         # Collect all resources/hiddenimports/binaries for configured packages (e.g., 'browser_use')
         collect_pkgs = self.cfg.get("pyinstaller", {}).get("collect_all", []) or []
         if collect_pkgs:
@@ -222,6 +223,16 @@ class MiniSpecBuilder:
         spec_lines.append("    hooksconfig={},")
         spec_lines.append("    runtime_hooks=[],")
         spec_lines.append("    excludes=" + repr(self.cfg.get("pyinstaller", {}).get("excludes", [])) + ",")
+        
+        # Add codesign exclusions for macOS
+        if sys.platform == 'darwin':
+            codesign_excludes = self.cfg.get("pyinstaller", {}).get("codesign_exclude", [])
+            if codesign_excludes:
+                spec_lines.append("    # macOS codesign exclusions")
+                spec_lines.append("    # These files will be treated as data, not binaries")
+                for exclude in codesign_excludes:
+                    spec_lines.append(f"    # codesign_exclude: {exclude}")
+                spec_lines.append("")
         spec_lines.append("    win_no_prefer_redirects=False,")
         spec_lines.append("    win_private_assemblies=False,")
         # Get optimization settings
@@ -233,6 +244,48 @@ class MiniSpecBuilder:
         spec_lines.append(f"    copy_metadata={copy_metadata},")
         spec_lines.append(")")
         spec_lines.append("")
+        
+        # Add runtime hook processing for codesign exclusions
+        spec_lines.append("# Process codesign exclusions for Playwright browsers")
+        spec_lines.append("if _sys.platform == 'darwin':")
+        spec_lines.append("    # Move problematic files from binaries to datas to avoid codesign on macOS")
+        spec_lines.append("    excluded_binaries = []")
+        spec_lines.append("    for binary in a.binaries[:]:")
+        spec_lines.append("        binary_path = str(binary[0])")
+        spec_lines.append("        # Only exclude specific Playwright browser executables")
+        spec_lines.append("        if ('ms-playwright' in binary_path and")
+        spec_lines.append("            ('/Chromium.app/Contents/MacOS/Chromium' in binary_path or")
+        spec_lines.append("             '/chrome-mac/Chromium.app/Contents/MacOS/Chromium' in binary_path or")
+        spec_lines.append("             '/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium' in binary_path or")
+        spec_lines.append("             '/chrome-linux/chrome' in binary_path or")
+        spec_lines.append("             '/chrome-win/chrome.exe' in binary_path)):")
+        spec_lines.append("            excluded_binaries.append(binary)")
+        spec_lines.append("            a.binaries.remove(binary)")
+        spec_lines.append("            if binary not in a.datas:")
+        spec_lines.append("                a.datas.append(binary)")
+        spec_lines.append("    print(f'[SPEC] Moved {len(excluded_binaries)} Playwright browser executables from binaries to datas')")
+        spec_lines.append("")
+        
+        # 添加文件冲突处理
+        spec_lines.append("# Handle file conflicts in Playwright package")
+        spec_lines.append("import os")
+        spec_lines.append("os.environ['PYINSTALLER_AVOID_SYMLINKS'] = '1'")
+        spec_lines.append("os.environ['PYINSTALLER_AVOID_DUPLICATES'] = '1'")
+        spec_lines.append("")
+        spec_lines.append("# Remove duplicate data files to prevent conflicts")
+        spec_lines.append("seen_datas = set()")
+        spec_lines.append("unique_datas = []")
+        spec_lines.append("for data in a.datas:")
+        spec_lines.append("    data_key = (data[0], data[1])")
+        spec_lines.append("    if data_key not in seen_datas:")
+        spec_lines.append("        seen_datas.add(data_key)")
+        spec_lines.append("        unique_datas.append(data)")
+        spec_lines.append("    else:")
+        spec_lines.append("        print(f'[SPEC] Removed duplicate data file: {data[1]}')")
+        spec_lines.append("a.datas = unique_datas")
+        spec_lines.append("print(f'[SPEC] Cleaned up data files: {len(unique_datas)} unique files')")
+        spec_lines.append("")
+        
         spec_lines.append("pyz = PYZ(a.pure, a.zipped_data, cipher=None)")
         spec_lines.append("")
 
@@ -286,11 +339,16 @@ class MiniSpecBuilder:
             spec_lines.append(")")
             spec_lines.append("")
             # macOS app bundle wrapper
-            spec_lines.append("import sys as _sys")
             spec_lines.append("if _sys.platform == 'darwin':")
             spec_lines.append("    # macOS symlink conflict prevention")
-            spec_lines.append("    import os")
+            spec_lines.append("    import os, pathlib")
             spec_lines.append("    os.environ['PYINSTALLER_AVOID_SYMLINKS'] = '1'")
+            spec_lines.append("    # Workaround: remove pre-existing 'Versions/Current' if it exists to avoid FileExistsError")
+            spec_lines.append("    curr = pathlib.Path(distpath) / '{app_name}' / '_internal' / 'Chromium Framework.framework' / 'Versions' / 'Current'".format(app_name=app_name))
+            spec_lines.append("    try:")
+            spec_lines.append("        if curr.exists() or curr.is_symlink(): curr.unlink()")
+            spec_lines.append("    except Exception as _e:")
+            spec_lines.append("        print(f'[SPEC] Warning removing existing Versions/Current: {_e}')")
             spec_lines.append("    app = BUNDLE(")
             spec_lines.append("        coll,")
             spec_lines.append(f"        name='{app_name}.app',")

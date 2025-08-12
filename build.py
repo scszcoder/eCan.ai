@@ -176,6 +176,22 @@ def _show_build_results():
     print("  - Binary compression")
     print("  - Debug info stripping")
 
+
+
+def _prepare_playwright_assets() -> None:
+    """Download platform-specific Playwright browsers into third_party/ms-playwright.
+    
+    This runs `python -m playwright install chromium` into default cache, then copies
+    the resulting ms-playwright tree into ./third_party/ms-playwright for packaging.
+    """
+    from build_system.playwright.utils import build_utils
+    
+    third_party = Path.cwd() / "third_party" / "ms-playwright"
+    
+    # 使用构建时专用工具准备 Playwright 资源
+    build_utils.prepare_playwright_assets(third_party)
+
+
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
@@ -188,12 +204,13 @@ Build mode description:
   prod     Production build (parallel+best compression, 15-25 minutes)
 
 Usage examples:
-  python build.py fast              # Fast build
-  python build.py dev --force       # Force development build
-  python build.py prod              # Production build
+  python build.py fast              # Fast build (Playwright browsers installed at runtime)
+  python build.py dev --force       # Force development build (Playwright browsers installed at runtime)
+  python build.py prod              # Production build (Playwright browsers installed at runtime)
   python build.py prod --version 2.1.0  # Build with specified version
   python build.py fast --skip-frontend  # Fast build skipping frontend
   python build.py prod --skip-installer # Skip installer creation
+  python build.py prod --skip-playwright # Skip Playwright browser download (same as default)
 """,
     )
 
@@ -248,6 +265,11 @@ Usage examples:
         action="store_true",
         help="Verify Sparkle/winSparkle installation before build"
     )
+    parser.add_argument(
+        "--skip-playwright",
+        action="store_true",
+        help="Skip downloading Playwright browsers (default: browsers not included in build, installed at runtime)"
+    )
 
     args = parser.parse_args()
 
@@ -274,6 +296,17 @@ Usage examples:
 
     print_mode_info(args.mode, fast_mode)
 
+    # 构建前清理（如果使用 --force 参数）
+    if args.force:
+        print("[CLEANUP] Force mode detected, running pre-build cleanup...")
+        try:
+            from build_system.clean_build import main as clean_main
+            clean_main()
+            print("[CLEANUP] Pre-build cleanup completed")
+        except Exception as e:
+            print(f"[WARNING] Pre-build cleanup failed: {e}")
+            print("[WARNING] Continuing with build...")
+
     # 使用更简洁的 MiniSpecBuilder 直接进行 PyInstaller 构建；前端与安装包按需执行
     try:
         from build_system.minibuild_core import MiniSpecBuilder
@@ -289,6 +322,25 @@ Usage examples:
         frontend = FrontendBuilder(Path.cwd())
         installer = InstallerBuilder(cfg, env, Path.cwd(), mode=build_mode)
         minispec = MiniSpecBuilder()
+
+        # Prepare Playwright browsers for packaging
+        print("[PLAYWRIGHT] Preparing Playwright browsers for packaging...")
+        _prepare_playwright_assets()
+        
+        # On macOS, we'll use special PyInstaller options to handle codesign
+        if sys.platform == "darwin":
+            print("[MACOS] Using special PyInstaller options for Playwright browsers")
+            print("[MACOS] Custom hooks will handle Playwright browser codesign exclusions")
+            
+            # 确保 hooks 目录存在
+            hooks_dir = Path("hooks")
+            if not hooks_dir.exists():
+                hooks_dir.mkdir()
+                print("[MACOS] Created hooks directory")
+            
+            # 设置环境变量让 PyInstaller 使用我们的 hooks
+            os.environ['PYINSTALLER_HOOKS_PATH'] = str(hooks_dir.absolute())
+            print(f"[MACOS] Set PYINSTALLER_HOOKS_PATH to: {hooks_dir.absolute()}")
 
         # 1) Frontend
         if not args.skip_frontend:

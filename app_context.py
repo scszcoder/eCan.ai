@@ -38,6 +38,7 @@ class AppContext:
         self.app_info: Optional[AppInfo] = None      # 应用信息
         self.main_loop: Optional[AbstractEventLoop] = None     # 主循环实例
         self.login: Optional[Login] = None  # 登录实例
+        self.playwright_browsers_path: Optional[str] = None    # Playwright 浏览器路径
         # ... 其他全局对象
 
     def set_app(self, app: QApplication):
@@ -66,5 +67,14 @@ class AppContext:
 
     def set_login(self, login: Login):
         self.login = login
+
+    def set_playwright_browsers_path(self, path: str):
+        self.playwright_browsers_path = path
+
+    def get_playwright_browsers_path(self) -> Optional[str]:
+        """获取 Playwright 浏览器路径（统一接口）"""
+        # 优先从环境变量获取（实时状态）
+        from agent.playwright.core import setup_playwright
+        return setup_playwright.get_playwright_browsers_path()
 
     # 你可以继续添加更多 set/get 方法 
