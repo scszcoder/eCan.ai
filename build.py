@@ -296,16 +296,25 @@ Usage examples:
 
     print_mode_info(args.mode, fast_mode)
 
-    # 构建前清理（如果使用 --force 参数）
+    # Minimal cleanup when --force is used
     if args.force:
-        print("[CLEANUP] Force mode detected, running pre-build cleanup...")
+        print("[CLEANUP] --force detected: removing dist/, build/, and *.spec")
         try:
-            from build_system.clean_build import main as clean_main
-            clean_main()
-            print("[CLEANUP] Pre-build cleanup completed")
+            import shutil
+            # Remove build artifacts
+            for p in [Path("dist"), Path("build")]:
+                if p.exists():
+                    shutil.rmtree(p, ignore_errors=True)
+                    print(f"[CLEANUP] Removed {p}")
+            # Remove generated .spec files
+            for spec in Path.cwd().glob("*.spec"):
+                try:
+                    spec.unlink()
+                    print(f"[CLEANUP] Removed {spec.name}")
+                except Exception as e:
+                    print(f"[CLEANUP] Warning: failed to remove {spec}: {e}")
         except Exception as e:
-            print(f"[WARNING] Pre-build cleanup failed: {e}")
-            print("[WARNING] Continuing with build...")
+            print(f"[CLEANUP] Warning: cleanup failed: {e}")
 
     # 使用更简洁的 MiniSpecBuilder 直接进行 PyInstaller 构建；前端与安装包按需执行
     try:
