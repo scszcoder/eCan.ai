@@ -21,6 +21,7 @@ const KnowledgePlatform = React.lazy(() => import('../pages/Knowledge/index'));
 const Tests = React.lazy(() => import('../pages/Tests/Tests'));
 const VirtualPlatform = React.lazy(() => import('../pages/Agents/VirtualPlatform'));
 const DepartmentRoom = React.lazy(() => import('../pages/Agents/DepartmentRoom'));
+const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
 
 // 加载组件包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -105,6 +106,10 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'agents',
                 element: <LazyWrapper><Agents /></LazyWrapper>,
+            },
+            {
+                path: 'agents/details/:id',
+                element: <LazyWrapper><AgentDetails /></LazyWrapper>,
             },
             {
                 path: 'agents/virtual',
