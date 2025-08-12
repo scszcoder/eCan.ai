@@ -616,6 +616,7 @@ class MCPHandler:
 
     _session_manager_initialized = False
     _session_manager_context = None
+    _session_manager_instance = None
 
     @staticmethod
     async def ensure_session_manager_initialized():
@@ -623,8 +624,17 @@ class MCPHandler:
         if not MCPHandler._session_manager_initialized and session_manager:
             try:
                 logger.info("🔧 [MCP] Initializing session manager for PyInstaller environment...")
-                # 在 PyInstaller 环境中手动初始化 session_manager
-                MCPHandler._session_manager_context = session_manager.run()
+
+                # 创建新的 session manager 实例，避免重复使用
+                from agent.mcp.server.server import StreamableHTTPSessionManager, meca_mcp_server
+                MCPHandler._session_manager_instance = StreamableHTTPSessionManager(
+                    app=meca_mcp_server,
+                    event_store=None,
+                    json_response=True
+                )
+
+                # 初始化新实例
+                MCPHandler._session_manager_context = MCPHandler._session_manager_instance.run()
                 await MCPHandler._session_manager_context.__aenter__()
                 MCPHandler._session_manager_initialized = True
                 logger.info("✅ [MCP] Session manager initialized successfully")
@@ -642,10 +652,14 @@ class MCPHandler:
             await MCPHandler.ensure_session_manager_initialized()
 
             try:
-                # MCP 模块可用：使用完整 MCP 功能
-                await session_manager.handle_request(scope, receive, send)
+                # 使用我们自己的 session manager 实例
+                if MCPHandler._session_manager_instance:
+                    await MCPHandler._session_manager_instance.handle_request(scope, receive, send)
+                else:
+                    # 如果没有实例，回退到原始的 session_manager
+                    await session_manager.handle_request(scope, receive, send)
             except RuntimeError as e:
-                if "Task group is not initialized" in str(e):
+                if "Task group is not initialized" in str(e) or "can only be called once" in str(e):
                     logger.error("❌ [MCP] Session manager not properly initialized, falling back to error response")
                     await MCPHandler.create_unavailable_response(scope, receive, send)
                 else:
