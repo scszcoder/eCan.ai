@@ -1,12 +1,12 @@
 // stores/taskStore.ts
 import { create } from 'zustand';
 
-interface TaskState {
-  taskname: string | null;
-  setTaskname: (taskname: string) => void;
+interface RankState {
+  rankname: string | null;
+  setRankname: (rankname: string) => void;
 }
 
-export const useTaskStore = create<TaskState>((set) => ({
-  taskname: null,
-  setTaskname: (taskname) => set({ taskname }),
+export const useRankStore = create<RankState>((set) => ({
+  rankname: null,
+  setRankname: (rankname) => set({ rankname }),
 }));
