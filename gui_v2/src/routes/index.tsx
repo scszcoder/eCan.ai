@@ -13,7 +13,6 @@ const Skills = React.lazy(() => import('../pages/Skills/Skills'));
 const SkillEditor = React.lazy(() => import('../pages/SkillEditor/SkillEditor'));
 const Agents = React.lazy(() => import('../pages/Agents/Agents'));
 const Analytics = React.lazy(() => import('../pages/Analytics/Analytics'));
-const Apps = React.lazy(() => import('../pages/Apps/Apps'));
 const Tasks = React.lazy(() => import('../pages/Tasks/Tasks'));
 const Tools = React.lazy(() => import('../pages/Tools/Tools'));
 const Settings = React.lazy(() => import('../pages/Settings/Settings'));
@@ -120,10 +119,6 @@ export const protectedRoutes: RouteConfig[] = [
                 element: <LazyWrapper><Analytics /></LazyWrapper>,
             },
             {
-                path: 'apps',
-                element: <LazyWrapper><Apps /></LazyWrapper>,
-            },
-            {
                 path: 'tasks',
                 element: <LazyWrapper><Tasks /></LazyWrapper>,
             },
@@ -205,8 +200,6 @@ export const menuItems = [
         key: '/analytics',
         icon: 'BarChartOutlined',
         label: 'menu.analytics',
-    },
-    {
     },
     {
         key: '/tasks',
