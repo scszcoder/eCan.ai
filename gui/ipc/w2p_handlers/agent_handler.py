@@ -114,7 +114,7 @@ def handle_delete_agents(request: IPCRequest, params: Optional[list[Any]]) -> IP
 
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        params: 请求参数，必须包含 'username' 和 'password' 字段, 'agent_id'
 
     Returns:
         str: JSON 格式的响应消息
