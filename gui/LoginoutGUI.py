@@ -730,6 +730,10 @@ class Login(QDialog):
                 self.main_win.setCogClient(self.aws_client)
                 self.main_win.set_top_gui(self.top_gui)
                 # self.main_win.show()
+                # no-op here; defer LightRAG start after common init
+
+            # 统一在主窗体就绪后异步启动 LightRAG（非阻塞）
+            self._start_lightrag_deferred()
 
             app_ctx = AppContext()
             app_ctx.set_main_window(self.main_win)
@@ -859,6 +863,18 @@ class Login(QDialog):
 
     def get_mainwin(self):
         return self.main_win
+
+    def _start_lightrag_deferred(self):
+        """统一的 LightRAG 延迟启动（非阻塞，不影响登录流程）"""
+        try:
+            from knowledge.lightrag_server import LightragServer
+            if self.main_win is None:
+                return
+            self.main_win.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"})
+            self.main_win.lightrag_server.start(wait_ready=False)
+            logger.info("LightRAG server started (deferred, non-blocking)")
+        except Exception as _e:
+            logger.warning(f"Deferred LightRAG start failed: {_e}")
 
     def handleSignUp(self, uname="", pw=""):
         print("Signing up...." + uname + "...." + pw)
