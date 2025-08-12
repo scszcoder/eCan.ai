@@ -12,16 +12,25 @@ import argparse
 import subprocess
 from pathlib import Path
 
+# 导入构建前检查模块
+try:
+    from build_system.pre_build_check import run_pre_build_check
+    PRECHECK_AVAILABLE = True
+except ImportError:
+    PRECHECK_AVAILABLE = False
+    run_pre_build_check = None
+
 
 class BuildEnvironment:
     """Build environment detection and management"""
 
-    def __init__(self):
+    def __init__(self, skip_precheck=False):
         self.platform = platform.system()
         self.is_windows = self.platform == "Windows"
         self.is_macos = self.platform == "Darwin"
         self.is_linux = self.platform == "Linux"
         self.is_ci = self._detect_ci_environment()
+        self.skip_precheck = skip_precheck
 
     def _detect_ci_environment(self) -> bool:
         """Detect if running in CI environment"""
@@ -45,6 +54,27 @@ class BuildEnvironment:
 
         # Check required files
         if not self._check_required_files():
+            return False
+
+        # Run pre-build check
+        if not self._run_pre_build_check():
+            return False
+
+        return True
+
+    def _run_pre_build_check(self) -> bool:
+        """运行构建前检查"""
+        if self.skip_precheck:
+            print("[INFO] Skipping pre-build check (--skip-precheck)")
+            return True
+
+        if not PRECHECK_AVAILABLE:
+            print("[WARNING] Pre-build check not available, skipping")
+            return True
+
+        if not run_pre_build_check():
+            print("[ERROR] Pre-build check failed")
+            print("[INFO] Please resolve the issues above before building")
             return False
 
         return True
@@ -270,6 +300,11 @@ Usage examples:
         action="store_true",
         help="Skip downloading Playwright browsers (default: browsers not included in build, installed at runtime)"
     )
+    parser.add_argument(
+        "--skip-precheck",
+        action="store_true",
+        help="Skip pre-build process check"
+    )
 
     args = parser.parse_args()
 
@@ -283,7 +318,7 @@ Usage examples:
 
 
     # Validate environment
-    env = BuildEnvironment()
+    env = BuildEnvironment(skip_precheck=args.skip_precheck)
     if not env.validate_environment():
         sys.exit(1)
 
