@@ -3,6 +3,9 @@ import mcp.types as types
 tool_schemas = []
 
 def get_tool_schemas():
+    # 确保工具模式已初始化
+    if not tool_schemas:
+        build_agent_mcp_tools_schemas()
     return tool_schemas
 
 def add_tool_schema(new_schema):
