@@ -754,8 +754,12 @@ if __name__ == '__main__':
 
         return stdout_log, stderr_log, stdout_log_path, stderr_log_path
 
-    def _start_server_process(self):
-        """启动服务器进程"""
+    def _start_server_process(self, wait_gating: bool = False):
+        """启动服务器进程
+        
+        Args:
+            wait_gating: 是否在前台等待健康检查通过（阻塞）。默认 False 非阻塞。
+        """
         try:
             env = self.build_env()
             stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
@@ -876,58 +880,67 @@ if __name__ == '__main__':
 
             logger.info(f"[LightragServer] Logs: {stdout_log_path}, {stderr_log_path}")
 
-            # Health-check gating to confirm server is actually listening（参数化 + 指数退避）
-            try:
-                import httpx
-                health_host = '127.0.0.1' if str(final_host) in ('0.0.0.0', '::', '') else str(final_host)
-                hc_url = f"http://{health_host}:{final_port}/healthz"
-                total_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', '45'))
-                interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5'))
-                max_interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5'))
-                deadline = time.time() + total_timeout
-                last_err = None
-                # 快速检测是否瞬时退出，便于尽早给出日志
-                time.sleep(0.2)
-                if self.proc and self.proc.poll() is not None:
-                    logger.error(f"[LightragServer] Server process exited immediately with code {self.proc.returncode}")
+            if wait_gating:
+                # Health-check gating to confirm server is actually listening（参数化 + 指数退避）
+                try:
+                    import httpx
+                    health_host = '127.0.0.1' if str(final_host) in ('0.0.0.0', '::', '') else str(final_host)
+                    hc_url = f"http://{health_host}:{final_port}/healthz"
+                    total_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', '45'))
+                    interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5'))
+                    max_interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5'))
+                    deadline = time.time() + total_timeout
+                    last_err = None
+                    # 快速检测是否瞬时退出，便于尽早给出日志
+                    time.sleep(0.2)
+                    if self.proc and self.proc.poll() is not None:
+                        logger.error(f"[LightragServer] Server process exited immediately with code {self.proc.returncode}")
+                        _stderr_tail = _safe_tail(stderr_log_path)
+                        _stdout_tail = _safe_tail(stdout_log_path)
+                        if _stderr_tail:
+                            logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
+                        if _stdout_tail:
+                            logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
+                        return False
+
+                    while time.time() < deadline:
+                        try:
+                            r = httpx.get(hc_url, timeout=2.0)
+                            if r.status_code < 500:
+                                logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
+                                logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
+                                return True
+                        except Exception as e:
+                            last_err = e
+                        time.sleep(interval)
+                        interval = min(max_interval, interval * 1.2)
+                    logger.error(f"[LightragServer] Health check failed for {hc_url}: {last_err}")
+                    # Try to surface last few stderr/stdout lines to parent log for quick diagnosis
                     _stderr_tail = _safe_tail(stderr_log_path)
                     _stdout_tail = _safe_tail(stdout_log_path)
                     if _stderr_tail:
                         logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
                     if _stdout_tail:
                         logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
-                    return False
+                except Exception as e:
+                    logger.error(f"[LightragServer] Health check gating error: {e}")
 
-                while time.time() < deadline:
-                    try:
-                        r = httpx.get(hc_url, timeout=2.0)
-                        if r.status_code < 500:
-                            logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
-                            logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
-                            return True
-                    except Exception as e:
-                        last_err = e
-                    time.sleep(interval)
-                    interval = min(max_interval, interval * 1.2)
-                logger.error(f"[LightragServer] Health check failed for {hc_url}: {last_err}")
-                # Try to surface last few stderr/stdout lines to parent log for quick diagnosis
-                _stderr_tail = _safe_tail(stderr_log_path)
-                _stdout_tail = _safe_tail(stdout_log_path)
-                if _stderr_tail:
-                    logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
-                if _stdout_tail:
-                    logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
-            except Exception as e:
-                logger.error(f"[LightragServer] Health check gating error: {e}")
-
-            return False
+                return False
+            else:
+                # 非阻塞模式：立即返回，健康检查在监控线程中由使用方自行处理或查看日志
+                logger.info(f"[LightragServer] Started (non-blocking) at http://{final_host}:{final_port}, skipping health-gating")
+                return True
 
         except Exception as e:
             logger.error(f"[LightragServer] Failed to start server: {e}")
             return False
 
-    def start(self):
-        """启动服务器"""
+    def start(self, wait_ready: bool = False):
+        """启动服务器
+        
+        Args:
+            wait_ready: 是否阻塞等待健康检查通过
+        """
         if self.proc is not None and self.proc.poll() is None:
             logger.warning("[LightragServer] Server is already running")
             return self.proc
@@ -935,7 +948,7 @@ if __name__ == '__main__':
         logger.info("[LightragServer] Starting LightRAG server...")
 
         # 启动服务器进程
-        if not self._start_server_process():
+        if not self._start_server_process(wait_gating=wait_ready):
             return None
 
         # 任何监控开启都需要运行标志
