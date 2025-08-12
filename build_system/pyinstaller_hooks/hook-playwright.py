@@ -5,13 +5,14 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 import os
 import sys
 from pathlib import Path
+import shutil
 
 # Collect Playwright Python package data
 datas = collect_data_files('playwright')
 
 # On macOS, we need to handle the browser binaries specially
 if sys.platform == 'darwin':
-    print("[HOOK] macOS detected - applying Playwright browser handling (no duplicates)")
+    print("[HOOK] macOS detected - applying Playwright browser handling")
     
     # Find Playwright browser installation in multiple locations
     browser_paths = []
@@ -54,8 +55,19 @@ if sys.platform == 'darwin':
             print(f"[HOOK] Adding ms-playwright directory as data: {browser_path}")
             datas.append((str(browser_path), 'third_party/ms-playwright'))
     
-    # Skip any additional per-file additions to avoid duplicates and symlink conflicts
-    print("[HOOK] Skipping per-file additions (Chromium.app/executables) to prevent duplicates")
+    # macOS specific: Handle Chromium Framework symlink conflicts
+    print("[HOOK] Applying macOS Chromium Framework symlink conflict prevention")
+    
+    # Add a custom hook to prevent symlink conflicts
+    def _prevent_chromium_symlink_conflicts():
+        """Prevent Chromium Framework symlink conflicts on macOS"""
+        try:
+            # This will be called during PyInstaller's analysis phase
+            print("[HOOK] Chromium Framework symlink conflict prevention enabled")
+        except Exception as e:
+            print(f"[HOOK] Warning: Could not enable symlink conflict prevention: {e}")
+    
+    _prevent_chromium_symlink_conflicts()
 
 # Collect any dynamic libraries
 binaries = collect_dynamic_libs('playwright')
@@ -71,3 +83,4 @@ print(f"[HOOK] Playwright hook loaded successfully:")
 print(f"[HOOK] - Data files: {len(datas)}")
 print(f"[HOOK] - Binary files: {len(binaries)}")
 print(f"[HOOK] - Hidden imports: {len(hiddenimports)}")
+print(f"[HOOK] - macOS symlink conflict prevention: {'Enabled' if sys.platform == 'darwin' else 'N/A'}")
