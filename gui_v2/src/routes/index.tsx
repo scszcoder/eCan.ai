@@ -207,9 +207,6 @@ export const menuItems = [
         label: 'menu.analytics',
     },
     {
-        key: '/apps',
-        icon: 'AppstoreOutlined',
-        label: 'menu.apps',
     },
     {
         key: '/tasks',
