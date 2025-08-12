@@ -610,6 +610,85 @@ def create_ec_sales_work_task(mainwin):
         )
     return worker_task
 
+
+
+
+def create_ec_self_tester_chat_task(mainwin):
+    agent_skills = mainwin.agent_skills
+    agent_tasks = mainwin.agent_tasks
+
+    chatter_skill = next((sk for sk in agent_skills if sk.name == "eCan.ai self test chatter"), None)
+    chatter_task = next((task for task in agent_tasks if task.name == "eCan.ai Self Test Chatter Task"), None)
+
+    if not chatter_task:
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120  # seconds.
+        )
+
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        chatter_task = ManagedTask(
+            id=task_id,
+            name="eCan.ai Self Test Chatter Task",
+            description="chat with human user about anything related to eCan.ai self test work.",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=chatter_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="message",
+            schedule=task_schedule
+        )
+    return chatter_task
+
+def create_ec_self_tester_work_task(mainwin):
+    agent_skills = mainwin.agent_skills
+    agent_tasks = mainwin.agent_tasks
+
+    worker_skill = next((sk for sk in agent_skills if sk.name == "eCan.ai self test"), None)
+    worker_task = next((task for task in agent_tasks if task.name == "eCan.ai self test"), None)
+
+    if not worker_task:
+        task_schedule = TaskSchedule(
+            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_number=1,
+            repeat_unit="day",
+            start_date_time="2025-03-31 23:59:59:000",
+            end_date_time="2035-12-31 23:59:59:000",
+            time_out=120  # seconds.
+        )
+
+        task_id = str(uuid.uuid4())
+        session_id = ""
+        resume_from = ""
+        state = {"top": "ready"}
+        status = TaskStatus(state=TaskState.SUBMITTED)
+        worker_task = ManagedTask(
+            id=task_id,
+            name="eCan.ai Self Test",
+            description="eCan.ai app software self test",
+            status=status,  # or whatever default status you need
+            sessionId=session_id,
+            skill=worker_skill,
+            metadata={"state": state},
+            state=state,
+            resume_from=resume_from,
+            trigger="schedule",
+            schedule=task_schedule
+        )
+    return worker_task
+
+
+
 def create_agent_tasks(main_win):
     try:
         # first try to obtain all agents from the cloud, if that fails or there are no agents
@@ -630,6 +709,8 @@ def create_agent_tasks(main_win):
             all_agent_tasks.append(create_ec_rpa_supervisor_chat_task(main_win))
             all_agent_tasks.append(create_ec_rpa_supervisor_daily_task(main_win))
             all_agent_tasks.append(create_ec_rpa_supervisor_on_request_task(main_win))
+            all_agent_tasks.append(create_ec_self_tester_chat_task(main_win))
+            all_agent_tasks.append(create_ec_self_tester_work_task(main_win))
             # all_agent_tasks.append(create_ec_sales_chat_task(main_win))
             # all_agent_tasks.append(create_ec_sales_work_task(main_win))
 

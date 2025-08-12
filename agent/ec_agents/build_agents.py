@@ -24,12 +24,14 @@ def build_agents(main_win):
             if "Platoon" in main_win.machine_role:
                 all_agents.append(set_up_ec_helper_agent(main_win))
                 all_agents.append(set_up_ec_rpa_operator_agent(main_win))
+                all_agents.append(set_up_ec_tester_agent(main_win))
             else:
                 all_agents.append(set_up_ec_helper_agent(main_win))
                 # self.agents.append(set_up_ec_rpa_supervisor_agent(self))
                 if "ONLY" not in main_win.machine_role:
                     # self.agents.append(set_up_ec_rpa_operator_agent(self))
                     all_agents.append(set_up_ec_procurement_agent(main_win))
+                    all_agents.append(set_up_ec_tester_agent(main_win))
         
         # 过滤掉None对象
         all_agents = [agent for agent in all_agents if agent is not None]
