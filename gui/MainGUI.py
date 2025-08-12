@@ -498,6 +498,22 @@ class MainWindow(QMainWindow):
                         self.ads_profile_dir = ads_profile_dir
 
             ads_settings_f.close()
+
+
+        self.organizations = [
+            {"name":"agent resource"},
+            {"name": "accounting"},
+            {"name": "finance"},
+            {"name": "legal"},
+            {"name": "marketing"},
+            {"name": "sales"},
+            {"name": "reasearch and development"}
+        ]
+        self.titles = ["Director", "Product Manager", "Engineer Manager", "Team Leader", "Engineer", "Sales", "Analyst", "Senior Analyst"]
+        self.ranks = ["E6", "E7", "E8", "E9", "E10", "E11", "E12", "E13", "E14", "E15", "E16", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"]
+        self.personalities = ["Introvert", "Extrovert"]
+
+
         self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
         self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
         self.showMsg("HOME PATH is::" + self.homepath, "info")
