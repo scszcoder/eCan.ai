@@ -1,11 +1,14 @@
 import React, { useMemo, useRef, useEffect } from 'react';
 import agentGifs, { logVideoSupport } from '@/assets/gifs'; // 需实现导入所有 gif
 import { Agent, AgentCard } from '../types';
-import './AgentAvatar.css';
-import { Button } from 'antd';
-import { MessageOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Modal, message } from 'antd';
+import type { MenuProps } from 'antd';
+import { MessageOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAppDataStore } from '@/stores/appDataStore';
+import { useNavigate } from 'react-router-dom';
+import { useUserStore } from '@/stores/userStore';
+import { get_ipc_api } from '@/services/ipc_api';
 
 function getRandomGif(): string {
   // 这里假设 agentGifs 是一个字符串数组
@@ -25,11 +28,14 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   const { t } = useTranslation();
   const myTwinAgent = useAppDataStore((state: any) => state.myTwinAgent());
   const myTwinAgentId = myTwinAgent?.card?.id;
+  const navigate = useNavigate();
+  const username = useUserStore((s: any) => s.username);
   // 兼容Agent和AgentCard
   const id = (agent as any).id || (agent as any).card?.id;
   const name = (agent as any).name || (agent as any).card?.name;
   const desc = (agent as any).description || (agent as any).card?.description;
   const mediaUrl = useMemo<string>(() => getRandomGif(), []);
+
   // 只要 mediaUrl 存在且以 .webm 或 .mp4 结尾就用 video
   const isVideo = Boolean(mediaUrl && typeof mediaUrl === 'string' && (mediaUrl.trim().toLowerCase().endsWith('.webm') || mediaUrl.trim().toLowerCase().endsWith('.mp4')));
   const [error, setError] = React.useState(false);
@@ -49,6 +55,41 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
 
   console.log('is video', isVideo, ' gif url:', mediaUrl);
   // console.log('agentGifs:', agentGifs);
+
+  const handleEdit = () => {
+    if (!id) return;
+    navigate(`/agents/details/${id}`);
+  };
+
+  const handleDelete = () => {
+    if (!id) return;
+    Modal.confirm({
+      title: t('common.confirm_delete') || 'Confirm Delete',
+      content: t('common.confirm_delete_desc') || 'Are you sure you want to delete this agent?',
+      okText: t('common.ok') || 'OK',
+      cancelText: t('common.cancel') || 'Cancel',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const api = get_ipc_api();
+          const res = await api.deleteAgent(username, id);
+          if (res.success) {
+            message.success(t('common.deleted_successfully') || 'Deleted successfully');
+          } else {
+            message.error(res.error?.message || (t('common.delete_failed') as string) || 'Delete failed');
+          }
+        } catch (e: any) {
+          message.error(e?.message || 'Delete failed');
+        }
+      }
+    });
+  };
+
+  const menuItems: MenuProps['items'] = [
+    { key: 'edit', label: t('common.edit') || 'Edit', onClick: handleEdit },
+    { type: 'divider' },
+    { key: 'delete', label: t('common.delete') || 'Delete', danger: true, onClick: handleDelete },
+  ];
 
   return (
     <div className="agent-avatar" key={id}>
@@ -74,8 +115,13 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
       ) : (
         <img src={mediaUrl} alt="agent working" className="agent-gif" style={{ width: 300, height: 300 * 9 / 16, objectFit: 'contain', borderRadius: 28, marginBottom: 26, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)' }} onError={e => { console.error('img load error', mediaUrl, e); setError(true); }} />
       )}
-      <div className="agent-info-row">
-        <div className="agent-name">{t(name)}</div>
+      <div className="agent-info-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <Dropdown menu={{ items: menuItems }} trigger={["click"]} placement="bottomLeft">
+            <Button shape="circle" icon={<MoreOutlined />} size="middle" />
+          </Dropdown>
+        </span>
+        <div className="agent-name" style={{ flex: 1, textAlign: 'center' }}>{t(name)}</div>
         <span style={{ display: 'inline-block' }}>
           <Button
             type="primary"
@@ -88,9 +134,10 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
           />
         </span>
       </div>
+
       {desc && <div className="agent-desc">{t(desc)}</div>}
     </div>
   );
 }
 
-export default React.memo(AgentAvatar); 
+export default React.memo(AgentAvatar);

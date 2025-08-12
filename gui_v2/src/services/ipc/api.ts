@@ -175,6 +175,16 @@ export class IPCAPI {
         return this.executeRequest<void>('save_agents', {username, agents});
     }
 
+    public async deleteAgents<T>(username: string, agent_ids: (string|number)[]): Promise<APIResponse<void>> {
+        // Delete multiple agents by id
+        return this.executeRequest<void>('delete_agents', { username, agent_ids });
+    }
+
+    public async deleteAgent<T>(username: string, agent_id: string|number): Promise<APIResponse<void>> {
+        // Convenience wrapper to delete a single agent
+        return this.deleteAgents<T>(username, [agent_id]);
+    }
+
     public async saveTools<T>(username: string, tools: T[]): Promise<APIResponse<void>> {
         return this.executeRequest<void>('save_tools', {username, tools});
     }
