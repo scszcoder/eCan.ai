@@ -99,17 +99,12 @@ from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
 from agent.ec_skill import *
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
-from agent.playwright import get_playwright_manager 
 from agent.ec_agents.build_agents import *
 import concurrent.futures
-from agent.mcp.sse_manager import SSEManager
-from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from crawl4ai import JsonCssExtractionStrategy
-from crawl4ai.script.c4a_compile import C4ACompiler
-from browser_use.browser import BrowserSession
+# from agent.mcp.sse_manager import SSEManager
+# from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
+from gui.unified_browser_manager import get_unified_browser_manager
 from browser_use.filesystem.file_system import FileSystem
-from browser_use.controller.service import Controller as BrowserUseController
 from langchain_openai import ChatOpenAI
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
@@ -358,10 +353,6 @@ class MainWindow(QMainWindow):
         self.botsFingerPrintsReady = False
         self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
         self.default_webdriver = None
-        self.crawler_browser_config = None
-        self.async_crawler = None
-        self.browser_session = None
-        self.browser_use_controller = None
         self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
         self.logConsole = QPlainTextEdit()
         self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
@@ -1169,7 +1160,9 @@ class MainWindow(QMainWindow):
             base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
             self.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
 
-        self.browser_use_file_system = FileSystem(self.browser_use_file_system_path)
+        # FileSystem 现在通过统一浏览器管理器访问
+        # 保留路径设置用于其他用途
+        # self.browser_use_file_system = FileSystem(self.browser_use_file_system_path)
         
         # Load environment variables before initializing ChatOpenAI
         # For PyInstaller bundled app, try to load .env from the executable directory
@@ -1218,9 +1211,9 @@ class MainWindow(QMainWindow):
         # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         # print("Building agent skills.....")
         # asyncio.create_task(self.async_agents_init())
-        self.newWebCrawler()
-        self.setupBrowserSession()
-        self.setupBrowserUseController()
+
+        # Initialize browser manager
+        self.setupUnifiedBrowserManager()
 
     async def initialize_mcp(self):
         local_server_port = 4668
@@ -1673,73 +1666,66 @@ class MainWindow(QMainWindow):
     def setWebDriver(self, driver):
         self.default_webdriver = driver
 
-    def setWebCrawler(self, crawler):
-        self.async_crawler = crawler
-
     def getWebCrawler(self):
         return self.async_crawler
 
-    def newWebCrawler(self):
+    def setupUnifiedBrowserManager(self):
+        """设置统一浏览器管理器"""
         try:
-            self.crawler_browser_config = BrowserConfig(
-                headless=False,
-                verbose=True,
-                viewport_width=1920,
-                viewport_height=1080
-            )
-            self.async_crawler = AsyncWebCrawler(config=self.crawler_browser_config)
-        except Exception as e:
-            logger.error(f"Warning: Failed to initialize web crawler with BrowserConfig: {e}")
+            self.unified_browser_manager = get_unified_browser_manager()
 
-    def setupBrowserSession(self):
+            # 传递文件系统路径
+            file_system_path = getattr(self, 'browser_use_file_system_path', None)
+
+            if self.unified_browser_manager.initialize(file_system_path=file_system_path):
+                logger.info("✅ 浏览器管理器初始化成功")
+            else:
+                logger.error("❌ 浏览器管理器初始化失败")
+                self.unified_browser_manager = None
+
+        except Exception as e:
+            logger.error(f"浏览器管理器设置失败: {e}")
+            self.unified_browser_manager = None
+
+    @property
+    def async_crawler(self):
         try:
-            browser = self.async_crawler.crawler_strategy.browser_manager.browser
-            self.browser_session = BrowserSession(browser=browser)
-
-            # browser_profile=BrowserProfile(
-            #           executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            # 	        user_data_dir='~/.config/browseruse/profiles/default',
-            # 			keep_alive=True,
-            # 			headless=False,
-            #           stealth = False,
-            #           deterministic_rendering=False,
-            #           disable_security=False,
-            #           window_size = {'width': 800, 'height': 600},  # Small size for demonstration
-            #           **playwright.devices['iPhone 13']         # or you can use a playwright device profile
-            #           device_scale_factor=1.0,                  # change to 2~3 to emulate a high-DPI display for high-res screenshots
-            #           viewport={'width': 800, 'height': 600},   # set the viewport (aka content size)
-            #           screen={'width': 800, 'height': 600},     # hardware display size to report to websites via JS
-            # 		)
-
-            # self.browser_session = BrowserSession(
-            #     browser_profile=browser_profile,
-            #     browser=browser,
-            #     browser_context=browser_context,
-            #     agent_current_page=page,
-            #     id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
-            # )
+            manager = getattr(self, 'unified_browser_manager', None)
+            if manager and manager.is_ready():
+                return manager.get_async_crawler()
         except Exception as e:
-            logger.error(f"Warning: Failed to setup browser session: {e}")
+            logger.error(f"Error accessing async_crawler: {e}")
+        return None
 
-    def setupBrowserUseController(self):
-        """设置 BrowserUseController，并在需要时初始化 Playwright"""
+    @property
+    def browser_session(self):
         try:
-            # 延迟初始化 Playwright           
-            playwright_manager = get_playwright_manager()
-            
-            # 检查是否需要初始化
-            if not playwright_manager.is_initialized():
-                logger.debug("🔧 初始化 Playwright 浏览器（BrowserUse 需要）...")
-                if playwright_manager.lazy_init():
-                    logger.debug("✅ Playwright 浏览器初始化成功")
-                else:
-                    logger.warning("⚠️  Playwright 浏览器初始化失败，BrowserUse 功能可能不可用")
-            
-            display_files_in_done_text = True
-            self.browser_use_controller = BrowserUseController(display_files_in_done_text=display_files_in_done_text)
-            
+            manager = getattr(self, 'unified_browser_manager', None)
+            if manager and manager.is_ready():
+                return manager.get_browser_session()
         except Exception as e:
-            logger.error(f"⚠️  BrowserUseController 设置失败: {e}")
+            logger.error(f"Error accessing browser_session: {e}")
+        return None
+
+    @property
+    def browser_use_controller(self):
+        try:
+            manager = getattr(self, 'unified_browser_manager', None)
+            if manager and manager.is_ready():
+                return manager.get_browser_use_controller()
+        except Exception as e:
+            logger.error(f"Error accessing browser_use_controller: {e}")
+        return None
+
+    @property
+    def browser_use_file_system(self):
+        try:
+            manager = getattr(self, 'unified_browser_manager', None)
+            if manager and manager.is_ready():
+                return manager.get_browser_use_file_system()
+        except Exception as e:
+            logger.error(f"Error accessing browser_use_file_system: {e}")
+        return None
 
     def getBrowserSession(self):
         return self.browser_session
@@ -1747,18 +1733,23 @@ class MainWindow(QMainWindow):
     def getBrowserUseController(self):
         return self.browser_use_controller
 
+    def getBrowserManagerStatus(self):
+        if hasattr(self, 'unified_browser_manager') and self.unified_browser_manager:
+            return self.unified_browser_manager.get_status()
+        return {'initialized': False}
+
     def load_build_dom_tree_script(self):
         script = ""
         try:
-            print("Loading build dom tree script...", self.build_dom_tree_script_path)
+            logger.debug("Loading build dom tree script...", self.build_dom_tree_script_path)
             with open(self.build_dom_tree_script_path, 'r', encoding='utf-8') as file:
                 script = file.read()
             return script
         except FileNotFoundError:
-            print(f"Error: The file {self.build_dom_tree_script_path} was not found.")
+            logger.error(f"Error: The file {self.build_dom_tree_script_path} was not found.")
             return ""
         except IOError as e:
-            print(f"Error reading {self.build_dom_tree_script_path}: {e}")
+            logger.error(f"Error reading {self.build_dom_tree_script_path}: {e}")
             return ""
 
     #async def networking(self, platoonCallBack):
