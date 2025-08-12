@@ -4,123 +4,6 @@ import asyncio
 # 导入 logger（需要在早期导入以便在所有类中使用）
 from utils.logger_helper import logger_helper as logger
 
-# 在导入任何其他模块之前，立即应用 PyInstaller 修复
-def _apply_early_pyinstaller_fixes():
-    """在模块导入前应用 PyInstaller 修复"""
-    import sys
-    import os
-
-    logger.debug(f"[EARLY] Starting early PyInstaller fixes...")
-    logger.debug(f"[EARLY] sys.frozen = {getattr(sys, 'frozen', False)}")
-    logger.debug(f"[EARLY] sys._MEIPASS = {getattr(sys, '_MEIPASS', 'Not set')}")
-    logger.debug(f"[EARLY] Current sys.path length: {len(sys.path)}")
-
-    if getattr(sys, 'frozen', False):
-        logger.debug(f"[EARLY] In PyInstaller environment, applying fixes...")
-
-        # 添加 MEIPASS 到 sys.path
-        if hasattr(sys, '_MEIPASS'):
-            meipass = sys._MEIPASS
-            if meipass not in sys.path:
-                sys.path.insert(0, meipass)
-                logger.debug(f"[EARLY] Added MEIPASS to sys.path: {meipass}")
-
-        # 检查 win32 相关路径
-        win32_paths = [path for path in sys.path if 'win32' in path.lower()]
-        logger.debug(f"[EARLY] Found {len(win32_paths)} win32 paths in sys.path:")
-        for path in win32_paths:
-            logger.debug(f"[EARLY]   - {path}")
-
-        # 关键修复：直接修改 sys.modules 来绕过 pywintypes 的路径检查
-        try:
-            logger.debug(f"[EARLY] Attempting direct pywintypes bypass...")
-
-            # 方法1: 预先在 sys.modules 中注册 pywintypes
-            import types
-            dummy_pywintypes = types.ModuleType('pywintypes')
-
-            # 添加一些基本属性
-            dummy_pywintypes.__file__ = '<dummy pywintypes>'
-            dummy_pywintypes.__package__ = 'win32'
-
-            # 添加常用的 pywintypes 属性和类
-            class DummyOVERLAPPED:
-                def __init__(self):
-                    pass
-
-            class DummyHANDLE:
-                def __init__(self, value=0):
-                    self.value = value
-
-                def __int__(self):
-                    return self.value
-
-            # 添加常用的 pywintypes 对象
-            dummy_pywintypes.OVERLAPPED = DummyOVERLAPPED
-            dummy_pywintypes.HANDLE = DummyHANDLE
-            dummy_pywintypes.error = Exception  # pywintypes.error 通常是一个异常类
-
-            # 添加一些常用的常量
-            dummy_pywintypes.INFINITE = 0xFFFFFFFF
-            dummy_pywintypes.WAIT_OBJECT_0 = 0
-            dummy_pywintypes.WAIT_TIMEOUT = 258
-
-            # 注册到 sys.modules
-            sys.modules['pywintypes'] = dummy_pywintypes
-            logger.info(f"[EARLY] Registered enhanced dummy pywintypes in sys.modules")
-
-            # 方法2: 修改 win32.lib.pywintypes 的行为
-            try:
-                # 直接修改 pywintypes.py 文件的行为
-                import importlib.util
-                import importlib.machinery
-
-                # 查找 pywintypes.py 文件
-                for path in sys.path:
-                    pywintypes_path = os.path.join(path, 'win32', 'lib', 'pywintypes.py')
-                    if os.path.exists(pywintypes_path):
-                        logger.debug(f"[EARLY] Found pywintypes.py at: {pywintypes_path}")
-
-                        # 创建一个修改过的模块加载器
-                        spec = importlib.util.spec_from_file_location("win32.lib.pywintypes", pywintypes_path)
-                        if spec and spec.loader:
-                            module = importlib.util.module_from_spec(spec)
-
-                            # 在执行模块之前，先修改全局环境
-                            original_frozen = getattr(sys, 'frozen', False)
-                            sys.frozen = False  # 临时禁用 frozen 状态
-
-                            try:
-                                spec.loader.exec_module(module)
-                                logger.debug(f"[EARLY] Successfully loaded pywintypes with frozen=False")
-
-                                # 恢复 frozen 状态
-                                sys.frozen = original_frozen
-
-                                # 注册模块
-                                sys.modules['win32.lib.pywintypes'] = module
-                                sys.modules['pywintypes'] = module
-
-                                logger.debug(f"[EARLY] Successfully bypassed pywintypes path check")
-                                break
-
-                            except Exception as e:
-                                sys.frozen = original_frozen  # 确保恢复状态
-                                logger.error(f"⚠️ [EARLY] Failed to load modified pywintypes: {e}")
-
-            except Exception as e:
-                logger.error(f"⚠️ [EARLY] Advanced pywintypes fix failed: {e}")
-
-        except Exception as e:
-            logger.error(f"⚠️ [EARLY] Early PyInstaller fix failed: {e}")
-            import traceback
-            logger.error(f"⚠️ [EARLY] Traceback: {traceback.format_exc()}")
-    else:
-        logger.info(f"[EARLY] Not in PyInstaller environment, skipping fixes")
-
-# 立即应用修复
-_apply_early_pyinstaller_fixes()
-
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, FileResponse, StreamingResponse
 from starlette.staticfiles import StaticFiles
@@ -137,178 +20,6 @@ from asyncio import Future as AsyncFuture
 import sys
 import os
 
-class PyInstallerMCPFixer:
-    """PyInstaller MCP 修复器"""
-
-    @staticmethod
-    def fix_platform_specific_issues():
-        """修复平台特定的问题"""
-        if not getattr(sys, 'frozen', False):
-            return  # 只在 PyInstaller 环境中修复
-
-        platform = sys.platform
-        logger.info(f"🔧 Applying PyInstaller fixes for platform: {platform}")
-
-        if platform.startswith('win'):
-            PyInstallerMCPFixer._fix_windows_issues()
-        elif platform.startswith('darwin'):
-            PyInstallerMCPFixer._fix_macos_issues()
-        else:
-            logger.warning(f"⚠️ Unknown platform: {platform}, applying generic fixes")
-            PyInstallerMCPFixer._fix_generic_issues()
-
-    @staticmethod
-    def _fix_windows_issues():
-        """修复 Windows 特定问题"""
-        logger.info(f"🔧 [WIN] Starting Windows-specific fixes...")
-
-        try:
-            # 方法1: 修改 sys.path 包含必要的路径
-            logger.info(f"🔧 [WIN] Checking MEIPASS and adding win32 paths...")
-            if hasattr(sys, '_MEIPASS'):
-                # 添加 PyInstaller 的临时目录到路径
-                meipass = sys._MEIPASS
-                logger.info(f"🔧 [WIN] Found MEIPASS: {meipass}")
-
-                potential_paths = [
-                    os.path.join(meipass, 'win32'),
-                    os.path.join(meipass, 'win32', 'lib'),
-                    os.path.join(meipass, 'Lib', 'site-packages', 'win32'),
-                    os.path.join(meipass, 'Lib', 'site-packages', 'win32', 'lib'),
-                ]
-
-                added_paths = 0
-                for path in potential_paths:
-                    if os.path.exists(path):
-                        if path not in sys.path:
-                            sys.path.insert(0, path)
-                            logger.info(f"✅ [WIN] Added path: {path}")
-                            added_paths += 1
-                        else:
-                            logger.debug(f"ℹ️ [WIN] Path already exists: {path}")
-                    else:
-                        logger.debug(f"⚠️ [WIN] Path not found: {path}")
-
-                logger.info(f"🔧 [WIN] Added {added_paths} new paths to sys.path")
-            else:
-                logger.info(f"ℹ️ [WIN] No MEIPASS found (not in PyInstaller environment)")
-
-            # 方法2: 预先导入 pywintypes 避免延迟导入问题
-            logger.info(f"🔧 [WIN] Attempting to pre-import pywintypes...")
-            try:
-                import pywintypes
-                logger.info("✅ [WIN] Successfully pre-imported pywintypes")
-            except ImportError as e:
-                logger.warning(f"⚠️ [WIN] Failed to pre-import pywintypes: {e}")
-                logger.warning(f"⚠️ [WIN] This is expected if pywintypes has path issues")
-
-            # 方法3: 修补 pywintypes 的导入检查
-            logger.info(f"🔧 [WIN] Attempting to patch pywintypes import function...")
-            try:
-                import win32.lib.pywintypes as pywintypes_module
-                logger.info(f"✅ [WIN] Successfully imported win32.lib.pywintypes for patching")
-
-                if hasattr(pywintypes_module, '__import_pywin32_system_module__'):
-                    logger.info(f"🔧 [WIN] Found __import_pywin32_system_module__, applying patch...")
-                    original_import = pywintypes_module.__import_pywin32_system_module__
-
-                    def patched_import(modname, globals_dict):
-                        logger.debug(f"🔧 [WIN-PATCH] Attempting to import {modname}")
-                        try:
-                            result = original_import(modname, globals_dict)
-                            logger.debug(f"✅ [WIN-PATCH] Successfully imported {modname} via original method")
-                            return result
-                        except ImportError as e:
-                            logger.debug(f"⚠️ [WIN-PATCH] Original import failed for {modname}: {e}")
-                            if 'frozen sys.path' in str(e):
-                                logger.debug(f"🔧 [WIN-PATCH] Detected frozen path issue, trying alternatives...")
-                                # 在 PyInstaller 环境中，尝试直接导入
-                                try:
-                                    result = __import__(modname)
-                                    logger.debug(f"✅ [WIN-PATCH] Successfully imported {modname} via __import__")
-                                    return result
-                                except ImportError as e2:
-                                    logger.debug(f"⚠️ [WIN-PATCH] __import__ also failed for {modname}: {e2}")
-                                    # 如果还是失败，返回一个虚拟模块
-                                    logger.debug(f"🔧 [WIN-PATCH] Creating dummy module for {modname}")
-                                    import types
-                                    return types.ModuleType(modname)
-                            raise
-
-                    pywintypes_module.__import_pywin32_system_module__ = patched_import
-                    logger.info("✅ [WIN] Successfully patched pywintypes import function")
-                else:
-                    logger.warning("⚠️ [WIN] __import_pywin32_system_module__ not found in pywintypes")
-
-            except ImportError as e:
-                logger.warning(f"⚠️ [WIN] pywintypes module not available for patching: {e}")
-
-            logger.info(f"✅ [WIN] Windows fixes completed")
-
-        except Exception as e:
-            logger.error(f"❌ [WIN] Windows fixes failed: {e}")
-            import traceback
-            logger.error(f"❌ [WIN] Traceback: {traceback.format_exc()}")
-
-    @staticmethod
-    def _fix_macos_issues():
-        """修复 macOS 特定问题"""
-        try:
-            # 修复 macOS 动态库路径
-            if hasattr(sys, '_MEIPASS'):
-                meipass = sys._MEIPASS
-                macos_paths = [
-                    os.path.join(meipass, 'lib'),
-                    os.path.join(meipass, 'Frameworks'),
-                    os.path.join(meipass, '.dylibs'),
-                ]
-
-                for path in macos_paths:
-                    if os.path.exists(path):
-                        # 添加到 DYLD_LIBRARY_PATH
-                        dyld_path = os.environ.get('DYLD_LIBRARY_PATH', '')
-                        if path not in dyld_path:
-                            os.environ['DYLD_LIBRARY_PATH'] = f"{path}:{dyld_path}" if dyld_path else path
-                            logger.info(f"✅ Added macOS library path: {path}")
-
-            # 修复 macOS 权限问题
-            try:
-                if hasattr(sys, '_MEIPASS'):
-                    temp_dir = sys._MEIPASS
-                    os.chmod(temp_dir, 0o755)
-                    logger.info("✅ Fixed macOS permissions")
-            except Exception as e:
-                logger.warning(f"⚠️ Permission fix failed: {e}")
-
-            # 设置 macOS 特定的环境变量
-            os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
-            logger.info("✅ Set macOS fork safety")
-
-        except Exception as e:
-            logger.error(f"❌ macOS fixes failed: {e}")
-
-    @staticmethod
-    def _fix_generic_issues():
-        """修复通用问题"""
-        try:
-            # 通用的路径修复
-            if hasattr(sys, '_MEIPASS'):
-                meipass = sys._MEIPASS
-                generic_paths = [
-                    os.path.join(meipass, 'lib'),
-                    os.path.join(meipass, 'libs'),
-                ]
-
-                for path in generic_paths:
-                    if os.path.exists(path) and path not in sys.path:
-                        sys.path.insert(0, path)
-                        logger.info(f"✅ Added generic path: {path}")
-
-            logger.info("✅ Applied generic fixes")
-
-        except Exception as e:
-            logger.error(f"❌ Generic fixes failed: {e}")
-
 class EnvironmentConfig:
     """环境配置管理器"""
 
@@ -316,72 +27,21 @@ class EnvironmentConfig:
         self.is_frozen = getattr(sys, 'frozen', False)
         self.is_development = not self.is_frozen
 
-        # 在 PyInstaller 环境中应用修复
-        if self.is_frozen:
-            PyInstallerMCPFixer.fix_platform_specific_issues()
+
 
         self._mcp_modules = None
         self._init_mcp_modules()
 
     def _init_mcp_modules(self):
         """初始化 MCP 模块"""
-        logger.info(f"🔧 [MCP] Starting MCP module initialization...")
-        logger.info(f"🔧 [MCP] Environment: {'PyInstaller' if self.is_frozen else 'Development'}")
-
         try:
-            # 逐个尝试导入 MCP 模块，记录每个模块的导入状态
-            logger.info(f"🔧 [MCP] Attempting to import agent.mcp.server.server...")
-            try:
-                from agent.mcp.server.server import (
-                    handle_sse, sse_handle_messages, meca_mcp_server,
-                    meca_sse, meca_streamable_http, handle_streamable_http,
-                    session_manager, set_server_main_win, lifespan
-                )
-                logger.info(f"✅ [MCP] Successfully imported agent.mcp.server.server")
-            except ImportError as e:
-                logger.error(f"❌ [MCP] Failed to import agent.mcp.server.server: {e}")
-                raise
-
-            logger.info(f"🔧 [MCP] Attempting to import langchain_mcp_adapters.client...")
-            try:
-                from langchain_mcp_adapters.client import MultiServerMCPClient
-                logger.info(f"✅ [MCP] Successfully imported langchain_mcp_adapters.client")
-            except ImportError as e:
-                logger.error(f"❌ [MCP] Failed to import langchain_mcp_adapters.client: {e}")
-                raise
-
-            logger.info(f"🔧 [MCP] Attempting to import langchain_mcp_adapters.tools...")
-            try:
-                from langchain_mcp_adapters.tools import load_mcp_tools
-                logger.info(f"✅ [MCP] Successfully imported langchain_mcp_adapters.tools")
-            except ImportError as e:
-                logger.error(f"❌ [MCP] Failed to import langchain_mcp_adapters.tools: {e}")
-                raise
-
-            logger.info(f"🔧 [MCP] Attempting to import mcp.client.sse...")
-            try:
-                from mcp.client.sse import sse_client
-                logger.info(f"✅ [MCP] Successfully imported mcp.client.sse")
-            except ImportError as e:
-                logger.error(f"❌ [MCP] Failed to import mcp.client.sse: {e}")
-                raise
-
-            logger.info(f"🔧 [MCP] Attempting to import mcp.client.session...")
-            try:
-                from mcp.client.session import ClientSession
-                logger.info(f"✅ [MCP] Successfully imported mcp.client.session")
-            except ImportError as e:
-                logger.error(f"❌ [MCP] Failed to import mcp.client.session: {e}")
-                raise
-
-            logger.info(f"🔧 [MCP] Attempting to import contextlib...")
-            try:
-                from contextlib import asynccontextmanager
-                logger.info(f"✅ [MCP] Successfully imported contextlib")
-            except ImportError as e:
-                logger.error(f"❌ [MCP] Failed to import contextlib: {e}")
-                raise
-
+            # 导入 MCP 模块
+            from agent.mcp.server.server import (
+                handle_sse, sse_handle_messages, meca_mcp_server,
+                meca_sse, meca_streamable_http, handle_streamable_http,
+                session_manager, set_server_main_win, lifespan
+            )
+            
             self._mcp_modules = {
                 'handle_sse': handle_sse,
                 'sse_handle_messages': sse_handle_messages,
@@ -392,55 +52,15 @@ class EnvironmentConfig:
                 'session_manager': session_manager,
                 'set_server_main_win': set_server_main_win,
                 'lifespan': lifespan,
-                'MultiServerMCPClient': MultiServerMCPClient,
-                'load_mcp_tools': load_mcp_tools,
-                'sse_client': sse_client,
-                'ClientSession': ClientSession,
-                'asynccontextmanager': asynccontextmanager,
             }
-
-            env_type = "PyInstaller (fixed)" if self.is_frozen else "Development"
-            logger.info(f"✅ [MCP] Successfully imported ALL MCP modules in {env_type} environment")
-            logger.info(f"✅ [MCP] Total modules imported: {len(self._mcp_modules)}")
+            
+            logger.info(f"✅ MCP modules imported successfully")
 
         except ImportError as e:
-            logger.error(f"❌ [MCP] Failed to import MCP modules: {e}")
-            logger.error(f"❌ [MCP] Import error type: {type(e).__name__}")
-            logger.error(f"❌ [MCP] Import error args: {e.args}")
+            logger.error(f"❌ Failed to import MCP modules: {e}")
+            self._mcp_modules = {}
 
-            # 输出详细的错误信息
-            import traceback
-            logger.error(f"❌ [MCP] Full traceback:")
-            for line in traceback.format_exc().split('\n'):
-                if line.strip():
-                    logger.error(f"❌ [MCP] {line}")
 
-            if self.is_frozen:
-                logger.error("❌ [MCP] MCP import failed in PyInstaller environment - this should not happen after fixes")
-
-                # 输出当前 sys.path 用于调试
-                import sys
-                logger.error(f"❌ [MCP] Current sys.path length: {len(sys.path)}")
-                logger.error(f"❌ [MCP] sys.frozen: {getattr(sys, 'frozen', False)}")
-                logger.error(f"❌ [MCP] sys._MEIPASS: {getattr(sys, '_MEIPASS', 'Not set')}")
-
-                # 输出前几个 sys.path 条目
-                for i, path in enumerate(sys.path[:5]):
-                    logger.error(f"❌ [MCP] sys.path[{i}]: {path}")
-
-            # 创建空的模块字典
-            self._mcp_modules = self._get_null_modules()
-            logger.warning(f"⚠️ [MCP] Using null modules as fallback")
-
-    def _get_null_modules(self):
-        """获取空模块字典"""
-        return {key: None for key in [
-            'handle_sse', 'sse_handle_messages', 'meca_mcp_server',
-            'meca_sse', 'meca_streamable_http', 'handle_streamable_http',
-            'session_manager', 'set_server_main_win', 'lifespan',
-            'MultiServerMCPClient', 'load_mcp_tools', 'sse_client',
-            'ClientSession', 'asynccontextmanager'
-        ]}
 
     def get_module(self, name):
         """获取指定模块"""
@@ -448,12 +68,7 @@ class EnvironmentConfig:
 
     def has_mcp_support(self):
         """检查是否支持 MCP 功能"""
-        # 检查关键模块是否可用
-        has_session_manager = self._mcp_modules.get('session_manager') is not None
-        has_handle_sse = self._mcp_modules.get('handle_sse') is not None
-
-        # 在开发环境或修复后的 PyInstaller 环境中都支持 MCP
-        return has_session_manager and has_handle_sse
+        return 'session_manager' in self._mcp_modules and 'handle_sse' in self._mcp_modules
 
 # 创建全局环境配置
 env_config = EnvironmentConfig()
@@ -563,6 +178,7 @@ async def sync_bots_missions(request):
         return JSONResponse({"status": "failure", "result": ex_stat}, status_code=500)
 
 async def health_check(request):
+    """Minimal health check endpoint"""
     logger.debug("health_check status returned................")
     return JSONResponse({"status": "ok"})
 
@@ -845,6 +461,9 @@ class ServerOptimizer:
             except Exception as e:
                 logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {e}")
 
+# Add the health check route to the server (replacing the existing one)
+mecaLocalServer.add_route("/healthz", health_check, methods=["GET"])
+
 def run_starlette(port=4668):
     """启动 Starlette 服务器"""
     logger.info(f"Starting Starlette server on port {port}")
@@ -908,11 +527,15 @@ def start_local_server_in_thread(mwin):
     MainWin.mcp_server = meca_mcp_server
     MainWin.sse_server = meca_sse
     port = int(MainWin.get_local_server_port())
+    
     starlette_thread = threading.Thread(target=run_starlette, args=(port,))
     MainWin.local_server_thread = starlette_thread
     starlette_thread.daemon = True  # Allows the thread to exit when the main program exits
+    
     starlette_thread.start()
     logger.info("local server kicked off....................")
+
+
 
 # if __name__ == '__main__':
 #     run_starlette()
