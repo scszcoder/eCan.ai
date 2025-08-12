@@ -1695,6 +1695,29 @@ class MainWindow(QMainWindow):
         try:
             browser = self.async_crawler.crawler_strategy.browser_manager.browser
             self.browser_session = BrowserSession(browser=browser)
+
+            # browser_profile=BrowserProfile(
+            #           executable_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+            # 	        user_data_dir='~/.config/browseruse/profiles/default',
+            # 			keep_alive=True,
+            # 			headless=False,
+            #           stealth = False,
+            #           deterministic_rendering=False,
+            #           disable_security=False,
+            #           window_size = {'width': 800, 'height': 600},  # Small size for demonstration
+            #           **playwright.devices['iPhone 13']         # or you can use a playwright device profile
+            #           device_scale_factor=1.0,                  # change to 2~3 to emulate a high-DPI display for high-res screenshots
+            #           viewport={'width': 800, 'height': 600},   # set the viewport (aka content size)
+            #           screen={'width': 800, 'height': 600},     # hardware display size to report to websites via JS
+            # 		)
+
+            # self.browser_session = BrowserSession(
+            #     browser_profile=browser_profile,
+            #     browser=browser,
+            #     browser_context=browser_context,
+            #     agent_current_page=page,
+            #     id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
+            # )
         except Exception as e:
             logger.error(f"Warning: Failed to setup browser session: {e}")
 
