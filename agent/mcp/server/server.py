@@ -81,9 +81,9 @@ def read_resource() -> dict:
 # ================= tools section ============================================
 @meca_mcp_server.list_tools()
 async def list_tools() -> list[types.Tool]:
-    print("listing tools requested.........")
+    logger.debug("listing tools requested.........")
     all_tools = get_tool_schemas()
-    print(f"# of listed mcp tools:{len(all_tools)}, {all_tools[-1]}")
+    logger.debug(f"# of listed mcp tools:{len(all_tools)}, {all_tools[-1]}")
     return all_tools
 
 
@@ -109,7 +109,7 @@ async def unified_tool_handler(tool_name, args):
             ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
-        print(ex_stat)
+        logger.error(ex_stat)
         return CallToolResult(
                     content=[TextContent(type="text", text=str(ex_stat))],
                     isError=True
@@ -363,9 +363,9 @@ async def in_browser_open_tab(mainwin, args):
             # Navigate to the new URL in the new tab
             if url:
                 web_driver.get(url)  # Replace with the new URL
-                print("open URL: " + url)
+                logger.info("open URL: " + url)
         else:
-            print('browser_use: in_browser_open_tab:', args["input"]["url"])
+            logger.info('browser_use: in_browser_open_tab:' + args["input"]["url"])
             bu_result = await browser_use_go_to_url(mainwin, args["input"]["url"])
 
         msg = f'completed openning tab and go to site:{args["input"]["url"]}.'
@@ -412,7 +412,7 @@ async def in_browser_scrape_content(mainwin, args):
         else:
             extract_links = True
             bu_result = await browser_use_extract_structured_data(mainwin, args['input']['query'], extract_links)
-            print("extracted page result: " + bu_result)
+            logger.debug("extracted page result: " + bu_result)
 
         msg = f"completed loading element by index {args['input']['index']}."
         result = [TextContent(type="text", text=msg)]
@@ -447,17 +447,17 @@ async def in_browser_build_dom_tree(mainwin, args):
         if not crawler:
             webdriver = mainwin.getWebDriver()
             script = mainwin.load_build_dom_tree_script()
-            # print("dom tree build script to be executed", script)
+            # logger.debug("dom tree build script to be executed", script)
             target = None
             domTree = execute_js_script(webdriver, script, target)
-            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-            print("obtained dom tree:", domTree)
+            logger.debug(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+            logger.debug(f"obtained dom tree: {domTree}")
             with open("domtree.json", 'w', encoding="utf-8") as dtjf:
                 json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
                 # self.rebuildHTML()
                 dtjf.close()
         else:
-            print("build dom tree....")
+            logger.debug("build dom tree....")
             # bu_result = await browser_use_build_dom_tree(mainwin)
 
         domTreeJSString = json.dumps(domTree)            # clear error
@@ -716,9 +716,9 @@ async def in_browser_multi_actions(mainwin, args):
                             except Exception:
                                 continue
                         if not found:
-                            print(f"[WARN] Could not find and select option '{option}' for '{title}'")
+                            logger.warning(f"Could not find and select option '{option}' for '{title}'")
 
-                print("All filters filled!")
+                logger.info("All filters filled!")
                 return("completed fill parametric cards")
 
         msg = "completed filling empty actions."
@@ -736,7 +736,7 @@ async def in_browser_multi_actions(mainwin, args):
 
 async def mouse_click(mainwin, args):
     try:
-        print("MOUSE CLICKINPUT:", args)
+        logger.debug(f"MOUSE CLICKINPUT: {args}")
 
         pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
         time.sleep(args["input"]["post_move_delay"])
@@ -755,7 +755,7 @@ async def mouse_click(mainwin, args):
 
 async def mouse_move(mainwin, args):
     try:
-        print("MOUSE HOVER INPUT:", args)
+        logger.debug(f"MOUSE HOVER INPUT: {args}")
         pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
         # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
         time.sleep(args["input"]["post_delay"])
@@ -851,33 +851,33 @@ def page_scroll(web_driver, mainwin):
         with open(auto_scroll_file_path, 'r') as f:
             scrolling_functions_js = f.read()
     except FileNotFoundError:
-        print("Error: auto_scroll.js not found. Please check the path.")
+        logger.error("Error: auto_scroll.js not found. Please check the path.")
         # Handle error appropriately
         exit()
 
     # 2. To scroll DOWN, append the call to scrollToPageBottom()
-    print("Starting full page scroll-down...")
+    logger.debug("Starting full page scroll-down...")
     scroll_down_command = scrolling_functions_js + "\nvar cb = arguments[arguments.length - 1]; scrollToPageBottom(cb);"
     down_scroll_count = web_driver.execute_async_script(scroll_down_command)
-    print(f"Page fully scrolled down in {down_scroll_count} steps.")
+    logger.debug(f"Page fully scrolled down in {down_scroll_count} steps.")
 
     time.sleep(1)  # A brief pause
 
     # 3. To scroll UP, append the call to scrollToPageTop() and pass arguments
-    print("Scrolling back to the top of the page...")
+    logger.debug("Scrolling back to the top of the page...")
     scroll_up_command = scrolling_functions_js + "\nvar cb = arguments[arguments.length - 1]; scrollToPageTop(arguments[0], arguments[1], cb);"
     # The arguments for the JS function are passed after the script string
     up_scroll_count = web_driver.execute_async_script(scroll_up_command, down_scroll_count, 600)
-    print(f"Scrolled back to top in {up_scroll_count} steps.")
+    logger.debug(f"Scrolled back to top in {up_scroll_count} steps.")
 
     # Now the page is ready for your buildDomTree.js script
-    print("\nPage is ready for DOM analysis.")
+    logger.debug("Page is ready for DOM analysis.")
 
 
 async def os_connect_to_adspower(mainwin, args):
     webdriver_path = mainwin.default_webdriver_path
 
-    print("initial state:", args)
+    logger.debug(f"initial state: {args}")
     try:
         url = args['input']["url"]
         # global ads_config, local_api_key, local_api_port, sk_work_settings
@@ -886,8 +886,7 @@ async def os_connect_to_adspower(mainwin, args):
         ads_chrome_version = mainwin.ads_settings.get('chrome_version', '')
         scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
         web_driver_options = ""
-        print('check_browser_and_drivers:', 'ads_port:', ads_port, 'ads_api_key:', ads_api_key, 'ads_chrome_version:',
-              ads_chrome_version)
+        logger.debug(f'check_browser_and_drivers: ads_port: {ads_port}, ads_api_key: {ads_api_key}, ads_chrome_version: {ads_chrome_version}')
         profiles = queryAdspowerProfile(ads_api_key, ads_port)
         loaded_profiles = {}
         for profile in profiles:
@@ -895,7 +894,7 @@ async def os_connect_to_adspower(mainwin, args):
 
         ads_profile_id = loaded_profiles[scraper_email]['uid']
         ads_profile_remark = loaded_profiles[scraper_email]['remark']
-        print('ads_profile_id, ads_profile_remark:', ads_profile_id, ads_profile_remark)
+        logger.debug(f'ads_profile_id, ads_profile_remark: {ads_profile_id}, {ads_profile_remark}')
 
         webdriver, result = startADSWebDriver(ads_api_key, ads_port, ads_profile_id, webdriver_path, web_driver_options)
 
@@ -910,12 +909,12 @@ async def os_connect_to_adspower(mainwin, args):
         domTree = {}
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("opened URL: " + url)
+            logger.info("opened URL: " + url)
             time.sleep(5)
             page_scroll(mainwin, webdriver)
 
             script = mainwin.load_build_dom_tree_script()
-            # print("dom tree build script to be executed", script)
+            # logger.debug("dom tree build script to be executed", script)
             target = None
             response = execute_js_script(webdriver, script, target)
             domTree = response.get("result", {})
@@ -926,26 +925,26 @@ async def os_connect_to_adspower(mainwin, args):
                 llen = len(logs)
 
             for i in range(llen):
-                print(logs[i])
+                logger.debug(logs[i])
 
             with open("domtree.json", 'w', encoding="utf-8") as dtjf:
                 json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
                 # self.rebuildHTML()
                 dtjf.close()
 
-            print("dom tree:", type(domTree), domTree.keys())
+            logger.debug(f"dom tree: {type(domTree)}, {domTree.keys()}")
             top_level_nodes = find_top_level_nodes(domTree)
-            print("top level nodes:", type(top_level_nodes), top_level_nodes)
+            logger.debug(f"top level nodes: {type(top_level_nodes)}, {top_level_nodes}")
             top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
             tls = collect_text_nodes_by_level(domTree)
-            print("level texts:", tls)
-            print("level N texts:", [len(tls[i]) for i in range(len(tls))])
+            logger.debug(f"level texts: {tls}")
+            logger.debug(f"level N texts: {[len(tls[i]) for i in range(len(tls))]}")
             for l in tls:
                 if l:
-                    print("level texts:", [domTree["map"][nid]["text"] for nid in l])
+                    logger.debug(f"level texts: {[domTree['map'][nid]['text'] for nid in l]}")
 
             sects = sectionize_dt_with_subsections(domTree)
-            print("sections:", sects)
+            logger.debug(f"sections: {sects}")
         mainwin.setWebDriver(webdriver)
         # set up output.
         msg = "completed connect to adspower."
@@ -964,7 +963,7 @@ async def os_connect_to_adspower(mainwin, args):
 async def os_connect_to_chrome(mainwin, args):
     webdriver_path = mainwin.default_webdriver_path
 
-    print("inital state:", args)
+    logger.debug(f"initial state: {args}")
     try:
         url = args["input"]["url"]
 
@@ -978,7 +977,7 @@ async def os_connect_to_chrome(mainwin, args):
         # Navigate to the new URL in the new tab
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            logger.info("open URL: " + url)
 
         mainwin.setWebDriver(webdriver)
         # set up output.
@@ -1209,31 +1208,31 @@ async def os_kill_processes(mainwin, args):
 
 # Element Interaction Actions
 async def rpa_supervisor_scheduling_work(mainwin, args) -> CallToolResult:
-    print("INPUT:", args)
+    logger.debug(f"INPUT: {args}")
     # if tool_name != "rpa_supervisor_scheduling_work":
     #     raise ValueError(f"Unexpected tool name: {tool_name}")
     global server_main_win
     try:
         # mainwin = params["agent"].mainwin
-        print(f"[MCP] Running supervisor scheduler tool... ")
-        print(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
+        logger.info("[MCP] Running supervisor scheduler tool...")
+        logger.info(f"[MCP] Running supervisor scheduler tool... Bots: {len(server_main_win.bots)}")
         schedule = server_main_win.fetchSchedule("", server_main_win.get_vehicle_settings())
-        print("MCP fetched schedule.......", schedule)
+        logger.debug(f"MCP fetched schedule: {schedule}")
         # workable = server_main_win.runTeamPrepHook(schedule)
         # works_to_be_dispatched = server_main_win.handleCloudScheduledWorks(workable)
         workable = schedule
         msg = "Here are works to be dispatched to the troops."
-        print("MCP MSG:", msg, workable)
+        logger.debug(f"MCP MSG: {msg}, workable: {workable}")
         # ctr = CallToolResult(content=[TextContent(type="text", text=msg)], _meta=workable, isError=False)
         ctr = CallToolResult(content=[TextContent(type="text", text=msg)])
-        print("ABOUT TO return call tool result", type(ctr), ctr)
-        print("ABOUT CTR Type", ctr.model_dump(by_alias=True, exclude_none=True, mode="json"))
+        logger.debug(f"About to return call tool result, type: {type(ctr)}, ctr: {ctr}")
+        logger.debug(f"CTR Type: {ctr.model_dump(by_alias=True, exclude_none=True, mode='json')}")
         tool_result =  {
             "content": [{"type": "text", "text": msg}],
             # "meta": workable,
             "isError": False
         }
-        print("[DEBUG] Returning result:", json.dumps(tool_result, indent=2))
+        logger.debug(f"Returning result: {json.dumps(tool_result, indent=2)}")
         # return ctr.model_dump(by_alias=True, exclude_none=True, mode="json", round_trip=False)
         msg = "completed rpa supervisor scheduling work"
         result = [TextContent(type="text", text=msg)]
@@ -1485,17 +1484,17 @@ async def lifespan(app: Starlette) -> AsyncIterator[None]:
         logger.info("Application shutting down...")
 
 # async def handle_sse(scope, receive, send):
-#     print(">>> sse connected")
+#     logger.debug(">>> sse connected")
 #     async with meca_sse.connect_sse(scope, receive, send) as streams:
-#         print("handling meca_mcp_server.run", streams)
+#         logger.debug("handling meca_mcp_server.run", streams)
 #         await meca_mcp_server.run(streams[0], streams[1], meca_mcp_server.create_initialization_options())
 
 async def handle_sse(scope, receive, send):
-    print(">>> sse connected")
+    logger.debug(">>> sse connected")
     async with meca_sse.connect_sse(scope, receive, send) as (read_stream, write_stream, is_new):
         # Start MCP server only on the very first GET (= new session)
         if is_new:
-            print("handling meca_mcp_server.run", read_stream, write_stream)
+            logger.debug(f"handling meca_mcp_server.run {read_stream} {write_stream}")
             await meca_mcp_server.run(
                 read_stream,
                 write_stream,
@@ -1503,5 +1502,5 @@ async def handle_sse(scope, receive, send):
             )
 
 async def sse_handle_messages(scope, receive, send):
-    print(">>> sse handle messages connected")
+    logger.debug(">>> sse handle messages connected")
     await meca_sse.handle_post_message(scope, receive, send)
