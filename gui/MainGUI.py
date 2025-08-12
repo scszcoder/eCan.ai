@@ -350,9 +350,8 @@ class MainWindow(QMainWindow):
         # self.newGui = BrowserWindow(self)
         # self.newGui.hide()  # 确保窗口在后台创建，不显示
         # logger.info("newGui init done....")
-        self.lightrag_server = LightragServer(extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"})
-        self.lightrag_server.start()
-        logger.info("lightrag_server init done....")
+        # 由登录成功后再启动 LightRAG；此处仅占位
+        self.lightrag_server = None
         self.trainNewSkillWin = None
         self.reminderWin = None
         self.platoonWin = None
