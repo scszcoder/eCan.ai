@@ -31,3 +31,5 @@ gui_v2/coverage/
 .vscode/
 .DS_Store
 /ota/dependencies/
+/third_party/
+/third_party/ms-playwright/

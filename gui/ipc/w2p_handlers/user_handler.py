@@ -44,7 +44,8 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
         ctx = AppContext()
         login: Login = ctx.login
         result = login.handleLogin(username, password, machine_role)
-        # 简单的密码验证
+        
+        # 处理不同的登录结果
         if result == 'Successful':
             # 生成随机令牌
             token = str(uuid.uuid4()).replace('-', '')
@@ -53,8 +54,22 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
                 'token': token,
                 'message': 'Login successful'
             })
+        elif result == 'NetworkError':
+            logger.error(f"Network error during login for user: {username}")
+            return create_error_response(
+                request,
+                'NETWORK_ERROR',
+                'Network connection failed. Please check your internet connection and try again.'
+            )
+        elif result == 'TimeoutError':
+            logger.error(f"Authentication timeout for user: {username}")
+            return create_error_response(
+                request,
+                'TIMEOUT_ERROR',
+                'Authentication request timed out. Please try again or check your network connection.'
+            )
         else:
-            logger.warning(f"Invalid password for user: {username}")
+            logger.warning(f"Invalid credentials for user: {username}")
             return create_error_response(
                 request,
                 'INVALID_CREDENTIALS',

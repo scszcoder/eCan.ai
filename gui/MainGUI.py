@@ -99,6 +99,7 @@ from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
 from agent.ec_skill import *
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
+from agent.playwright import get_playwright_manager 
 from agent.ec_agents.build_agents import *
 import concurrent.futures
 from agent.mcp.sse_manager import SSEManager
@@ -1699,8 +1700,24 @@ class MainWindow(QMainWindow):
             logger.error(f"Warning: Failed to setup browser session: {e}")
 
     def setupBrowserUseController(self):
-        display_files_in_done_text = True
-        self.browser_use_controller = BrowserUseController(display_files_in_done_text=display_files_in_done_text)
+        """设置 BrowserUseController，并在需要时初始化 Playwright"""
+        try:
+            # 延迟初始化 Playwright           
+            playwright_manager = get_playwright_manager()
+            
+            # 检查是否需要初始化
+            if not playwright_manager.is_initialized():
+                logger.debug("🔧 初始化 Playwright 浏览器（BrowserUse 需要）...")
+                if playwright_manager.lazy_init():
+                    logger.debug("✅ Playwright 浏览器初始化成功")
+                else:
+                    logger.warning("⚠️  Playwright 浏览器初始化失败，BrowserUse 功能可能不可用")
+            
+            display_files_in_done_text = True
+            self.browser_use_controller = BrowserUseController(display_files_in_done_text=display_files_in_done_text)
+            
+        except Exception as e:
+            logger.error(f"⚠️  BrowserUseController 设置失败: {e}")
 
     def getBrowserSession(self):
         return self.browser_session
