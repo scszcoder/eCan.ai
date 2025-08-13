@@ -37,6 +37,7 @@ class UnifiedBrowserManager:
         # 配置
         self._crawler_config = None
         self._file_system_path = None
+
         
     def initialize(self, crawler_config: Optional[Dict] = None, file_system_path: Optional[str] = None) -> bool:
         """初始化统一浏览器管理器"""
@@ -55,9 +56,10 @@ class UnifiedBrowserManager:
 
                 self._setup_crawler_config(crawler_config)
                 self._file_system_path = file_system_path
-                
+
                 self._initialized = True
                 self._initialization_error = None
+                temp = self.get_browser_session()
                 logger.info("✅ 统一浏览器管理器初始化成功")
                 return True
                 

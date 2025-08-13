@@ -617,7 +617,7 @@ def create_ec_self_tester_chat_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "eCan.ai self test chatter"), None)
+    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai self test"), None)
     chatter_task = next((task for task in agent_tasks if task.name == "eCan.ai Self Test Chatter Task"), None)
 
     if not chatter_task:
@@ -682,7 +682,7 @@ def create_ec_self_tester_work_task(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule",
+            trigger="message",
             schedule=task_schedule
         )
     return worker_task
