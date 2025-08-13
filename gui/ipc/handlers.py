@@ -73,6 +73,10 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
 
         skills = login.main_win.agent_skills
         vehicles = login.main_win.vehicles
+        organizations = login.main_win.organizations
+        titles = login.main_win.titles
+        ranks = login.main_win.ranks
+        personalities = login.main_win.personalities
         settings = login.main_win.general_settings
         # knowledges = login.main_win.knowledges
         # chats = login.main_win.chats
