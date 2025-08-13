@@ -1,5 +1,5 @@
-def init_search_parts_chatter_skill(agent, msg, file_names=[]):
-    print("init_search_parts_chatter_skill", type(msg), msg)  # msg.params.message[0].text
+def init_self_test_chatter_skill(agent, msg, file_names=[]):
+    print("init_self_test_chatter_skill", type(msg), msg)  # msg.params.message[0].text
     # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
     msg_parts = msg.params.message.parts
     attachments = []

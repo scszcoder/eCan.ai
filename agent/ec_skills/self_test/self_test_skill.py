@@ -103,8 +103,7 @@ async def create_self_test_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_skill = EC_Skill(name="ecan.ai search parts and components web site",
-                             description="help search part/components.")
+        searcher_skill = EC_Skill(name="ecan.ai self test", description="run eCan.ai self test.")
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")

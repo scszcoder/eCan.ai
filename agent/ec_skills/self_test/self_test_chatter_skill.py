@@ -256,8 +256,8 @@ async def create_self_test_chatter_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_chatter_skill = EC_Skill(name="chatter for ecan.ai search parts and components web site",
-                             description="chat with human or other agents to help search a part/component or a product on 1688 website.")
+        searcher_chatter_skill = EC_Skill(name="chatter for ecan.ai self test",
+                             description="chat with human or other agents to run self test.")
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
