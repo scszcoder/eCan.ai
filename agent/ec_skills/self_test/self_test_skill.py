@@ -10,10 +10,75 @@ from utils.logger_helper import get_agent_by_id, get_traceback
 from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.search_parts.search_parts_testdata import SEARCH_PARTS_RESULTS
 import re
+import sys, asyncio
 from agent.ec_skills.search_parts.decision_utils import *
 
 
+def test0_node(state: NodeState) -> NodeState:
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    if agent is None:
+        state["error"] = "Agent not ready"
+        return state
+    mainwin = agent.mainwin
+    print("test0_node started.....")
+    try:
+        print("test mcp call tool:", type(state), state)
 
+        # 安全地获取或创建事件循环
+        # try:
+        #     loop = asyncio.get_event_loop()
+        # except RuntimeError:
+        #     loop = asyncio.new_event_loop()
+        #     asyncio.set_event_loop(loop)
+        loop = ensure_playwright_loop()
+
+        # 调用工具
+        tool_result = loop.run_until_complete(
+            mcp_call_tool("say_hello", {"input": "say some"})
+        )
+
+        print("go_to_site_node tool completed:", type(tool_result), tool_result)
+
+        # 安全地处理结果
+        if isinstance(tool_result, dict):
+            # 如果返回的是字典
+            if "content" in tool_result and len(tool_result["content"]) > 0:
+                content_text = tool_result["content"][0].get("text", "")
+                if "completed" in content_text:
+                    state["result"] = content_text
+                    state["tool_result"] = tool_result.get("meta", None)
+                else:
+                    state["error"] = content_text
+            else:
+                state["error"] = f"Invalid tool result format: {tool_result}"
+        else:
+            # 如果返回的是对象
+            if hasattr(tool_result, 'content') and len(tool_result.content) > 0:
+                if "completed" in tool_result.content[0].text:
+                    state["result"] = tool_result.content[0].text
+                    state["tool_result"] = getattr(tool_result, 'meta', None)
+                else:
+                    state["error"] = tool_result.content[0].text
+            else:
+                state["error"] = f"Invalid tool result object: {tool_result}"
+
+        return state
+
+    except Exception as e:
+        state["error"] = get_traceback(e, "ErrorTest0Node")
+        logger.debug(state["error"])
+        return state
+
+
+def ensure_playwright_loop():
+    # Always create a brand-new loop in this worker thread
+    if sys.platform.startswith("win"):
+        loop = asyncio.ProactorEventLoop()
+    else:
+        loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop
 
 def test1_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
@@ -24,9 +89,7 @@ def test1_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     try:
         print("about to run playwright:", type(state), state)
-
-        mainwin.start_playwright()
-        # 安全地获取或创建事件循环
+        bs = mainwin.unified_browser_manager.get_browser_session()
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
@@ -34,11 +97,15 @@ def test1_node(state: NodeState) -> NodeState:
             asyncio.set_event_loop(loop)
 
         # 调用工具
-        run_result = loop.run_until_complete(
-            mcp_call_tool("in_browser_open_tab", {"input": state["tool_input"]})
+        bs_result = loop.run_until_complete(
+            bs.start()
+        )
+        print("URL:", state["tool_input"])
+        bs_result = loop.run_until_complete(
+            bs.new_tab(f'{state["tool_input"]["url"]}')
         )
 
-        print("test1_node completed:", type(run_result), run_result)
+        print("test1_node completed:", bs_result)
 
         # 安全地处理结果
 
@@ -97,11 +164,11 @@ async def create_self_test_skill(mainwin):
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
         workflow = StateGraph(NodeState)
+        workflow.add_node("test0", test0_node)
+        workflow.set_entry_point("test0")
         workflow.add_node("test1", test1_node)
-        workflow.set_entry_point("test1")
-        # workflow.add_node("goto_site", goto_site)
-
         workflow.add_node("test2", test2_node)
+        workflow.add_edge("test0", "test1")
         workflow.add_edge("test1", "test2")
 
         workflow.add_edge("test2", END)

@@ -74,7 +74,9 @@ class TaskSchedule(BaseModel):
 
 
 class ManagedTask(Task):
-    skill: EC_Skill
+    # Use Any to avoid strict Pydantic model_type validation between AgentSkill/EC_Skill instances
+    # We only access properties (e.g., name) and never rely on Pydantic validation for this field.
+    skill: Any
     state: dict
     name: str
     resume_from: Optional[str] = None

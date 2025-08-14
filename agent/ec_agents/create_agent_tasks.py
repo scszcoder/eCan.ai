@@ -1,6 +1,6 @@
 from agent.ec_skill import *
 from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
-from agent.a2a.common.types import TaskStatus, TaskState
+from agent.tasks import TaskStatus, TaskState
 
 from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.tasks import Repeat_Types
@@ -662,8 +662,8 @@ def create_ec_self_tester_work_task(mainwin):
             repeat_type=Repeat_Types.BY_DAYS,
             repeat_number=1,
             repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
+            start_date_time="2025-03-31 01:59:59:000",
+            end_date_time="2035-12-31 01:59:59:000",
             time_out=120  # seconds.
         )
 
@@ -682,7 +682,7 @@ def create_ec_self_tester_work_task(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="message",
+            trigger="schedule",
             schedule=task_schedule
         )
     return worker_task
