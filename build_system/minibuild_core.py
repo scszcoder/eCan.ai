@@ -181,9 +181,7 @@ class MiniSpecBuilder:
         spec_lines.append("from pathlib import Path")
         spec_lines.append("project_root = Path(r'" + str(self.project_root) + "')")
         spec_lines.append("")
-        # Ensure macOS avoids framework symlink collisions during COLLECT
         spec_lines.append("import os as _os, sys as _sys")
-        spec_lines.append("if _sys.platform == 'darwin': _os.environ['PYINSTALLER_AVOID_SYMLINKS'] = '1'")
         spec_lines.append("")
         spec_lines.append("data_files = []")
         spec_lines.append("binaries = []")
@@ -266,11 +264,6 @@ class MiniSpecBuilder:
         spec_lines.append("    print(f'[SPEC] Moved {len(excluded_binaries)} Playwright browser executables from binaries to datas')")
         spec_lines.append("")
         
-        # 添加文件冲突处理
-        spec_lines.append("# Handle file conflicts in Playwright package")
-        spec_lines.append("import os")
-        spec_lines.append("os.environ['PYINSTALLER_AVOID_SYMLINKS'] = '1'")
-        spec_lines.append("os.environ['PYINSTALLER_AVOID_DUPLICATES'] = '1'")
         spec_lines.append("")
         spec_lines.append("# Remove duplicate data files to prevent conflicts")
         spec_lines.append("seen_datas = set()")
@@ -362,15 +355,6 @@ class MiniSpecBuilder:
             spec_lines.append("")
             # macOS app bundle wrapper
             spec_lines.append("if _sys.platform == 'darwin':")
-            spec_lines.append("    # macOS symlink conflict prevention")
-            spec_lines.append("    import os, pathlib")
-            spec_lines.append("    os.environ['PYINSTALLER_AVOID_SYMLINKS'] = '1'")
-            spec_lines.append("    # Workaround: remove pre-existing 'Versions/Current' if it exists to avoid FileExistsError")
-            spec_lines.append("    curr = pathlib.Path(distpath) / '{app_name}' / '_internal' / 'Chromium Framework.framework' / 'Versions' / 'Current'".format(app_name=app_name))
-            spec_lines.append("    try:")
-            spec_lines.append("        if curr.exists() or curr.is_symlink(): curr.unlink()")
-            spec_lines.append("    except Exception as _e:")
-            spec_lines.append("        print(f'[SPEC] Warning removing existing Versions/Current: {_e}')")
             spec_lines.append("    app = BUNDLE(")
             spec_lines.append("        coll,")
             spec_lines.append(f"        name='{app_name}.app',")
