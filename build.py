@@ -12,6 +12,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
+from typing import Tuple
 
 # Import pre-build check module
 try:
@@ -220,6 +221,37 @@ def _prepare_playwright_assets() -> None:
 
 
 
+def _validate_macos_framework_symlinks(dist_dir: Path) -> Tuple[bool, int, int]:
+    """Validate that macOS .framework leaf directories are symlinks.
+    Returns (ok, checked_frameworks, fixed_issues_count)
+    """
+    if sys.platform != "darwin":
+        return True, 0, 0
+    checked = 0
+    issues = 0
+    try:
+        # Search any .framework under the dist directory
+        for fw in dist_dir.rglob("*.framework"):
+            if not fw.is_dir():
+                continue
+            checked += 1
+            versions_current = fw / "Versions" / "Current"
+            for leaf in ("Headers", "Resources", "Modules", "Helpers"):
+                leaf_path = fw / leaf
+                if leaf_path.exists() and not leaf_path.is_symlink():
+                    issues += 1
+                    print(f"[VERIFY] ERROR: Framework leaf is not a symlink: {leaf_path}")
+                # If leaf exists (symlink or not), verify target exists
+                target = versions_current / leaf
+                if leaf_path.exists() and not target.exists():
+                    issues += 1
+                    print(f"[VERIFY] ERROR: Framework leaf target missing: {target}")
+        return issues == 0, checked, issues
+    except Exception as e:
+        print(f"[VERIFY] ERROR during symlink validation: {e}")
+        return False, checked, issues or 1
+
+
 
 
 
@@ -240,13 +272,12 @@ Build mode description:
   prod     Production build (parallel+best compression, 15-25 minutes)
 
 Usage examples:
-  python build.py fast              # Fast build (Playwright browsers installed at runtime)
-  python build.py dev               # Development build (Playwright browsers installed at runtime)
-  python build.py prod              # Production build (Playwright browsers installed at runtime)
+  python build.py fast              # Fast build
+  python build.py dev               # Development build
+  python build.py prod              # Production build
   python build.py prod --version 2.1.0  # Build with specified version
   python build.py fast --skip-frontend  # Fast build skipping frontend
   python build.py prod --skip-installer # Skip installer creation
-  python build.py prod --skip-playwright # Skip Playwright browser download (same as default)
 """,
     )
 
@@ -296,11 +327,7 @@ Usage examples:
         action="store_true",
         help="Verify Sparkle/winSparkle installation before build"
     )
-    parser.add_argument(
-        "--skip-playwright",
-        action="store_true",
-        help="Skip downloading Playwright browsers (default: browsers not included in build, installed at runtime)"
-    )
+    # Always include Playwright browsers in the package
     parser.add_argument(
         "--skip-precheck",
         action="store_true",
@@ -389,7 +416,7 @@ Usage examples:
         installer = InstallerBuilder(cfg, env, Path.cwd(), mode=build_mode)
         minispec = MiniSpecBuilder()
 
-        # Prepare Playwright browsers for packaging
+        # Prepare Playwright browsers for packaging (always)
         print("[PLAYWRIGHT] Preparing Playwright browsers for packaging...")
         _t_pw_start = time.perf_counter()
         _prepare_playwright_assets()
@@ -445,6 +472,15 @@ Usage examples:
         if not success:
             print("\n[ERROR] Build failed!")
             return 1
+
+        # Post-build macOS symlink validation
+        if sys.platform == "darwin":
+            dist_root = Path.cwd() / "dist"
+            ok_syms, fw_count, issue_count = _validate_macos_framework_symlinks(dist_root)
+            print(f"[VERIFY] macOS frameworks checked: {fw_count}, issues: {issue_count}")
+            if not ok_syms:
+                print("[ERROR] Symlink validation failed. See errors above.")
+                return 1
 
         print("\n" + "=" * 60)
         print("[SUCCESS] Build completed successfully!")
