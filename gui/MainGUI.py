@@ -10,6 +10,7 @@ from knowledge.lightrag_server import LightragServer
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
 from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
+from agent.mcp.config import mcp_http_base, mcp_sse_url
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -1262,7 +1263,7 @@ class MainWindow(QMainWindow):
             local_server_port = self.get_local_server_port()
 
             # 简化的服务器连接逻辑
-            server_timeout = 30  # 合理的超时时间
+            server_timeout = 60  # 给 PyInstaller 首次解包更充裕的时间
             logger.info(f"Waiting for local server on port {local_server_port} (timeout: {server_timeout}s)")
 
             try:
@@ -1283,8 +1284,8 @@ class MainWindow(QMainWindow):
             # result = await self.initialize_mcp()
             # print("initialize_mcp.....result:", result)
             # self.mcp_client = await create_mcp_client()
-            url = "http://127.0.0.1:4668/sse/"
-            url = "http://127.0.0.1:4668/mcp/"
+            url = mcp_http_base()  # streamable HTTP base (no trailing slash)
+            # sse_url = mcp_sse_url()  # if using SSE
             # self.mcp_client_manager = Streamable_HTTP_Manager(url)
             # self.mcp_client = await self.mcp_client_manager.session()
             # self.mcp_client = await SSEManager.get(url).session()

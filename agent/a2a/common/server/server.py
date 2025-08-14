@@ -58,7 +58,7 @@ class A2AServer:
         import uvicorn, traceback
 
         try:
-            config = uvicorn.Config(self.app, host=self.host or '127.0.0.1', port=self.port, log_level="info")
+            config = uvicorn.Config(self.app, host=self.host or '127.0.0.1', port=self.port, log_level="info", log_config=None)
             server = uvicorn.Server(config)
             if hasattr(server, "install_signal_handlers"):
                 server.install_signal_handlers = False
