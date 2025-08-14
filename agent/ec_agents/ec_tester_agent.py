@@ -26,16 +26,22 @@ def set_up_ec_tester_agent(mainwin):
         agent_skills = mainwin.agent_skills
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-        worker_skill = next((sk for sk in agent_skills if "self test" in sk.name), None)
+        worker_skill = next((sk for sk in agent_skills if sk and "self test" in sk.name.lower()), None)
         if worker_skill:
-            logger.info("ec_procurement skill:", worker_skill.name)
+            logger.info("ec_tester worker skill:", worker_skill.name)
         else:
-            logger.error("ec_procurement skill not found!")
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai self test"),None)
+            logger.error("ec_tester worker skill not found! Make sure 'eCan.ai self test' skill is built.")
+        chatter_skill = next((sk for sk in agent_skills if sk and sk.name == "chatter for ecan.ai self test"), None)
         if chatter_skill:
-            logger.info("ec_procurement chatter skill:", chatter_skill.name)
+            logger.info("ec_tester chatter skill:", chatter_skill.name)
         else:
-            logger.error("ec_procurement chatter skill not found!")
+            logger.error("ec_tester chatter skill not found! Make sure 'chatter for ecan.ai self test' is built.")
+
+        # Ensure we have at least one valid skill; otherwise abort setup gracefully
+        skills_for_card = [s for s in [worker_skill, chatter_skill] if s is not None]
+        if not skills_for_card:
+            logger.error("ec_tester_agent setup aborted: no valid skills available.")
+            return None
 
         agent_card = AgentCard(
             name="Self Tester Agent",
@@ -47,14 +53,22 @@ def set_up_ec_tester_agent(mainwin):
             capabilities=capabilities,
             organization="research and development",
             title = "test engineer",
-            skills=[worker_skill, chatter_skill],
+            skills=skills_for_card,
         )
         logger.info("ec_tester agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_self_tester_chat_task(mainwin)
         worker_task = create_ec_self_tester_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[chatter_task, worker_task])
+        produrement_agent = EC_Agent(
+            mainwin=mainwin,
+            skill_llm=llm,
+            llm=browser_use_llm,
+            task="",
+            card=agent_card,
+            skill_set=skills_for_card,
+            tasks=[t for t in [chatter_task, worker_task] if t is not None]
+        )
 
     except Exception as e:
         # Get the traceback information

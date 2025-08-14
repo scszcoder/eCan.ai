@@ -29,4 +29,14 @@ SKILL_INIT_TABLE = {
 
 def init_skills_run(skillName, agent, msg=None):
     print("skill name:", skillName)
-    return SKILL_INIT_TABLE[skillName](agent, msg)
+    # Try exact match first
+    if skillName in SKILL_INIT_TABLE:
+        return SKILL_INIT_TABLE[skillName](agent, msg)
+    # Fallback to case-insensitive lookup
+    lower_map = {k.lower(): v for k, v in SKILL_INIT_TABLE.items()}
+    key_lower = skillName.lower() if isinstance(skillName, str) else skillName
+    if key_lower in lower_map:
+        return lower_map[key_lower](agent, msg)
+    # Not found: raise informative error listing available keys
+    available = ", ".join(sorted(SKILL_INIT_TABLE.keys()))
+    raise KeyError(f"Skill initializer not found for '{skillName}'. Available: {available}")
