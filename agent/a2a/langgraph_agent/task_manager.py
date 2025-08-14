@@ -35,7 +35,7 @@ from starlette.responses import JSONResponse
 from datetime import datetime
 import json
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 
 class AgentTaskManager(InMemoryTaskManager):

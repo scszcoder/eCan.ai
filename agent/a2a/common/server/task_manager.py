@@ -33,9 +33,8 @@ from agent.a2a.common.types import (
 )
 from agent.a2a.common.server.utils import new_not_implemented_error
 import asyncio
-import logging
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 class TaskManager(ABC):
     @abstractmethod

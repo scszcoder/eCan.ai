@@ -2,6 +2,8 @@
 import traceback
 import socket
 
+from utils.logger_helper import logger_helper as logger
+
 def get_lan_ip():
     try:
         # Connect to an external address, but don't actually send anything
@@ -17,12 +19,12 @@ def get_a2a_server_url(mainwin):
     try:
         host = get_lan_ip()
         free_ports = mainwin.get_free_agent_ports(1)
-        print("getting a2a  serer ports:", host, free_ports)
+        logger.debug("getting a2a  serer ports:", host, free_ports)
         if not free_ports:
             return None
         a2a_server_port = free_ports[0]
         url=f"http://{host}:{a2a_server_port}"
-        print("a2a server url:", url)
+        logger.debug("a2a server url:", url)
 
     except Exception as e:
         # Get the traceback information
@@ -33,6 +35,7 @@ def get_a2a_server_url(mainwin):
         else:
             ex_stat = "ErrorGetA2AServerURL: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return ""
     return url
 
