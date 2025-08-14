@@ -213,14 +213,14 @@ jobs:
     - name: Build Windows EXE
       run: |
         echo "=== Starting Windows Build ==="
-        echo "Command: python build.py prod --force"
+        echo "Command: python build.py prod"
         
         # Set environment variables
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
         
         # Run build with detailed output (including Sparkle support)
-        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
         
         # 导出/规范命名产物到 dist 根目录（避免跨目录 Rename-Item 报错）
         $srcExe = "dist/eCan/eCan.exe"
@@ -429,14 +429,14 @@ jobs:
     - name: Build macOS App
       run: |
         echo "=== Starting macOS Build ==="
-        echo "Command: python build.py prod --force"
+        echo "Command: python build.py prod"
         
         # Set environment variables
         export PYTHONPATH="$PWD"
         export PYTHONUNBUFFERED=1
         
         # Run build with detailed output (including Sparkle support)
-        python build.py prod --force --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
         
         # 规范产物命名（适配新版 InstallerBuilder 输出 eCan-${{ needs.validate-tag.outputs.version }}.pkg）
         if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
