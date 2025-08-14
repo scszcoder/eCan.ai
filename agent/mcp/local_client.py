@@ -5,6 +5,7 @@ import httpx
 import json
 
 from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse, handle_streamable_http, lifespan
+from agent.mcp.config import mcp_http_base, mcp_sse_url
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp.client.sse import sse_client
@@ -19,7 +20,7 @@ async def create_mcp_client():
             {
                 "E-Commerce Agents Service": {
                     # make sure you start your weather server on port 8000
-                    "url": "http://localhost:4668/sse/",
+                    "url": mcp_sse_url(),
                     "transport": "sse",
                 }
             }
@@ -62,14 +63,14 @@ async def create_mcp_client():
         # Depending on your needs, you might re-raise the exception or return None
         raise
     # await mcp_client.__aenter__()
-    # await mcp_client.connect_to_server_via_sse("http://localhost:4668/sse/")
+    # await mcp_client.connect_to_server_via_sse("http://127.0.0.1:4668/sse")
     # async with mcp_client.session("E-Commerce Agents Service") as session:
     #     tools = await load_mcp_tools(session)
     #     print("mcp client created................")
     # return mcp_client
 @asynccontextmanager
 async def create_sse_client():
-    async with sse_client("http://localhost:4668/sse/") as (read_stream, write_stream):
+    async with sse_client(mcp_sse_url()) as (read_stream, write_stream):
         # Add debug prints to check stream types
         print(f"Read stream type: {type(read_stream).__name__}")  # Should be MemoryObjectReceiveStream
         print(f"Write stream type: {type(write_stream).__name__}")  # Should be MemoryObjectSendStream
@@ -85,7 +86,7 @@ async def create_sse_client():
 
 @asynccontextmanager
 async def create_streamable_http_client(url):
-    # "http://localhost:4668/mcp/"
+    # mcp_http_base()
     async with streamablehttp_client(url) as (read_stream, write_stream):
         # Add debug prints to check stream types
         print(f"Read stream type: {type(read_stream).__name__}")  # Should be MemoryObjectReceiveStream
@@ -105,7 +106,7 @@ async def local_mcp_list_tools(url):
     获取MCP工具列表
 
     Args:
-        url: MCP服务器URL，例如 "http://localhost:4668/mcp/"
+        url: MCP服务器URL，例如 mcp_http_base()
 
     Returns:
         ListToolsResult对象，包含tools属性
@@ -142,7 +143,7 @@ async def local_mcp_list_tools(url):
         raise
 
 async def local_mcp_call_tool(url, tool_name, arguments):
-    # "http://localhost:4668/mcp/"
+    # mcp_http_base()
     result = {}
     async with streamablehttp_client(url) as streams:
         async with ClientSession(streams[0], streams[1]) as session:
@@ -159,7 +160,7 @@ async def mcp_call_tool(tool_name, args):
     try:
         # Call the tool and get the raw response
         # response = await mcp_client.call_tool(tool_name, args)
-        url = "http://localhost:4668/mcp/"
+        url = mcp_http_base()
         response = await local_mcp_call_tool(url,tool_name, args)
         print(f"Raw response type: {type(response)}")
         print(f"Raw response Err: {response.isError}   {response.content[0].text}")
