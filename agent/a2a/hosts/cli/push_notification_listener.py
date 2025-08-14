@@ -44,7 +44,7 @@ class PushNotificationListener():
             "/notify", self.handle_validation_check, methods=["GET"]
         )
         
-        config = uvicorn.Config(self.app, host=self.host or '127.0.0.1', port=self.port, log_level="critical")
+        config = uvicorn.Config(self.app, host=self.host or '127.0.0.1', port=self.port, log_level="critical", log_config=None)
         self.server = uvicorn.Server(config)
         # In non-main threads, avoid installing signal handlers
         if hasattr(self.server, "install_signal_handlers"):

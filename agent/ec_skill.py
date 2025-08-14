@@ -34,8 +34,12 @@ import time
 import httpx
 import asyncio
 import requests
+import socket
+from urllib.parse import urlparse
+
 import operator
 from utils.logger_helper import logger_helper as logger
+from agent.mcp.config import mcp_messages_url
 
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
@@ -121,99 +125,80 @@ class EC_Skill(AgentSkill):
 
 
 
-async def wait_until_server_ready(url: str, timeout=5):
+async def wait_until_server_ready(url: str, timeout=30):
     """
-    等待服务器就绪，优化了PyInstaller环境下的超时处理
-    必须等待完成，因为后续逻辑依赖于服务器就绪状态
-
-    Args:
-        url: 服务器健康检查URL
-        timeout: 超时时间（秒）
-
-    Returns:
-        True: 服务器就绪
-
-    Raises:
-        RuntimeError: 超时或服务器不可用
+    更稳健的服务器就绪等待：
+    1) 先等待 TCP 端口进入监听状态；
+    2) 再轮询 /healthz；
+    仅使用 httpx 的超时，不再叠加 asyncio.wait_for；复用连接池。
     """
-
-    deadline = time.time() + timeout
+    deadline = time.time() + float(timeout)
     last_error = None
-    attempt_count = 0
 
     logger.info(f"Waiting for server ready at {url}, timeout: {timeout}s")
 
+    # 解析 URL 获取主机和端口（用于 TCP 探测）
+    parsed = urlparse(url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if (parsed.scheme or "http") == "https" else 80)
+
+    # 第一阶段：端口监听探测（快速轮询，避免首启盲等 HTTP）
+    port_attempts = 0
     while time.time() < deadline:
-        attempt_count += 1
-        remaining_time = deadline - time.time()
-
-        if remaining_time <= 0:
-            break
-
+        port_attempts += 1
         try:
-            # 简化的超时设置
-            request_timeout = min(3.0, max(1.0, remaining_time))
+            with socket.create_connection((host, port), timeout=1.0) as s:
+                s.close()
+                logger.debug(f"TCP {host}:{port} is listening (after {port_attempts} attempts)")
+                break
+        except OSError as e:
+            last_error = f"TCP connect failed: {e}"
+        await asyncio.sleep(0.3)
+    else:
+        error_msg = f"Server port not listening at {host}:{port} within {timeout}s. Last error: {last_error}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
-            # 使用异步客户端，设置明确的超时配置
-            timeout_config = httpx.Timeout(
-                connect=2.0,  # 连接超时
-                read=request_timeout,  # 读取超时
-                write=1.0,    # 写入超时
-                pool=1.0      # 连接池超时
-            )
-
-            async with httpx.AsyncClient(timeout=timeout_config) as client:
-                logger.debug(f"Attempt {attempt_count}: checking {url} (timeout: {request_timeout:.1f}s)")
-
-                # 使用asyncio.wait_for作为额外的超时保护
-                response = await asyncio.wait_for(
-                    client.get(url),
-                    timeout=request_timeout
-                )
-
-                if response.status_code == 200:
-                    logger.info(f"Server ready at {url} after {attempt_count} attempts")
+    # 第二阶段：HTTP 健康检查（复用客户端 + 单层超时）
+    http_attempts = 0
+    # 初始超时配置；后续根据剩余时间适当收敛
+    timeout_cfg = httpx.Timeout(connect=2.0, read=2.5, write=1.0, pool=1.0)
+    async with httpx.AsyncClient(timeout=timeout_cfg, trust_env=False) as client:
+        while time.time() < deadline:
+            http_attempts += 1
+            remaining = max(0.5, deadline - time.time())
+            # 动态调整读取超时，但不超过 3s
+            client.timeout = httpx.Timeout(connect=2.0, read=min(3.0, remaining), write=1.0, pool=1.0)
+            try:
+                logger.debug(f"Attempt {http_attempts}: checking {url} (read timeout: {client.timeout.read:.1f}s)")
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    logger.info(f"Server ready at {url} after {http_attempts} attempts")
                     return True
                 else:
-                    last_error = f"HTTP {response.status_code}"
-                    logger.debug(f"Server returned status {response.status_code}")
+                    last_error = f"HTTP {resp.status_code}"
+                    logger.debug(f"Server returned status {resp.status_code}")
+            except httpx.TimeoutException as e:
+                last_error = f"HTTPX timeout: {e}"
+                logger.debug(f"Attempt {http_attempts}: httpx timeout")
+            except httpx.ConnectError as e:
+                last_error = f"Connection error: {e}"
+                logger.debug(f"Attempt {http_attempts}: connection failed - {e}")
+            except httpx.HTTPError as e:
+                last_error = f"HTTP error: {e}"
+                logger.debug(f"Attempt {http_attempts}: HTTP error - {e}")
+            except Exception as e:
+                last_error = f"Unexpected error: {e}"
+                logger.debug(f"Attempt {http_attempts}: unexpected error - {e}")
 
-        except asyncio.TimeoutError as e:
-            last_error = f"Asyncio timeout: {e}"
-            logger.debug(f"Attempt {attempt_count}: asyncio timeout after {request_timeout:.1f}s")
+            await asyncio.sleep(0.5)
 
-        except httpx.TimeoutException as e:
-            last_error = f"HTTPX timeout: {e}"
-            logger.debug(f"Attempt {attempt_count}: httpx timeout after {request_timeout:.1f}s")
-
-        except httpx.ConnectError as e:
-            last_error = f"Connection error: {e}"
-            logger.debug(f"Attempt {attempt_count}: connection failed - {e}")
-
-        except httpx.HTTPError as e:
-            last_error = f"HTTP error: {e}"
-            logger.debug(f"Attempt {attempt_count}: HTTP error - {e}")
-
-        except Exception as e:
-            last_error = f"Unexpected error: {e}"
-            logger.debug(f"Attempt {attempt_count}: unexpected error - {e}")
-
-        # 检查是否还有时间继续尝试
-        if time.time() >= deadline:
-            break
-
-        # 简化的重试间隔
-        sleep_time = min(0.5, deadline - time.time())
-        if sleep_time > 0:
-            logger.debug(f"Waiting {sleep_time:.1f}s before next attempt...")
-            await asyncio.sleep(sleep_time)
-
-    error_msg = f"Server not ready at {url} after {timeout}s ({attempt_count} attempts). Last error: {last_error}"
+    error_msg = f"Server not ready at {url} after {timeout}s ({http_attempts} attempts). Last error: {last_error}"
     logger.error(error_msg)
     raise RuntimeError(error_msg)
 
 async def test_post_to_messages():
-    url = "http://127.0.0.1:4668/messages"
+    url = mcp_messages_url()  # server expects trailing slash
 
     # Example MCP message format — adjust to match your server expectation
     payload = {
@@ -234,7 +219,7 @@ async def test_post_to_messages():
 
 
 def test_msg():
-    resp = requests.post("http://127.0.0.1:4668/messages", json={
+    resp = requests.post(mcp_messages_url(), json={
         "type": "ping",
         "payload": "test message"
     })
@@ -359,7 +344,7 @@ prompt1 = ChatPromptTemplate.from_messages([
 prompt2 = ChatPromptTemplate.from_messages([
             ("system", """
                 You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                - given all required parameters, as well as the collected DOM tree of the current web page, please help collect as much required parameter info as possible 
+                - given all required parameters, as well as the collected DOM tree of the current web page, please help collect as much required parameter info as possible
                 - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
                 Indicate clearly if the issue has been resolved.
             """),

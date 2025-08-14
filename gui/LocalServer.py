@@ -41,7 +41,7 @@ class EnvironmentConfig:
                 meca_sse, meca_streamable_http, handle_streamable_http,
                 session_manager, set_server_main_win, lifespan
             )
-            
+
             self._mcp_modules = {
                 'handle_sse': handle_sse,
                 'sse_handle_messages': sse_handle_messages,
@@ -53,7 +53,7 @@ class EnvironmentConfig:
                 'set_server_main_win': set_server_main_win,
                 'lifespan': lifespan,
             }
-            
+
             logger.info(f"✅ MCP modules imported successfully")
 
         except ImportError as e:
@@ -383,12 +383,8 @@ class AppBuilder:
             'debug': env_config.is_development
         }
 
-        # 只在开发环境且有 lifespan 支持时添加 lifespan
-        if env_config.is_development and lifespan is not None:
-            app_config['lifespan'] = lifespan
-            logger.info("✅ Created Starlette app with lifespan for development environment")
-        else:
-            logger.info("🔧 Created Starlette app without lifespan (PyInstaller environment or lifespan unavailable)")
+        # Disable lifespan in both development and PyInstaller for consistency
+        logger.info("🔧 Created Starlette app without lifespan (disabled for all environments)")
 
         return Starlette(**app_config)
 
@@ -423,25 +419,12 @@ class ServerOptimizer:
         import asyncio
 
         try:
-            # 检查现有事件循环
-            try:
-                asyncio.get_running_loop()
-                logger.debug("Found existing event loop, will create new one")
-            except RuntimeError:
-                logger.debug("No existing event loop found")
-
-            # 创建新的事件循环
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            logger.info("✅ Created new event loop for PyInstaller environment")
-
-            # Windows 特定优化
+            # 在线程内仅设置事件循环策略，不主动创建/切换事件循环，避免与 Uvicorn 自身循环管理冲突
             if os.name == 'nt':
-                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-                logger.info("✅ Set WindowsProactorEventLoopPolicy for PyInstaller")
-
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+                logger.info("✅ Set WindowsSelectorEventLoopPolicy (thread-friendly)")
         except Exception as e:
-            logger.warning(f"Failed to setup event loop: {e}")
+            logger.warning(f"Failed to setup event loop policy: {e}")
 
     @staticmethod
     def _disable_warnings():
@@ -462,6 +445,18 @@ class ServerOptimizer:
                 logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {e}")
 
 # Add the health check route to the server (replacing the existing one)
+    logger.info(f"Route summary: base routes={len(RouteBuilder.get_base_routes())}, mcp routes={'enabled' if env_config.has_mcp_support() else 'disabled'}")
+    try:
+        import inspect
+        mcpr = RouteBuilder.get_mcp_routes() if env_config.has_mcp_support() else []
+        for r in routes:
+            if isinstance(r, Mount):
+                logger.info(f"Mounted: {r.path} -> {getattr(r.app, '__name__', type(r.app).__name__)}")
+            elif isinstance(r, Route):
+                logger.info(f"Route: {r.path} methods={getattr(r, 'methods', None)} name={getattr(r, 'name', None)}")
+    except Exception as _e:
+        logger.debug(f"Route introspection failed: {_e}")
+
 mecaLocalServer.add_route("/healthz", health_check, methods=["GET"])
 
 def run_starlette(port=4668):
@@ -480,36 +475,50 @@ def run_starlette(port=4668):
 
         # MCP 会话管理器将在 Starlette 应用的 lifespan 中正确管理
 
-        def _make_server(_lifespan_on: bool):
+        def _make_server(_lifespan_on: bool, host_bind: str):
+            logger.info(f"Uvicorn config: host={host_bind}, port={port}, loop=asyncio, http=h11, lifespan={'on' if _lifespan_on else 'off'}")
             cfg = uvicorn.Config(
                 app=mecaLocalServer,
-                host='127.0.0.1',
+                host=host_bind,
                 port=port,
-                log_level="info",
+                log_level="debug",
                 access_log=False,
                 loop="asyncio",
+                http="h11",
                 lifespan=("on" if _lifespan_on else "off"),
+                # Disable uvicorn's default logging config to avoid PyInstaller import issues
+                # (avoids 'Unable to configure formatter "default"')
+                log_config=None,
             )
             srv = uvicorn.Server(cfg)
             if hasattr(srv, "install_signal_handlers"):
-                srv.install_signal_handlers = False
+                # Replace with no-op instead of boolean to avoid TypeError in certain uvicorn versions
+                srv.install_signal_handlers = (lambda: None)
             return srv
 
-        # lifespan 处理策略
-        if env_config.is_frozen:
-            # PyInstaller 环境：禁用 lifespan 避免阻塞
-            logger.info("🔧 PyInstaller environment: disabling lifespan to avoid blocking...")
-            use_lifespan = False
-        else:
-            # 开发环境：启用 lifespan
-            use_lifespan = True
+        # lifespan 策略：开发与打包环境统一禁用，避免线程/loop差异
+        use_lifespan = False
+        logger.info("🔧 Lifespan disabled for all environments")
 
-        server = _make_server(use_lifespan)
-        try:
-            logger.info(f"✅ Starting Uvicorn server on 127.0.0.1:{port}")
-            server.run()
-        except Exception as e1:
-            logger.warning(f"Uvicorn failed with lifespan={'on' if use_lifespan else 'off'}: {e1}")
+        host_candidates = [
+            os.environ.get("ECBOT_LOCAL_SERVER_HOST", "127.0.0.1"),
+            "0.0.0.0",
+]
+
+        last_err = None
+        for host_bind in host_candidates:
+            try:
+                logger.info(f"✅ Starting Uvicorn server on {host_bind}:{port}")
+                server = _make_server(use_lifespan, host_bind)
+                server.run()
+                logger.info(f"✅ Uvicorn server exited normally on {host_bind}:{port}")
+                last_err = None
+                break
+            except Exception as e1:
+                last_err = e1
+                logger.warning(f"Uvicorn failed on host={host_bind} lifespan={'on' if use_lifespan else 'off'}: {e1}")
+        if last_err:
+            raise last_err
     except Exception as e:
         logger.exception(f"Failed to start local server on port {port}: {e}")
         # Force-write startup exception to file for diagnosis in frozen environments
@@ -527,11 +536,11 @@ def start_local_server_in_thread(mwin):
     MainWin.mcp_server = meca_mcp_server
     MainWin.sse_server = meca_sse
     port = int(MainWin.get_local_server_port())
-    
+
     starlette_thread = threading.Thread(target=run_starlette, args=(port,))
     MainWin.local_server_thread = starlette_thread
     starlette_thread.daemon = True  # Allows the thread to exit when the main program exits
-    
+
     starlette_thread.start()
     logger.info("local server kicked off....................")
 

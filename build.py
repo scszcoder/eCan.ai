@@ -209,17 +209,22 @@ def _show_build_results():
 
 
 def _prepare_playwright_assets() -> None:
-    """Download platform-specific Playwright browsers into third_party/ms-playwright.
-    
-    This runs `python -m playwright install chromium` into default cache, then copies
-    the resulting ms-playwright tree into ./third_party/ms-playwright for packaging.
-    """
+    """准备 Playwright 资源（构建时专用）"""
     from build_system.playwright.utils import build_utils
     
     third_party = Path.cwd() / "third_party" / "ms-playwright"
     
     # 使用构建时专用工具准备 Playwright 资源
     build_utils.prepare_playwright_assets(third_party)
+
+
+
+
+
+
+
+
+
 
 
 def main():
@@ -235,7 +240,7 @@ Build mode description:
 
 Usage examples:
   python build.py fast              # Fast build (Playwright browsers installed at runtime)
-  python build.py dev --force       # Force development build (Playwright browsers installed at runtime)
+  python build.py dev               # Development build (Playwright browsers installed at runtime)
   python build.py prod              # Production build (Playwright browsers installed at runtime)
   python build.py prod --version 2.1.0  # Build with specified version
   python build.py fast --skip-frontend  # Fast build skipping frontend
@@ -253,12 +258,7 @@ Usage examples:
         help="Build mode (default: fast)"
     )
 
-    # Optional arguments
-    parser.add_argument(
-        "--force", "-f",
-        action="store_true",
-        help="Force rebuild (clean cache)"
-    )
+
 
     parser.add_argument(
         "--version", "-V",
@@ -331,25 +331,24 @@ Usage examples:
 
     print_mode_info(args.mode, fast_mode)
 
-    # Minimal cleanup when --force is used
-    if args.force:
-        print("[CLEANUP] --force detected: removing dist/, build/, and *.spec")
-        try:
-            import shutil
-            # Remove build artifacts
-            for p in [Path("dist"), Path("build")]:
-                if p.exists():
-                    shutil.rmtree(p, ignore_errors=True)
-                    print(f"[CLEANUP] Removed {p}")
-            # Remove generated .spec files
-            for spec in Path.cwd().glob("*.spec"):
-                try:
-                    spec.unlink()
-                    print(f"[CLEANUP] Removed {spec.name}")
-                except Exception as e:
-                    print(f"[CLEANUP] Warning: failed to remove {spec}: {e}")
-        except Exception as e:
-            print(f"[CLEANUP] Warning: cleanup failed: {e}")
+    # 构建前准备：清理构建环境（默认行为）
+    print("[PREP] 清理构建环境...")
+    try:
+        import shutil
+        # 清理构建产物
+        for p in [Path("dist"), Path("build")]:
+            if p.exists():
+                shutil.rmtree(p, ignore_errors=True)
+                print(f"[PREP] 已清理: {p}")
+        # 清理生成的 .spec 文件
+        for spec in Path.cwd().glob("*.spec"):
+            try:
+                spec.unlink()
+                print(f"[PREP] 已清理: {spec.name}")
+            except Exception as e:
+                print(f"[PREP] 警告: 清理 {spec} 失败: {e}")
+    except Exception as e:
+        print(f"[PREP] 警告: 清理失败: {e}")
 
     # 使用更简洁的 MiniSpecBuilder 直接进行 PyInstaller 构建；前端与安装包按需执行
     try:
@@ -388,7 +387,7 @@ Usage examples:
 
         # 1) Frontend
         if not args.skip_frontend:
-            if not frontend.build(force=args.force):
+            if not frontend.build():
                 print("[ERROR] Frontend build failed")
                 return 1
         else:
