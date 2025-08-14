@@ -1745,10 +1745,10 @@ class MainWindow(QMainWindow):
         return None
 
     def getBrowserSession(self):
-        return self.browser_session
+        return self.browser_session()
 
     def getBrowserUseController(self):
-        return self.browser_use_controller
+        return self.browser_use_controller()
 
     def getBrowserManagerStatus(self):
         if hasattr(self, 'unified_browser_manager') and self.unified_browser_manager:
