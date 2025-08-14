@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright 构建时工具模块
-专门用于构建时的 Playwright 资源准备，不包含任何运行时逻辑
+Playwright build-time utilities module
+Used exclusively for preparing Playwright assets at build time; no runtime logic here.
 """
 
 import os
@@ -15,11 +15,11 @@ from typing import Optional, List
 
 
 class PlaywrightBuildUtils:
-    """Playwright 构建时工具类"""
+    """Playwright build-time utilities"""
     
     @staticmethod
     def get_default_browsers_path() -> Path:
-        """获取默认的浏览器安装路径（构建时使用）"""
+        """Get default browsers installation path (build-time)"""
         if sys.platform == "darwin":  # macOS
             return Path.home() / ".cache" / "ms-playwright"
         elif sys.platform == "win32":  # Windows
@@ -29,7 +29,7 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def get_app_data_path() -> Path:
-        """获取应用数据目录（构建时使用）"""
+        """Get application data directory (build-time)"""
         app_name = "eCan"
         if sys.platform == "darwin":  # macOS
             return Path.home() / "Library" / "Application Support" / app_name
@@ -40,7 +40,7 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def get_possible_cache_paths() -> List[Path]:
-        """获取所有可能的缓存路径（构建时查找）"""
+        """Get all possible cache paths (build-time search)"""
         possible_roots = []
         
         if platform.system() == "Windows":
@@ -62,14 +62,14 @@ class PlaywrightBuildUtils:
                 Path.home() / ".ms-playwright"
             ])
         
-        # 也检查当前工作目录
+        # Also check current working directory
         possible_roots.append(Path.cwd() / ".ms-playwright")
         
         return possible_roots
     
     @staticmethod
     def validate_browser_installation(path: Path) -> bool:
-        """验证浏览器安装是否有效（构建时验证）"""
+        """Validate browser installation (build-time)"""
         if not path or not path.exists():
             return False
         
@@ -83,13 +83,13 @@ class PlaywrightBuildUtils:
             # 检查是否有任何 chromium 相关目录
             chromium_dirs = list(path.glob("chromium*"))
             if not chromium_dirs:
-                # 如果没有 chromium 目录，检查是否有其他浏览器目录
+                # If no chromium directory, check for other browser directories
                 browser_dirs = [d for d in path.iterdir() 
                               if d.is_dir() and not d.name.startswith('.')]
                 if not browser_dirs:
                     return False
-            
-            # 检查目录是否包含实际文件（不是空目录）
+
+            # Check directory contains actual files (not empty)
             for browser_dir in chromium_dirs[:1]:  # 只检查第一个
                 if browser_dir.is_dir():
                     files = list(browser_dir.rglob("*"))
@@ -105,44 +105,44 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def find_playwright_cache() -> Optional[Path]:
-        """查找 Playwright 缓存目录（构建时查找）"""
+        """Find Playwright cache directory (build-time search)"""
         possible_roots = PlaywrightBuildUtils.get_possible_cache_paths()
         
-        # 首先检查环境变量中设置的路径
+        # First check environment variables
         env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
         if env_path:
             env_path_obj = Path(env_path)
             if env_path_obj.exists() and (env_path_obj / "browsers.json").exists():
                 return env_path_obj
         
-        # 优先检查用户主目录下的缓存
+        # Prefer cache under user home
         home_cache = Path.home() / ".cache" / "ms-playwright"
         if home_cache.exists() and (home_cache / "browsers.json").exists():
             return home_cache
         
-        # 检查应用数据目录
+        # Check app data directory
         app_data_cache = PlaywrightBuildUtils.get_app_data_path() / "ms-playwright"
         if app_data_cache.exists() and (app_data_cache / "browsers.json").exists():
             return app_data_cache
         
-        # 然后查找其他可能的路径
+        # Then search other possible paths
         for root in possible_roots:
             if root.exists() and (root / "browsers.json").exists():
                 return root
         
-        # 如果没有找到 browsers.json，查找包含 chromium 的目录
+        # If browsers.json not found, look for directories containing chromium
         for root in possible_roots:
             if root.exists():
                 chromium_dirs = list(root.glob("**/chromium*"))
                 if chromium_dirs:
-                    # 向上查找 ms-playwright 根目录
+                    # Walk up to locate ms-playwright root
                     current = chromium_dirs[0].parent
                     while current.parent != current:  # 停止在根目录
                         if current.name == "ms-playwright":
                             return current
                         current = current.parent
         
-        # 最后手段：搜索任何 ms-playwright 目录
+        # Last resort: search for any ms-playwright directory
         search_paths = [Path.home(), Path.cwd()]
         for search_path in search_paths:
             if search_path.exists():
@@ -154,8 +154,8 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def install_playwright_browsers(target_path: Path) -> None:
-        """安装 Playwright 浏览器到指定路径（构建时安装）"""
-        # 确保 playwright 包已安装
+        """Install Playwright browsers to specified path (build-time)"""
+        # Ensure playwright package is installed
         try:
             subprocess.run([sys.executable, "-m", "pip", "show", "playwright"], 
                          check=True, capture_output=True)
@@ -163,35 +163,35 @@ class PlaywrightBuildUtils:
             print("[BUILD] playwright not found; installing...")
             subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
         
-        # 设置环境变量
+        # Set environment variables
         env = os.environ.copy()
         env["PLAYWRIGHT_BROWSERS_PATH"] = str(target_path)
         env["PLAYWRIGHT_CACHE_DIR"] = str(target_path)
         
-        # 安装浏览器
+        # Install browser
         print("[BUILD] Installing chromium browser...")
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
                       check=True, env=env)
     
     @staticmethod
     def copy_playwright_browsers(src_path: Path, dst_path: Path) -> None:
-        """复制 Playwright 浏览器文件（构建时复制，只保留当前平台需要的文件）"""
+        """Copy Playwright browser files (build-time copy; keep only current platform files)"""
         if dst_path.exists():
             print(f"[BUILD] Cleaning existing {dst_path}")
             shutil.rmtree(dst_path, ignore_errors=True)
         
         print(f"[BUILD] Copying {src_path} -> {dst_path} (platform-specific)")
         
-        # 创建目标目录
+        # Create destination directory
         dst_path.mkdir(parents=True, exist_ok=True)
         
-        # 复制 browsers.json
+        # Copy browsers.json
         browsers_json_src = src_path / "browsers.json"
         if browsers_json_src.exists():
             shutil.copy2(browsers_json_src, dst_path / "browsers.json")
             print(f"[BUILD] Copied browsers.json")
         else:
-            # 从 playwright 包复制 browsers.json
+            # Copy browsers.json from playwright package
             try:
                 import playwright
                 playwright_package_dir = Path(playwright.__file__).parent / "driver" / "package"
@@ -204,16 +204,16 @@ class PlaywrightBuildUtils:
             except Exception as e:
                 print(f"[BUILD] Warning: Could not copy browsers.json: {e}")
         
-        # 获取当前平台信息
+        # Get current platform info
         current_platform = PlaywrightBuildUtils.get_current_platform()
         print(f"[BUILD] Current platform: {current_platform}")
         
-        # 只复制当前平台需要的浏览器文件
+        # Copy only files required by current platform
         PlaywrightBuildUtils._copy_platform_specific_browsers(src_path, dst_path, current_platform)
     
     @staticmethod
     def get_current_platform() -> str:
-        """获取当前构建平台标识符"""
+        """Get current build platform identifier"""
         system = platform.system().lower()
         machine = platform.machine().lower()
         
@@ -237,7 +237,7 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def _copy_platform_specific_browsers(src_path: Path, dst_path: Path, target_platform: str) -> None:
-        """复制平台特定的浏览器文件"""
+        """Copy platform-specific browser files"""
         # 查找所有浏览器目录
         browser_dirs = list(src_path.glob("chromium-*"))
         
@@ -247,16 +247,16 @@ class PlaywrightBuildUtils:
                 
             print(f"[BUILD] Processing browser directory: {browser_dir.name}")
             
-            # 创建目标浏览器目录
+            # Create destination browser directory
             dst_browser_dir = dst_path / browser_dir.name
             dst_browser_dir.mkdir(exist_ok=True)
             
-            # 复制 browsers.json（如果存在）
+            # Copy browsers.json (if exists)
             browser_json = browser_dir / "browsers.json"
             if browser_json.exists():
                 shutil.copy2(browser_json, dst_browser_dir / "browsers.json")
             
-            # 查找并复制平台特定的浏览器
+            # Find and copy platform-specific browsers
             platform_dirs = list(browser_dir.glob("*"))
             
             for platform_dir in platform_dirs:
@@ -266,7 +266,7 @@ class PlaywrightBuildUtils:
                 platform_name = platform_dir.name
                 print(f"[BUILD] Found platform: {platform_name}")
                 
-                # 检查是否匹配当前平台
+                # Check if matches current platform
                 if PlaywrightBuildUtils._is_platform_match(platform_name, target_platform):
                     print(f"[BUILD] Copying platform-specific files: {platform_name}")
                     
@@ -305,7 +305,7 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def _update_browsers_json_paths(browser_dir: Path, platform_name: str) -> None:
-        """更新 browsers.json 中的路径信息，只保留当前平台"""
+        """Update browsers.json path info; keep only current platform"""
         browsers_json = browser_dir / "browsers.json"
         if not browsers_json.exists():
             return
@@ -320,11 +320,11 @@ class PlaywrightBuildUtils:
                 filtered_browsers = []
                 for browser in data['browsers']:
                     if 'revision' in browser and 'name' in browser:
-                        # 检查是否有当前平台的安装信息
+                        # Check if current platform has install info
                         if 'installByDefault' in browser:
                             # 对于 chromium，只保留当前平台
                             if browser['name'] == 'chromium':
-                                # 查找当前平台的安装路径
+                                # Find install path for current platform
                                 platform_path = None
                                 for key, value in browser.items():
                                     if isinstance(value, str) and platform_name in value:
@@ -332,24 +332,24 @@ class PlaywrightBuildUtils:
                                         break
                                 
                                 if platform_path:
-                                    # 创建新的浏览器信息，只包含当前平台
+                                    # Create new browser info, current platform only
                                     new_browser = {
                                         'name': browser['name'],
                                         'revision': browser['revision'],
                                         'installByDefault': browser.get('installByDefault', True)
                                     }
-                                    # 添加当前平台的路径
+                                    # Add current platform path
                                     new_browser[platform_name] = platform_path
                                     filtered_browsers.append(new_browser)
                         else:
-                            # 保留没有 installByDefault 的浏览器
+                            # Keep browsers without installByDefault
                             filtered_browsers.append(browser)
                 
                 data['browsers'] = filtered_browsers
             
-            # 写回文件
+            # Write back file
             with open(browsers_json, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=True)
                 
             print(f"[BUILD] Updated browsers.json for platform: {platform_name}")
             
@@ -358,10 +358,10 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def prepare_playwright_assets(target_path: Path) -> None:
-        """准备 Playwright 资源（构建时专用）"""
+        """Prepare Playwright assets (build-time)"""
         print("[BUILD] Ensuring playwright python package is installed...")
         
-        # 安装 playwright 包
+        # Install playwright package
         try:
             subprocess.run([sys.executable, "-m", "pip", "show", "playwright"], 
                          check=True, capture_output=True)
@@ -369,17 +369,17 @@ class PlaywrightBuildUtils:
             print("[BUILD] playwright not found; installing...")
             subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
         
-        # 安装浏览器
+        # Install browsers
         PlaywrightBuildUtils.install_playwright_browsers(PlaywrightBuildUtils.get_default_browsers_path())
         
-        # 查找缓存
+        # Locate cache
         src = PlaywrightBuildUtils.find_playwright_cache()
         if not src:
             raise RuntimeError("[BUILD] Unable to locate ms-playwright cache after install")
         
-        # 复制到目标路径
+        # Copy to target path
         PlaywrightBuildUtils.copy_playwright_browsers(src, target_path)
 
 
-# 构建时工具实例
+# Build-time utilities instance
 build_utils = PlaywrightBuildUtils()
