@@ -460,9 +460,9 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             return False
 
     def _build_macos_installer(self) -> bool:
-        """Build macOS installer using pkgbuild"""
+        """Build macOS DMG installer using hdiutil"""
         try:
-            print("[INSTALLER] Building macOS installer...")
+            print("[INSTALLER] Building macOS DMG installer...")
 
             installer_config = self.config.config.get("installer", {})
             macos_config = installer_config.get("macos", {})
@@ -470,132 +470,90 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
 
             app_name = app_info.get("name", "eCan")
             app_version = app_info.get("version", "1.0.0")
-            bundle_id = macos_config.get("bundle_identifier", "com.ecan.app")
+            volume_name = macos_config.get("app_name", app_name)
 
-            # Create app bundle structure
+            # Locate app bundle built by PyInstaller
             app_bundle_dir = self.dist_dir / f"{app_name}.app"
             if not app_bundle_dir.exists():
                 print(f"[ERROR] App bundle not found: {app_bundle_dir}")
                 return False
 
-            # Generate entitlements file if needed
-            if macos_config.get("permissions"):
-                self._create_entitlements_file(macos_config)
-
-            # Prepare a pkg root that contains the .app at top-level so it installs to /Applications/<App>.app
-            pkg_root = self.dist_dir / "pkgroot"
+            # Prepare a staging directory for DMG contents: <dist>/dmgroot/{App}.app + Applications symlink
+            dmg_root = self.dist_dir / "dmgroot"
             try:
-                if pkg_root.exists():
-                    shutil.rmtree(pkg_root)
-                pkg_root.mkdir(parents=True, exist_ok=True)
-                dest_app = pkg_root / f"{app_name}.app"
-                # Preserve symlinks inside the .app (Qt frameworks/WebEngine contain many)
+                if dmg_root.exists():
+                    shutil.rmtree(dmg_root)
+                dmg_root.mkdir(parents=True, exist_ok=True)
+                dest_app = dmg_root / f"{app_name}.app"
                 shutil.copytree(app_bundle_dir, dest_app, symlinks=True)
+                # Create /Applications symlink for drag-and-drop install UX
+                applications_link = dmg_root / "Applications"
+                if applications_link.exists() or applications_link.is_symlink():
+                    try:
+                        applications_link.unlink()
+                    except Exception:
+                        pass
+                os.symlink("/Applications", str(applications_link))
             except Exception as e:
-                print(f"[ERROR] Failed to prepare pkg root: {e}")
+                print(f"[ERROR] Failed to prepare DMG root: {e}")
                 return False
 
-            # Optional: create a postinstall script to make a Desktop alias if configured
-            scripts_dir = None
-            if macos_config.get("create_desktop_shortcut", False):
+            # Create DMG
+            dmg_file = self.dist_dir / f"{app_name}-{app_version}.dmg"
+            if dmg_file.exists():
                 try:
-                    scripts_dir = self.dist_dir / "pkg_scripts"
-                    scripts_dir.mkdir(parents=True, exist_ok=True)
-                    postinstall = scripts_dir / "postinstall"
-                    postinstall.write_text(f"""#!/bin/bash
-APP_NAME=\"{app_name}.app\"
-APP_PATH=\"/Applications/$APP_NAME\"
-# Find the active console user (not root)
-CONSOLE_USER=\"$(stat -f %Su /dev/console 2>/dev/null || echo \"$SUDO_USER\")\"
-if [ -n \"$CONSOLE_USER\" ] && [ \"$CONSOLE_USER\" != \"root\" ]; then
-  USER_HOME=\"$(dscl . -read /Users/$CONSOLE_USER NFSHomeDirectory 2>/dev/null | awk '{{print $2}}')\"
-  [ -z \"$USER_HOME\" ] && USER_HOME=\"/Users/$CONSOLE_USER\"
-  DESKTOP=\"$USER_HOME/Desktop\"
-  if [ -d \"$DESKTOP\" ] && [ -d \"$APP_PATH\" ]; then
-    ln -snf \"$APP_PATH\" \"$DESKTOP/$APP_NAME\"
-    chown -h \"$CONSOLE_USER\" \"$DESKTOP/$APP_NAME\"
-  fi
-fi
-exit 0
-""", encoding="utf-8")
-                    os.chmod(postinstall, 0o755)
-                except Exception as e:
-                    print(f"[WARNING] Failed to create postinstall script: {e}")
-                    scripts_dir = None
+                    dmg_file.unlink()
+                except Exception:
+                    pass
 
-            # Create PKG installer
-            pkg_file = self.dist_dir / f"{app_name}-{app_version}.pkg"
-
-            # Build with correct root; pkgbuild installs contents of root into --install-location
             cmd = [
-                "pkgbuild",
-                "--root", str(pkg_root),
-                "--identifier", bundle_id,
-                "--version", app_version,
-                "--install-location", "/Applications",
+                "hdiutil", "create",
+                "-volname", str(volume_name),
+                "-srcfolder", str(dmg_root),
+                "-ov",
+                "-format", macos_config.get("dmg_format", "UDZO"),  # compressed image
+                str(dmg_file)
             ]
-            if scripts_dir:
-                cmd.extend(["--scripts", str(scripts_dir)])
-            cmd.append(str(pkg_file))
 
-            print(f"[INSTALLER] Creating PKG: {pkg_file}")
+            print(f"[INSTALLER] Creating DMG: {dmg_file}")
             print(f"[INSTALLER] Command: {' '.join(cmd)}")
-            print(f"[INSTALLER] PKG root contents:")
-            if pkg_root.exists():
-                for item in pkg_root.iterdir():
-                    print(f"  - {item.name} ({'dir' if item.is_dir() else 'file'})")
-
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=600  # 10 minutes timeout
+                timeout=600
             )
 
             if result.returncode != 0:
-                print(f"[ERROR] PKG creation failed:")
+                print("[ERROR] DMG creation failed:")
                 print(f"[ERROR] Return code: {result.returncode}")
                 print(f"[ERROR] STDOUT: {result.stdout}")
                 print(f"[ERROR] STDERR: {result.stderr}")
                 return False
 
-            # Verify PKG was created and has content
-            if not pkg_file.exists():
-                print(f"[ERROR] PKG file was not created: {pkg_file}")
+            if not dmg_file.exists() or dmg_file.stat().st_size == 0:
+                print(f"[ERROR] DMG file not created or empty: {dmg_file}")
                 return False
-            
-            pkg_size = pkg_file.stat().st_size
-            if pkg_size == 0:
-                print(f"[ERROR] PKG file is empty (0 bytes): {pkg_file}")
-                return False
-            
-            print(f"[SUCCESS] macOS installer created: {pkg_file} ({pkg_size / (1024*1024):.1f} MB)")
 
-            # Clean up temporary files
+            print(f"[SUCCESS] macOS DMG created: {dmg_file} ({dmg_file.stat().st_size / (1024*1024):.1f} MB)")
+
+            # Cleanup staging directory
             try:
-                if pkg_root.exists():
-                    shutil.rmtree(pkg_root)
-                    print(f"[CLEANUP] Removed pkgroot: {pkg_root}")
-                if scripts_dir and scripts_dir.exists():
-                    shutil.rmtree(scripts_dir)
-                    print(f"[CLEANUP] Removed pkg_scripts: {scripts_dir}")
+                if dmg_root.exists():
+                    shutil.rmtree(dmg_root)
+                    print(f"[CLEANUP] Removed dmgroot: {dmg_root}")
             except Exception as e:
-                print(f"[WARNING] Failed to cleanup temporary files: {e}")
+                print(f"[WARNING] Failed to cleanup dmgroot: {e}")
 
-            # Optional: Code signing
-            if macos_config.get("codesign", {}).get("enabled", False):
-                if not self._codesign_pkg(pkg_file, macos_config):
-                    return False
-
-            # Optional: Notarization
+            # Optional: Notarization for DMG
             if macos_config.get("notarization", {}).get("enabled", False):
-                if not self._notarize_pkg(pkg_file, macos_config):
+                if not self._notarize_dmg(dmg_file, macos_config):
                     print("[WARNING] Notarization failed, but continuing...")
 
             return True
 
         except Exception as e:
-            print(f"[ERROR] macOS installer creation failed: {e}")
+            print(f"[ERROR] macOS DMG installer creation failed: {e}")
             return False
 
     def _codesign_pkg(self, pkg_file: Path, macos_config: Dict[str, Any]) -> bool:
@@ -639,8 +597,8 @@ exit 0
             print(f"[WARNING] Code signing failed: {e}")
             return True  # Continue even if signing fails
 
-    def _notarize_pkg(self, pkg_file: Path, macos_config: Dict[str, Any]) -> bool:
-        """Notarize PKG file with Apple"""
+    def _notarize_dmg(self, dmg_file: Path, macos_config: Dict[str, Any]) -> bool:
+        """Notarize DMG file with Apple"""
         try:
             notarization_config = macos_config.get("notarization", {})
             apple_id = notarization_config.get("apple_id", "")
@@ -648,54 +606,49 @@ exit 0
             app_password = notarization_config.get("app_password", "")
 
             if not all([apple_id, team_id, app_password]):
-                print("[WARNING] Incomplete notarization configuration")
+                print("[WARNING] Incomplete notarization configuration for DMG")
                 return False
 
-            print(f"[INSTALLER] Starting notarization for: {pkg_file}")
-
-            # Submit for notarization
+            print(f"[INSTALLER] Starting DMG notarization for: {dmg_file}")
             cmd = [
                 "xcrun", "notarytool", "submit",
-                str(pkg_file),
+                str(dmg_file),
                 "--apple-id", apple_id,
                 "--team-id", team_id,
                 "--password", app_password,
                 "--wait"
             ]
-
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=1800  # 30 minutes timeout for notarization
+                timeout=1800
             )
 
             if result.returncode != 0:
-                print(f"[WARNING] Notarization failed:")
+                print("[WARNING] DMG notarization failed:")
                 print(f"[WARNING] Return code: {result.returncode}")
                 print(f"[WARNING] STDERR: {result.stderr}")
                 return False
 
-            print("[SUCCESS] PKG notarized successfully")
+            print("[SUCCESS] DMG notarized successfully")
 
-            # Staple the notarization
-            staple_cmd = ["xcrun", "stapler", "staple", str(pkg_file)]
+            # Staple notarization to DMG
+            staple_cmd = ["xcrun", "stapler", "staple", str(dmg_file)]
             staple_result = subprocess.run(
                 staple_cmd,
                 capture_output=True,
                 text=True,
                 timeout=300
             )
-
             if staple_result.returncode == 0:
-                print("[SUCCESS] Notarization stapled to PKG")
+                print("[SUCCESS] Notarization stapled to DMG")
             else:
-                print("[WARNING] Failed to staple notarization")
-
+                print("[WARNING] Failed to staple notarization to DMG")
             return True
 
         except Exception as e:
-            print(f"[WARNING] Notarization failed: {e}")
+            print(f"[WARNING] DMG notarization failed: {e}")
             return False
 
     def _create_entitlements_file(self, macos_config: Dict[str, Any]) -> Optional[Path]:

@@ -274,7 +274,17 @@ class PlaywrightBuildUtils:
                     dst_platform_dir = dst_browser_dir / platform_name
                     if dst_platform_dir.exists():
                         shutil.rmtree(dst_platform_dir)
-                    shutil.copytree(platform_dir, dst_platform_dir)
+                    # Preserve symlinks inside Chromium.app and frameworks to avoid
+                    # expanding them into real directories, which causes PyInstaller
+                    # COLLECT collisions on macOS frameworks.
+                    shutil.copytree(platform_dir, dst_platform_dir, symlinks=True)
+
+                    # macOS: 保障 Framework 叶子目录为符号链接（避免后续被当作真实目录收集）
+                    if sys.platform == "darwin":
+                        try:
+                            PlaywrightBuildUtils._ensure_framework_leaf_symlinks(dst_platform_dir)
+                        except Exception as e:
+                            print(f"[BUILD] Warning: ensure framework symlinks failed: {e}")
                     
                     # 更新 browsers.json 中的路径信息
                     PlaywrightBuildUtils._update_browsers_json_paths(dst_browser_dir, platform_name)
@@ -355,6 +365,36 @@ class PlaywrightBuildUtils:
             
         except Exception as e:
             print(f"[BUILD] Warning: Could not update browsers.json: {e}")
+
+    @staticmethod
+    def _ensure_framework_leaf_symlinks(platform_dir: Path) -> None:
+        """Ensure *.framework leaf nodes (Headers/Resources/Modules/Helpers) are symlinks.
+        If they were expanded as real directories, convert to symlink pointing to Versions/Current/<leaf>.
+        """
+        frameworks_root = platform_dir / "Chromium.app" / "Contents" / "Frameworks"
+        if not frameworks_root.exists():
+            return
+        for fw in frameworks_root.iterdir():
+            if not fw.is_dir() or not fw.name.endswith(".framework"):
+                continue
+            versions_current = fw / "Versions" / "Current"
+            for leaf in ("Headers", "Resources", "Modules", "Helpers"):
+                leaf_path = fw / leaf
+                target = versions_current / leaf
+                if leaf_path.exists() and not leaf_path.is_symlink():
+                    # If target exists, replace directory with symlink
+                    try:
+                        if leaf_path.is_dir():
+                            shutil.rmtree(leaf_path)
+                        else:
+                            leaf_path.unlink()
+                    except Exception:
+                        pass
+                    if target.exists():
+                        # Use relative link so bundle remains relocatable
+                        rel = os.path.relpath(str(target), str(fw))
+                        os.symlink(rel, str(leaf_path))
+                        print(f"[BUILD] Fixed framework leaf to symlink: {leaf_path}")
     
     @staticmethod
     def prepare_playwright_assets(target_path: Path) -> None:
