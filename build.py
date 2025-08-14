@@ -10,9 +10,10 @@ import os
 import platform
 import argparse
 import subprocess
+import time
 from pathlib import Path
 
-# 导入构建前检查模块
+# Import pre-build check module
 try:
     from build_system.pre_build_check import run_pre_build_check
     PRECHECK_AVAILABLE = True
@@ -63,7 +64,7 @@ class BuildEnvironment:
         return True
 
     def _run_pre_build_check(self) -> bool:
-        """运行构建前检查"""
+        """Run pre-build check"""
         if self.skip_precheck:
             print("[INFO] Skipping pre-build check (--skip-precheck)")
             return True
@@ -174,7 +175,7 @@ def print_mode_info(mode: str, fast: bool = False):
 
 
 def _show_build_results():
-    """显示构建结果"""
+    """Show build results"""
     print("\n[RESULT] Build Results:")
 
     dist_dir = Path("dist")
@@ -183,12 +184,12 @@ def _show_build_results():
             if item.is_dir():
                 size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
                 size_mb = size / (1024 * 1024)
-                print(f"  floder {item.name} ({size_mb:.1f} MB)")
+                print(f"  folder {item.name} ({size_mb:.1f} MB)")
             elif item.is_file():
                 size_mb = item.stat().st_size / (1024 * 1024)
                 print(f"  file {item.name} ({size_mb:.1f} MB)")
 
-    # 显示平台特定信息
+    # Show platform-specific information
     if platform.system() == "Windows":
         exe_name = "eCan.exe"
         print(f"\n[INFO] Executable: ./dist/eCan/{exe_name}")
@@ -209,12 +210,12 @@ def _show_build_results():
 
 
 def _prepare_playwright_assets() -> None:
-    """准备 Playwright 资源（构建时专用）"""
+    """Prepare Playwright assets (build-time only)"""
     from build_system.playwright.utils import build_utils
     
     third_party = Path.cwd() / "third_party" / "ms-playwright"
     
-    # 使用构建时专用工具准备 Playwright 资源
+    # Prepare Playwright assets using build-time utilities
     build_utils.prepare_playwright_assets(third_party)
 
 
@@ -316,11 +317,30 @@ Usage examples:
     except Exception:
         pass
 
+    # Total timer start
+    overall_start = time.perf_counter()
+
+    # Normalize console encoding to UTF-8 to avoid UnicodeEncodeError on Windows CI
+    try:
+        import io as _io, sys as _sys2
+        if hasattr(_sys2.stdout, "reconfigure"):
+            _sys2.stdout.reconfigure(encoding="utf-8", errors="replace")
+            _sys2.stderr.reconfigure(encoding="utf-8", errors="replace")
+        else:
+            _sys2.stdout = _io.TextIOWrapper(_sys2.stdout.buffer, encoding="utf-8", errors="replace")
+            _sys2.stderr = _io.TextIOWrapper(_sys2.stderr.buffer, encoding="utf-8", errors="replace")
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+        os.environ.setdefault("PYTHONUTF8", "1")
+    except Exception:
+        pass
 
     # Validate environment
+    _t_env_start = time.perf_counter()
     env = BuildEnvironment(skip_precheck=args.skip_precheck)
     if not env.validate_environment():
         sys.exit(1)
+    _t_env_end = time.perf_counter()
+    print(f"[TIME] Environment validation: {(_t_env_end - _t_env_start):.2f}s")
 
     # Print information
     print_banner()
@@ -331,24 +351,27 @@ Usage examples:
 
     print_mode_info(args.mode, fast_mode)
 
-    # 构建前准备：清理构建环境（默认行为）
-    print("[PREP] 清理构建环境...")
+    # Pre-build cleanup (default)
+    print("[PREP] Cleaning build environment...")
+    _t_prep_start = time.perf_counter()
     try:
         import shutil
-        # 清理构建产物
+        # Clean build outputs
         for p in [Path("dist"), Path("build")]:
             if p.exists():
                 shutil.rmtree(p, ignore_errors=True)
-                print(f"[PREP] 已清理: {p}")
-        # 清理生成的 .spec 文件
+                print(f"[PREP] Cleaned: {p}")
+        # Clean generated .spec files
         for spec in Path.cwd().glob("*.spec"):
             try:
                 spec.unlink()
-                print(f"[PREP] 已清理: {spec.name}")
+                print(f"[PREP] Cleaned: {spec.name}")
             except Exception as e:
-                print(f"[PREP] 警告: 清理 {spec} 失败: {e}")
+                print(f"[PREP] Warning: Failed to clean {spec}: {e}")
     except Exception as e:
-        print(f"[PREP] 警告: 清理失败: {e}")
+        print(f"[PREP] Warning: Cleanup failed: {e}")
+    _t_prep_end = time.perf_counter()
+    print(f"[TIME] Prep clean: {(_t_prep_end - _t_prep_start):.2f}s")
 
     # 使用更简洁的 MiniSpecBuilder 直接进行 PyInstaller 构建；前端与安装包按需执行
     try:
@@ -368,40 +391,56 @@ Usage examples:
 
         # Prepare Playwright browsers for packaging
         print("[PLAYWRIGHT] Preparing Playwright browsers for packaging...")
+        _t_pw_start = time.perf_counter()
         _prepare_playwright_assets()
+        _t_pw_end = time.perf_counter()
+        print(f"[TIME] Playwright assets: {(_t_pw_end - _t_pw_start):.2f}s")
         
         # On macOS, we'll use special PyInstaller options to handle codesign
         if sys.platform == "darwin":
             print("[MACOS] Using special PyInstaller options for Playwright browsers")
             print("[MACOS] Custom hooks will handle Playwright browser codesign exclusions")
             
-            # 确保 hooks 目录存在
+            # Ensure hooks directory exists
             hooks_dir = Path("hooks")
             if not hooks_dir.exists():
                 hooks_dir.mkdir()
                 print("[MACOS] Created hooks directory")
             
-            # 设置环境变量让 PyInstaller 使用我们的 hooks
+            # Set environment variable so PyInstaller uses our hooks
             os.environ['PYINSTALLER_HOOKS_PATH'] = str(hooks_dir.absolute())
             print(f"[MACOS] Set PYINSTALLER_HOOKS_PATH to: {hooks_dir.absolute()}")
 
         # 1) Frontend
         if not args.skip_frontend:
-            if not frontend.build():
+            _t_front_start = time.perf_counter()
+            ok_front = frontend.build()
+            _t_front_end = time.perf_counter()
+            print(f"[TIME] Frontend build: {(_t_front_end - _t_front_start):.2f}s")
+            if not ok_front:
                 print("[ERROR] Frontend build failed")
                 return 1
         else:
             print("[FRONTEND] Skipped")
+            print("[TIME] Frontend build: skipped")
 
         # 2) Core app build
+        _t_core_start = time.perf_counter()
         success = minispec.build(build_mode)
+        _t_core_end = time.perf_counter()
+        print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
 
         # 3) Installer
         if success and not args.skip_installer:
-            if not installer.build():
+            _t_inst_start = time.perf_counter()
+            ok_inst = installer.build()
+            _t_inst_end = time.perf_counter()
+            print(f"[TIME] Installer: {(_t_inst_end - _t_inst_start):.2f}s")
+            if not ok_inst:
                 print("[WARNING] Installer creation failed; continuing")
         else:
             print("[INSTALLER] Skipped")
+            print("[TIME] Installer: skipped")
 
         if not success:
             print("\n[ERROR] Build failed!")
@@ -411,8 +450,14 @@ Usage examples:
         print("[SUCCESS] Build completed successfully!")
         print("=" * 60)
 
-        # 显示构建结果
+        # Show build results
+        _t_results_start = time.perf_counter()
         _show_build_results()
+        _t_results_end = time.perf_counter()
+        print(f"[TIME] Results reporting: {(_t_results_end - _t_results_start):.2f}s")
+
+        _t_total_end = time.perf_counter()
+        print(f"[TIME] Total build time: {(_t_total_end - overall_start):.2f}s")
 
         return 0
 
