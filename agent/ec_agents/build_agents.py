@@ -7,6 +7,7 @@ from agent.ec_agents.ec_rpa_operator_agent import *
 from agent.ec_agents.my_twin_agent import *
 from agent.ec_agents.ec_procurement_agent import *
 from agent.ec_agents.ec_marketing_agent import *
+from agent.ec_agents.ec_tester_agent import *
 from agent.ec_agents.agent_utils import load_agents_from_cloud
 from utils.logger_helper import logger_helper as logger
 
@@ -24,12 +25,16 @@ def build_agents(main_win):
             if "Platoon" in main_win.machine_role:
                 all_agents.append(set_up_ec_helper_agent(main_win))
                 all_agents.append(set_up_ec_rpa_operator_agent(main_win))
+                all_agents.append(set_up_ec_tester_agent(main_win))
             else:
+                print("building non-platoon agents")
                 all_agents.append(set_up_ec_helper_agent(main_win))
                 # self.agents.append(set_up_ec_rpa_supervisor_agent(self))
                 if "ONLY" not in main_win.machine_role:
+                    print("building commander agents")
                     # self.agents.append(set_up_ec_rpa_operator_agent(self))
                     all_agents.append(set_up_ec_procurement_agent(main_win))
+                    all_agents.append(set_up_ec_tester_agent(main_win))
         
         # 过滤掉None对象
         all_agents = [agent for agent in all_agents if agent is not None]

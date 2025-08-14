@@ -8,6 +8,8 @@ from agent.ec_skills.search_parts.search_parts_chatter_skill import *
 
 from agent.ec_skills.my_twin.my_twin_chatter_skill import *
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
+from agent.ec_skills.self_test.self_test_skill import create_self_test_skill
+from agent.ec_skills.self_test.self_test_chatter_skill import create_self_test_chatter_skill
 from utils.logger_helper import logger_helper as logger
 
 async def build_agent_skills(mainwin, skill_path=""):
@@ -53,6 +55,12 @@ async def build_agent_skills(mainwin, skill_path=""):
                 skills.append(new_skill)
 
                 new_skill = await create_search_parts_chatter_skill(mainwin)
+                skills.append(new_skill)
+
+                new_skill = await create_self_test_chatter_skill(mainwin)
+                skills.append(new_skill)
+
+                new_skill = await create_self_test_skill(mainwin)
                 skills.append(new_skill)
             else:
                 skills = build_agent_skills_from_files(mainwin, skill_path)
