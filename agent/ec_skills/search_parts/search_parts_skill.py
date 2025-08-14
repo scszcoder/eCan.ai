@@ -164,6 +164,7 @@ def check_captcha_node(state: NodeState) -> NodeState:
     except Exception as e:
         state["error"] = get_traceback(e, "ErrorCheckCaptchaNode")
         logger.debug(state["error"])
+        state["condition"] = False; 
         return state
 
 
@@ -415,17 +416,19 @@ def send_results_node(state: NodeState) -> NodeState:
 
 def check_done_logic(state: NodeState) -> str:
     try:
-        return "final_select" if not state.condition else "go_to_next_site"
+        cond = state.get("condition", False) if isinstance(state, dict) else False
+        return "go_to_next_site" if cond else "final_select"
 
     except Exception as e:
         state["error"] = get_traceback(e, "ErrorCheckDoneLogic")
         logger.debug(state["error"])
-        return "Error"
+        return "errot"
 
 
 def check_captcha_logic(state: NodeState) -> str:
     try:
-        return "solve_captcha" if state.condition else "search_parametric_filters"
+        cond = state.get("condition", False) if isinstance(state, dict) else False
+        return "solve_captcha" if cond else "search_parametric_filters"
 
     except Exception as e:
         state["error"] = get_traceback(e, "ErrorCheckCaptchaLogic")
