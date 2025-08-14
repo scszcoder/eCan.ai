@@ -20,6 +20,7 @@ from agent.a2a.common.types import (
     SendTaskStreamingResponse,
 )
 import json
+from utils.logger_helper import logger_helper as logger
 
 
 class A2AClient:
@@ -67,13 +68,13 @@ class A2AClient:
         async with httpx.AsyncClient() as client:
             try:
                 # Image generation could take time, adding timeout
-                print("A2A URL:", self.url, request.model_dump())
+                logger.debug("A2A URL:", self.url, request.model_dump())
                 response = await client.post(
                     self.url, json=request.model_dump(), timeout=30
                 )
-                print("response recevied from server:", type(response), response)
+                logger.debug("response recevied from server:", type(response), response)
                 response.raise_for_status()
-                print("etc response", response)
+                logger.debug("etc response", response)
                 return response.json()
             except httpx.HTTPStatusError as e:
                 raise A2AClientHTTPError(e.response.status_code, str(e)) from e
@@ -84,13 +85,13 @@ class A2AClient:
         with httpx.Client() as client:
             try:
                 # Image generation could take time, adding timeout
-                print("[SYNC] A2A URL:", self.url, request.model_dump())
+                logger.debug("[SYNC] A2A URL:", self.url, request.model_dump())
                 response = client.post(
                     self.url, json=request.model_dump(), timeout=30
                 )
-                print("[SYNC] response received from server:", type(response), response)
+                logger.debug("[SYNC] response received from server:", type(response), response)
                 response.raise_for_status()
-                print("[SYNC] response", response)
+                logger.debug("[SYNC] response", response)
                 return response.json()
             except httpx.HTTPStatusError as e:
                 raise A2AClientHTTPError(e.response.status_code, str(e)) from e
