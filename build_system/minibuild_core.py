@@ -202,6 +202,23 @@ class MiniSpecBuilder:
             spec_lines.append("    data_files += collect_data_files(_pkg)")
             spec_lines.append("")
 
+        # Ensure QtWebEngineProcess.app and Playwright browsers are bundled
+        if sys.platform == 'darwin':
+            spec_lines.append("from PySide6 import __file__ as _pyside6_file")
+            spec_lines.append("_qt_lib = Path(_pyside6_file).parent / \"Qt\" / \"lib\"")
+            spec_lines.append("_candidates = [")
+            spec_lines.append("    _qt_lib / \"QtWebEngineCore.framework\" / \"Helpers\" / \"QtWebEngineProcess.app\",")
+            spec_lines.append("    _qt_lib / \"QtWebEngineCore.framework\" / \"Versions\" / \"Current\" / \"Helpers\" / \"QtWebEngineProcess.app\",")
+            spec_lines.append("]")
+            spec_lines.append("for p in _candidates:")
+            spec_lines.append("    if p.exists():")
+            spec_lines.append("        data_files.append((str(p), \"PySide6/Qt/lib/QtWebEngineCore.framework/Helpers\"))")
+            spec_lines.append("        break")
+
+        spec_lines.append("_playwright_third_party = project_root / \"third_party\" / \"ms-playwright\"")
+        spec_lines.append("if _playwright_third_party.exists():")
+        spec_lines.append("    data_files.append((str(_playwright_third_party), \"third_party/ms-playwright\"))")
+
         # Analysis section
         spec_lines.append("a = Analysis([")
         spec_lines.append(f"    r'{main_script}',")
@@ -218,10 +235,6 @@ class MiniSpecBuilder:
         if sys.platform == 'darwin':
             codesign_excludes = self.cfg.get("pyinstaller", {}).get("codesign_exclude", [])
             if codesign_excludes:
-                # Add ms-playwright to excludes to prevent it from being collected
-                excludes.append('ms-playwright')
-                spec_lines.append("    # macOS codesign exclusions added to excludes")
-                spec_lines.append("    # ms-playwright will be excluded from Analysis")
                 for exclude in codesign_excludes:
                     spec_lines.append(f"    # codesign_exclude: {exclude}")
                 spec_lines.append("")
@@ -242,7 +255,6 @@ class MiniSpecBuilder:
         spec_lines.append("")
 
         # Basic cleanup: remove duplicate entries
-        spec_lines.append("# Basic cleanup: remove duplicate entries")
         spec_lines.append("seen_datas = set()")
         spec_lines.append("unique_datas = []")
         spec_lines.append("for data in a.datas:")
@@ -260,37 +272,34 @@ class MiniSpecBuilder:
         spec_lines.append("        seen_bins.add(key)")
         spec_lines.append("        unique_bins.append(b)")
         spec_lines.append("a.binaries = unique_bins")
-        spec_lines.append("print(f'[SPEC] Cleaned up: {len(unique_datas)} datas, {len(unique_bins)} binaries')")
         spec_lines.append("")
         
-        # Post-analysis cleanup for macOS: remove Playwright binaries that cause codesign issues
+        # Post-analysis cleanup for macOS
         spec_lines.append("if _sys.platform == 'darwin':")
-        spec_lines.append("    # Remove Playwright binaries that cause codesign failures")
         spec_lines.append("    playwright_binaries = []")
+        spec_lines.append("    playwright_kept = []")
         spec_lines.append("    for binary in a.binaries[:]:")
         spec_lines.append("        dest_name = str(binary[0])")
-        spec_lines.append("        # Remove any Playwright-related binaries that might have been collected")
         spec_lines.append("        if any(pattern in dest_name for pattern in ['ms-playwright', 'chromium', 'chrome-mac', 'chrome-mac-arm64']):")
-        spec_lines.append("            playwright_binaries.append(binary)")
-        spec_lines.append("            a.binaries.remove(binary)")
-        spec_lines.append("    print(f'[SPEC] Removed {len(playwright_binaries)} Playwright binaries to avoid codesign issues')")
+        spec_lines.append("            if any(keep in dest_name for keep in ['browsers.json', 'package.json', '.json']):")
+        spec_lines.append("                playwright_kept.append(binary)")
+        spec_lines.append("                continue")
+        spec_lines.append("            if any(remove in dest_name for remove in ['.exe', '.dylib', '.so', 'chrome', 'chromium']):")
+        spec_lines.append("                playwright_binaries.append(binary)")
+        spec_lines.append("                a.binaries.remove(binary)")
+        spec_lines.append("            else:")
+        spec_lines.append("                playwright_kept.append(binary)")
         spec_lines.append("")
-        spec_lines.append("    # Let PyInstaller's official hooks handle Qt WebEngine structure")
-        spec_lines.append("    # No manual intervention needed - PyInstaller knows how to handle Qt frameworks")
-        spec_lines.append("")
-        spec_lines.append("    # Basic framework symlink cleanup to prevent conflicts")
-        spec_lines.append("    # Remove duplicate framework content that should be symlinks")
         spec_lines.append("    framework_duplicates = []")
         spec_lines.append("    for binary in a.binaries[:]:")
         spec_lines.append("        dest_name = str(binary[0])")
-        spec_lines.append("        # If we have both Versions/Current/Helpers/foo and Helpers/foo, keep only Versions/Current/Helpers/foo")
-        spec_lines.append("        if '.framework/Helpers/' in dest_name and '.framework/Versions/' not in dest_name:")
-        spec_lines.append("            # Check if we also have the Versions/Current version")
+        spec_lines.append("        if ('.framework/Helpers/' in dest_name and")
+        spec_lines.append("            '.framework/Versions/' not in dest_name and")
+        spec_lines.append("            'QtWebEngineCore.framework' not in dest_name):")
         spec_lines.append("            versions_path = dest_name.replace('.framework/Helpers/', '.framework/Versions/Current/Helpers/')")
         spec_lines.append("            if any(str(b[0]) == versions_path for b in a.binaries):")
         spec_lines.append("                framework_duplicates.append(binary)")
         spec_lines.append("                a.binaries.remove(binary)")
-        spec_lines.append("    print(f'[SPEC] Removed {len(framework_duplicates)} framework symlink duplicates')")
         spec_lines.append("")
         
         spec_lines.append("pyz = PYZ(a.pure, a.zipped_data, cipher=None)")

@@ -218,8 +218,8 @@
       "PySide6.QtDesigner",
       "PySide6.QtTest"
     ],
-            "optimization": {
-            "copy_metadata": true
+    "optimization": {
+      "copy_metadata": true
     }
   },
   "build_modes": {
