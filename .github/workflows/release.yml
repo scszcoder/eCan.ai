@@ -79,7 +79,7 @@ jobs:
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "is_branch=false" >> $GITHUB_OUTPUT
           echo "version=${REF_NAME#v}" >> $GITHUB_OUTPUT
-          echo "✅ Tag detected: $REF_NAME"
+          echo "Tag detected: $REF_NAME"
         else
           # Treat as branch; create fallback version 0.0.0-<branch>-<shortsha>
           SHORT_SHA=$(git rev-parse --short HEAD)
@@ -102,6 +102,10 @@ jobs:
        github.event.inputs.platform == null) &&
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == null)
     runs-on: windows-latest
+    env:
+      # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
+      WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || '' }}
+      WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || '' }}
     timeout-minutes: 45
 
     steps:
@@ -167,20 +171,20 @@ jobs:
         $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
         $DownloadPath = "$env:TEMP\innosetup-6.2.2.exe"
 
-        Write-Host "📥 Downloading Inno Setup..."
+        Write-Host "Downloading Inno Setup..."
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
 
-        Write-Host "🔨 Installing Inno Setup..."
+        Write-Host "Installing Inno Setup..."
         Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
 
-        Write-Host "✅ Inno Setup installation completed"
+        Write-Host "Inno Setup installation completed"
 
         # Verify installation
         $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
         if (Test-Path $innoPath) {
-            Write-Host "✅ Inno Setup verified at: $innoPath"
+            Write-Host "Inno Setup verified at: $innoPath"
         } else {
-            Write-Host "❌ Inno Setup not found at expected location"
+            Write-Host "ERROR: Inno Setup not found at expected location"
             exit 1
         }
 
@@ -200,7 +204,7 @@ jobs:
         $found = $false
         foreach ($p in $dllPaths) {
           if (Test-Path $p) {
-            Write-Host "✅ winSparkle DLL found at: $p"
+            Write-Host "winSparkle DLL found at: $p"
             $dll = Get-Item $p
             Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
             $found = $true
@@ -287,10 +291,10 @@ jobs:
 
 
     - name: Code sign Windows artifacts (optional)
-      if: ${{ secrets.WIN_CERT_PFX != '' && secrets.WIN_CERT_PASSWORD != '' }}
+      if: ${{ env.WIN_CERT_PFX != '' && env.WIN_CERT_PASSWORD != '' }}
       env:
-        WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
-        WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+        WIN_CERT_PFX: ${{ env.WIN_CERT_PFX }}
+        WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD }}
       run: |
         echo "=== Code signing Windows artifacts ==="
         $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
@@ -324,12 +328,12 @@ jobs:
 
         if (Test-Path "dist/eCan/eCan.exe") {
             $exe = Get-Item "dist/eCan/eCan.exe"
-            echo "✅ Windows EXE found: dist/eCan/eCan.exe"
+            echo "Windows EXE found: dist/eCan/eCan.exe"
             echo "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
             echo "   Created: $($exe.CreationTime)"
             $exeFound = $true
         } else {
-            echo "❌ Windows EXE not found"
+            echo "ERROR: Windows EXE not found"
             echo "Searching for .exe files..."
             Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" | ForEach-Object {
                 echo "   Found: $($_.FullName)"
@@ -338,20 +342,20 @@ jobs:
 
         if (Test-Path "dist/eCan-Setup.exe") {
             $setup = Get-Item "dist/eCan-Setup.exe"
-            echo "✅ Installer found: dist/eCan-Setup.exe"
+            echo "Installer found: dist/eCan-Setup.exe"
             echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
             echo "   Created: $($setup.CreationTime)"
             $setupFound = $true
         } else {
-            echo "⚠️  Installer not found"
+            echo "WARN: Installer not found"
         }
 
         if (-not $exeFound) {
-            echo "❌ Build validation failed - no executable found"
+            echo "ERROR: Build validation failed - no executable found"
             exit 1
         }
 
-        echo "✅ Build validation passed"
+        echo "Build validation passed"
 
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
@@ -373,6 +377,14 @@ jobs:
        github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null)
     runs-on: macos-latest
+    env:
+      # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
+      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || '' }}
+      MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD || '' }}
+      MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY || '' }}
+      APPLE_ID: ${{ secrets.APPLE_ID || '' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+      TEAM_ID: ${{ secrets.TEAM_ID || '' }}
     timeout-minutes: 45
 
     steps:
@@ -438,15 +450,15 @@ jobs:
 
         echo "=== Checking Sparkle Framework Installation ==="
         if [ -d "ota/dependencies/Sparkle.framework" ]; then
-          echo "✅ Sparkle.framework found"
+          echo "[OK] Sparkle.framework found"
           framework_size=$(du -sh ota/dependencies/Sparkle.framework | cut -f1)
           echo "   Size: $framework_size"
 
           # Check framework structure
           if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Sparkle" ]; then
-            echo "✅ Sparkle binary found in framework"
+            echo "[OK] Sparkle binary found in framework"
           else
-            echo "⚠️  Sparkle binary not found in expected location"
+            echo "[WARN] Sparkle binary not found in expected location"
           fi
 
           if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Resources/sparkle-cli" ]; then
@@ -482,29 +494,40 @@ jobs:
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
 
-        # 规范产物命名（适配新版 InstallerBuilder 输出 eCan-${{ needs.validate-tag.outputs.version }}.pkg）
-        if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
-          mv "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
-        fi
-        if [ -d "dist/eCan.app" ]; then
-          ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
-        fi
-
         # Check exit code
         if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Build failed"
+            echo "[ERROR] Build failed"
             echo "=== Build Log ==="
             cat build.log
             exit 1
         fi
 
-        echo "✅ Build completed successfully"
+        echo "[OK] Build completed successfully"
+
+    - name: Create DMG from app
+      if: ${{ always() }}
+      run: |
+        echo "=== Creating DMG ==="
+        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        APP_PATH="dist/eCan.app"
+        DMG_PATH="dist/eCan-macos-${ARCH}-v${VERSION}.dmg"
+        if [ -d "$APP_PATH" ]; then
+          mkdir -p build/dmg
+          rm -rf build/dmg/*
+          cp -R "$APP_PATH" build/dmg/
+          hdiutil create -volname "eCan" -srcfolder build/dmg -ov -format UDZO "$DMG_PATH"
+          echo "[OK] DMG created at: $DMG_PATH"
+        else
+          echo "[WARN] App not found at $APP_PATH; skip DMG creation"
+        fi
 
     - name: Code sign macOS app (optional)
+      if: ${{ env.MAC_CERT_P12 != '' && env.MAC_CERT_PASSWORD != '' && env.MAC_CODESIGN_IDENTITY != '' }}
       env:
-        MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
-        MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-        MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
+        MAC_CERT_P12: ${{ env.MAC_CERT_P12 }}
+        MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD }}
+        MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY }}
       run: |
         echo "=== Code signing macOS app (if secrets provided) ==="
         if [ -z "${MAC_CERT_P12}" ] || [ -z "${MAC_CERT_PASSWORD}" ] || [ -z "${MAC_CODESIGN_IDENTITY}" ]; then
@@ -524,37 +547,31 @@ jobs:
           echo "Signing dist/eCan.app"
           codesign --deep --force --options runtime --sign "$MAC_CODESIGN_IDENTITY" "dist/eCan.app"
           codesign --verify --deep --strict --verbose=2 "dist/eCan.app"
-          echo "Recreate zip after signing"
-          rm -f dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip || true
-          ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
         else
           echo "dist/eCan.app not found; skip codesign"
         fi
 
-    - name: Notarize macOS app (optional)
+    - name: Notarize macOS DMG (optional)
+      if: ${{ env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.TEAM_ID != '' }}
       env:
-        APPLE_ID: ${{ secrets.APPLE_ID }}
-        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        TEAM_ID: ${{ secrets.TEAM_ID }}
+        APPLE_ID: ${{ env.APPLE_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
+        TEAM_ID: ${{ env.TEAM_ID }}
       run: |
-        echo "=== Notarize macOS app (if Apple credentials provided) ==="
+        echo "=== Notarize macOS DMG (if Apple credentials provided) ==="
         if [ -z "${APPLE_ID}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD}" ] || [ -z "${TEAM_ID}" ]; then
           echo "No Apple notarization credentials; skip notarization"
           exit 0
         fi
-        ZIP_PATH="dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
-        if [ -f "$ZIP_PATH" ]; then
-          echo "Submitting $ZIP_PATH for notarization..."
-          xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
-          echo "Stapling ticket to app..."
-          if [ -d "dist/eCan.app" ]; then
-            xcrun stapler staple "dist/eCan.app"
-            echo "Recreate zip after stapling"
-            rm -f "$ZIP_PATH"
-            ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "$ZIP_PATH"
-          fi
+        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        DMG_PATH="dist/eCan-macos-${ARCH}-v${VERSION}.dmg"
+        if [ -f "$DMG_PATH" ]; then
+          echo "Submitting $DMG_PATH for notarization..."
+          xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
+          echo "[OK] Notarization completed"
         else
-          echo "ZIP not found, skip notarization"
+          echo "DMG not found, skip notarization"
         fi
 
     - name: Check build result
@@ -563,39 +580,35 @@ jobs:
         echo "Dist directory contents:"
         ls -la dist/
 
-        # Check for .pkg installer
-        if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
-            echo "✅ macOS PKG installer found: dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg"
-            pkg_size=$(du -sh dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg | cut -f1)
-            echo "   Size: $pkg_size"
+        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        DMG_PATH="dist/eCan-macos-${ARCH}-v${VERSION}.dmg"
+        if [ -f "$DMG_PATH" ]; then
+            echo "[OK] macOS DMG found: $DMG_PATH"
+            dmg_size=$(du -sh "$DMG_PATH" | cut -f1)
+            echo "   Size: $dmg_size"
         elif [ -d "dist/eCan.app" ]; then
-            echo "✅ macOS App found: dist/eCan.app"
-
-
-
+            echo "[OK] macOS App found: dist/eCan.app"
             app_size=$(du -sh dist/eCan.app | cut -f1)
             echo "   Size: $app_size"
-
-            # Check app structure
             echo "   App structure:"
             find dist/eCan.app -type f -name "eCan" | head -5
         else
-            echo "❌ macOS build not found"
-            echo "Searching for .pkg and .app files..."
-            find dist -name "*.pkg" 2>/dev/null || echo "No .pkg files found"
+            echo "[ERROR] macOS build not found"
+            echo "Searching for .dmg and .app files..."
+            find dist -name "*.dmg" 2>/dev/null || echo "No .dmg files found"
             find dist -name "*.app" 2>/dev/null || echo "No .app files found"
             exit 1
         fi
 
-        echo "✅ Build validation passed"
+        echo "[OK] Build validation passed"
 
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
       with:
         name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.pkg
-          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip
+          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.dmg
           build.log
         retention-days: 30
 
