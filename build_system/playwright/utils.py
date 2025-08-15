@@ -269,7 +269,7 @@ class PlaywrightBuildUtils:
                 # Check if matches current platform
                 if PlaywrightBuildUtils._is_platform_match(platform_name, target_platform):
                     print(f"[BUILD] Copying platform-specific files: {platform_name}")
-                    
+
                     # 复制整个平台目录
                     dst_platform_dir = dst_browser_dir / platform_name
                     if dst_platform_dir.exists():
@@ -278,11 +278,6 @@ class PlaywrightBuildUtils:
                     # expanding them into real directories, which causes PyInstaller
                     # COLLECT collisions on macOS frameworks.
                     shutil.copytree(platform_dir, dst_platform_dir, symlinks=True)
-
-
-                    
-                    # 更新 browsers.json 中的路径信息
-                    PlaywrightBuildUtils._update_browsers_json_paths(dst_browser_dir, platform_name)
                 else:
                     print(f"[BUILD] Skipping non-matching platform: {platform_name}")
     
