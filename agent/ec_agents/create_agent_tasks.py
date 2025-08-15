@@ -682,7 +682,7 @@ def create_ec_self_tester_work_task(mainwin):
             metadata={"state": state},
             state=state,
             resume_from=resume_from,
-            trigger="schedule",
+            trigger="message",
             schedule=task_schedule
         )
     return worker_task
