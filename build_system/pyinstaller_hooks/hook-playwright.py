@@ -1,86 +1,128 @@
-# PyInstaller hook for Playwright
-# This hook ensures Playwright browsers are properly handled during packaging
+# -*- coding: utf-8 -*-
+"""
+PyInstaller hook for playwright
+Handles Playwright browser binaries collection
+"""
 
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 import os
 import sys
 from pathlib import Path
-import shutil
+from PyInstaller.utils.hooks import collect_all, collect_data_files
 
-# Collect Playwright Python package data
-datas = collect_data_files('playwright')
+print("[HOOK] playwright hook executing...")
 
-# On macOS, we need to handle the browser binaries specially
-if sys.platform == 'darwin':
-    print("[HOOK] macOS detected - applying Playwright browser handling")
-    
-    # Find Playwright browser installation in multiple locations
-    browser_paths = []
-    
-    # 1. Check current working directory for third_party/ms-playwright
-    current_dir = Path.cwd()
-    third_party_path = current_dir / "third_party" / "ms-playwright"
-    if third_party_path.exists():
-        browser_paths.append(third_party_path)
-        print(f"[HOOK] Found browsers in: {third_party_path}")
-    
-    # 2. Check environment variable
-    if 'PLAYWRIGHT_BROWSERS_PATH' in os.environ:
-        env_path = Path(os.environ['PLAYWRIGHT_BROWSERS_PATH'])
-        if env_path.exists():
-            browser_paths.append(env_path)
-            print(f"[HOOK] Found browsers in: {env_path}")
-    
-    # 3. Check user cache directories
-    user_home = Path.home()
-    cache_paths = [
-        user_home / ".cache" / "ms-playwright",
-        user_home / "Library" / "Caches" / "ms-playwright",
-        user_home / "AppData" / "Local" / "ms-playwright" if sys.platform == 'win32' else None
-    ]
-    
-    for cache_path in cache_paths:
-        if cache_path and cache_path.exists():
-            browser_paths.append(cache_path)
-            print(f"[HOOK] Found browsers in: {cache_path}")
-    
-    # Only add the entire ms-playwright directory once per found path
-    normalized = set()
-    for browser_path in browser_paths:
-        if browser_path.exists() and browser_path.is_dir():
-            key = str(browser_path.resolve())
-            if key in normalized:
-                continue
-            normalized.add(key)
-            print(f"[HOOK] Adding ms-playwright directory as data: {browser_path}")
-            datas.append((str(browser_path), 'third_party/ms-playwright'))
-    
-    # macOS specific: Handle Chromium Framework symlink conflicts
-    print("[HOOK] Applying macOS Chromium Framework symlink conflict prevention")
-    
-    # Add a custom hook to prevent symlink conflicts
-    def _prevent_chromium_symlink_conflicts():
-        """Prevent Chromium Framework symlink conflicts on macOS"""
-        try:
-            # This will be called during PyInstaller's analysis phase
-            print("[HOOK] Chromium Framework symlink conflict prevention enabled")
-        except Exception as e:
-            print(f"[HOOK] Warning: Could not enable symlink conflict prevention: {e}")
-    
-    _prevent_chromium_symlink_conflicts()
+# Note: collect_all('playwright') is handled by build_config.json
+# This hook only collects browser binaries that are not part of the Python package
 
-# Collect any dynamic libraries
-binaries = collect_dynamic_libs('playwright')
+# Initialize collections
+datas = []
+binaries = []
+hiddenimports = []
 
-# Hidden imports that might be needed
-hiddenimports = [
-    'playwright.async_api',
-    'playwright.sync_api',
-    'playwright.driver',
-]
+# Collect Playwright browser binaries
+try:
+    import playwright
+    playwright_path = Path(playwright.__file__).parent
+    
+    # Look for ms-playwright directory in common locations
+    ms_playwright_paths = []
+    
+    # Check in playwright package directory
+    package_ms_playwright = playwright_path / 'ms-playwright'
+    if package_ms_playwright.exists():
+        ms_playwright_paths.append(package_ms_playwright)
+    
+    # Check in user home directory (handle symlink)
+    home_ms_playwright = Path.home() / '.cache' / 'ms-playwright'
+    if home_ms_playwright.exists():
+        # Resolve symlink to get the actual path
+        if home_ms_playwright.is_symlink():
+            actual_path = home_ms_playwright.resolve()
+            print(f"[HOOK] Resolved symlink: {home_ms_playwright} -> {actual_path}")
+            ms_playwright_paths.append(actual_path)
+        else:
+            ms_playwright_paths.append(home_ms_playwright)
+    
+    # Check in system cache directory
+    system_ms_playwright = Path('/usr/local/share/ms-playwright')
+    if system_ms_playwright.exists():
+        ms_playwright_paths.append(system_ms_playwright)
+    
+    # Platform-specific paths (only if not already found in user cache)
+    if sys.platform == 'darwin' and not any('Library/Application Support/eCan' in str(p) for p in ms_playwright_paths):
+        # macOS - check multiple possible locations
+        mac_paths = [
+            Path('/opt/homebrew/share/ms-playwright'),
+            Path('/usr/local/share/ms-playwright'),
+        ]
+        
+        for mac_path in mac_paths:
+            if mac_path.exists():
+                # Resolve symlinks for macOS paths
+                if mac_path.is_symlink():
+                    actual_path = mac_path.resolve()
+                    print(f"[HOOK] macOS: Resolved symlink: {mac_path} -> {actual_path}")
+                    ms_playwright_paths.append(actual_path)
+                else:
+                    ms_playwright_paths.append(mac_path)
+                print(f"[HOOK] macOS: Found ms-playwright at: {mac_path}")
+                break  # Use the first found location
+    elif sys.platform == 'win32':
+        # Windows
+        win_ms_playwright = Path(os.environ.get('LOCALAPPDATA', '')) / 'ms-playwright'
+        if win_ms_playwright.exists():
+            ms_playwright_paths.append(win_ms_playwright)
+    else:
+        # Linux
+        linux_ms_playwright = Path('/usr/share/ms-playwright')
+        if linux_ms_playwright.exists():
+            ms_playwright_paths.append(linux_ms_playwright)
+    
+    # Collect browser binaries from found paths
+    for ms_playwright_path in ms_playwright_paths:
+        print(f"[HOOK] Found ms-playwright at: {ms_playwright_path}")
+        
+        # Look for chromium browsers
+        chromium_patterns = [
+            'chromium-*/chrome-mac/Chromium.app',
+            'chromium-*/chrome-win/chrome.exe',
+            'chromium-*/chrome-win/chrome',
+            'chromium-*/chrome-linux/chrome',
+        ]
+        
+        for pattern in chromium_patterns:
+            for browser_path in ms_playwright_path.glob(pattern):
+                if browser_path.exists():
+                    # Determine destination path
+                    if sys.platform == 'darwin' and browser_path.suffix == '.app':
+                        dest_path = f"ms-playwright/{browser_path.relative_to(ms_playwright_path)}"
+                    elif sys.platform == 'win32' and browser_path.suffix == '.exe':
+                        dest_path = f"ms-playwright/{browser_path.relative_to(ms_playwright_path)}"
+                    else:
+                        dest_path = f"ms-playwright/{browser_path.relative_to(ms_playwright_path)}"
+                    
+                    datas.append((str(browser_path), dest_path))
+                    print(f"[HOOK] Added Playwright browser: {browser_path} -> {dest_path}")
+        
+        # Also collect the entire ms-playwright directory structure
+        if ms_playwright_path.exists():
+            # Check if we already collected this path (avoid duplicates from symlinks)
+            path_str = str(ms_playwright_path.resolve())  # Resolve symlinks for comparison
+            if not any(str(Path(p[0]).resolve()) == path_str for p in datas):
+                datas.append((str(ms_playwright_path), 'ms-playwright'))
+                print(f"[HOOK] Added entire ms-playwright directory: {ms_playwright_path}")
+                break  # Only add from the first found location
+            else:
+                print(f"[HOOK] Skipped duplicate ms-playwright path: {ms_playwright_path}")
+    
+    if not ms_playwright_paths:
+        print("[HOOK] Warning: No ms-playwright directory found")
+        print("[HOOK] You may need to run 'playwright install' first")
+        
+except ImportError:
+    print("[HOOK] Warning: playwright not available")
 
-print(f"[HOOK] Playwright hook loaded successfully:")
-print(f"[HOOK] - Data files: {len(datas)}")
-print(f"[HOOK] - Binary files: {len(binaries)}")
-print(f"[HOOK] - Hidden imports: {len(hiddenimports)}")
-print(f"[HOOK] - macOS symlink conflict prevention: {'Enabled' if sys.platform == 'darwin' else 'N/A'}")
+print(f"[HOOK] playwright hook completed:")
+print(f"  - Hidden imports: {len(hiddenimports)} modules")
+print(f"  - Data files: {len(datas)} files")
+print(f"  - Binary files: {len(binaries)} files")
