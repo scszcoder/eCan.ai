@@ -134,7 +134,7 @@ python ota/server/update_server.py
 ### 平台更新器
 
 - `SparkleUpdater` - macOS Sparkle集成
-- `WinSparkleUpdater` - Windows winSparkle集成  
+- `WinSparkleUpdater` - Windows winSparkle集成
 - `GenericUpdater` - Linux通用HTTP API
 
 ### GUI组件
@@ -158,6 +158,79 @@ export ECBOT_UPDATE_SERVER=https://updates.ecbot.com
 1.0.0
 ```
 
+
+## 使用 GitHub Pages + Releases + CI 签名发布 appcast
+
+以下流程已在本仓库中配置完成（见 .github/workflows）：
+
+- 发布产物：
+  - Windows/macOS 在 CI 中构建，Windows 使用 signtool（如配置证书）进行 Authenticode 签名；macOS 可在 CI 中 codesign + notarize（如配置证书/账户）
+  - 构建完成后上传为 Release assets
+- 生成 appcast：
+  - 发布 Release 后触发 Publish Appcast 工作流，scripts/generate_appcast.py 将根据 Release assets 生成 appcast.xml 并发布到 gh-pages
+  - 如配置 ED25519_PRIVATE_KEY（PEM 或 Base64）为仓库 Secret，会对每个 assets 计算 Sparkle 2 的 edSignature
+- 默认 appcast URL：
+  - https://scszcoder.github.io/ecbot/appcast.xml
+  - 已在 ota/core/config.py 默认指向此地址；macOS/Windows 使用 Sparkle/winSparkle 时亦可直接配置该 URL
+
+必备/可选 Secrets（Settings -> Secrets and variables -> Actions）
+- ED25519_PRIVATE_KEY（可选）：Ed25519 私钥 PEM/BASE64，用于为 appcast enclosure 生成 edSignature
+- Windows（可选）：WIN_CERT_PFX（Base64 的 .pfx），WIN_CERT_PASSWORD
+- macOS（可选）：
+  - MAC_CERT_P12（Base64 的 .p12），MAC_CERT_PASSWORD，MAC_CODESIGN_IDENTITY（例如：Developer ID Application: Your Company (TEAMID)）
+  - APPLE_ID，APPLE_APP_SPECIFIC_PASSWORD，TEAM_ID（用于 notarytool 公证）
+
+客户端校验
+- macOS：Info.plist 配置 SUPublicEDKey（见 ota/platforms/SPARKLE_SETUP.md）
+- GenericUpdater：在 ota_config.json 配置 public_key_path 指向 Ed25519 公钥 PEM
+
+注意
+- edSignature 必须在“最终签名后的产物”上计算；当前流程即：构建→签名→上传 Release→生成 appcast
+- 大型二进制请放在 Releases，appcast.xml 放在 gh-pages（Pages 发布为静态文件）
+
+## 使用 Ed25519（Sparkle 2）签名与客户端验签
+
+本项目支持在 appcast 的 enclosure 上写入 Sparkle 2 的 edSignature（Ed25519）。流程如下：
+
+1) 生成 Ed25519 密钥对（Python）
+- 依赖：pip install cryptography
+- 运行脚本：
+  - python scripts/gen_ed25519_keys.py
+- 脚本输出：
+  - ed25519-private.pem（私钥，勿公开）
+  - ed25519-public.pem（公钥，可随客户端分发）
+  - 适合粘贴到 GitHub Secrets 的 Base64 私钥（ED25519_PRIVATE_KEY）
+
+2) CI 中启用 edSignature 生成
+- 仓库 Settings → Secrets → Actions → 新建 ED25519_PRIVATE_KEY，粘贴上一步打印的 Base64 私钥
+- 发布 Release 后，Publish Appcast Job 会：
+  - 下载 Release 资产
+  - 计算每个下载包的 edSignature（Ed25519）
+  - 写入 appcast 的 enclosure@\n    - sparkle:edSignature
+    - sparkle:version, sparkle:os, sparkle:arch, length, type
+
+3) 客户端启用签名校验（GenericUpdater）
+- 在 ota_config.json 或运行时配置中设置：
+  - signature_verification: true
+  - public_key_path: 指向 ed25519-public.pem 的路径
+- 默认会尝试以下路径（若未显式设置）：
+  - 项目 keys/public_key.pem
+  - 用户目录 ~/.ecbot/public_key.pem
+  - /etc/ecbot/public_key.pem
+- 下载后，PackageManager.verify_package() 将：
+  - 读取公钥
+  - 解码 enclosure 的 sparkle:edSignature（Base64）
+  - 对下载包内容做 Ed25519 验签
+
+4) Sparkle/winSparkle 客户端
+- macOS 原生 Sparkle 2：可在 Info.plist 设置 SUPublicEDKey（如需，我们可提供示例）
+- Windows winSparkle：依赖自身的签名校验机制（与 Authenticode 配合）。建议同时启用 appcast 的 edSignature，以便在我们的 GenericUpdater 逻辑中统一处理
+
+注意：
+- edSignature 必须基于“最终签名后的产物”计算；因此本项目在 Create Release 完成后再生成 appcast
+- 私钥仅存放在 CI Secrets，不要提交到仓库；公钥可公开分发/随应用安装
+
+
 ## 平台支持
 
 ### macOS
@@ -166,8 +239,25 @@ export ECBOT_UPDATE_SERVER=https://updates.ecbot.com
 - 数字签名验证
 - **安装说明**: 参见 [platforms/SPARKLE_SETUP.md](platforms/SPARKLE_SETUP.md)
 
-### Windows  
+### Windows
 - 使用winSparkle
+
+### 按平台与架构拆分 appcast（推荐）
+
+- 为避免不同平台/架构交叉升级，建议发布以下多个 feed：
+  - appcast-macos-amd64.xml, appcast-macos-aarch64.xml
+  - appcast-windows-amd64.xml, appcast-windows-aarch64.xml
+- CI（release.yml）已在 Create Release 之后生成以上文件并发布到 gh-pages（并生成 appcast-macos.xml / appcast-windows.xml 聚合 feed）
+- 客户端配置建议：
+  - macOS Intel:  https://scszcoder.github.io/ecbot/appcast-macos-amd64.xml
+  - macOS Apple:  https://scszcoder.github.io/ecbot/appcast-macos-aarch64.xml
+  - Windows x64:  https://scszcoder.github.io/ecbot/appcast-windows-amd64.xml
+  - Windows ARM64:https://scszcoder.github.io/ecbot/appcast-windows-aarch64.xml
+- 我们的 GenericUpdater 会：
+  1) 优先读取 platforms.<os>.appcast_urls[arch]
+  2) 其次读取 platforms.<os>.appcast_url（若为平台 feed，自动探测 -<arch> 后缀）
+  3) 最后回退到全局 appcast_url 或 JSON /api/check
+
 - 支持EXE和MSI更新包
 - Authenticode代码签名
 - **安装说明**: 参见 [platforms/WINSPARKLE_SETUP.md](platforms/WINSPARKLE_SETUP.md)
@@ -267,4 +357,4 @@ OTA日志位置：
 
 ## 许可证
 
-© 2024 ECBot Team. All rights reserved. 
+© 2024 ECBot Team. All rights reserved.

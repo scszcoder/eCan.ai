@@ -137,7 +137,8 @@ class PackageManager:
             file_hash = self._calculate_file_hash(package.download_path)
             logger.info(f"Package hash: {file_hash}")
             
-            # 2. 基本哈希验证
+            # 2. 基本哈希/数字签名验证
+            sig_required = ota_config.get('signature_required', True)
             if package.signature:
                 if self._is_hash_signature(package.signature):
                     # 简单哈希验证
@@ -146,15 +147,18 @@ class PackageManager:
                         return False
                     logger.info("Hash verification successful")
                 else:
-                    # 数字签名验证
-                    # 如果没有提供公钥路径，从配置中获取
+                    # 数字签名验证（Ed25519/RSA-PSS）
                     if not public_key_path:
                         public_key_path = ota_config.get_public_key_path()
-                    
-                    if not self._verify_digital_signature(package.download_path, package.signature, public_key_path):
+                    ok = self._verify_digital_signature(package.download_path, package.signature, public_key_path)
+                    if not ok:
                         logger.error("Digital signature verification failed")
                         return False
                     logger.info("Digital signature verification successful")
+            else:
+                if ota_config.get('signature_verification', True) and sig_required:
+                    logger.error("Missing signature while signature_required=true")
+                    return False
             
             # 3. 文件格式验证
             if not self._verify_package_format(package.download_path):
@@ -183,10 +187,16 @@ class PackageManager:
         """验证数字签名"""
         try:
             if not CRYPTO_AVAILABLE:
+                if ota_config.get('signature_required', True):
+                    logger.error("Cryptography library not available while signature_required=true")
+                    return False
                 logger.warning("Cryptography library not available, skipping digital signature verification")
                 return True
-            
+
             if not public_key_path or not os.path.exists(public_key_path):
+                if ota_config.get('signature_required', True):
+                    logger.error("Public key not available while signature_required=true")
+                    return False
                 logger.warning("Public key not available, skipping digital signature verification")
                 return True
             
