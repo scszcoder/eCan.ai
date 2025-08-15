@@ -1,35 +1,39 @@
 """
-PyInstaller hook for pywintypes
-解决 pywintypes 在 PyInstaller 中的路径检查问题
+PyInstaller hook for pywintypes package.
+
+This hook ensures that pywintypes and related win32 modules are properly included
+in the PyInstaller bundle on Windows platforms only.
 """
 
 import sys
-print("[HOOK] hook-pywintypes.py 正在执行...")
+from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
 
-# 仅在 Windows 上启用该 hook，避免 macOS/Linux 打包时引入 win32 系列导致失败
+print("[HOOK] pywintypes hook executing...")
+
+# Only enable this hook on Windows to avoid introducing win32 modules on other platforms
 if sys.platform.startswith('win'):
-    from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs
-
-    # 收集 pywintypes 的所有内容
+    print("[HOOK] Windows platform detected - collecting pywintypes modules")
+    
+    # Collect all pywintypes content
     datas, binaries, hiddenimports = collect_all('pywintypes')
-
-    # 收集动态链接库
+    
+    # Collect dynamic libraries
     pywintypes_libs = collect_dynamic_libs('pywintypes')
-    binaries += pywintypes_libs
-
-    # 添加 win32 相关模块
+    binaries.extend(pywintypes_libs)
+    
+    # Add essential win32 modules that are commonly used
     win32_modules = [
         'win32api', 'win32con', 'win32file', 'win32pipe', 'win32process',
         'win32security', 'win32service', 'win32serviceutil', 'win32event',
         'win32evtlog', 'win32gui', 'win32clipboard', 'win32print',
     ]
-    hiddenimports += win32_modules
-
-    print(f"[HOOK] pywintypes hook 执行完成:")
-    print(f"   - 隐藏导入: {len(hiddenimports)} 个模块")
-    print(f"   - 数据文件: {len(datas)} 个文件")
-    print(f"   - 二进制文件: {len(binaries)} 个文件")
+    hiddenimports.extend(win32_modules)
+    
+    print(f"[HOOK] pywintypes hook completed:")
+    print(f"  - Hidden imports: {len(hiddenimports)} modules")
+    print(f"  - Data files: {len(datas)} files")
+    print(f"  - Binary files: {len(binaries)} files")
 else:
-    # 非 Windows 平台，提供空的占位，避免 PyInstaller 报未定义变量
+    # Non-Windows platforms: provide empty placeholders to avoid PyInstaller errors
     datas, binaries, hiddenimports = [], [], []
-    print("[HOOK] 非 Windows 平台，跳过 pywintypes 相关处理")
+    print("[HOOK] Non-Windows platform - skipping pywintypes processing")

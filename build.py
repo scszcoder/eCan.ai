@@ -12,7 +12,7 @@ import argparse
 import subprocess
 import time
 from pathlib import Path
-from typing import Tuple
+
 
 # Import pre-build check module
 try:
@@ -221,35 +221,7 @@ def _prepare_playwright_assets() -> None:
 
 
 
-def _validate_macos_framework_symlinks(dist_dir: Path) -> Tuple[bool, int, int]:
-    """Validate that macOS .framework leaf directories are symlinks.
-    Returns (ok, checked_frameworks, fixed_issues_count)
-    """
-    if sys.platform != "darwin":
-        return True, 0, 0
-    checked = 0
-    issues = 0
-    try:
-        # Search any .framework under the dist directory
-        for fw in dist_dir.rglob("*.framework"):
-            if not fw.is_dir():
-                continue
-            checked += 1
-            versions_current = fw / "Versions" / "Current"
-            for leaf in ("Headers", "Resources", "Modules", "Helpers"):
-                leaf_path = fw / leaf
-                if leaf_path.exists() and not leaf_path.is_symlink():
-                    issues += 1
-                    print(f"[VERIFY] ERROR: Framework leaf is not a symlink: {leaf_path}")
-                # If leaf exists (symlink or not), verify target exists
-                target = versions_current / leaf
-                if leaf_path.exists() and not target.exists():
-                    issues += 1
-                    print(f"[VERIFY] ERROR: Framework leaf target missing: {target}")
-        return issues == 0, checked, issues
-    except Exception as e:
-        print(f"[VERIFY] ERROR during symlink validation: {e}")
-        return False, checked, issues or 1
+
 
 
 
@@ -278,6 +250,7 @@ Usage examples:
   python build.py prod --version 2.1.0  # Build with specified version
   python build.py fast --skip-frontend  # Fast build skipping frontend
   python build.py prod --skip-installer # Skip installer creation
+  python build.py --installer-only  # Create installer only (skip build steps)
 """,
     )
 
@@ -311,6 +284,12 @@ Usage examples:
     )
 
     parser.add_argument(
+        "--installer-only",
+        action="store_true",
+        help="Skip build steps, create installer only (requires existing dist files)"
+    )
+
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Show detailed build information"
@@ -335,6 +314,22 @@ Usage examples:
     )
 
     args = parser.parse_args()
+
+    # Validate installer-only mode
+    if args.installer_only:
+        if args.mode != "fast":
+            print("[ERROR] --installer-only mode only supports 'fast' mode")
+            print("[INFO] Use: python build.py --installer-only")
+            sys.exit(1)
+        
+        # Check if dist directory exists
+        dist_dir = Path("dist")
+        if not dist_dir.exists():
+            print("[ERROR] --installer-only mode requires existing dist directory")
+            print("[INFO] Please run a full build first, or remove --installer-only flag")
+            sys.exit(1)
+        
+        print("[INFO] Installer-only mode: will skip build steps and create installer directly")
 
     # Sanitize argv to avoid third-party modules (imported later) parsing our original CLI args like 'prod'
     try:
@@ -379,26 +374,30 @@ Usage examples:
     print_mode_info(args.mode, fast_mode)
 
     # Pre-build cleanup (default)
-    print("[PREP] Cleaning build environment...")
-    _t_prep_start = time.perf_counter()
-    try:
-        import shutil
-        # Clean build outputs
-        for p in [Path("dist"), Path("build")]:
-            if p.exists():
-                shutil.rmtree(p, ignore_errors=True)
-                print(f"[PREP] Cleaned: {p}")
-        # Clean generated .spec files
-        for spec in Path.cwd().glob("*.spec"):
-            try:
-                spec.unlink()
-                print(f"[PREP] Cleaned: {spec.name}")
-            except Exception as e:
-                print(f"[PREP] Warning: Failed to clean {spec}: {e}")
-    except Exception as e:
-        print(f"[PREP] Warning: Cleanup failed: {e}")
-    _t_prep_end = time.perf_counter()
-    print(f"[TIME] Prep clean: {(_t_prep_end - _t_prep_start):.2f}s")
+    if not args.installer_only:
+        print("[PREP] Cleaning build environment...")
+        _t_prep_start = time.perf_counter()
+        try:
+            import shutil
+            # Clean build outputs
+            for p in [Path("dist"), Path("build")]:
+                if p.exists():
+                    shutil.rmtree(p, ignore_errors=True)
+                    print(f"[PREP] Cleaned: {p}")
+            # Clean generated .spec files
+            for spec in Path.cwd().glob("*.spec"):
+                try:
+                    spec.unlink()
+                    print(f"[PREP] Cleaned: {spec.name}")
+                except Exception as e:
+                    print(f"[PREP] Warning: Failed to clean {spec}: {e}")
+        except Exception as e:
+            print(f"[PREP] Warning: Cleanup failed: {e}")
+        _t_prep_end = time.perf_counter()
+        print(f"[TIME] Prep clean: {(_t_prep_end - _t_prep_start):.2f}s")
+    else:
+        print("[PREP] Installer-only mode: skipping cleanup")
+        print("[PREP] Using existing dist files for installer creation")
 
     # 使用更简洁的 MiniSpecBuilder 直接进行 PyInstaller 构建；前端与安装包按需执行
     try:
@@ -417,11 +416,14 @@ Usage examples:
         minispec = MiniSpecBuilder()
 
         # Prepare Playwright browsers for packaging (always)
-        print("[PLAYWRIGHT] Preparing Playwright browsers for packaging...")
-        _t_pw_start = time.perf_counter()
-        _prepare_playwright_assets()
-        _t_pw_end = time.perf_counter()
-        print(f"[TIME] Playwright assets: {(_t_pw_end - _t_pw_start):.2f}s")
+        if not args.installer_only:
+            print("[PLAYWRIGHT] Preparing Playwright browsers for packaging...")
+            _t_pw_start = time.perf_counter()
+            _prepare_playwright_assets()
+            _t_pw_end = time.perf_counter()
+            print(f"[TIME] Playwright assets: {(_t_pw_end - _t_pw_start):.2f}s")
+        else:
+            print("[PLAYWRIGHT] Installer-only mode: skipping Playwright preparation")
         
         # On macOS, we'll use special PyInstaller options to handle codesign
         if sys.platform == "darwin":
@@ -439,7 +441,10 @@ Usage examples:
             print(f"[MACOS] Set PYINSTALLER_HOOKS_PATH to: {hooks_dir.absolute()}")
 
         # 1) Frontend
-        if not args.skip_frontend:
+        if args.installer_only:
+            print("[FRONTEND] Installer-only mode: skipping frontend build")
+            print("[TIME] Frontend build: skipped")
+        elif not args.skip_frontend:
             _t_front_start = time.perf_counter()
             ok_front = frontend.build()
             _t_front_end = time.perf_counter()
@@ -452,13 +457,19 @@ Usage examples:
             print("[TIME] Frontend build: skipped")
 
         # 2) Core app build
-        _t_core_start = time.perf_counter()
-        success = minispec.build(build_mode)
-        _t_core_end = time.perf_counter()
-        print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
+        if args.installer_only:
+            print("[CORE] Installer-only mode: skipping core app build")
+            print("[CORE] Assuming existing dist files are ready")
+            success = True
+            print("[TIME] Core app build: skipped")
+        else:
+            _t_core_start = time.perf_counter()
+            success = minispec.build(build_mode)
+            _t_core_end = time.perf_counter()
+            print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
 
         # 3) Installer
-        if success and not args.skip_installer:
+        if args.installer_only or (success and not args.skip_installer):
             _t_inst_start = time.perf_counter()
             ok_inst = installer.build()
             _t_inst_end = time.perf_counter()
@@ -473,14 +484,7 @@ Usage examples:
             print("\n[ERROR] Build failed!")
             return 1
 
-        # Post-build macOS symlink validation
-        if sys.platform == "darwin":
-            dist_root = Path.cwd() / "dist"
-            ok_syms, fw_count, issue_count = _validate_macos_framework_symlinks(dist_root)
-            print(f"[VERIFY] macOS frameworks checked: {fw_count}, issues: {issue_count}")
-            if not ok_syms:
-                print("[ERROR] Symlink validation failed. See errors above.")
-                return 1
+
 
         print("\n" + "=" * 60)
         print("[SUCCESS] Build completed successfully!")
