@@ -544,10 +544,6 @@ Usage examples:
                 hooks_dir.mkdir()
                 print("[MACOS] Created hooks directory")
             
-            # Set environment variable so PyInstaller uses our hooks
-            os.environ['PYINSTALLER_HOOKS_PATH'] = str(hooks_dir.absolute())
-            print(f"[MACOS] Set PYINSTALLER_HOOKS_PATH to: {hooks_dir.absolute()}")
-
         # 1) Frontend
         if args.installer_only:
             print("[FRONTEND] Installer-only mode: skipping frontend build")
