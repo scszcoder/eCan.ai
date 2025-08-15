@@ -196,46 +196,6 @@ def debug_node(state: NodeState) -> NodeState:
 
 
 
-def llm_node_with_extracted_files(state: NodeState) -> NodeState:
-    user_input = state.get("input", "")
-    attachments = state.get("attachments", [])
-    if not attachments:
-        raise ValueError("No files attached!")
-
-    file_list = "\n".join(f"- {att['filename']}" for att in attachments)
-    contents_list = []
-    for att in attachments:
-        filename = att["filename"]
-        file_bytes = att["content"]
-        if isinstance(file_bytes, str):
-            file_bytes = base64.b64decode(file_bytes)
-        file_text = extract_file_text(file_bytes, filename)
-        # Optionally, limit per-file content for LLM context size
-        contents_list.append(f"--- {filename} ---\n{file_text[:2000]}")
-
-    file_contents = "\n\n".join(contents_list)
-
-    prompt_vars = {
-        "user_input": user_input,
-        "file_list": file_list,
-        "file_contents": file_contents
-    }
-
-    llm = ChatOpenAI(model="gpt-4.1", temperature=0.5)
-    prompt_messages = [
-        {
-            "role": "system",
-            "content": "You are an expert assistant. Carefully answer the user's request."
-        },
-        {
-            "role": "user",
-            "content": user_content
-        }
-    ]
-    result = llm.invoke(prompt_messages)
-    return {"llm_response": result.content}
-
-
 # for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
 # .wav (.mp3) and .mp4
 def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
@@ -273,6 +233,8 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         data = att["file_data"]
 
+        # file_text = extract_file_text(data, fname)
+
         # Handle image files (PNG, JPG, etc.)
         if mime_type.startswith('image/'):
             print(f"Processing image file: {fname}")
@@ -305,7 +267,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         # Handle other file types
         else:
-            print(f"Unsupported file type: {fname} ({mime_type})")
+            logger.warning(f"Unsupported file type: {fname} ({mime_type})")
             # user_content.append({
             #     "type": "text",
             #     "text": f"[File: {fname} - This file type is not supported for direct analysis]"
@@ -318,7 +280,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
     prompt_messages = [
         {
             "role": "system",
-            "content": "You are an expert assistant. Carefully answer the user's request."
+            "content": "You are an electronics component procurement expert helping sourcing and procuring components. Please carefully answer the user's request."
         },
         {
             "role": "user",
@@ -711,53 +673,36 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("chat", node_wrapper(llm_node_with_raw_files, "chat"))
         workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)
-        workflow.add_node("debug", debug_node)
-        workflow.add_conditional_edges("chat", chat_or_work, ["chat_back", "do_work"])
+        workflow.add_node("casually_respond_and_pend_for_next_human_msg", node_wrapper(llm_node_with_raw_files, "casually_respond_and_pend_for_next_human_msg"))
+        workflow.add_node("more_analysis_app", node_wrapper(llm_node_with_raw_files, "more_analysis_app"))
+        workflow.add_conditional_edges("chat", chat_or_work, ["casually_respond_and_pend_for_next_human_msg", "more_analysis_app"])
+        workflow.add_edge("casually_respond_and_pend_for_next_human_msg", "chat")
 
 
-        workflow.add_node("chat_back", node_wrapper(chat_back_node, "chat_back"))
-        workflow.add_node("pend_for_human_input_chat", pend_for_human_input_node)
-        workflow.add_edge("chat_back", "pend_for_human_input_chat")
-        workflow.add_edge("pend_for_human_input_chat", "chat")      # chat infinite loop
+        workflow.add_node("respond_and_pend_for_next_human_msg", node_wrapper(llm_node_with_raw_files, "respond_and_pend_for_next_human_msg"))
+        workflow.add_node("query_component_specs", query_component_specs_node)
 
+        workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "respond_and_pend_for_next_human_msg"])
+        workflow.add_edge("respond_and_pend_for_next_human_msg", "more_analysis_app")      # chat infinite loop
 
-        workflow.add_node("do_work", check_attachment_node)
-        workflow.add_node("check_bom_components", check_bom_components_node)
-        workflow.add_node("check_product_application", check_product_application_node)
-        workflow.add_node("request_product_app_usage", request_product_app_usage_node)
-        workflow.add_node("request_oem_part_number", request_oem_part_number_node)
 
         workflow.add_node("query_human_about_components", query_human_about_components_node)
-
-        # workflow.add_node("request_oem_part_number", request_oem_part_number_node)
-        workflow.add_edge("query_component_specs", "prep_component_specs_qa_form")
-
-        workflow.add_node("check_preliminary_component_info_ready", check_preliminary_component_info_ready_node)
-        workflow.add_node("query_component_specs", query_component_specs_node)
-        workflow.add_node("prep_component_specs_qa_form", prep_component_specs_qa_form_node)
-
-        workflow.add_conditional_edges("check_preliminary_component_info_ready", is_preliminary_component_info_ready, ["query_component_specs", "query_human_about_components"])
-
-        workflow.add_edge("query_component_specs", "prep_component_specs_qa_form")
-
         workflow.add_node("pend_for_human_input_fill_specs", pend_for_human_input_node)
-        workflow.add_edge("prep_component_specs_qa_form", "pend_for_human_input_fill_specs")
+        # workflow.add_node("request_oem_part_number", request_oem_part_number_node)
+        workflow.add_edge("query_component_specs", "pend_for_human_input_fill_specs")
 
-        workflow.add_node("request_ranking_method", request_ranking_method_node)
-        workflow.add_node("prep_ranking_method_template", prep_ranking_method_template_node)
-        workflow.add_edge("request_ranking_method", "prep_ranking_method_template")
+        workflow.add_node("request_FOM", request_ranking_method_node)
+        workflow.add_node("pend_for_human_input_fill_FOM", pend_for_human_input_node)
+        workflow.add_edge("pend_for_human_input_fill_specs", "request_FOM")
+        workflow.add_edge("request_FOM", "pend_for_human_input_fill_FOM")
 
-        workflow.add_node("pend_for_human_input_spec_ranking", pend_for_human_input_node)
-        workflow.add_edge("prep_ranking_method_template", "pend_for_human_input_spec_ranking")
 
         workflow.add_node("run_search", run_search_node)
-        workflow.add_edge("pend_for_human_input_fill_specs", "run_search")
+        workflow.add_edge("pend_for_human_input_fill_FOM", "run_search")
 
-        workflow.add_node("read_attachments", read_attachments_node)
-        workflow.add_node("eval_basic_info", eval_basic_info_node)
-        workflow.add_conditional_edges("do_work", any_attachment, ["read_attachments", "eval_basic_info"])
-        # workflow.add_edge("do_work", "understand_level0A")
-        workflow.add_edge("run_search", END)
+        workflow.add_node("show_results", show_results_node)
+        workflow.add_edge("run_search", "show_results")
+        workflow.add_edge("show_results", END)
 
 
         searcher_chatter_skill.set_work_flow(workflow)
@@ -778,15 +723,3 @@ async def create_search_parts_chatter_skill(mainwin):
 
     return searcher_chatter_skill
 
-
-
-# (
-#     "you are a electronics component procurement expert helping sourcing this component {part} you will chat with your human boss to collect "
-#  "all the requirements for sourcing this component and distill all requirement information in a JSON format with the following schema"
-#  " {schema}"
-#  )
-#
-# "The requirements are divided into three categories: "
-# "1. application and usage which will dictates some of the technical requirements:"
-# ("2. technical requirements this will usually be a list of electrical parameters with value range requirements:"
-# "3. the electrical requirement will usally grouped into DC paramters and AC parameters.additional parameters or selection criteria")
