@@ -59,6 +59,7 @@
           "sklearn",
           "cv2",
           "torch",
+          "PySide6",
           "PySide6.QtWebEngineCore",
           "PySide6.QtWebEngineWidgets"
         ],
@@ -238,6 +239,45 @@
     ],
     "optimization": {
       "copy_metadata": true
+    },
+    "macos_framework_whitelist": {
+      "enabled": true,
+      "description": "macOS framework symlink safety whitelist - allows specific files to bypass framework filtering",
+      "qt_webengine": {
+        "enabled": true,
+        "patterns": [
+          "QtWebEngineCore.framework/Helpers/QtWebEngineProcess",
+          "QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app",
+          "QtWebEngineCore.framework/Helpers/Info.plist",
+          "QtWebEngineCore.framework/Helpers/PkgInfo"
+        ]
+      },
+      "playwright": {
+        "enabled": true,
+        "executables": [
+          "/Chromium.app/Contents/MacOS/Chromium",
+          "/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+          "/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+          "/chrome-linux/chrome",
+          "/chrome-win/chrome.exe"
+        ],
+        "frameworks": [
+          "Chromium Framework.framework",
+          "Chromium Framework.framework/Helpers",
+          "Chromium Framework.framework/Resources",
+          "Chromium Framework.framework/Modules"
+        ],
+        "resources": [
+          "Info.plist",
+          "PkgInfo",
+          "icudtl.dat",
+          "snapshot_blob.bin",
+          "v8_context_snapshot.bin",
+          "chrome_100_percent.pak",
+          "chrome_200_percent.pak",
+          "resources.pak"
+        ]
+      }
     }
   },
   "build_modes": {
