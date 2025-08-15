@@ -77,9 +77,11 @@ Add these keys to your app's `Info.plist`:
 
 ```xml
 <key>SUFeedURL</key>
-<string>https://updates.ecbot.com/appcast.xml</string>
+<string>https://scszcoder.github.io/ecbot/appcast-macos.xml</string>
 <key>SUPublicEDKey</key>
-<string>your-public-key-here</string>
+<!-- Base64 of 32-byte raw Ed25519 public key. You can get it via:
+     python scripts/verify_ed25519_signature.py --public-key ed25519-public.pem --print-sparkle-key -->
+<string>paste-your-SUPublicEDKey-here</string>
 <key>SUEnableAutomaticChecks</key>
 <true/>
 ```

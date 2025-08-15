@@ -24,7 +24,8 @@ class OTAConfig:
             "silent_mode": False,
             "download_path": None,
             "backup_enabled": True,
-            "signature_verification": True,
+            "signature_verification": True,   # 启用签名/哈希校验
+            "signature_required": True,       # 生产建议开启：缺少签名/公钥/库时直接失败
             "dev_mode": False,  # 开发模式
             "allow_http_in_dev": True,  # 开发模式下允许HTTP
             "force_generic_updater_in_dev": True,  # 开发模式下强制使用通用更新器
@@ -36,15 +37,28 @@ class OTAConfig:
             "platforms": {
                 "darwin": {
                     "framework_path": "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
-                    "appcast_url": "https://updates.ecbot.com/appcast.xml"
+                    "appcast_url": "https://scszcoder.github.io/ecbot/appcast-macos.xml",
+                    "appcast_urls": {
+                        "amd64": "https://scszcoder.github.io/ecbot/appcast-macos-amd64.xml",
+                        "aarch64": "https://scszcoder.github.io/ecbot/appcast-macos-aarch64.xml"
+                    }
                 },
                 "windows": {
                     "dll_path": "winsparkle.dll",
-                    "appcast_url": "https://updates.ecbot.com/appcast.xml"
+                    "appcast_url": "https://scszcoder.github.io/ecbot/appcast-windows.xml",
+                    "appcast_urls": {
+                        "amd64": "https://scszcoder.github.io/ecbot/appcast-windows-amd64.xml",
+                        "aarch64": "https://scszcoder.github.io/ecbot/appcast-windows-aarch64.xml"
+                    }
                 },
                 "linux": {
                     "api_url": "https://updates.ecbot.com/api",
-                    "download_dir": "/tmp/ecbot_updates"
+                    "download_dir": "/tmp/ecbot_updates",
+                    "appcast_url": "https://scszcoder.github.io/ecbot/appcast-linux.xml",
+                    "appcast_urls": {
+                        "amd64": "https://scszcoder.github.io/ecbot/appcast-linux-amd64.xml",
+                        "aarch64": "https://scszcoder.github.io/ecbot/appcast-linux-aarch64.xml"
+                    }
                 }
             }
         }

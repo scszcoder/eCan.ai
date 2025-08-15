@@ -1,16 +1,17 @@
 name: Release Build eCan
 #
-# 通过 workflow_dispatch 参数 platform/arch 可选择打包平台和 CPU 架构：
+# 通过 workflow_dispatch 参数 platform/arch/ref 可选择打包平台、CPU 架构与引用：
 #   - platform: windows, macos, all
-#   - arch: x86_64, arm64
+#   - arch: amd64, aarch64
+#   - ref: 可填写 tag（如 v1.2.3）或 branch 名称（默认当前分支），可编辑
 #
 # 注意：
-#   - Windows 仅支持 x86_64 架构（GitHub Actions 无 ARM runner）
-#   - macOS 支持 x86_64/arm64，但 GitHub Actions runner 默认是 x86_64，arm64 需本地 M1/M2/M3 Mac 或专用 runner
+#   - Windows 仅支持 amd64 架构（GitHub Actions 无 ARM64 runner）
+#   - macOS 支持 amd64/aarch64，但 GitHub Actions x86_64 runner 打包 arm64 需特别处理
 #
 # 示例：
-#   - 手动触发 workflow 时可选择平台和架构
-#   - 推送 tag 或发布 release 时自动触发，默认打包 all + x86_64
+#   - 手动触发 workflow 时可选择平台和架构，并编辑 ref
+#   - 推送 tag 或发布 release 时自动触发，默认打包 all + amd64
 
 on:
   # Trigger conditions: create tag or release
@@ -32,77 +33,91 @@ on:
           - windows
           - macos
       arch:
-        description: 'CPU architecture (macOS: x86_64/arm64, Windows: x86_64 only)'
+        description: 'CPU architecture (macOS: amd64/aarch64, Windows: amd64 only)'
         required: true
-        default: 'x86_64'
+        default: 'amd64'
         type: choice
         options:
-          - x86_64
-          - arm64
-      tag:
-        description: 'Git tag to build (e.g. v1.2.3)'
+          - amd64
+          - aarch64
+      ref:
+        description: 'Git ref to build (tag like v1.2.3 or branch name)'
         required: true
         default: ''
         type: string
 
 jobs:
-  # Validate tag format
+  # Validate ref (tags produce semantic version; branches get fallback version)
   validate-tag:
     runs-on: ubuntu-latest
     outputs:
       tag-valid: ${{ steps.validate.outputs.valid }}
       version: ${{ steps.validate.outputs.version }}
+      is-branch: ${{ steps.validate.outputs.is_branch }}
+      ref-name: ${{ steps.validate.outputs.ref_name }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        ref: ${{ github.event.inputs.tag || github.ref }}
-      
-    - name: Validate tag format
+        ref: ${{ github.event.inputs.ref || github.ref }}
+
+    - name: Validate ref and compute version
       id: validate
+      shell: bash
       run: |
-        TAG_NAME="${{ github.event.inputs.tag }}"
-        if [ -z "$TAG_NAME" ]; then
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-        fi
-        if [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$ ]]; then
-          echo "valid=true" >> $GITHUB_OUTPUT
-          echo "version=${TAG_NAME#v}" >> $GITHUB_OUTPUT
-          echo "✅ Valid tag format: $TAG_NAME"
+        set -euo pipefail
+        INPUT_REF="${{ github.event.inputs.ref }}"
+        REF_FULL="${GITHUB_REF}"
+        if [ -n "$INPUT_REF" ]; then
+          REF_NAME="$INPUT_REF"
         else
-          echo "valid=false" >> $GITHUB_OUTPUT
-          echo "❌ Invalid tag format: $TAG_NAME"
-          echo "Expected format: vX.Y.Z or vX.Y.Z-prerelease"
-          exit 1
+          REF_NAME="${REF_FULL#refs/*/}"
+        fi
+        echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
+
+        if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "is_branch=false" >> $GITHUB_OUTPUT
+          echo "version=${REF_NAME#v}" >> $GITHUB_OUTPUT
+          echo "✅ Tag detected: $REF_NAME"
+        else
+          # Treat as branch; create fallback version 0.0.0-<branch>-<shortsha>
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          SAFE_BRANCH=$(echo "$REF_NAME" | tr '/' '-')
+          FALLBACK="0.0.0-${SAFE_BRANCH}-${SHORT_SHA}"
+          echo "valid=true" >> $GITHUB_OUTPUT
+          echo "is_branch=true" >> $GITHUB_OUTPUT
+          echo "version=$FALLBACK" >> $GITHUB_OUTPUT
+          echo "ℹ️ Branch detected: $REF_NAME -> version=$FALLBACK"
         fi
 
   # Windows build
-  # 注意：GitHub Actions 目前仅支持 Windows x86_64 架构，Windows ARM 架构暂不支持
+  # 注意：GitHub Actions 目前仅支持 Windows amd64 架构，Windows ARM 架构暂不支持
   build-windows:
     needs: validate-tag
     if: |
-      needs.validate-tag.outputs.tag-valid == 'true' && 
-      (github.event.inputs.platform == 'windows' || 
-       github.event.inputs.platform == 'all' || 
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'windows' ||
+       github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null) &&
-      (github.event.inputs.arch == 'x86_64' || github.event.inputs.arch == null)
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == null)
     runs-on: windows-latest
     timeout-minutes: 45
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.11
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-    
+
     - name: Cache pip dependencies
       uses: actions/cache@v3
       with:
@@ -110,14 +125,14 @@ jobs:
         key: windows-pip-3.11-${{ hashFiles('requirements*.txt') }}
         restore-keys: |
           windows-pip-3.11-
-    
+
     - name: Create and activate venv (Windows)
       run: |
         echo "=== Creating Virtual Environment ==="
         python -m venv .venv
         # Make venv's Python first in PATH for subsequent steps
         echo "$PWD\.venv\Scripts" >> $env:GITHUB_PATH
-    
+
     - name: Install Python dependencies
       run: |
         echo "=== Python/Pip Info (Windows venv) ==="
@@ -135,31 +150,31 @@ jobs:
 
         echo "=== Verifying pywin32 installation ==="
         python -c "import win32api; print('pywin32 installed successfully')"
-    
+
     - name: Uninstall pathlib if present (Windows)
       run: |
         python -m pip uninstall -y pathlib; if ($LASTEXITCODE -ne 0) { Write-Host "pathlib not found or already uninstalled" }
-    
+
     - name: Install frontend dependencies
       run: |
         echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
         npm install --legacy-peer-deps
-    
+
     - name: Install Inno Setup
       run: |
         echo "=== Installing Inno Setup ==="
         $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
         $DownloadPath = "$env:TEMP\innosetup-6.2.2.exe"
-        
+
         Write-Host "📥 Downloading Inno Setup..."
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
-        
+
         Write-Host "🔨 Installing Inno Setup..."
         Start-Process -FilePath $DownloadPath -ArgumentList "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART" -Wait
-        
+
         Write-Host "✅ Inno Setup installation completed"
-        
+
         # Verify installation
         $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
         if (Test-Path $innoPath) {
@@ -168,15 +183,15 @@ jobs:
             Write-Host "❌ Inno Setup not found at expected location"
             exit 1
         }
-    
+
     - name: Install OTA dependencies (including winSparkle)
       run: |
         echo "=== Installing OTA Dependencies ==="
         python scripts/install_ota_dependencies.py install --platform windows
-        
+
         echo "=== Verifying OTA Dependencies ==="
         python scripts/install_ota_dependencies.py verify
-        
+
         echo "=== Checking winSparkle Installation ==="
         $dllPaths = @(
           "ota/dependencies/lib/winsparkle.dll",
@@ -204,27 +219,27 @@ jobs:
       run: |
         echo "=== Creating Build Directories ==="
         New-Item -ItemType Directory -Force -Path build, dist
-    
+
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
         python scripts/check_build_env.py
-    
+
     - name: Build Windows EXE
       run: |
         echo "=== Starting Windows Build ==="
         echo "Command: python build.py prod"
-        
+
         # Set environment variables
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
-        
+
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
-        
+
         # 导出/规范命名产物到 dist 根目录（避免跨目录 Rename-Item 报错）
         $srcExe = "dist/eCan/eCan.exe"
-        $dstExe = "dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        $dstExe = "dist/eCan-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe"
         if (Test-Path $srcExe) {
           Copy-Item -LiteralPath $srcExe -Destination $dstExe -Force
           Write-Host "Exported: $dstExe"
@@ -233,7 +248,7 @@ jobs:
         }
 
         $srcSetup = "dist/eCan-Setup.exe"
-        $dstSetup = "dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe"
+        $dstSetup = "dist/eCan-Setup-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe"
         if (Test-Path $srcSetup) {
           Rename-Item -LiteralPath $srcSetup -NewName (Split-Path -Leaf $dstSetup)
           Write-Host "Renamed: $dstSetup"
@@ -248,7 +263,7 @@ jobs:
             Get-Content "build.log"
             exit 1
         }
-        
+
         echo "[OK] Build completed successfully"
 
         echo "=== Verifying OTA artifacts in dist ==="
@@ -270,15 +285,43 @@ jobs:
           Write-Host "[WARN] winSparkle DLL not found in dist; OTA (Windows) may be disabled"
         }
 
+
+    - name: Code sign Windows artifacts (optional)
+      if: ${{ secrets.WIN_CERT_PFX != '' && secrets.WIN_CERT_PASSWORD != '' }}
+      env:
+        WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX }}
+        WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+      run: |
+        echo "=== Code signing Windows artifacts ==="
+        $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+        [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WIN_CERT_PFX))
+        $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
+        if (-not (Test-Path $signtool)) { $signtool = "signtool.exe" }
+
+        $files = @()
+        # Sign distribution executables in top-level dist (avoid signing internal app binaries)
+        $exeFiles = Get-ChildItem -Path "dist" -Filter "*.exe" -File -ErrorAction SilentlyContinue
+        foreach ($ef in $exeFiles) { $files += $ef.FullName }
+        # Optionally sign MSI installers if present
+        $msiFiles = Get-ChildItem -Path "dist" -Filter "*.msi" -File -ErrorAction SilentlyContinue
+        foreach ($mf in $msiFiles) { $files += $mf.FullName }
+
+        foreach ($f in $files) {
+          Write-Host "Signing $f"
+          & $signtool sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $f
+          if ($LASTEXITCODE -ne 0) { Write-Host "Sign failed: $f"; exit 1 }
+        }
+        Write-Host "Windows code signing done"
+
     - name: Check build result
       run: |
         echo "=== Build Result Check ==="
         echo "Dist directory contents:"
         Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
-        
+
         $exeFound = $false
         $setupFound = $false
-        
+
         if (Test-Path "dist/eCan/eCan.exe") {
             $exe = Get-Item "dist/eCan/eCan.exe"
             echo "✅ Windows EXE found: dist/eCan/eCan.exe"
@@ -292,7 +335,7 @@ jobs:
                 echo "   Found: $($_.FullName)"
             }
         }
-        
+
         if (Test-Path "dist/eCan-Setup.exe") {
             $setup = Get-Item "dist/eCan-Setup.exe"
             echo "✅ Installer found: dist/eCan-Setup.exe"
@@ -302,21 +345,22 @@ jobs:
         } else {
             echo "⚠️  Installer not found"
         }
-        
+
         if (-not $exeFound) {
             echo "❌ Build validation failed - no executable found"
             exit 1
         }
-        
+
         echo "✅ Build validation passed"
-    
+
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
-          dist/eCan-Setup-windows-x86_64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-Setup-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/*.msi
           build.log
         retention-days: 30
 
@@ -324,27 +368,27 @@ jobs:
   build-macos:
     needs: validate-tag
     if: |
-      needs.validate-tag.outputs.tag-valid == 'true' && 
-      (github.event.inputs.platform == 'macos' || 
-       github.event.inputs.platform == 'all' || 
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' ||
+       github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null)
     runs-on: macos-latest
     timeout-minutes: 45
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python 3.11
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-    
+
     - name: Cache pip dependencies
       uses: actions/cache@v3
       with:
@@ -352,14 +396,14 @@ jobs:
         key: macos-pip-3.11-${{ hashFiles('requirements*.txt') }}
         restore-keys: |
           macos-pip-3.11-
-    
+
     - name: Create and activate venv (macOS)
       run: |
         echo "=== Creating Virtual Environment ==="
         python -m venv .venv
         # Make venv's Python first in PATH for subsequent steps
         echo "$PWD/.venv/bin" >> $GITHUB_PATH
-    
+
     - name: Install Python dependencies
       run: |
         echo "=== Python/Pip Info (macOS venv) ==="
@@ -370,41 +414,41 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install -r requirements-macos.txt
         python -m pip install pyinstaller
-        
+
         echo "=== Verifying PyInstaller installation ==="
         python -c "import PyInstaller; print('PyInstaller installed successfully')"
-    
+
     - name: Uninstall pathlib if present (macOS)
       run: |
         python -m pip uninstall -y pathlib || true
-    
+
     - name: Install frontend dependencies
       run: |
         echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
         npm install --legacy-peer-deps
-    
+
     - name: Install OTA dependencies (including Sparkle)
       run: |
         echo "=== Installing OTA Dependencies ==="
         python scripts/install_ota_dependencies.py install --platform darwin
-        
+
         echo "=== Verifying OTA Dependencies ==="
         python scripts/install_ota_dependencies.py verify
-        
+
         echo "=== Checking Sparkle Framework Installation ==="
         if [ -d "ota/dependencies/Sparkle.framework" ]; then
           echo "✅ Sparkle.framework found"
           framework_size=$(du -sh ota/dependencies/Sparkle.framework | cut -f1)
           echo "   Size: $framework_size"
-          
+
           # Check framework structure
           if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Sparkle" ]; then
             echo "✅ Sparkle binary found in framework"
           else
             echo "⚠️  Sparkle binary not found in expected location"
           fi
-          
+
           if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Resources/sparkle-cli" ]; then
             echo "[OK] Sparkle CLI found"
           else
@@ -415,53 +459,110 @@ jobs:
           echo "Searching for Sparkle files..."
           find ota -name "*parkle*" -type f 2>/dev/null || echo "No Sparkle files found"
         fi
-    
+
     - name: Create build directories
       run: |
         echo "=== Creating Build Directories ==="
         mkdir -p build dist
-    
+
     - name: Check build environment
       run: |
         echo "=== Checking Build Environment ==="
         python scripts/check_build_env.py
-    
+
     - name: Build macOS App
       run: |
         echo "=== Starting macOS Build ==="
         echo "Command: python build.py prod"
-        
+
         # Set environment variables
         export PYTHONPATH="$PWD"
         export PYTHONUNBUFFERED=1
-        
+
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
-        
+
         # 规范产物命名（适配新版 InstallerBuilder 输出 eCan-${{ needs.validate-tag.outputs.version }}.pkg）
         if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
-          mv "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
+          mv "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" "dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.pkg"
         fi
         if [ -d "dist/eCan.app" ]; then
-          ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'x86_64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
         fi
 
         # Check exit code
-        if [ $? -ne 0 ]; then
+        if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "❌ Build failed"
             echo "=== Build Log ==="
             cat build.log
             exit 1
         fi
-        
+
         echo "✅ Build completed successfully"
-    
+
+    - name: Code sign macOS app (optional)
+      env:
+        MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+        MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY }}
+      run: |
+        echo "=== Code signing macOS app (if secrets provided) ==="
+        if [ -z "${MAC_CERT_P12}" ] || [ -z "${MAC_CERT_PASSWORD}" ] || [ -z "${MAC_CODESIGN_IDENTITY}" ]; then
+          echo "No macOS signing secrets; skip codesign"
+          exit 0
+        fi
+        CERT_PATH="$RUNNER_TEMP/cert.p12"
+        echo "$MAC_CERT_P12" | base64 --decode > "$CERT_PATH"
+        KEYCHAIN=build.keychain
+        KEYCHAIN_PW="actions"
+        security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+        security set-keychain-settings -lut 21600 "$KEYCHAIN"
+        security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+        security import "$CERT_PATH" -k "$KEYCHAIN" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+        security list-keychain -d user -s "$KEYCHAIN" login.keychain
+        if [ -d "dist/eCan.app" ]; then
+          echo "Signing dist/eCan.app"
+          codesign --deep --force --options runtime --sign "$MAC_CODESIGN_IDENTITY" "dist/eCan.app"
+          codesign --verify --deep --strict --verbose=2 "dist/eCan.app"
+          echo "Recreate zip after signing"
+          rm -f dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.zip || true
+          ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
+        else
+          echo "dist/eCan.app not found; skip codesign"
+        fi
+
+    - name: Notarize macOS app (optional)
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        TEAM_ID: ${{ secrets.TEAM_ID }}
+      run: |
+        echo "=== Notarize macOS app (if Apple credentials provided) ==="
+        if [ -z "${APPLE_ID}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD}" ] || [ -z "${TEAM_ID}" ]; then
+          echo "No Apple notarization credentials; skip notarization"
+          exit 0
+        fi
+        ZIP_PATH="dist/eCan-macos-${{ github.event.inputs.arch || 'amd64' }}-v${{ needs.validate-tag.outputs.version }}.zip"
+        if [ -f "$ZIP_PATH" ]; then
+          echo "Submitting $ZIP_PATH for notarization..."
+          xcrun notarytool submit "$ZIP_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
+          echo "Stapling ticket to app..."
+          if [ -d "dist/eCan.app" ]; then
+            xcrun stapler staple "dist/eCan.app"
+            echo "Recreate zip after stapling"
+            rm -f "$ZIP_PATH"
+            ditto -c -k --sequesterRsrc --keepParent "dist/eCan.app" "$ZIP_PATH"
+          fi
+        else
+          echo "ZIP not found, skip notarization"
+        fi
+
     - name: Check build result
       run: |
         echo "=== Build Result Check ==="
         echo "Dist directory contents:"
         ls -la dist/
-        
+
         # Check for .pkg installer
         if [ -f "dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg" ]; then
             echo "✅ macOS PKG installer found: dist/eCan-${{ needs.validate-tag.outputs.version }}.pkg"
@@ -469,6 +570,9 @@ jobs:
             echo "   Size: $pkg_size"
         elif [ -d "dist/eCan.app" ]; then
             echo "✅ macOS App found: dist/eCan.app"
+
+
+
             app_size=$(du -sh dist/eCan.app | cut -f1)
             echo "   Size: $app_size"
 
@@ -482,9 +586,9 @@ jobs:
             find dist -name "*.app" 2>/dev/null || echo "No .app files found"
             exit 1
         fi
-        
+
         echo "✅ Build validation passed"
-    
+
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -499,7 +603,7 @@ jobs:
   create-release:
     needs: [validate-tag, build-windows, build-macos]
     if: |
-      needs.validate-tag.outputs.tag-valid == 'true' && 
+      needs.validate-tag.outputs.tag-valid == 'true' &&
       startsWith(github.ref, 'refs/tags/v') &&
       (
         (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
@@ -508,28 +612,28 @@ jobs:
         (github.event.inputs.platform == null && needs.build-windows.result == 'success' && needs.build-macos.result == 'success')
       )
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Download Windows artifacts
       if: |
-        github.event.inputs.platform == 'windows' || 
-        github.event.inputs.platform == 'all' || 
+        github.event.inputs.platform == 'windows' ||
+        github.event.inputs.platform == 'all' ||
         github.event.inputs.platform == null
       uses: actions/download-artifact@v4
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: windows-artifacts
-    
+
     - name: Download macOS artifacts
       if: |
-        github.event.inputs.platform == 'macos' || 
-        github.event.inputs.platform == 'all' || 
+        github.event.inputs.platform == 'macos' ||
+        github.event.inputs.platform == 'all' ||
         github.event.inputs.platform == null
       uses: actions/download-artifact@v4
       with:
         name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
         path: macos-artifacts
-    
+
     - name: Prepare release files list
       id: prep_files
       run: |
@@ -554,3 +658,247 @@ jobs:
         files: ${{ steps.prep_files.outputs.files }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Generate and publish appcast after Release is created (ensures final URLs and sizes)
+  publish-appcast:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
+          path: windows-artifacts
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
+          path: macos-artifacts
+
+      - name: Download Linux artifacts (optional)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
+          path: linux-artifacts
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests cryptography
+
+      - name: Generate macOS appcast (amd64)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, glob
+          from scripts.generate_appcast import main
+          assets = []
+          for pat in ('macos-artifacts/*amd64*.pkg','macos-artifacts/*amd64*.zip','macos-artifacts/*x86_64*.pkg','macos-artifacts/*x86_64*.zip','macos-artifacts/*x64*.pkg','macos-artifacts/*x64*.zip'):
+              for p in glob.glob(pat):
+                  name = os.path.basename(p)
+                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
+          main(release, platform_filter='macos', arch_filter='amd64', output_path='dist/appcast/appcast-macos-amd64.xml')
+          PY
+
+      - name: Generate macOS appcast (aarch64)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, glob
+          from scripts.generate_appcast import main
+          assets = []
+          for pat in ('macos-artifacts/*aarch64*.pkg','macos-artifacts/*aarch64*.zip','macos-artifacts/*arm64*.pkg','macos-artifacts/*arm64*.zip'):
+              for p in glob.glob(pat):
+                  name = os.path.basename(p)
+                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
+          main(release, platform_filter='macos', arch_filter='aarch64', output_path='dist/appcast/appcast-macos-aarch64.xml')
+          PY
+
+      - name: Generate Windows appcast (amd64)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, glob
+          from scripts.generate_appcast import main
+          assets = []
+          for pat in (
+              'windows-artifacts/*amd64*.exe',
+              'windows-artifacts/*x86_64*.exe',
+              'windows-artifacts/*x64*.exe',
+              'windows-artifacts/*amd64*.msi',
+              'windows-artifacts/*x86_64*.msi',
+              'windows-artifacts/*x64*.msi',
+          ):
+              for p in glob.glob(pat):
+                  name = os.path.basename(p)
+                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
+          main(release, platform_filter='windows', arch_filter='amd64', output_path='dist/appcast/appcast-windows-amd64.xml')
+          PY
+
+      - name: Generate Windows appcast (aarch64)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, glob
+          from scripts.generate_appcast import main
+          assets = []
+          for pat in ('windows-artifacts/*aarch64*.exe','windows-artifacts/*arm64*.exe'):
+              for p in glob.glob(pat):
+                  name = os.path.basename(p)
+                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
+          main(release, platform_filter='windows', arch_filter='aarch64', output_path='dist/appcast/appcast-windows-aarch64.xml')
+          PY
+
+
+      - name: Generate macOS aggregate appcast (all arches)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, glob
+          from scripts.generate_appcast import main
+          assets = []
+          for pat in (
+              'macos-artifacts/*.pkg',
+              'macos-artifacts/*.zip',
+          ):
+              for p in glob.glob(pat):
+                  name = os.path.basename(p)
+                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {
+              'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
+              'assets': assets,
+              'body': os.environ.get('RELEASE_BODY', ''),
+          }
+          # No arch_filter -> aggregate all macOS entries
+          main(release, platform_filter='macos', output_path='dist/appcast/appcast-macos.xml')
+          PY
+
+      - name: Generate Windows aggregate appcast (all arches)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, glob
+          from scripts.generate_appcast import main
+          assets = []
+          for pat in (
+              'windows-artifacts/*.exe',
+              'windows-artifacts/*.msi',
+          ):
+              for p in glob.glob(pat):
+                  name = os.path.basename(p)
+                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {
+              'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
+              'assets': assets,
+              'body': os.environ.get('RELEASE_BODY', ''),
+          }
+          # No arch_filter -> aggregate all Windows entries
+          main(release, platform_filter='windows', output_path='dist/appcast/appcast-windows.xml')
+          PY
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
+          main(release, platform_filter='windows', arch_filter='amd64', output_path='dist/appcast/appcast-windows-amd64.xml')
+          PY
+
+      - name: Generate Windows appcast (aarch64)
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, glob
+          from scripts.generate_appcast import main
+          assets = []
+          for pat in ('windows-artifacts/*aarch64*.exe','windows-artifacts/*arm64*.exe'):
+              for p in glob.glob(pat):
+                  name = os.path.basename(p)
+                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
+                  size = os.path.getsize(p)
+                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
+          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
+          main(release, platform_filter='windows', arch_filter='aarch64', output_path='dist/appcast/appcast-windows-aarch64.xml')
+          PY
+
+      - name: Remove empty appcast files (if any)
+        run: |
+          shopt -s nullglob || true
+          for f in dist/appcast/*.xml; do
+            if [ ! -s "$f" ]; then echo "Removing empty feed: $f"; rm -f "$f"; fi
+          done
+
+      - name: Publish appcasts to gh-pages
+        if: ${{ hashFiles('dist/appcast/*.xml') != '' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: dist/appcast
+          keep_files: true
+          enable_jekyll: false
+          user_name: github-actions[bot]
+          user_email: 41898282+github-actions[bot]@users.noreply.github.com
+
+      - name: Print appcast enclosure summary
+        run: |
+          set -e
+          for f in dist/appcast/*.xml; do
+            echo "--- $f ---"
+            # Print lines containing 'enclosure' with key attributes
+            awk 'BEGIN{FS="[<> ]"} /enclosure/ {for(i=1;i<=NF;i++){if($i ~ /url=|sparkle:version=|sparkle:os=|sparkle:arch=|length=|sparkle:edSignature=/) printf("%s ", $i)} print ""}' $f || true
+          done
+
+          enable_jekyll: false
+
+      - name: List generated appcasts
+        run: |
+          echo "=== Appcast outputs ==="
+          ls -la dist/appcast || true
+
+      - name: Show appcast URLs
+        run: |
+          echo "Appcast (macOS aggregate):  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml"
+          echo "Appcast (Windows aggregate): https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows.xml"
+          echo "Appcast (macOS amd64):      https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml"
+          echo "Appcast (macOS aarch64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml"
+          echo "Appcast (Windows amd64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml"
+          echo "Appcast (Windows aarch64):  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-aarch64.xml"
