@@ -251,13 +251,62 @@ def _validate_macos_framework_symlinks(dist_dir: Path) -> Tuple[bool, int, int]:
         print(f"[VERIFY] ERROR during symlink validation: {e}")
         return False, checked, issues or 1
 
-
-
-
-
-
-
-
+def _dev_sign_artifacts(enable: bool) -> None:
+    """Development-only local signing helper (safe no-op if not configured).
+    - Windows: uses signtool with DEV_WIN_CERT_PFX and DEV_WIN_CERT_PASSWORD envs
+    - macOS: uses codesign with DEV_MAC_CODESIGN_IDENTITY env
+    """
+    try:
+        if not enable:
+            return
+        print("[DEV-SIGN] Local development signing enabled")
+        sysname = platform.system()
+        if sysname == "Windows":
+            import shutil
+            signtool = r"C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\signtool.exe"
+            if not os.path.exists(signtool):
+                signtool = shutil.which("signtool.exe") or shutil.which("signtool")
+            pfx = os.environ.get("DEV_WIN_CERT_PFX")
+            pwd = os.environ.get("DEV_WIN_CERT_PASSWORD", "")
+            targets = [
+                Path("dist")/"eCan"/"eCan.exe",
+                Path("dist")/"eCan-Setup.exe",
+            ]
+            targets += list(Path("dist").glob("*.exe"))
+            targets = [p for p in targets if p.exists()]
+            if not signtool or not pfx:
+                print("[DEV-SIGN] Windows signtool or DEV_WIN_CERT_PFX not provided; skip")
+                return
+            for t in targets:
+                cmd = [signtool, "sign", "/fd", "SHA256", "/f", pfx]
+                if pwd:
+                    cmd += ["/p", pwd]
+                cmd += ["/tr", "http://timestamp.digicert.com", "/td", "SHA256", str(t)]
+                print(f"[DEV-SIGN] Signing {t} ...")
+                try:
+                    subprocess.run(cmd, check=True)
+                except Exception as e:
+                    print(f"[DEV-SIGN] WARN: sign failed for {t}: {e}")
+        elif sysname == "Darwin":
+            identity = os.environ.get("DEV_MAC_CODESIGN_IDENTITY", "").strip()
+            app_path = Path("dist")/"eCan.app"
+            if not identity:
+                print("[DEV-SIGN] DEV_MAC_CODESIGN_IDENTITY not set; skip macOS codesign")
+                return
+            if not app_path.exists():
+                print("[DEV-SIGN] dist/eCan.app not found; skip macOS codesign")
+                return
+            cmd = ["codesign", "--deep", "--force", "--sign", identity, str(app_path)]
+            print(f"[DEV-SIGN] Codesigning {app_path} with identity '{identity}' ...")
+            try:
+                subprocess.run(cmd, check=True)
+                print("[DEV-SIGN] macOS codesign done")
+            except Exception as e:
+                print(f"[DEV-SIGN] WARN: macOS codesign failed: {e}")
+        else:
+            print(f"[DEV-SIGN] Unsupported platform for dev-sign: {sysname}")
+    except Exception as e:
+        print(f"[DEV-SIGN] ERROR: {e}")
 
 
 def main():
@@ -278,6 +327,7 @@ Usage examples:
   python build.py prod --version 2.1.0  # Build with specified version
   python build.py fast --skip-frontend  # Fast build skipping frontend
   python build.py prod --skip-installer # Skip installer creation
+  python build.py dev --dev-sign        # Dev build with local signing (if DEV_* env provided)
 """,
     )
 
@@ -468,6 +518,12 @@ Usage examples:
         else:
             print("[INSTALLER] Skipped")
             print("[TIME] Installer: skipped")
+
+        # 4) Dev-only local signing (disabled by default)
+        try:
+            _dev_sign_artifacts(getattr(args, 'dev_sign', False))
+        except Exception as _e:
+            print(f"[DEV-SIGN] error: {_e}")
 
         if not success:
             print("\n[ERROR] Build failed!")
