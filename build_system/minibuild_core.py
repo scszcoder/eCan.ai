@@ -275,6 +275,9 @@ class MiniSpecBuilder:
         spec_lines.append("            a.binaries.remove(binary)")
         spec_lines.append("    print(f'[SPEC] Removed {len(playwright_binaries)} Playwright binaries to avoid codesign issues')")
         spec_lines.append("")
+        spec_lines.append("    # Let PyInstaller's official hooks handle Qt WebEngine structure")
+        spec_lines.append("    # No manual intervention needed - PyInstaller knows how to handle Qt frameworks")
+        spec_lines.append("")
         spec_lines.append("    # Basic framework symlink cleanup to prevent conflicts")
         spec_lines.append("    # Remove duplicate framework content that should be symlinks")
         spec_lines.append("    framework_duplicates = []")
@@ -381,11 +384,7 @@ class MiniSpecBuilder:
 
     def _hiddenimports_from_config(self) -> List[str]:
         """Get hiddenimports from config, with minimal essential additions"""
-        base: Set[str] = {
-            # Qt WebEngine pieces (let PyInstaller's own hooks pick the rest)
-            "PySide6.QtWebEngineCore",
-            "PySide6.QtWebEngineWidgets",
-        }
+        base: Set[str] = set()
         
         # Merge with config
         pyinstaller_cfg = self.cfg.get("pyinstaller", {})

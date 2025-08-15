@@ -36,17 +36,19 @@
       "role.json"
     ]
   },
-  "pyinstaller": {
-    "collect_all": [
-      "playwright",
-      "scipy",
-      "numpy",
-      "pandas",
-      "sklearn",
-      "torch",
-      "tiktoken"
-    ],
+      "pyinstaller": {
+        "collect_all": [
+            "scipy",
+            "numpy",
+            "pandas",
+            "sklearn",
+            "torch",
+            "tiktoken",
+            "PySide6.QtWebEngineCore",
+            "PySide6.QtWebEngineWidgets"
+        ],
     "collect_data_only": [
+      "playwright",
       "browser_use",
       "browser_use.browser",
       "browser_use.agent",
@@ -139,7 +141,10 @@
       "psutil",
       "watchdog",
       "watchfiles",
-      "qasync"
+      "qasync",
+      "playwright",
+      "playwright.sync_api",
+      "playwright.async_api"
     ],
     "codesign_exclude": [
       "**/ms-playwright/**/chromium*/chrome-*/Chromium.app/**",
@@ -213,8 +218,8 @@
       "PySide6.QtDesigner",
       "PySide6.QtTest"
     ],
-    "optimization": {
-      "copy_metadata": true
+            "optimization": {
+            "copy_metadata": true
     }
   },
   "build_modes": {
