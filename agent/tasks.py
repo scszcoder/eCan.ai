@@ -909,6 +909,9 @@ class TaskRunner(Generic[Context]):
                                     print("chatId in the message", chatId)
                                     self.sendChatMessageToGUI(self.agent, chatId, prompt)
                                     print("prompt sent to GUI<<<<<<<<<<<")
+                                    justStarted = False
+                                else:
+                                    justStarted = True
 
                                 if not isinstance(msg, dict):
                                     task_id = msg.params.id
@@ -920,7 +923,6 @@ class TaskRunner(Generic[Context]):
                                     else:
                                         print("ERROR: lost track of task id....", msg)
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                                justStarted = False
                             else:
                                 print(f"interacted {task2run.skill.name} no longer initial run", msg)
                                 task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
@@ -962,6 +964,9 @@ class TaskRunner(Generic[Context]):
                                         self.sendChatNotificationToGUI(self.agent, chatId,  interrupt_obj.value.get["notification_to_human"])
 
                                     print("NI prompt sent to GUI<<<<<<<<<<<")
+                                else:
+                                    # at the final step, needs to reset justStarted flag, so that we can start another langgraph run
+                                    justStarted = True
 
                                 if not isinstance(msg, dict):
                                     task_id = msg.params.id
@@ -974,7 +979,7 @@ class TaskRunner(Generic[Context]):
                                         print("ERROR: lost track of task id....", msg)
 
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                                justStarted = False
+
 
                         self.chat_msg_queue.task_done()
 
