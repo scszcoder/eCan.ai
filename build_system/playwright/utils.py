@@ -175,41 +175,58 @@ class PlaywrightBuildUtils:
     
     @staticmethod
     def copy_playwright_browsers(src_path: Path, dst_path: Path) -> None:
-        """Copy Playwright browser files (build-time copy; keep only current platform files)"""
-        if dst_path.exists():
-            print(f"[BUILD] Cleaning existing {dst_path}")
-            shutil.rmtree(dst_path, ignore_errors=True)
-        
-        print(f"[BUILD] Copying {src_path} -> {dst_path} (platform-specific)")
-        
-        # Create destination directory
-        dst_path.mkdir(parents=True, exist_ok=True)
-        
-        # Copy browsers.json
-        browsers_json_src = src_path / "browsers.json"
-        if browsers_json_src.exists():
-            shutil.copy2(browsers_json_src, dst_path / "browsers.json")
-            print(f"[BUILD] Copied browsers.json")
-        else:
-            # Copy browsers.json from playwright package
-            try:
-                import playwright
-                playwright_package_dir = Path(playwright.__file__).parent / "driver" / "package"
-                browsers_json_src = playwright_package_dir / "browsers.json"
-                if browsers_json_src.exists():
-                    shutil.copy2(browsers_json_src, dst_path / "browsers.json")
-                    print(f"[BUILD] Copied browsers.json from playwright package")
-                else:
-                    print(f"[BUILD] Warning: browsers.json not found in playwright package")
-            except Exception as e:
-                print(f"[BUILD] Warning: Could not copy browsers.json: {e}")
-        
-        # Get current platform info
-        current_platform = PlaywrightBuildUtils.get_current_platform()
-        print(f"[BUILD] Current platform: {current_platform}")
-        
-        # Copy only files required by current platform
-        PlaywrightBuildUtils._copy_platform_specific_browsers(src_path, dst_path, current_platform)
+        """Copy Playwright browser files with enhanced symlink handling"""
+        # Import symlink manager
+        try:
+            from build_system.symlink_manager import symlink_manager
+            use_symlink_manager = True
+        except ImportError:
+            print("[BUILD] Warning: Symlink manager not available, using fallback")
+            use_symlink_manager = False
+
+        print(f"[BUILD] Copying {src_path} -> {dst_path} (platform-specific, symlink-safe)")
+
+        if use_symlink_manager:
+            # Use enhanced symlink-safe copying
+            success = symlink_manager.safe_copytree(src_path, dst_path, "PLAYWRIGHT")
+            if not success:
+                print("[BUILD] Warning: Symlink-safe copy failed, falling back to standard copy")
+                use_symlink_manager = False
+
+        if not use_symlink_manager:
+            # Fallback to original logic with improvements
+            if dst_path.exists():
+                print(f"[BUILD] Cleaning existing {dst_path}")
+                shutil.rmtree(dst_path, ignore_errors=True)
+
+            # Create destination directory
+            dst_path.mkdir(parents=True, exist_ok=True)
+
+            # Copy browsers.json
+            browsers_json_src = src_path / "browsers.json"
+            if browsers_json_src.exists():
+                shutil.copy2(browsers_json_src, dst_path / "browsers.json")
+                print(f"[BUILD] Copied browsers.json")
+            else:
+                # Copy browsers.json from playwright package
+                try:
+                    import playwright
+                    playwright_package_dir = Path(playwright.__file__).parent / "driver" / "package"
+                    browsers_json_src = playwright_package_dir / "browsers.json"
+                    if browsers_json_src.exists():
+                        shutil.copy2(browsers_json_src, dst_path / "browsers.json")
+                        print(f"[BUILD] Copied browsers.json from playwright package")
+                    else:
+                        print(f"[BUILD] Warning: browsers.json not found in playwright package")
+                except Exception as e:
+                    print(f"[BUILD] Warning: Could not copy browsers.json: {e}")
+
+            # Get current platform info
+            current_platform = PlaywrightBuildUtils.get_current_platform()
+            print(f"[BUILD] Current platform: {current_platform}")
+
+            # Copy only files required by current platform
+            PlaywrightBuildUtils._copy_platform_specific_browsers(src_path, dst_path, current_platform)
     
     @staticmethod
     def get_current_platform() -> str:
@@ -270,17 +287,69 @@ class PlaywrightBuildUtils:
                 if PlaywrightBuildUtils._is_platform_match(platform_name, target_platform):
                     print(f"[BUILD] Copying platform-specific files: {platform_name}")
 
-                    # 复制整个平台目录
+                    # 复制整个平台目录 - 使用安全的 symlink 处理
                     dst_platform_dir = dst_browser_dir / platform_name
                     if dst_platform_dir.exists():
                         shutil.rmtree(dst_platform_dir)
-                    # Preserve symlinks inside Chromium.app and frameworks to avoid
-                    # expanding them into real directories, which causes PyInstaller
-                    # COLLECT collisions on macOS frameworks.
-                    shutil.copytree(platform_dir, dst_platform_dir, symlinks=True)
+
+                    # Use symlink manager if available for safer copying
+                    try:
+                        from build_system.symlink_manager import symlink_manager
+                        success = symlink_manager.safe_copytree(platform_dir, dst_platform_dir, "CHROMIUM")
+                        if not success:
+                            raise Exception("Symlink manager copy failed")
+                    except Exception:
+                        # Fallback: Use improved symlink handling
+                        # On macOS, be more careful with symlinks to avoid conflicts
+                        if sys.platform == 'darwin':
+                            # Custom copy function for macOS
+                            PlaywrightBuildUtils._copy_macos_chromium_safe(platform_dir, dst_platform_dir)
+                        else:
+                            # Standard copy for other platforms
+                            shutil.copytree(platform_dir, dst_platform_dir, symlinks=True)
                 else:
                     print(f"[BUILD] Skipping non-matching platform: {platform_name}")
     
+    @staticmethod
+    def _copy_macos_chromium_safe(src_dir: Path, dst_dir: Path) -> None:
+        """Safely copy Chromium browser on macOS with symlink conflict avoidance"""
+        print(f"[BUILD] Using macOS-safe Chromium copy: {src_dir.name}")
+
+        def ignore_problematic_items(dir_path, names):
+            """Ignore function for macOS Chromium copy"""
+            ignored = []
+            dir_path_obj = Path(dir_path)
+
+            for name in names:
+                item_path = dir_path_obj / name
+
+                # Skip problematic symlinks
+                if item_path.is_symlink():
+                    try:
+                        target = item_path.readlink()
+                        # Skip absolute symlinks or those pointing outside
+                        if target.is_absolute() or str(target).startswith('../'):
+                            ignored.append(name)
+                            print(f"[BUILD] Skipping problematic symlink: {name} -> {target}")
+                    except Exception:
+                        ignored.append(name)
+                        print(f"[BUILD] Skipping unreadable symlink: {name}")
+
+                # Skip cache and temporary directories
+                if name.lower() in ['cache', 'tmp', 'temp', 'logs', 'crashpad_database']:
+                    ignored.append(name)
+                    print(f"[BUILD] Skipping cache/temp directory: {name}")
+
+            return ignored
+
+        try:
+            shutil.copytree(src_dir, dst_dir, ignore=ignore_problematic_items, symlinks=True)
+            print(f"[BUILD] Successfully copied Chromium with symlink safety")
+        except Exception as e:
+            print(f"[BUILD] Warning: Safe copy failed, trying standard copy: {e}")
+            # Fallback to standard copy without symlinks
+            shutil.copytree(src_dir, dst_dir, symlinks=False)
+
     @staticmethod
     def _is_platform_match(platform_name: str, target_platform: str) -> bool:
         """检查平台名称是否匹配目标平台"""

@@ -219,14 +219,112 @@ def _show_build_results():
 
 
 
+def _clean_macos_build_artifacts(build_path: Path) -> None:
+    """Clean macOS build artifacts with special handling for symlinks and frameworks"""
+    import shutil
+    import os
+
+    if not build_path.exists():
+        return
+
+    print(f"[MACOS] Cleaning {build_path} with framework-aware cleanup...")
+
+    # Special handling for frameworks and symlinks
+    try:
+        # First, try to remove symlinks that might cause conflicts
+        for root, _, files in os.walk(build_path, topdown=False):
+            root_path = Path(root)
+
+            # Handle framework symlinks specifically
+            if root_path.name.endswith('.framework'):
+                for item in root_path.iterdir():
+                    if item.is_symlink():
+                        try:
+                            item.unlink()
+                            print(f"[MACOS] Removed symlink: {item}")
+                        except Exception as e:
+                            print(f"[MACOS] Warning: Failed to remove symlink {item}: {e}")
+
+            # Handle other symlinks
+            for file in files:
+                file_path = root_path / file
+                if file_path.is_symlink():
+                    try:
+                        file_path.unlink()
+                        print(f"[MACOS] Removed symlink: {file_path}")
+                    except Exception as e:
+                        print(f"[MACOS] Warning: Failed to remove symlink {file_path}: {e}")
+
+        # Now remove the directory tree
+        shutil.rmtree(build_path, ignore_errors=True)
+
+    except Exception as e:
+        print(f"[MACOS] Warning: Framework cleanup failed: {e}")
+        # Fallback to regular cleanup
+        shutil.rmtree(build_path, ignore_errors=True)
+
+
+def _prepare_third_party_assets() -> None:
+    """Prepare all third-party assets using the unified manager"""
+    try:
+        from build_system.third_party_manager import third_party_manager, set_verbose
+
+        # Set verbose mode (try to get from args if available)
+        verbose_mode = False
+        try:
+            # Try to access args from the calling context
+            frame = sys._getframe(1)
+            if 'args' in frame.f_locals and hasattr(frame.f_locals['args'], 'verbose'):
+                verbose_mode = frame.f_locals['args'].verbose
+        except:
+            pass
+
+        set_verbose(verbose_mode)
+
+        print("[THIRD-PARTY] Processing third-party components...")
+        results = third_party_manager.process_all()
+
+        success_count = sum(results.values())
+        total_count = len(results)
+
+        print(f"[THIRD-PARTY] Processed {success_count}/{total_count} components")
+
+        if success_count < total_count:
+            failed = [name for name, success in results.items() if not success]
+            print(f"[THIRD-PARTY] Failed components: {failed}")
+
+        # Fallback to original Playwright handling if needed
+        if not results.get('playwright', False):
+            print("[THIRD-PARTY] Falling back to original Playwright handling...")
+            _prepare_playwright_assets_fallback()
+
+    except ImportError as e:
+        print(f"[THIRD-PARTY] Third-party manager not available: {e}")
+        print("[THIRD-PARTY] Using fallback Playwright handling...")
+        _prepare_playwright_assets_fallback()
+    except Exception as e:
+        print(f"[THIRD-PARTY] Error in third-party processing: {e}")
+        print("[THIRD-PARTY] Using fallback Playwright handling...")
+        _prepare_playwright_assets_fallback()
+
+
+def _prepare_playwright_assets_fallback() -> None:
+    """Fallback Playwright asset preparation"""
+    try:
+        from build_system.playwright.utils import build_utils
+
+        third_party = Path.cwd() / "third_party" / "ms-playwright"
+
+        # Prepare Playwright assets using build-time utilities
+        build_utils.prepare_playwright_assets(third_party)
+    except Exception as e:
+        print(f"[THIRD-PARTY] Fallback Playwright preparation failed: {e}")
+
+
+# Keep the old function name for compatibility
 def _prepare_playwright_assets() -> None:
-    """Prepare Playwright assets (build-time only)"""
-    from build_system.playwright.utils import build_utils
-    
-    third_party = Path.cwd() / "third_party" / "ms-playwright"
-    
-    # Prepare Playwright assets using build-time utilities
-    build_utils.prepare_playwright_assets(third_party)
+    """Prepare Playwright assets (compatibility wrapper)"""
+    _prepare_playwright_assets_fallback()
 
 
 
@@ -444,11 +542,24 @@ Usage examples:
         _t_prep_start = time.perf_counter()
         try:
             import shutil
-            # Clean build outputs
-            for p in [Path("dist"), Path("build")]:
-                if p.exists():
-                    shutil.rmtree(p, ignore_errors=True)
-                    print(f"[PREP] Cleaned: {p}")
+            # Clean build outputs with enhanced symlink handling
+            build_paths = [Path("dist"), Path("build")]
+            try:
+                from build_system.symlink_manager import symlink_manager, set_verbose
+                set_verbose(args.verbose if hasattr(args, 'verbose') else False)
+                symlink_manager.cleanup_build_artifacts(build_paths)
+                for p in build_paths:
+                    if not p.exists():  # Only print if actually cleaned
+                        print(f"[PREP] Cleaned: {p}")
+            except ImportError:
+                # Fallback to original logic
+                for p in build_paths:
+                    if p.exists():
+                        if platform.system() == "Darwin":
+                            _clean_macos_build_artifacts(p)
+                        else:
+                            shutil.rmtree(p, ignore_errors=True)
+                        print(f"[PREP] Cleaned: {p}")
             # Clean generated .spec files
             for spec in Path.cwd().glob("*.spec"):
                 try:
@@ -480,15 +591,15 @@ Usage examples:
         installer = InstallerBuilder(cfg, env, Path.cwd(), mode=build_mode)
         minispec = MiniSpecBuilder()
 
-        # Prepare Playwright browsers for packaging (always)
+        # Prepare third-party assets (including Playwright)
         if not args.installer_only:
-            print("[PLAYWRIGHT] Preparing Playwright browsers for packaging...")
-            _t_pw_start = time.perf_counter()
-            _prepare_playwright_assets()
-            _t_pw_end = time.perf_counter()
-            print(f"[TIME] Playwright assets: {(_t_pw_end - _t_pw_start):.2f}s")
+            print("[THIRD-PARTY] Preparing third-party assets for packaging...")
+            _t_tp_start = time.perf_counter()
+            _prepare_third_party_assets()
+            _t_tp_end = time.perf_counter()
+            print(f"[TIME] Third-party assets: {(_t_tp_end - _t_tp_start):.2f}s")
         else:
-            print("[PLAYWRIGHT] Installer-only mode: skipping Playwright preparation")
+            print("[THIRD-PARTY] Installer-only mode: skipping third-party preparation")
         
         # On macOS, we'll use special PyInstaller options to handle codesign
         if sys.platform == "darwin":
