@@ -230,7 +230,28 @@
         "accessibility",
         "camera",
         "microphone"
-      ]
+      ],
+      "architecture": {
+        "arm64": {
+          "notes": "Apple Silicon (M1/M2/M3) native support",
+          "playwright_platform": "mac-arm64",
+          "python_requirement": "arm64 native Python (not Rosetta 2)",
+          "special_handling": [
+            "Ensure arm64 Chromium browser",
+            "Native arm64 dependencies",
+            "Universal Binary support for mixed architectures"
+          ]
+        },
+        "x86_64": {
+          "notes": "Intel Mac support",
+          "playwright_platform": "mac-x64",
+          "python_requirement": "x86_64 Python",
+          "special_handling": [
+            "Intel Chromium browser",
+            "x86_64 dependencies"
+          ]
+        }
+      }
     },
     "windows": {
       "sign": {
