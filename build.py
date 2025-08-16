@@ -278,64 +278,6 @@ def _dev_sign_artifacts(enable: bool) -> None:
         else:
             print(f"[DEV-SIGN] Unsupported platform for dev-sign: {sysname}")
     except Exception as e:
-        print(f"[VERIFY] ERROR during symlink validation: {e}")
-        return False, checked, issues or 1
-
-def _dev_sign_artifacts(enable: bool) -> None:
-    """Development-only local signing helper (safe no-op if not configured).
-    - Windows: uses signtool with DEV_WIN_CERT_PFX and DEV_WIN_CERT_PASSWORD envs
-    - macOS: uses codesign with DEV_MAC_CODESIGN_IDENTITY env
-    """
-    try:
-        if not enable:
-            return
-        print("[DEV-SIGN] Local development signing enabled")
-        sysname = platform.system()
-        if sysname == "Windows":
-            import shutil
-            signtool = r"C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64\\signtool.exe"
-            if not os.path.exists(signtool):
-                signtool = shutil.which("signtool.exe") or shutil.which("signtool")
-            pfx = os.environ.get("DEV_WIN_CERT_PFX")
-            pwd = os.environ.get("DEV_WIN_CERT_PASSWORD", "")
-            targets = [
-                Path("dist")/"eCan"/"eCan.exe",
-                Path("dist")/"eCan-Setup.exe",
-            ]
-            targets += list(Path("dist").glob("*.exe"))
-            targets = [p for p in targets if p.exists()]
-            if not signtool or not pfx:
-                print("[DEV-SIGN] Windows signtool or DEV_WIN_CERT_PFX not provided; skip")
-                return
-            for t in targets:
-                cmd = [signtool, "sign", "/fd", "SHA256", "/f", pfx]
-                if pwd:
-                    cmd += ["/p", pwd]
-                cmd += ["/tr", "http://timestamp.digicert.com", "/td", "SHA256", str(t)]
-                print(f"[DEV-SIGN] Signing {t} ...")
-                try:
-                    subprocess.run(cmd, check=True)
-                except Exception as e:
-                    print(f"[DEV-SIGN] WARN: sign failed for {t}: {e}")
-        elif sysname == "Darwin":
-            identity = os.environ.get("DEV_MAC_CODESIGN_IDENTITY", "").strip()
-            app_path = Path("dist")/"eCan.app"
-            if not identity:
-                print("[DEV-SIGN] DEV_MAC_CODESIGN_IDENTITY not set; skip macOS codesign")
-                return
-            if not app_path.exists():
-                print("[DEV-SIGN] dist/eCan.app not found; skip macOS codesign")
-                return
-            cmd = ["codesign", "--deep", "--force", "--sign", identity, str(app_path)]
-            print(f"[DEV-SIGN] Codesigning {app_path} with identity '{identity}' ...")
-            try:
-                subprocess.run(cmd, check=True)
-                print("[DEV-SIGN] macOS codesign done")
-            except Exception as e:
-                print(f"[DEV-SIGN] WARN: macOS codesign failed: {e}")
-        else:
-            print(f"[DEV-SIGN] Unsupported platform for dev-sign: {sysname}")
-    except Exception as e:
         print(f"[DEV-SIGN] ERROR: {e}")
 
 
@@ -419,6 +361,12 @@ Usage examples:
         "--skip-precheck",
         action="store_true",
         help="Skip pre-build process check"
+    )
+
+    parser.add_argument(
+        "--dev-sign",
+        action="store_true",
+        help="Enable development signing (requires DEV_* environment variables)"
     )
 
     args = parser.parse_args()
@@ -507,7 +455,7 @@ Usage examples:
         print("[PREP] Installer-only mode: skipping cleanup")
         print("[PREP] Using existing dist files for installer creation")
 
-    # 使用更简洁的 MiniSpecBuilder 直接进行 PyInstaller 构建；前端与安装包按需执行
+    # Use simplified MiniSpecBuilder for PyInstaller build; frontend and installer as needed
     try:
         from build_system.minibuild_core import MiniSpecBuilder
         from build_system.ecan_build import FrontendBuilder, InstallerBuilder, BuildConfig
@@ -584,9 +532,30 @@ Usage examples:
             print("[INSTALLER] Skipped")
             print("[TIME] Installer: skipped")
 
-        # 4) Dev-only local signing (disabled by default)
+        # 4) macOS-specific post-build validation
+        if sys.platform == "darwin" and success:
+            try:
+                from build_system.symlink_validator import symlink_validator
+                from build_system.build_logger import build_logger
+
+                # Get app name from config
+                app_name = cfg.get_app_info().get("name", "eCan")
+                app_bundle = Path("dist") / f"{app_name}.app"
+                if app_bundle.exists():
+                    print("[MACOS] Validating symlinks in app bundle...")
+                    validation_result = symlink_validator.validate_app_bundle(app_bundle)
+                    symlink_validator.print_validation_report(validation_result)
+
+                    if validation_result["status"] == "error":
+                        print("[WARNING] Symlink validation failed, but continuing...")
+                else:
+                    print("[WARNING] App bundle not found for symlink validation")
+            except Exception as e:
+                print(f"[WARNING] Symlink validation error: {e}")
+
+        # 5) Dev-only local signing (disabled by default)
         try:
-            _dev_sign_artifacts(getattr(args, 'dev_sign', False))
+            _dev_sign_artifacts(args.dev_sign)
         except Exception as _e:
             print(f"[DEV-SIGN] error: {_e}")
 

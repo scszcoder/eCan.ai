@@ -21,6 +21,13 @@ from pathlib import Path
 from typing import Dict, List, Set, Any, Optional
 import shutil
 
+# Import platform handler
+try:
+    from .platform_handler import platform_handler
+except ImportError:
+    # Handle case when imported directly
+    from platform_handler import platform_handler
+
 
 class MiniSpecBuilder:
     def __init__(self, project_root: Optional[Path] = None, config_path: str = "build_system/build_config.json"):
@@ -125,14 +132,15 @@ class MiniSpecBuilder:
     def _get_used_modules(self) -> Set[str]:
         """Get modules that are actually used in the project"""
         modules = set()
-        
+
         # Add modules from config
-        pyinstaller_cfg = self.cfg.get("pyinstaller", {})
+        build_config = self.cfg.get("build", {})
+        pyinstaller_cfg = build_config.get("pyinstaller", {})
         modules.update(pyinstaller_cfg.get("collect_all", []))
         modules.update(pyinstaller_cfg.get("collect_data_only", []))
         modules.update(pyinstaller_cfg.get("force_includes", []))
         modules.update(pyinstaller_cfg.get("force_hiddenimports", []))
-        
+
         return modules
 
     def _get_python_executable(self) -> str:
@@ -152,13 +160,15 @@ class MiniSpecBuilder:
 
     # ---- Spec generation ----
     def _write_spec(self, mode: str) -> Path:
-        app = self.cfg.get("app_info", {})
+        app = self.cfg.get("app", {})
         app_name = app.get("name", "app")
-        main_script = app.get("main_script", "main.py")
-        icon_win = app.get("icon_windows", "eCan.ico")
-        icon_mac = app.get("icon_macos", "eCan.icns")
+        main_script = app.get("entry_point", "main.py")
+        icons = app.get("icons", {})
+        icon_win = icons.get("windows", "eCan.ico")
+        icon_mac = icons.get("macos", "eCan.icns")
 
-        bmodes = self.cfg.get("build_modes", {})
+        build_config = self.cfg.get("build", {})
+        bmodes = build_config.get("modes", {})
         mode_cfg = bmodes.get(mode, {})
         onefile = bool(mode_cfg.get("onefile", False))
         console = bool(mode_cfg.get("console", app.get("console", False)))
@@ -182,7 +192,8 @@ class MiniSpecBuilder:
         spec_lines.append("")
 
         # Collect all resources/hiddenimports/binaries for configured packages
-        collect_pkgs = self.cfg.get("pyinstaller", {}).get("collect_all", []) or []
+        pyinstaller_cfg = build_config.get("pyinstaller", {})
+        collect_pkgs = pyinstaller_cfg.get("collect_all", []) or []
         if collect_pkgs:
             spec_lines.append("from PyInstaller.utils.hooks import collect_all")
             spec_lines.append("hooked_bins = []")
@@ -195,25 +206,44 @@ class MiniSpecBuilder:
             spec_lines.append("")
 
         # Collect data-only for packages that cannot be imported in isolated child
-        collect_data_only = self.cfg.get("pyinstaller", {}).get("collect_data_only", []) or []
+        collect_data_only = pyinstaller_cfg.get("collect_data_only", []) or []
         if collect_data_only:
             spec_lines.append("from PyInstaller.utils.hooks import collect_data_files")
             spec_lines.append("for _pkg in " + repr(collect_data_only) + ":")
             spec_lines.append("    data_files += collect_data_files(_pkg)")
             spec_lines.append("")
 
-        # Ensure QtWebEngineProcess.app and Playwright browsers are bundled
-        if sys.platform == 'darwin':
-            spec_lines.append("from PySide6 import __file__ as _pyside6_file")
-            spec_lines.append("_qt_lib = Path(_pyside6_file).parent / \"Qt\" / \"lib\"")
-            spec_lines.append("_candidates = [")
-            spec_lines.append("    _qt_lib / \"QtWebEngineCore.framework\" / \"Helpers\" / \"QtWebEngineProcess.app\",")
-            spec_lines.append("    _qt_lib / \"QtWebEngineCore.framework\" / \"Versions\" / \"Current\" / \"Helpers\" / \"QtWebEngineProcess.app\",")
-            spec_lines.append("]")
-            spec_lines.append("for p in _candidates:")
-            spec_lines.append("    if p.exists():")
-            spec_lines.append("        data_files.append((str(p), \"PySide6/Qt/lib/QtWebEngineCore.framework/Helpers\"))")
-            spec_lines.append("        break")
+        # Ensure QtWebEngineProcess.app and related resources are bundled for macOS
+        if platform_handler.is_macos:
+            spec_lines.append("# QtWebEngine resources for macOS")
+            spec_lines.append("try:")
+            spec_lines.append("    from PySide6 import __file__ as _pyside6_file")
+            spec_lines.append("    _qt_lib = Path(_pyside6_file).parent / \"Qt\" / \"lib\"")
+            spec_lines.append("    _qt_frameworks = Path(_pyside6_file).parent / \"Qt\" / \"lib\"")
+            spec_lines.append("    ")
+            spec_lines.append("    # QtWebEngineProcess.app")
+            spec_lines.append("    _webengine_candidates = [")
+            spec_lines.append("        _qt_lib / \"QtWebEngineCore.framework\" / \"Helpers\" / \"QtWebEngineProcess.app\",")
+            spec_lines.append("        _qt_lib / \"QtWebEngineCore.framework\" / \"Versions\" / \"Current\" / \"Helpers\" / \"QtWebEngineProcess.app\",")
+            spec_lines.append("    ]")
+            spec_lines.append("    for p in _webengine_candidates:")
+            spec_lines.append("        if p.exists():")
+            spec_lines.append("            data_files.append((str(p), \"PySide6/Qt/lib/QtWebEngineCore.framework/Helpers\"))")
+            spec_lines.append("            print(f'[QTWEBENGINE] Added QtWebEngineProcess.app: {p}')")
+            spec_lines.append("            break")
+            spec_lines.append("    ")
+            spec_lines.append("    # QtWebEngine resources")
+            spec_lines.append("    _webengine_resources = [")
+            spec_lines.append("        _qt_lib / \"QtWebEngineCore.framework\" / \"Resources\",")
+            spec_lines.append("        _qt_lib / \"QtWebEngineCore.framework\" / \"Versions\" / \"Current\" / \"Resources\",")
+            spec_lines.append("    ]")
+            spec_lines.append("    for res_dir in _webengine_resources:")
+            spec_lines.append("        if res_dir.exists():")
+            spec_lines.append("            data_files.append((str(res_dir), \"PySide6/Qt/lib/QtWebEngineCore.framework/Resources\"))")
+            spec_lines.append("            print(f'[QTWEBENGINE] Added resources: {res_dir}')")
+            spec_lines.append("            break")
+            spec_lines.append("except Exception as e:")
+            spec_lines.append("    print(f'[WARNING] Failed to locate QtWebEngine resources: {e}')")
 
         spec_lines.append("_playwright_third_party = project_root / \"third_party\" / \"ms-playwright\"")
         spec_lines.append("if _playwright_third_party.exists():")
@@ -231,9 +261,12 @@ class MiniSpecBuilder:
         spec_lines.append("    hooksconfig={},")
 
         # Handle codesign exclusions for macOS
-        excludes = self.cfg.get("pyinstaller", {}).get("excludes", [])
-        if sys.platform == 'darwin':
-            codesign_excludes = self.cfg.get("pyinstaller", {}).get("codesign_exclude", [])
+        excludes = pyinstaller_cfg.get("excludes", [])
+        codesign_excludes = []
+        if platform_handler.is_macos:
+            platform_config = self.cfg.get("platforms", {}).get("macos", {})
+            codesign_config = platform_config.get("codesign", {})
+            codesign_excludes = codesign_config.get("exclude_patterns", [])
             if codesign_excludes:
                 for exclude in codesign_excludes:
                     spec_lines.append(f"    # codesign_exclude: {exclude}")
@@ -245,7 +278,7 @@ class MiniSpecBuilder:
         spec_lines.append("    win_private_assemblies=False,")
         
         # Get optimization settings
-        opt_cfg = self.cfg.get("pyinstaller", {}).get("optimization", {})
+        opt_cfg = pyinstaller_cfg.get("optimization", {})
         copy_metadata = opt_cfg.get("copy_metadata", True)
         
         spec_lines.append("    cipher=None,")
@@ -276,20 +309,54 @@ class MiniSpecBuilder:
         
         # Post-analysis cleanup for macOS
         spec_lines.append("if _sys.platform == 'darwin':")
-        spec_lines.append("    playwright_binaries = []")
-        spec_lines.append("    playwright_kept = []")
+        spec_lines.append("    # Import required modules for macOS processing")
+        spec_lines.append("    import fnmatch")
+        spec_lines.append("    import subprocess")
+        spec_lines.append("    ")
+        spec_lines.append("    # Get codesign exclusion patterns")
+        if platform_handler.is_macos:
+            spec_lines.append("    codesign_excludes = " + repr(codesign_excludes))
+        else:
+            spec_lines.append("    codesign_excludes = []")
+        spec_lines.append("    ")
+        spec_lines.append("    # Track removed and kept binaries")
+        spec_lines.append("    excluded_binaries = []")
+        spec_lines.append("    kept_binaries = []")
+        spec_lines.append("    removed_count = 0")
+        spec_lines.append("    ")
+        spec_lines.append("    # Process each binary for codesign exclusions")
         spec_lines.append("    for binary in a.binaries[:]:")
         spec_lines.append("        dest_name = str(binary[0])")
-        spec_lines.append("        if any(pattern in dest_name for pattern in ['ms-playwright', 'chromium', 'chrome-mac', 'chrome-mac-arm64']):")
-        spec_lines.append("            if any(keep in dest_name for keep in ['browsers.json', 'package.json', '.json']):")
-        spec_lines.append("                playwright_kept.append(binary)")
-        spec_lines.append("                continue")
-        spec_lines.append("            if any(remove in dest_name for remove in ['.exe', '.dylib', '.so', 'chrome', 'chromium']):")
-        spec_lines.append("                playwright_binaries.append(binary)")
-        spec_lines.append("                a.binaries.remove(binary)")
-        spec_lines.append("            else:")
-        spec_lines.append("                playwright_kept.append(binary)")
-        spec_lines.append("")
+        spec_lines.append("        source_path = str(binary[1]) if len(binary) > 1 else ''")
+        spec_lines.append("        ")
+        spec_lines.append("        # Check if should be excluded from codesign")
+        spec_lines.append("        should_exclude = False")
+        spec_lines.append("        for pattern in codesign_excludes:")
+        spec_lines.append("            if fnmatch.fnmatch(dest_name, pattern) or fnmatch.fnmatch(source_path, pattern):")
+        spec_lines.append("                should_exclude = True")
+        spec_lines.append("                break")
+        spec_lines.append("        ")
+        spec_lines.append("        if should_exclude:")
+        spec_lines.append("            excluded_binaries.append((dest_name, source_path))")
+        spec_lines.append("            a.binaries.remove(binary)")
+        spec_lines.append("            removed_count += 1")
+        spec_lines.append("            continue")
+        spec_lines.append("        ")
+        spec_lines.append("        # Special handling for Playwright and QtWebEngine")
+        spec_lines.append("        if any(pattern in dest_name.lower() for pattern in ['ms-playwright', 'chromium', 'chrome-mac', 'qtwebengine']):")
+        spec_lines.append("            # Keep essential files")
+        spec_lines.append("            if any(keep in dest_name.lower() for keep in ['browsers.json', 'package.json', '.json', '.plist']):")
+        spec_lines.append("                kept_binaries.append(dest_name)")
+        spec_lines.append("            # Remove problematic executables")
+        spec_lines.append("            elif any(remove in dest_name.lower() for remove in ['chrome', 'chromium']) and not dest_name.endswith('.json'):")
+        spec_lines.append("                if not any(keep in dest_name.lower() for keep in ['.framework/', '.app/']):")
+        spec_lines.append("                    excluded_binaries.append((dest_name, source_path))")
+        spec_lines.append("                    a.binaries.remove(binary)")
+        spec_lines.append("                    removed_count += 1")
+        spec_lines.append("                    continue")
+        spec_lines.append("            kept_binaries.append(dest_name)")
+        spec_lines.append("        ")
+        spec_lines.append("    # Remove framework duplicates")
         spec_lines.append("    framework_duplicates = []")
         spec_lines.append("    for binary in a.binaries[:]:")
         spec_lines.append("        dest_name = str(binary[0])")
@@ -300,6 +367,11 @@ class MiniSpecBuilder:
         spec_lines.append("            if any(str(b[0]) == versions_path for b in a.binaries):")
         spec_lines.append("                framework_duplicates.append(binary)")
         spec_lines.append("                a.binaries.remove(binary)")
+        spec_lines.append("    ")
+        spec_lines.append("    # Print summary")
+        spec_lines.append("    print(f'[MACOS] Excluded {removed_count} binaries from codesign')")
+        spec_lines.append("    print(f'[MACOS] Kept {len(kept_binaries)} essential binaries')")
+        spec_lines.append("    print(f'[MACOS] Removed {len(framework_duplicates)} framework duplicates')")
         spec_lines.append("")
         
         spec_lines.append("pyz = PYZ(a.pure, a.zipped_data, cipher=None)")
@@ -371,7 +443,8 @@ class MiniSpecBuilder:
     def _datas_from_config(self) -> List[str]:
         """Generate spec lines for data files/dirs, skipping entries that don't exist."""
         lines: List[str] = []
-        data_cfg = self.cfg.get("data_files", {})
+        build_config = self.cfg.get("build", {})
+        data_cfg = build_config.get("data_files", {})
         
         # Directories
         for d in data_cfg.get("directories", []) or []:
@@ -394,17 +467,18 @@ class MiniSpecBuilder:
     def _hiddenimports_from_config(self) -> List[str]:
         """Get hiddenimports from config, with minimal essential additions"""
         base: Set[str] = set()
-        
+
         # Merge with config
-        pyinstaller_cfg = self.cfg.get("pyinstaller", {})
+        build_config = self.cfg.get("build", {})
+        pyinstaller_cfg = build_config.get("pyinstaller", {})
         for m in pyinstaller_cfg.get("force_includes", []) or []:
             if isinstance(m, str) and m:
                 base.add(m)
-        
+
         for m in pyinstaller_cfg.get("force_hiddenimports", []) or []:
             if isinstance(m, str) and m:
                 base.add(m)
-        
+
         return sorted(base)
 
 
