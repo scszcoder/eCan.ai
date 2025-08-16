@@ -80,7 +80,9 @@
     "newPasswordRequired": "请输入新密码。",
     "logoAlt": "系统Logo",
     "newPassword": "新密码",
-    "confirmCode": "验证码"
+    "confirmCode": "验证码",
+    "loginWithGoogle": "用谷歌账号登录",
+    "loginWithApple": "用苹果id登录"
   },
   "roles": {
     "commander": "指挥官",

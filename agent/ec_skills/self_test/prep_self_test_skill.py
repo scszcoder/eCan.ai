@@ -1,4 +1,4 @@
-def init_self_test_skill(agent, msg=None, file_names=[]):
+def prep_self_test_skill(agent, msg=None, file_names=[]):
     print("init_self_test_skill", type(msg), msg)  # msg.params.message[0].text
 
     attachments = []

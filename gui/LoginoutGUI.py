@@ -16,7 +16,6 @@ import traceback
 import base64
 import hmac
 import hashlib
-import jwt
 
 import boto3
 from PySide6.QtCore import QLocale, QTranslator, QCoreApplication, Qt, QEvent, QSettings
@@ -34,8 +33,10 @@ from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
 from utils.fernet import encrypt_password, decrypt_password
-
-
+from jwt.algorithms import RSAAlgorithm
+import requests
+from urllib.parse import urlencode
+from flask import redirect
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
@@ -1042,3 +1043,84 @@ class Login(QDialog):
             word = word[0:i] + chr(asc) + word[i + 1:]
         print(word)
         return word
+
+
+    def b64u(self,b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+    REGION = "us-east-2"
+    USER_POOL_ID = "us-east-1_uUmKJUfB3"
+    CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")  # app client enabled for Google
+    DOMAIN = "https://your-domain.auth.us-east-1.amazoncognito.com"
+    REDIRECT_URI = "https://yourapp.com/auth/callback"  # must match app client
+    AUTH_URL = f"{DOMAIN}/oauth2/authorize"
+
+    def login_google(self):
+
+        # Generate PKCE + state, store server-side (e.g., session or DB)
+        verifier = self.b64u(os.urandom(32))
+        challenge = self.b64u(hashlib.sha256(verifier.encode()).digest())
+        state = secrets.token_urlsafe(24)
+        session["pkce_verifier"] = verifier
+        session["oauth_state"] = state
+
+        params = {
+            "client_id": CLIENT_ID,
+            "response_type": "code",
+            "redirect_uri": REDIRECT_URI,
+            "scope": "openid email profile",
+            "identity_provider": "Google",  # deep-link straight to Google
+            "code_challenge_method": "S256",
+            "code_challenge": challenge,
+            "state": state,
+        }
+        return redirect(f"{AUTH_URL}?{urlencode(params)}")
+
+
+    TOKEN_URL = f"{DOMAIN}/oauth2/token"
+    JWKS_URL  = f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}/.well-known/jwks.json"
+    def auth_callback(self):
+        if request.args.get("state") != session.get("oauth_state"):
+            return abort(400, "bad state")
+
+        code = request.args.get("code")
+        if not code: return abort(400, "missing code")
+
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": CLIENT_ID,          # public client (no secret) for browser flows
+            "redirect_uri": REDIRECT_URI,
+            "code": code,
+            "code_verifier": session.pop("pkce_verifier", ""),
+        }
+        tok = requests.post(
+            TOKEN_URL,
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        ).json()
+
+        id_token = tok["id_token"]
+        # Verify ID token
+        jwks = requests.get(JWKS_URL, timeout=10).json()
+        keys = {k["kid"]: RSAAlgorithm.from_jwk(json.dumps(k)) for k in jwks["keys"]}
+        header = jwt.get_unverified_header(id_token)
+        claims = jwt.decode(
+            id_token, key=keys[header["kid"]], algorithms=["RS256"],
+            audience=CLIENT_ID,
+            issuer=f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}",
+        )
+
+        # Create your own session (httpOnly, Secure, SameSite=Lax/None)
+        # e.g., set a signed session cookie that references a server-side session
+        session["user"] = {
+            "sub": claims["sub"],
+            "email": claims.get("email"),
+            "name": claims.get("name"),
+            "id_token": id_token,
+            "expires_at": int(time.time()) + tok.get("expires_in", 3600),
+            "refresh_token": tok.get("refresh_token")  # store server-side only
+        }
+
+        # Redirect back to the SPA (now authenticated by your cookie)
+        return redirect("/app")
