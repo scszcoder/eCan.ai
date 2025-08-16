@@ -63,14 +63,14 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
         # Navigate to the new URL in the new tab
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            logger.debug("open URL: " + url)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
     except Exception as e:
         state.error = get_traceback(e, "ErrorGetUserParametricNode")
-        logger.debug(state.error)
+        logger.error(state.error)
         return state
 
 def human_approval(state: NodeState) -> Command[Literal["some_node", "another_node"]]:
@@ -90,7 +90,7 @@ def human_approval(state: NodeState) -> Command[Literal["some_node", "another_no
 
 def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
     # highlight-next-line
-    print("pend_for_human_input_node:", state)
+    logger.debug("pend_for_human_input_node:", state)
     if state.get("tool_result", None):
         qa_form = state.get("tool_result").get("qa_form", None)
         notification = state.get("tool_result").get("notification", None)
@@ -105,8 +105,8 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
             "notification_to_human": notification
         }
     )
-    print("node running:", runtime.context.current_node)
-    print("interrupted:", interrupted)
+    logger.debug("node running:", runtime.context.current_node)
+    logger.debug("interrupted:", interrupted)
     return {
         "pended": interrupted # (3)!
     }
@@ -146,12 +146,12 @@ def any_unknown_part_numbers(state: NodeState) -> NodeState:
     return state
 
 def any_attachment(state: NodeState) -> str:
-    print("go to digi-key site:", state)
+    logger.debug("go to digi-key site:", state)
     return state
 
 
 def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
-    print("chat_or_work input:", state)
+    logger.debug("chat_or_work input:", state)
     if isinstance(state['result'], dict):
         state_output = state['result']
         if state_output.get("job_related", False):
@@ -162,28 +162,28 @@ def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
         return "chat_back"
 
 def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -> str:
-    print("is_preliminary_component_info_ready input:", state)
+    logger.debug("is_preliminary_component_info_ready input:", state)
     if state['condition']:
         return "preliminary_component_info_ready"
     else:
         return "query_human"
 
 def all_requirement_filled(state: NodeState) -> str:
-    print("all_requirement_filled:", state)
+    logger.debug("all_requirement_filled:", state)
     if state["all_requirement_filled"]:
         return True
     return False
 
 async def ask_cloud_expert_for_search_parameters(state: NodeState) -> str:
-    print("ask_cloud_expert_for_search_parameters:", state)
+    logger.debug("ask_cloud_expert_for_search_parameters:", state)
     return ""
 
 async def ask_cloud_expert_for_search_sites(state: NodeState) -> str:
-    print("ask_cloud_expert_for_search_sites:", state)
+    logger.debug("ask_cloud_expert_for_search_sites:", state)
     return ""
 
 def read_attachments_node(state: NodeState) -> str:
-    print("read attachments:", state)
+    logger.debug("read attachments:", state)
     return {}
 
 def eval_basic_info_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
@@ -191,7 +191,7 @@ def eval_basic_info_node(state: NodeState, *, runtime: Runtime, store: BaseStore
     return state
 
 def debug_node(state: NodeState) -> NodeState:
-    print("Debug node state:", state)
+    logger.debug("Debug node state:", state)
     return state
 
 
@@ -199,23 +199,23 @@ def debug_node(state: NodeState) -> NodeState:
 # for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
 # .wav (.mp3) and .mp4
 def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    print("in llm_node_with_raw_files....")
+    logger.debug("in llm_node_with_raw_files....")
     user_input = state.get("input", "")
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    print("run time:", runtime)
+    logger.debug("run time:", runtime)
     current_node = runtime.context["this_node"].get("name")
     # print("current node:", current_node)
     nodes = [{"askid": "skid0", "name": current_node}]
     nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, nodes)
-    print("networked prompts:", nodes_prompts)
+    logger.debug("networked prompts:", nodes_prompts)
     node_prompt = nodes_prompts[0]
 
     attachments = state.get("attachments", [])
     user_content = []
-    print("node running:", runtime)
-    print("LLM input text:", user_input)
+    logger.debug("node running:", runtime)
+    logger.debug("LLM input text:", user_input)
     # Add user text
     user_content.append({"type": "text", "text": user_input})
 
@@ -224,11 +224,11 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         fname = att["filename"].lower()
 
         mime_type = att.get("mime_type", "").lower()
-        print(f"Processing file: {fname} (MIME: {mime_type})")
+        logger.debug(f"Processing file: {fname} (MIME: {mime_type})")
 
         # Skip if no file data
         if not att.get("file_data"):
-            print(f"Skipping empty file: {fname}")
+            logger.debug(f"Skipping empty file: {fname}")
             continue
 
         data = att["file_data"]
@@ -237,7 +237,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         # Handle image files (PNG, JPG, etc.)
         if mime_type.startswith('image/'):
-            print(f"Processing image file: {fname}")
+            logger.debug(f"Processing image file: {fname}")
             file_data = data if isinstance(data, str) else base64.b64encode(data).decode('utf-8')
             user_content.append({
                 "type": "image_url",
@@ -249,7 +249,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         # Handle PDF files
         elif mime_type == 'application/pdf':
-            print(f"Processing PDF file: {fname}")
+            logger.debug(f"Processing PDF file: {fname}")
             # For PDFs, we'll just note its existence since we can't process it directly
             user_content.append({
                 "type": "text",
@@ -258,7 +258,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         # Handle audio files
         elif mime_type.startswith('audio/'):
-            print(f"Processing audio file: {fname}")
+            logger.debug(f"Processing audio file: {fname}")
             # For audio files, we'll just note its existence
             user_content.append({
                 "type": "text",
@@ -288,9 +288,9 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         }
     ]
 
-    print("chat node: llm prompt ready:", node_prompt)
+    logger.debug("chat node: llm prompt ready:", node_prompt)
     response = llm.invoke(node_prompt)
-    print("chat node: LLM response:", response)
+    logger.debug("chat node: LLM response:", response)
     # Parse the response
     try:
         import json
@@ -298,7 +298,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         # Extract content from AIMessage if needed
         raw_content = response.content if hasattr(response, 'content') else str(response)
-        print("Raw content:", raw_content)  # Debug log
+        logger.debug("Raw content:", raw_content)  # Debug log
 
         # Clean up the response
         if is_json_parsable(raw_content):
@@ -324,8 +324,8 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
 
         return {**state, "result": result}
     except Exception as e:
-        print(f"Error parsing LLM response: {e}")
-        print(f"Raw response: {response}")
+        logger.error(f"Error parsing LLM response: {e}")
+        logger.error(f"Raw response: {response}")
         return {**state, "analysis": {"job_related": False}}
 
 
@@ -352,7 +352,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        print("about to query components:", type(state), state)
+        logger.debug("about to query components:", type(state), state)
         loop = asyncio.get_event_loop()
     except RuntimeError as e:
         try:
@@ -362,7 +362,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
             # tool_result = await mainwin.mcp_client.call_tool(
             #     "os_connect_to_adspower", arguments={"input": state.tool_input}
             # )
-            print("query components completed:", type(tool_result), tool_result)
+            logger.debug("query components completed:", type(tool_result), tool_result)
             if "completed" in tool_result.content[0].text:
                 state.result = tool_result.content[0].text
                 state.tool_result = getattr(tool_result, 'meta', None)
@@ -372,7 +372,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
             return state
         except Exception as e:
             state['error'] = get_traceback(e, "ErrorGoToSiteNode0")
-            logger.debug(state['error'])
+            logger.error(state['error'])
             return state
         finally:
             loop.close()
@@ -383,7 +383,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
             # tool_result = await mainwin.mcp_client.call_tool(
             #     "os_connect_to_adspower", arguments={"input": state.tool_input}
             # )
-            print("old loop query components tool completed:", type(tool_result), tool_result)
+            logger.debug("old loop query components tool completed:", type(tool_result), tool_result)
             if "completed" in tool_result.content[0].text:
                 state.result = tool_result.content[0].text
                 state.tool_result = getattr(tool_result, 'meta', None)
@@ -393,7 +393,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
             return state
         except Exception as e:
             state['error'] = get_traceback(e, "ErrorGoToSiteNode1")
-            logger.debug(state['error'])
+            logger.error(state['error'])
             return state
 
 # this function takes the prompt generated by LLM from the previous node and puts ranking method template
@@ -409,7 +409,7 @@ def prep_ranking_method_template_node(state: NodeState) -> NodeState:
         return state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorPrepRankingMethodTemplateNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -424,7 +424,7 @@ def prep_component_specs_qa_form_node(state: NodeState) -> NodeState:
         return state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorPrepComponentSpecsQaFormNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -433,11 +433,31 @@ def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> 
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
-    print("run_search_node:", state)
+    logger.debug("run_search_node:", state)
 
     # send self a message to trigger the real component search work-flow
     result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
     state.result = result
+    return state
+
+def show_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+    """显示搜索结果"""
+    logger.debug("show_results_node:", state)
+
+    # 获取搜索结果
+    result = state.get("result", {})
+
+    # 格式化结果显示给用户
+    if result:
+        # 将结果添加到消息中，以便用户可以看到
+        from langchain_core.messages import AIMessage
+        result_message = AIMessage(content=f"搜索完成！找到以下结果：\n{result}")
+        state["messages"].append(result_message)
+    else:
+        from langchain_core.messages import AIMessage
+        result_message = AIMessage(content="搜索完成，但没有找到相关结果。")
+        state["messages"].append(result_message)
+
     return state
 
 # summarization_node = SummarizationNode(
@@ -462,7 +482,7 @@ async def create_search_parts_chatter_skill(mainwin):
         # print("connecting...........sse")
 
         llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)
-        print("llm loaded:", llm)
+        logger.debug("llm loaded:", llm)
         prompt0 = ChatPromptTemplate.from_messages([
             ("system", """
                 You're an electronics component procurement expert helping sourcing and procuring components, you job is to chat with your human boss to collect all the requirements for sourcing this component and distill all requirement information in a JSON format.
@@ -480,11 +500,11 @@ async def create_search_parts_chatter_skill(mainwin):
             # Format the prompt with just the message content
             last_message = "how are you"
             messages = prompt0.invoke({"input": last_message})
-            print("LLM prompt:", messages)
+            logger.debug("LLM prompt:", messages)
             # Call the LLM
             response = llm.invoke(messages)
 
-            print("LLM response:", response)
+            logger.debug("LLM response:", response)
             # Parse the response
             try:
                 import json
@@ -492,7 +512,7 @@ async def create_search_parts_chatter_skill(mainwin):
 
                 # Extract content from AIMessage if needed
                 content = response.content if hasattr(response, 'content') else str(response)
-                print("Raw content:", content)  # Debug log
+                logger.debug("Raw content:", content)  # Debug log
 
                 # Clean up the response
                 content = content.strip('`').strip()
@@ -510,8 +530,8 @@ async def create_search_parts_chatter_skill(mainwin):
                 result = json.loads(content)
                 return {**state, "result": result}
             except Exception as e:
-                print(f"Error parsing LLM response: {e}")
-                print(f"Raw response: {response}")
+                logger.error(f"Error parsing LLM response: {e}")
+                logger.error(f"Raw response: {response}")
                 return {**state, "analysis": {"job_related": False}}
 
         # initial classification node
@@ -526,15 +546,15 @@ async def create_search_parts_chatter_skill(mainwin):
         def chat_back_node(state: NodeState, *, runtime: Runtime[WorkFlowContext], store: BaseStore) -> NodeState:
             # Get the last message (the actual user input)
             last_message = state["messages"][-1]
-            print("gen_chat_back runtime:", runtime)
+            logger.debug("gen_chat_back runtime:", runtime)
 
             # Format the prompt with just the message content
             messages = prompt_random_chat.invoke({"input": last_message})
-            print("chat back LLM prompt:", messages)
+            logger.debug("chat back LLM prompt:", messages)
             # Call the LLM
             response = llm.invoke(messages)
 
-            print("chat back LLM response:", response)
+            logger.debug("chat back LLM response:", response)
             # Parse the response
             try:
                 import json
@@ -542,14 +562,14 @@ async def create_search_parts_chatter_skill(mainwin):
 
                 # Extract content from AIMessage if needed
                 content = response.content if hasattr(response, 'content') else str(response)
-                print("Raw content:", content)  # Debug log
+                logger.debug("Raw content:", content)  # Debug log
 
                 state["messages"].append(content)
                 # Return the full state with the analysis
                 return {**state, "result": content}
             except Exception as e:
-                print(f"Error parsing LLM response: {e}")
-                print(f"Raw response: {response}")
+                logger.error(f"Error parsing LLM response: {e}")
+                logger.error(f"Raw response: {response}")
                 return {**state, "analysis": {"job_related": False}}
 
 
@@ -708,7 +728,9 @@ async def create_search_parts_chatter_skill(mainwin):
         searcher_chatter_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         searcher_chatter_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("search1688chatter_skill build is done!")
+        logger.debug("search1688chatter_skill build is done!")
+
+        return searcher_chatter_skill
 
     except Exception as e:
         # Get the traceback information
@@ -719,7 +741,6 @@ async def create_search_parts_chatter_skill(mainwin):
         else:
             ex_stat = "ErrorCreateSearch1688ChatterSkill: traceback information not available:" + str(e)
         mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
-
-    return searcher_chatter_skill
 
