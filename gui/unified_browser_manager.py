@@ -5,16 +5,19 @@
 解决 crawl4ai、browser_use 和 Playwright 之间的资源冲突问题
 """
 
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, TYPE_CHECKING
 from threading import Lock
 
 from agent.playwright import get_playwright_manager
-from crawl4ai import AsyncWebCrawler, BrowserConfig
+from crawl4ai import BrowserConfig
 from browser_use.browser import BrowserSession
 from browser_use.controller.service import Controller as BrowserUseController
 from browser_use.filesystem.file_system import FileSystem
 
 from utils.logger_helper import logger_helper as logger
+
+if TYPE_CHECKING:
+    from crawl4ai import AsyncWebCrawler
 
 
 class UnifiedBrowserManager:
@@ -50,7 +53,7 @@ class UnifiedBrowserManager:
                 
             try:
                 logger.info("🔧 开始初始化统一浏览器管理器...")
-                
+
                 if not self._init_playwright_manager():
                     raise RuntimeError("Playwright 管理器初始化失败")
 
@@ -59,7 +62,7 @@ class UnifiedBrowserManager:
 
                 self._initialized = True
                 self._initialization_error = None
-                temp = self.get_browser_session()
+                self.get_browser_session()  # 预热浏览器会话
                 logger.info("✅ 统一浏览器管理器初始化成功")
                 return True
                 
@@ -100,10 +103,26 @@ class UnifiedBrowserManager:
             default_config.update(crawler_config)
 
         self._crawler_config = default_config
-    
+
+    def _setup_crawler_environment(self):
+        """设置 crawler 运行环境"""
+        import os
+
+        # 确保 Playwright 环境变量正确设置，让 crawl4ai 能找到浏览器
+        if self._playwright_manager and self._playwright_manager.is_initialized():
+            browsers_path = self._playwright_manager.get_browsers_path()
+            if browsers_path:
+                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
+                os.environ["PLAYWRIGHT_CACHE_DIR"] = browsers_path
+                logger.debug(f"设置 crawler 环境变量 PLAYWRIGHT_BROWSERS_PATH: {browsers_path}")
+
+
+
+
+
 
     
-    def get_async_crawler(self) -> Optional[AsyncWebCrawler]:
+    def get_async_crawler(self) -> Optional["AsyncWebCrawler"]:
         if not self._initialized:
             logger.warning("管理器未初始化，无法获取 AsyncWebCrawler")
             return None
@@ -112,12 +131,17 @@ class UnifiedBrowserManager:
             try:
                 logger.debug("创建 AsyncWebCrawler 实例...")
 
+                # 确保 Playwright 环境变量正确设置
+                self._setup_crawler_environment()
+
                 # 创建 BrowserConfig
                 if self._crawler_config:
                     browser_config = BrowserConfig(**self._crawler_config)
+                    from crawl4ai import AsyncWebCrawler
                     self._async_crawler = AsyncWebCrawler(config=browser_config)
                     logger.debug("✅ AsyncWebCrawler 创建成功（使用配置）")
                 else:
+                    from crawl4ai import AsyncWebCrawler
                     self._async_crawler = AsyncWebCrawler()
                     logger.debug("✅ AsyncWebCrawler 创建成功（默认配置）")
 
