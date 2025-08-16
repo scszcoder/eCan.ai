@@ -155,7 +155,7 @@ pycognito==2024.5.1
 pycparser==2.22
 pydantic>=2.11.7
 PyGetWindow==0.0.9
-pyinstaller>=6.15.0
+pyinstaller==6.15.0
 pynput==1.7.7
 pyparsing==3.2.0
 PyPDF2==3.0.1
