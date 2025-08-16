@@ -1,17 +1,17 @@
 name: Release Build eCan
 #
-# 通过 workflow_dispatch 参数 platform/arch/ref 可选择打包平台、CPU 架构与引用：
+# Build platform, CPU architecture and reference can be selected via workflow_dispatch parameters:
 #   - platform: windows, macos, all
 #   - arch: amd64, aarch64
-#   - ref: 可填写 tag（如 v1.2.3）或 branch 名称（默认当前分支），可编辑
+#   - ref: Can fill in tag (like v1.2.3) or branch name (default current branch), editable
 #
-# 注意：
-#   - Windows 仅支持 amd64 架构（GitHub Actions 无 ARM64 runner）
-#   - macOS 支持 amd64/aarch64，但 GitHub Actions x86_64 runner 打包 arm64 需特别处理
+# Notes:
+#   - Windows only supports amd64 architecture (GitHub Actions has no ARM64 runner)
+#   - macOS supports amd64/aarch64, but GitHub Actions x86_64 runner needs special handling for arm64 builds
 #
-# 示例：
-#   - 手动触发 workflow 时可选择平台和架构，并编辑 ref
-#   - 推送 tag 或发布 release 时自动触发，默认打包 all + amd64
+# Examples:
+#   - When manually triggering workflow, you can select platform and architecture, and edit ref
+#   - When pushing tag or publishing release, automatically triggered, default build all + amd64
 
 on:
   # Trigger conditions: create tag or release
@@ -88,11 +88,11 @@ jobs:
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "is_branch=true" >> $GITHUB_OUTPUT
           echo "version=$FALLBACK" >> $GITHUB_OUTPUT
-          echo "ℹ️ Branch detected: $REF_NAME -> version=$FALLBACK"
+          echo "Branch detected: $REF_NAME -> version=$FALLBACK"
         fi
 
   # Windows build
-  # 注意：GitHub Actions 目前仅支持 Windows amd64 架构，Windows ARM 架构暂不支持
+  # Note: Windows only supports amd64 architecture, aarch64 architecture will be automatically skipped
   build-windows:
     needs: validate-tag
     if: |
@@ -100,12 +100,13 @@ jobs:
       (github.event.inputs.platform == 'windows' ||
        github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null) &&
-      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == null)
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == null) &&
+      github.event.inputs.arch != 'aarch64'
     runs-on: windows-latest
     env:
       # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
-      WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || '' }}
-      WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || '' }}
+      WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
+      WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
     timeout-minutes: 45
 
     steps:
@@ -146,7 +147,7 @@ jobs:
         echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
         python -m pip install -r requirements-windows.txt
-        python -m pip install pyinstaller pywin32-ctypes
+        python -m pip install pyinstaller==6.15.0 pywin32-ctypes
         # Ensure pywin32 is present in the same interpreter
         python -m pip install -U pywin32
         # Rarely needed but safe; registers COM bits
@@ -228,6 +229,23 @@ jobs:
       run: |
         echo "=== Checking Build Environment ==="
         python scripts/check_build_env.py
+        
+        echo "=== Checking Architecture Selection ==="
+        echo "Selected architecture: ${{ github.event.inputs.arch || 'amd64 (default)' }}"
+        echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
+        echo "Note: Windows only supports amd64 architecture"
+        
+        echo "=== Checking Windows Environment Variables ==="
+        if [ "${{ env.WIN_CERT_PFX }}" != "NOT_SET" ]; then
+          echo "WIN_CERT_PFX: Set"
+        else
+          echo "WIN_CERT_PASSWORD: Not set"
+        fi
+        if [ "${{ env.WIN_CERT_PASSWORD }}" != "NOT_SET" ]; then
+          echo "WIN_CERT_PASSWORD: Set"
+        else
+          echo "WIN_CERT_PASSWORD: Not set"
+        fi
 
     - name: Build Windows EXE
       run: |
@@ -241,7 +259,7 @@ jobs:
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
 
-        # 导出/规范命名产物到 dist 根目录（避免跨目录 Rename-Item 报错）
+        # Export/standardize naming artifacts to dist root directory (avoid cross-directory Rename-Item error)
         $srcExe = "dist/eCan/eCan.exe"
         $dstExe = "dist/eCan-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe"
         if (Test-Path $srcExe) {
@@ -291,12 +309,14 @@ jobs:
 
 
     - name: Code sign Windows artifacts (optional)
-      if: ${{ env.WIN_CERT_PFX != '' && env.WIN_CERT_PASSWORD != '' }}
+      if: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' }}
       env:
         WIN_CERT_PFX: ${{ env.WIN_CERT_PFX }}
         WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD }}
       run: |
         echo "=== Code signing Windows artifacts ==="
+        echo "Certificate status: Available"
+        echo "Password status: Available"
         $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
         [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WIN_CERT_PFX))
         $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
@@ -320,6 +340,12 @@ jobs:
     - name: Check build result
       run: |
         echo "=== Build Result Check ==="
+        echo "=== Environment Variables Summary ==="
+        echo "Windows Code Signing:"
+        echo "  WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  Status: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}"
+        
         echo "Dist directory contents:"
         Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
 
@@ -369,6 +395,7 @@ jobs:
         retention-days: 30
 
   # macOS build
+  # Note: macOS supports both amd64 and aarch64 architectures
   build-macos:
     needs: validate-tag
     if: |
@@ -379,12 +406,12 @@ jobs:
     runs-on: macos-latest
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
-      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || '' }}
-      MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD || '' }}
-      MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY || '' }}
-      APPLE_ID: ${{ secrets.APPLE_ID || '' }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-      TEAM_ID: ${{ secrets.TEAM_ID || '' }}
+      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
+      MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD || 'NOT_SET' }}
+      MAC_CODESIGN_IDENTITY: ${{ secrets.MAC_CODESIGN_IDENTITY || 'NOT_SET' }}
+      APPLE_ID: ${{ secrets.APPLE_ID || 'NOT_SET' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
+      TEAM_ID: ${{ secrets.TEAM_ID || 'NOT_SET' }}
     timeout-minutes: 45
 
     steps:
@@ -425,7 +452,7 @@ jobs:
         echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
         python -m pip install -r requirements-macos.txt
-        python -m pip install pyinstaller
+        python -m pip install pyinstaller==6.15.0
 
         echo "=== Verifying PyInstaller installation ==="
         python -c "import PyInstaller; print('PyInstaller installed successfully')"
@@ -481,6 +508,28 @@ jobs:
       run: |
         echo "=== Checking Build Environment ==="
         python scripts/check_build_env.py
+        
+        echo "=== Checking Architecture Selection ==="
+        echo "Selected architecture: ${{ github.event.inputs.arch || 'amd64 (default)' }}"
+        echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
+        echo "Note: macOS supports both amd64 and aarch64 architectures"
+        
+        echo "=== Checking macOS Environment Variables ==="
+        if [ "${{ env.MAC_CERT_P12 }}" != "NOT_SET" ]; then
+          echo "MAC_CERT_P12: Set"
+        else
+          echo "MAC_CERT_P12: Not set"
+        fi
+        if [ "${{ env.MAC_CERT_PASSWORD }}" != "NOT_SET" ]; then
+          echo "MAC_CERT_PASSWORD: Set"
+        else
+          echo "MAC_CERT_PASSWORD: Not set"
+        fi
+        if [ "${{ env.MAC_CODESIGN_IDENTITY }}" != "NOT_SET" ]; then
+          echo "MAC_CODESIGN_IDENTITY: Set"
+        else
+          echo "MAC_CODESIGN_IDENTITY: Not set"
+        fi
 
     - name: Build macOS App
       run: |
@@ -523,13 +572,16 @@ jobs:
         fi
 
     - name: Code sign macOS app (optional)
-      if: ${{ env.MAC_CERT_P12 != '' && env.MAC_CERT_PASSWORD != '' && env.MAC_CODESIGN_IDENTITY != '' }}
+      if: ${{ env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' }}
       env:
         MAC_CERT_P12: ${{ env.MAC_CERT_P12 }}
         MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD }}
         MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY }}
       run: |
         echo "=== Code signing macOS app (if secrets provided) ==="
+        echo "Certificate status: Available"
+        echo "Password status: Available"
+        echo "Identity status: Available"
         if [ -z "${MAC_CERT_P12}" ] || [ -z "${MAC_CERT_PASSWORD}" ] || [ -z "${MAC_CODESIGN_IDENTITY}" ]; then
           echo "No macOS signing secrets; skip codesign"
           exit 0
@@ -552,7 +604,7 @@ jobs:
         fi
 
     - name: Notarize macOS DMG (optional)
-      if: ${{ env.APPLE_ID != '' && env.APPLE_APP_SPECIFIC_PASSWORD != '' && env.TEAM_ID != '' }}
+      if: ${{ env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' }}
       env:
         APPLE_ID: ${{ env.APPLE_ID }}
         APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -577,6 +629,19 @@ jobs:
     - name: Check build result
       run: |
         echo "=== Build Result Check ==="
+        echo "=== Environment Variables Summary ==="
+        echo "macOS Code Signing:"
+        echo "  MAC_CERT_P12: ${{ env.MAC_CERT_P12 != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  Status: ${{ env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}"
+        
+        echo "macOS Notarization:"
+        echo "  APPLE_ID: ${{ env.APPLE_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  TEAM_ID: ${{ env.TEAM_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
+        echo "  Status: ${{ env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' && 'Ready for notarization' || 'Skipping notarization' }}"
+        
         echo "Dist directory contents:"
         ls -la dist/
 
@@ -676,9 +741,20 @@ jobs:
   publish-appcast:
     needs: create-release
     runs-on: ubuntu-latest
+    env:
+      ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Check environment variables
+        run: |
+          echo "=== Checking Appcast Generation Environment ==="
+          if [ "${{ env.ED25519_PRIVATE_KEY }}" != "NOT_SET" ]; then
+            echo "ED25519_PRIVATE_KEY: Available - Appcast generation enabled"
+          else
+            echo "ED25519_PRIVATE_KEY: Not available - Appcast generation disabled"
+          fi
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
@@ -729,6 +805,7 @@ jobs:
           PY
 
       - name: Generate macOS appcast (aarch64)
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -748,6 +825,7 @@ jobs:
           PY
 
       - name: Generate Windows appcast (amd64)
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -794,6 +872,7 @@ jobs:
 
 
       - name: Generate macOS aggregate appcast (all arches)
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -821,6 +900,7 @@ jobs:
           PY
 
       - name: Generate Windows aggregate appcast (all arches)
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
@@ -846,33 +926,17 @@ jobs:
           # No arch_filter -> aggregate all Windows entries
           main(release, platform_filter='windows', output_path='dist/appcast/appcast-windows.xml')
           PY
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='windows', arch_filter='amd64', output_path='dist/appcast/appcast-windows-amd64.xml')
-          PY
 
       - name: Generate Windows appcast (aarch64)
-        if: always()
+        if: ${{ false }}  # Windows doesn't support aarch64 architecture
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
         run: |
-          python - <<'PY'
-          import os, glob
-          from scripts.generate_appcast import main
-          assets = []
-          for pat in ('windows-artifacts/*aarch64*.exe','windows-artifacts/*arm64*.exe'):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='windows', arch_filter='aarch64', output_path='dist/appcast/appcast-windows-aarch64.xml')
-          PY
+          echo "Skipping Windows aarch64 appcast - Windows only supports amd64 architecture"
 
       - name: Remove empty appcast files (if any)
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
           shopt -s nullglob || true
           for f in dist/appcast/*.xml; do
@@ -880,7 +944,7 @@ jobs:
           done
 
       - name: Publish appcasts to gh-pages
-        if: ${{ hashFiles('dist/appcast/*.xml') != '' }}
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && hashFiles('dist/appcast/*.xml') != '' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -892,6 +956,7 @@ jobs:
           user_email: 41898282+github-actions[bot]@users.noreply.github.com
 
       - name: Print appcast enclosure summary
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
           set -e
           for f in dist/appcast/*.xml; do
@@ -900,18 +965,36 @@ jobs:
             awk 'BEGIN{FS="[<> ]"} /enclosure/ {for(i=1;i<=NF;i++){if($i ~ /url=|sparkle:version=|sparkle:os=|sparkle:arch=|length=|sparkle:edSignature=/) printf("%s ", $i)} print ""}' $f || true
           done
 
-          enable_jekyll: false
-
       - name: List generated appcasts
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
           echo "=== Appcast outputs ==="
           ls -la dist/appcast || true
 
       - name: Show appcast URLs
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         run: |
           echo "Appcast (macOS aggregate):  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml"
           echo "Appcast (Windows aggregate): https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows.xml"
           echo "Appcast (macOS amd64):      https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml"
           echo "Appcast (macOS aarch64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml"
           echo "Appcast (Windows amd64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml"
-          echo "Appcast (Windows aarch64):  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-aarch64.xml"
+          echo "Note: Windows aarch64 appcast is not generated (Windows only supports amd64)"
+
+      - name: Final status summary
+        run: |
+          echo "=== Final Build Status Summary ==="
+          echo "Build completed successfully!"
+          echo ""
+          echo "Environment Variables Status:"
+          echo "  ED25519_PRIVATE_KEY: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Available' || 'Not Available' }}"
+          echo ""
+          if [ "${{ env.ED25519_PRIVATE_KEY }}" != "NOT_SET" ]; then
+            echo "Appcast generation: Enabled"
+            echo "OTA updates: Available"
+          else
+            echo "Appcast generation: Disabled (ED25519_PRIVATE_KEY not set)"
+            echo "OTA updates: Not available"
+            echo ""
+            echo "To enable OTA updates, set the ED25519_PRIVATE_KEY secret in your repository settings."
+          fi
