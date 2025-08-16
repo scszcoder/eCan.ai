@@ -277,8 +277,8 @@ def create_ec_procurement_chat_task(mainwin):
 
     chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecan.ai search parts and components web site"), None)
     chatter_task = next((task for task in agent_tasks if task.name == "eCan.ai Procurement Chatter Task"), None)
-    print("ec_procurement chatter skill name:", chatter_skill.name)
-    print("ec_procurement chatter skill:", chatter_skill)
+    logger.debug("ec_procurement chatter skill name:", chatter_skill.name if chatter_skill else "None")
+    logger.debug("ec_procurement chatter skill:", chatter_skill)
     if not chatter_task:
         task_schedule = TaskSchedule(
             repeat_type=Repeat_Types.BY_DAYS,

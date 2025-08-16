@@ -12,6 +12,7 @@ import subprocess
 import platform
 from pathlib import Path
 from typing import Optional, List
+from utils.logger_helper import logger_helper as logger
 
 
 class PlaywrightCoreUtils:
@@ -177,7 +178,7 @@ class PlaywrightCoreUtils:
             subprocess.run([sys.executable, "-m", "pip", "show", "playwright"], 
                          check=True, capture_output=True)
         except subprocess.CalledProcessError:
-            print("[PLAYWRIGHT] playwright not found; installing...")
+            logger.error("[PLAYWRIGHT] playwright not found; installing...")
             subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
         
         # 设置环境变量
@@ -185,19 +186,19 @@ class PlaywrightCoreUtils:
         env[PlaywrightCoreUtils.ENV_BROWSERS_PATH] = str(target_path)
         env[PlaywrightCoreUtils.ENV_CACHE_DIR] = str(target_path)
         
-        # 安装浏览器
-        print("[PLAYWRIGHT] Installing chromium browser...")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], 
+        # 安装浏览器 - 安装 chromium 和 chromium-headless-shell
+        logger.info("[PLAYWRIGHT] Installing chromium browsers...")
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "chromium-headless-shell"],
                       check=True, env=env)
     
     @staticmethod
     def copy_playwright_browsers(src_path: Path, dst_path: Path) -> None:
         """复制 Playwright 浏览器文件"""
         if dst_path.exists():
-            print(f"[PLAYWRIGHT] Cleaning existing {dst_path}")
+            logger.warning(f"[PLAYWRIGHT] Cleaning existing {dst_path}")
             shutil.rmtree(dst_path, ignore_errors=True)
         
-        print(f"[PLAYWRIGHT] Copying {src_path} -> {dst_path}")
+        logger.info(f"[PLAYWRIGHT] Copying {src_path} -> {dst_path}")
         shutil.copytree(src_path, dst_path)
         
         # 也复制 browsers.json 从 playwright 包（如果存在）
@@ -207,11 +208,11 @@ class PlaywrightCoreUtils:
             browsers_json_src = playwright_package_dir / "browsers.json"
             if browsers_json_src.exists():
                 shutil.copy2(browsers_json_src, dst_path / "browsers.json")
-                print(f"[PLAYWRIGHT] Copied browsers.json from {browsers_json_src}")
+                logger.info(f"[PLAYWRIGHT] Copied browsers.json from {browsers_json_src}")
             else:
-                print(f"[PLAYWRIGHT] Warning: browsers.json not found at {browsers_json_src}")
+                logger.warning(f"[PLAYWRIGHT] Warning: browsers.json not found at {browsers_json_src}")
         except Exception as e:
-            print(f"[PLAYWRIGHT] Warning: Could not copy browsers.json: {e}")
+            logger.error(f"[PLAYWRIGHT] Warning: Could not copy browsers.json: {e}")
     
 
     
