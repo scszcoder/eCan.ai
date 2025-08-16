@@ -61,15 +61,24 @@ class BuildConfig:
 
     def get_app_info(self) -> Dict[str, Any]:
         """Get application information"""
-        return self.config.get("app_info", {})
+        return self.config.get("app", {})
 
     def update_version(self, version: str):
         """Update version information"""
-        if "app_info" in self.config:
-            self.config["app_info"]["version"] = version
+        if "app" in self.config:
+            self.config["app"]["version"] = version
         if "installer" in self.config:
             self.config["installer"]["app_version"] = version
         print(f"[INFO] Updated version to: {version}")
+
+    def get_build_config(self) -> Dict[str, Any]:
+        """Get build configuration"""
+        return self.config.get("build", {})
+
+    def get_platform_config(self, platform: str) -> Dict[str, Any]:
+        """Get platform-specific configuration"""
+        platforms = self.config.get("platforms", {})
+        return platforms.get(platform, {})
 
 
 class FrontendBuilder:
@@ -162,7 +171,7 @@ class FrontendBuilder:
         try:
             print("[FRONTEND] Building frontend...")
 
-            # 若 node_modules 不存在或强制模式，先执行 npm ci
+            # If node_modules doesn't exist or force mode, run npm ci first
             need_install = force or not (self.frontend_dir / 'node_modules').exists()
             if need_install:
                 print("[FRONTEND] Installing dependencies (npm ci)...")
@@ -329,7 +338,7 @@ class InstallerBuilder:
             solid_compression = str(mode_config.get("solid_compression", installer_config.get("solid_compression", False))).lower()
             internal_compress_level = mode_config.get("internal_compress_level", "normal")
 
-            # 读取构建模式中的 runtime_tmpdir（Windows 平台）
+            # Read runtime_tmpdir from build mode (Windows platform)
             runtime_tmpdir = None
             try:
                 build_modes = self.config.config.get("build_modes", {})
@@ -342,13 +351,13 @@ class InstallerBuilder:
             except Exception:
                 runtime_tmpdir = None
 
-            # 根据是否提供 runtime_tmpdir 构造 [Dirs] 段
+            # Construct [Dirs] section based on whether runtime_tmpdir is provided
             if runtime_tmpdir:
                 dirs_section = f"[Dirs]\nName: \"{runtime_tmpdir}\"; Flags: uninsneveruninstall\n\n"
             else:
                 dirs_section = ""
 
-            # 选择文件源：优先使用 onedir 目录，否则使用单文件 EXE
+            # Choose file source: prefer onedir directory, otherwise use single file EXE
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
@@ -974,7 +983,7 @@ class ECanBuild:
                 print("[BUILD] Sparkle support enabled - checking dependencies...")
             self._check_ota_dependencies()
             
-            # 如果启用了 Sparkle 验证，进行额外检查
+            # If Sparkle verification is enabled, perform additional checks
             if verify_sparkle:
                 if not self._verify_sparkle_environment():
                     print("[ERROR] Sparkle verification failed!")
@@ -1014,7 +1023,7 @@ class ECanBuild:
             return False
 
     def _check_ota_dependencies(self):
-        """检查OTA依赖是否已安装（由CI安装）"""
+        """Check if OTA dependencies are installed (installed by CI)"""
         ota_dir = self.project_root / "ota" / "dependencies"
         install_info_file = ota_dir / "install_info.json"
         
@@ -1044,7 +1053,7 @@ class ECanBuild:
                 else:
                     print(f"[OTA] {name} not properly installed")
             
-            # Sparkle 特定验证
+            # Sparkle specific verification
             self._verify_sparkle_installation(ota_dir, platform)
             
             if not installed_deps:
@@ -1054,14 +1063,14 @@ class ECanBuild:
             print(f"[OTA] Failed to read install info: {e}")
     
     def _verify_sparkle_installation(self, ota_dir: Path, platform: str):
-        """验证 Sparkle/winSparkle 安装"""
+        """Verify Sparkle/winSparkle installation"""
         if platform == "darwin":
-            # 检查 Sparkle.framework
+            # Check Sparkle.framework
             sparkle_framework = ota_dir / "Sparkle.framework"
             if sparkle_framework.exists():
                 print("[OTA] [OK] Sparkle.framework found")
                 
-                # 检查关键文件
+                # Check key files
                 sparkle_binary = sparkle_framework / "Versions" / "Current" / "Sparkle"
                 sparkle_cli = sparkle_framework / "Versions" / "Current" / "Resources" / "sparkle-cli"
                 
@@ -1078,12 +1087,12 @@ class ECanBuild:
                 print("[OTA] [ERROR] Sparkle.framework not found")
                 
         elif platform == "windows":
-            # 检查 winSparkle
+            # Check winSparkle
             winsparkle_dir = ota_dir / "winsparkle"
             if winsparkle_dir.exists():
                 print("[OTA] [OK] winSparkle directory found")
                 
-                # 检查关键文件
+                # Check key files
                 winsparkle_dll = winsparkle_dir / "winsparkle.dll"
                 winsparkle_lib = winsparkle_dir / "winsparkle.lib"
                 
@@ -1100,7 +1109,7 @@ class ECanBuild:
                 print("[OTA] [ERROR] winSparkle directory not found")
     
     def _verify_sparkle_environment(self) -> bool:
-        """验证 Sparkle 环境是否完整"""
+        """Verify if Sparkle environment is complete"""
         ota_dir = self.project_root / "ota" / "dependencies"
         
         if not ota_dir.exists():
@@ -1110,13 +1119,13 @@ class ECanBuild:
         platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
         
         if platform == "darwin":
-            # 验证 Sparkle.framework
+            # Verify Sparkle.framework
             sparkle_framework = ota_dir / "Sparkle.framework"
             if not sparkle_framework.exists():
                 print("[SPARKLE] [ERROR] Sparkle.framework not found")
                 return False
             
-            # 检查关键组件
+            # Check key components
             required_files = [
                 sparkle_framework / "Versions" / "Current" / "Sparkle",
                 sparkle_framework / "Versions" / "Current" / "Resources" / "Info.plist",
@@ -1131,13 +1140,13 @@ class ECanBuild:
             return True
             
         elif platform == "windows":
-            # 验证 winSparkle
+            # Verify winSparkle
             winsparkle_dir = ota_dir / "winsparkle"
             if not winsparkle_dir.exists():
                 print("[SPARKLE] [ERROR] winSparkle directory not found")
                 return False
             
-            # 检查关键文件
+            # Check key files
             winsparkle_dll = winsparkle_dir / "winsparkle.dll"
             if not winsparkle_dll.exists():
                 print("[SPARKLE] [ERROR] winsparkle.dll not found")
@@ -1148,7 +1157,7 @@ class ECanBuild:
         
         else:
             print(f"[SPARKLE] [WARN] Unsupported platform: {platform}")
-            return True  # 不阻止构建
+            return True  # Don't block build
     
     def _show_result(self, start_time: float):
         """Display build results"""
@@ -1160,13 +1169,13 @@ class ECanBuild:
         print("=" * 60)
 
 
-# 注意：这个文件现在是纯库文件，不应该直接运行
-# 请使用 build.py 作为唯一入口点
+# Note: This file is now a pure library file and should not be run directly
+# Please use build.py as the only entry point
 
 def main():
     """Deprecated: Use build.py instead"""
-    print("[ERROR] 请使用 build.py 作为构建入口点")
-    print("[OK] 正确用法: python build.py fast")
+    print("[ERROR] Please use build.py as the build entry point")
+    print("[OK] Correct usage: python build.py fast")
     sys.exit(1)
 
 
