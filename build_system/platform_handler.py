@@ -6,6 +6,7 @@ Provides consistent platform detection and configuration management
 """
 
 import platform
+import shutil
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -204,11 +205,16 @@ class PlatformHandler:
             # Check for Xcode command line tools
             import subprocess
             try:
-                subprocess.run(["xcode-select", "--print-path"], 
+                subprocess.run(["xcode-select", "--print-path"],
                              check=True, capture_output=True)
             except (subprocess.CalledProcessError, FileNotFoundError):
                 result["issues"].append("Xcode command line tools not installed")
-                
+
+            # Apple Silicon specific checks
+            if self.is_arm64:
+                arm64_issues = self._validate_apple_silicon_environment()
+                result["issues"].extend(arm64_issues)
+
         elif self.is_windows:
             # Check for Visual Studio Build Tools
             vs_paths = [
@@ -221,7 +227,29 @@ class PlatformHandler:
                 result["issues"].append("Visual Studio Build Tools not found")
                 
         return result
-        
+
+    def _validate_apple_silicon_environment(self) -> list:
+        """Validate Apple Silicon (ARM64) specific environment"""
+        issues = []
+
+        # Check if Python is running natively on ARM64
+        try:
+            import subprocess
+            result = subprocess.run(['python3', '-c', 'import platform; print(platform.machine())'],
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                machine = result.stdout.strip().lower()
+                if machine not in ('arm64', 'aarch64'):
+                    issues.append("Python may be running under Rosetta 2. Consider using ARM64 native Python for better performance")
+        except Exception:
+            pass
+
+        # Check for Universal Binary support tools
+        if not shutil.which("lipo"):
+            issues.append("lipo tool not found (needed for Universal Binary support)")
+
+        return issues
+
     def __str__(self) -> str:
         """String representation"""
         return f"PlatformHandler({self.get_platform_identifier()})"

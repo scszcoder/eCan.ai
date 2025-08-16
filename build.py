@@ -14,13 +14,13 @@ import time
 from pathlib import Path
 
 
-# Import pre-build check module
+# Import unified build validator
 try:
-    from build_system.pre_build_check import run_pre_build_check
-    PRECHECK_AVAILABLE = True
+    from build_system.build_validator import BuildValidator
+    VALIDATOR_AVAILABLE = True
 except ImportError:
-    PRECHECK_AVAILABLE = False
-    run_pre_build_check = None
+    VALIDATOR_AVAILABLE = False
+    BuildValidator = None
 
 
 class BuildEnvironment:
@@ -65,21 +65,30 @@ class BuildEnvironment:
         return True
 
     def _run_pre_build_check(self) -> bool:
-        """Run pre-build check"""
+        """Run unified build validation"""
         if self.skip_precheck:
-            print("[INFO] Skipping pre-build check (--skip-precheck)")
+            print("[INFO] Skipping build validation (--skip-precheck)")
             return True
 
-        if not PRECHECK_AVAILABLE:
-            print("[WARNING] Pre-build check not available, skipping")
+        if not VALIDATOR_AVAILABLE:
+            print("[WARNING] Build validator not available, skipping")
             return True
 
-        if not run_pre_build_check():
-            print("[ERROR] Pre-build check failed")
-            print("[INFO] Please resolve the issues above before building")
+        try:
+            validator = BuildValidator(verbose=False)
+            results = validator.run_full_validation()
+
+            if results.get("overall_status") == "pass":
+                print("[SUCCESS] Build validation passed")
+                return True
+            else:
+                print("[ERROR] Build validation failed")
+                validator.print_validation_report(results)
+                return False
+
+        except Exception as e:
+            print(f"[ERROR] Build validation error: {e}")
             return False
-
-        return True
 
     def _check_python_version(self) -> bool:
         """Check Python version"""
