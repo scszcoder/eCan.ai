@@ -45,7 +45,7 @@ def print_mode_info(mode: str, fast: bool = False):
 
 
 def standardize_artifact_names(version: str, arch: str = "amd64") -> None:
-    """标准化构建产物文件名以匹配 release.yml 期望的格式"""
+    """Standardize build artifact filenames to match release.yml expected format"""
     platform_name = platform.system()
 
     if platform_name == "Windows":
@@ -57,16 +57,16 @@ def standardize_artifact_names(version: str, arch: str = "amd64") -> None:
 
 
 def _standardize_windows_artifacts(version: str, arch: str):
-    """标准化 Windows 构建产物"""
+    """Standardize Windows build artifacts"""
     dist_dir = Path("dist")
-    
-    # 查找 eCan-Setup.exe
+
+    # Find eCan-Setup.exe (installer)
     setup_files = list(dist_dir.glob("*Setup*.exe"))
     if setup_files:
         old_path = setup_files[0]
         new_name = f"eCan-{version}-windows-{arch}.exe"
         new_path = dist_dir / new_name
-        
+
         try:
             if old_path != new_path:
                 shutil.move(old_path, new_path)
@@ -76,16 +76,16 @@ def _standardize_windows_artifacts(version: str, arch: str):
 
 
 def _standardize_macos_artifacts(version: str, arch: str):
-    """标准化 macOS 构建产物"""
+    """Standardize macOS build artifacts"""
     dist_dir = Path("dist")
-    
-    # 查找 .dmg 文件
+
+    # Find .dmg files
     dmg_files = list(dist_dir.glob("*.dmg"))
     if dmg_files:
         old_path = dmg_files[0]
         new_name = f"eCan-{version}-macos-{arch}.dmg"
         new_path = dist_dir / new_name
-        
+
         try:
             if old_path != new_path:
                 shutil.move(old_path, new_path)
@@ -93,15 +93,15 @@ def _standardize_macos_artifacts(version: str, arch: str):
         except Exception as e:
             print(f"[RENAME] Warning: Failed to rename {old_path}: {e}")
     else:
-        # 如果没有 DMG，尝试创建一个
+        # If no DMG found, try to create one
         app_dirs = list(dist_dir.glob("*.app"))
         if app_dirs:
             app_path = app_dirs[0]
             dmg_name = f"eCan-{version}-macos-{arch}.dmg"
             dmg_path = dist_dir / dmg_name
-            
+
             try:
-                # 使用 hdiutil 创建 DMG
+                # Use hdiutil to create DMG
                 import subprocess
                 subprocess.run([
                     "hdiutil", "create", "-volname", "eCan",
@@ -115,20 +115,20 @@ def _standardize_macos_artifacts(version: str, arch: str):
 
 
 def _standardize_linux_artifacts(version: str, arch: str):
-    """标准化 Linux 构建产物"""
+    """Standardize Linux build artifacts"""
     dist_dir = Path("dist")
-    
-    # 查找可执行文件或 AppImage
+
+    # Find executable files or AppImage
     executables = []
     for pattern in ["eCan", "*.AppImage", "*.deb", "*.rpm"]:
         executables.extend(dist_dir.glob(pattern))
-    
+
     if executables:
         old_path = executables[0]
         suffix = old_path.suffix or ""
         new_name = f"eCan-{version}-linux-{arch}{suffix}"
         new_path = dist_dir / new_name
-        
+
         try:
             if old_path != new_path:
                 shutil.move(old_path, new_path)
@@ -279,11 +279,11 @@ def _dev_sign_windows():
     """Development signing for Windows"""
     cert_pfx = os.getenv("DEV_WIN_CERT_PFX")
     cert_password = os.getenv("DEV_WIN_CERT_PASSWORD")
-    
+
     if not cert_pfx or not cert_password:
         print("[DEV-SIGN] Windows: DEV_WIN_CERT_PFX or DEV_WIN_CERT_PASSWORD not set, skipping")
         return
-    
+
     print("[DEV-SIGN] Windows: Development signing enabled")
     # Implementation would go here
 
@@ -291,10 +291,10 @@ def _dev_sign_windows():
 def _dev_sign_macos():
     """Development signing for macOS"""
     identity = os.getenv("DEV_MAC_CODESIGN_IDENTITY")
-    
+
     if not identity:
         print("[DEV-SIGN] macOS: DEV_MAC_CODESIGN_IDENTITY not set, skipping")
         return
-    
+
     print("[DEV-SIGN] macOS: Development signing enabled")
     # Implementation would go here
