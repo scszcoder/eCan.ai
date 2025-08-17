@@ -52,6 +52,7 @@ executing==2.2.0
 fastapi==0.115.11
 fastjsonschema==2.21.1
 filelock==3.18.0
+flask>=3.1.1
 flatbuffers==25.2.10
 frozenlist==1.4.1
 fsspec==2025.3.0
