@@ -109,13 +109,9 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         logger.info(f"Found existing Playwright cache at: {existing_cache}")
         if _validate_browser_installation(existing_cache):
             logger.info("Using existing valid browser installation")
-            # 创建符号链接或复制到目标目录
+            # 使用专用的复制函数来确保 browsers.json 正确处理
             try:
-                if target.exists():
-                    import shutil
-                    shutil.rmtree(target, ignore_errors=True)
-                import shutil
-                shutil.copytree(existing_cache, target)
+                core_utils.copy_playwright_browsers(existing_cache, target)
                 logger.info(f"Copied existing browsers to: {target}")
                 core_utils.set_environment_variables(target)
                 logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
@@ -129,10 +125,16 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         local_third_party = Path.cwd() / 'third_party' / 'ms-playwright'
         if local_third_party.exists() and _validate_browser_installation(local_third_party):
             logger.info(f"Found valid local third_party browsers at: {local_third_party}")
-            # 简化：不做软链/复制，直接使用该目录并设置环境变量
-            core_utils.set_environment_variables(local_third_party)
-            logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {local_third_party}")
-            return local_third_party
+            # 确保复制到应用内部目录，而不是直接使用本地目录
+            try:
+                core_utils.copy_playwright_browsers(local_third_party, target)
+                logger.info(f"Copied local third_party browsers to: {target}")
+                core_utils.set_environment_variables(target)
+                logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
+                return target
+            except Exception as e:
+                logger.warning(f"Failed to copy local third_party browsers: {e}")
+                # 继续使用原有逻辑
     
     # Determine base directory for bundled browsers
     if getattr(sys, 'frozen', False):
