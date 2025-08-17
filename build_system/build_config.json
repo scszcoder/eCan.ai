@@ -46,16 +46,13 @@
         "pandas",
         "sklearn",
         "torch",
-        "tiktoken",
-        "PySide6.QtWebEngineCore",
-        "PySide6.QtWebEngineWidgets"
+        "tiktoken"
       ],
       "collect_data_only": [
         "playwright",
         "browser_use",
         "browser_use.browser",
         "browser_use.agent",
-        "browser_use.agent.prompts",
         "agent",
         "crawl4ai",
         "langchain",
@@ -66,8 +63,7 @@
         "anyio",
         "lightrag",
         "lightrag.api",
-        "tiktoken_ext",
-        "tiktoken_ext.openai_public"
+        "tiktoken_ext"
       ],
       "force_includes": [
         "pkg_resources",
@@ -81,6 +77,11 @@
         "PySide6.QtWebChannel",
         "PySide6.QtWebSockets",
         "PySide6.QtWebView",
+        "PySide6.QtPositioning",
+        "PySide6.QtQuick",
+        "PySide6.QtQml",
+        "PySide6.QtOpenGL",
+        "PySide6.QtOpenGLWidgets",
         "lightrag.api",
         "lightrag.api.config",
         "lightrag.api.lightrag_server",
@@ -154,7 +155,6 @@
         "MySQLdb",
         "PIL.tests",
         "anaconda",
-        "cProfile",
         "conda",
         "cv2.data",
         "cv2.samples",
@@ -162,7 +162,6 @@
         "django",
         "email.test",
         "ensurepip",
-        "idlelib",
         "jupyter",
         "jupyter.*",
         "jupyter_client",
@@ -238,10 +237,7 @@
         "PySide6.QtOpenGLWidgets",
         "PySide6.QtPdf",
         "PySide6.QtPdfWidgets",
-        "PySide6.QtPositioning",
         "PySide6.QtPrintSupport",
-        "PySide6.QtQml",
-        "PySide6.QtQuick",
         "PySide6.QtQuick3D",
         "PySide6.QtQuickControls2",
         "PySide6.QtQuickWidgets",
@@ -258,15 +254,6 @@
         "PySide6.QtTextToSpeech",
         "PySide6.QtUiTools",
         "PySide6.QtVirtualKeyboard",
-        "scipy.interpolate",
-        "scipy.io",
-        "scipy.optimize",
-        "scipy.sparse",
-        "scipy.spatial",
-        "scipy.ndimage",
-        "scipy.signal",
-        "scipy.integrate",
-        "scipy.misc",
         "numpy.polynomial",
         "pandas.plotting",
         "pandas.io.excel",
@@ -277,8 +264,6 @@
         "pandas.io.stata",
         "pandas.io.sas",
         "pandas.io.spss",
-        "matplotlib",
-        "matplotlib.*",
         "seaborn",
         "seaborn.*",
         "plotly",
@@ -302,7 +287,12 @@
       "dev": {
         "debug": true,
         "console": true,
-        "onefile": false
+        "onefile": false,
+        "runtime_tmpdir": {
+          "windows": "C:/ecan_cache_dev",
+          "macos": "~/Library/Caches/ecan_cache_dev",
+          "linux": "/tmp/ecan_cache_dev"
+        }
       },
       "fast": {
         "debug": true,
@@ -329,8 +319,7 @@
         "entitlements": "",
         "exclude_patterns": [
           "**/ms-playwright/**/chromium*/chrome-*/Chromium.app/**",
-          "**/ms-playwright/**/chrome*",
-          "**/QtWebEngineProcess.app/**"
+          "**/ms-playwright/**/chrome*"
         ]
       },
       "frameworks": [
