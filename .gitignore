@@ -33,3 +33,4 @@ gui_v2/coverage/
 /ota/dependencies/
 /third_party/
 /third_party/ms-playwright/
+.build_cache
