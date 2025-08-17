@@ -1,5 +1,10 @@
 
 
+from langchain_openai import ChatOpenAI
+from agent.ec_skill import NodeState
+from utils.logger_helper import get_agent_by_id, get_traceback, logger_helper as logger
+import time
+
 
 def check_top_categories_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
@@ -174,7 +179,7 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])

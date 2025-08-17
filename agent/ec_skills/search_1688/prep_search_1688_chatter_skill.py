@@ -1,5 +1,6 @@
-def init_self_test_chatter_skill(agent, msg, file_names=[]):
-    print("init_self_test_chatter_skill", type(msg), msg)  # msg.params.message[0].text
+
+def prep_search_1688_chatter_skill(agent, msg, file_names=[]):
+    print("init_search_1688_chatter_skill", type(msg), msg)  # msg.params.message[0].text
     # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
     msg_parts = msg.params.message.parts
     attachments = []
@@ -8,8 +9,7 @@ def init_self_test_chatter_skill(agent, msg, file_names=[]):
         if part.type == "text":
             msg_txt = part.text
         elif part.type == "file":
-            attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
-                                "file_data": part.file.bytes})
+            attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType, "file_data": part.file.bytes})
 
     init_state = {
         "messages": [agent.card.id, msg_txt],
@@ -17,3 +17,4 @@ def init_self_test_chatter_skill(agent, msg, file_names=[]):
         "attachments": attachments
     }
     return init_state
+

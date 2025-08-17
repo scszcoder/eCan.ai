@@ -90,12 +90,23 @@ class A2AClient:
                     self.url, json=request.model_dump(), timeout=30
                 )
                 logger.debug("[SYNC] response received from server:", type(response), response)
+                
+                # 检查响应状态码
+                if response.status_code != 200:
+                    logger.error(f"[SYNC] HTTP {response.status_code}: {response.text}")
+                    raise A2AClientHTTPError(response.status_code, f"HTTP {response.status_code}: {response.text}")
+                
                 response.raise_for_status()
                 logger.debug("[SYNC] response", response)
                 return response.json()
             except httpx.HTTPStatusError as e:
+                logger.error(f"[SYNC] HTTP Status Error: {e.response.status_code} - {e.response.text}")
                 raise A2AClientHTTPError(e.response.status_code, str(e)) from e
+            except httpx.RequestError as e:
+                logger.error(f"[SYNC] Request Error: {e}")
+                raise A2AClientHTTPError(400, str(e)) from e
             except json.JSONDecodeError as e:
+                logger.error(f"[SYNC] JSON Decode Error: {e}")
                 raise A2AClientJSONError(str(e)) from e
 
 

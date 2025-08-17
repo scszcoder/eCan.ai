@@ -9,6 +9,8 @@ import { logger } from '../../utils/logger';
 import { useUserStore } from '@/stores/userStore';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import logo from '../../assets/logoWhite22.png';
+import googleIcon from '../../assets/Google_Icons.png';
+import appleIcon from '../../assets/Apple_Icon3.png';
 import './Login.css';
 
 const { Title, Text } = Typography;
@@ -220,6 +222,19 @@ const handleForgotPasswordReset = async () => {
 		}
 	};
 
+  // Placeholder for Google login to prevent runtime errors if referenced in JSX
+  const handleGoogleLogin = useCallback(() => {
+    // TODO: implement Google login flow
+  }, []);
+
+  // Placeholder for Apple login to prevent runtime errors if referenced in JSX
+  const handleAppleLogin = useCallback(() => {
+    // TODO: implement Apple login flow
+  }, []);
+
+  // Feature flag to toggle Apple login button visibility
+  const ENABLE_APPLE_LOGIN = false;
+
 	// Render
 	return (
 		<div className="login-container">
@@ -413,6 +428,30 @@ const handleForgotPasswordReset = async () => {
 										className="login-button"
 									>
 										{mode === 'login' ? t('login.loginButton') : t('login.signUp')}
+									</Button>
+								</Form.Item>
+							)}
+							{mode === 'login' && (
+								<Form.Item>
+									<Button
+										block
+										size="large"
+										onClick={handleGoogleLogin}
+										icon={<img src={googleIcon} alt="Google" style={{ width: 18, height: 18 }} />}
+									>
+										{t('login.loginWithGoogle') || 'Login with Google'}
+									</Button>
+								</Form.Item>
+							)}
+							{mode === 'login' && ENABLE_APPLE_LOGIN && (
+								<Form.Item>
+									<Button
+										block
+										size="large"
+										onClick={handleAppleLogin}
+										icon={<img src={appleIcon} alt="Apple" style={{ width: 18, height: 18 }} />}
+									>
+										{t('login.loginWithApple') || 'Login with Apple'}
 									</Button>
 								</Form.Item>
 							)}

@@ -1,7 +1,7 @@
 
 
 
-def init_search_1688_skill(agent, msg, file_names=[]):
+def prep_search_1688_skill(agent, msg, file_names=[]):
     msg_txt = msg.params.message.parts[0].text
     print("init task with message text:", msg_txt)
     if file_names:
