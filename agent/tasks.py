@@ -5,7 +5,7 @@ from pydantic import ConfigDict, BaseModel
 import uuid
 from agent.a2a.common.types import *
 from agent.ec_skill import EC_Skill
-from agent.ec_skills.init_skills_run import *
+from agent.ec_skills.prep_skills_run import *
 import json
 import os
 from fastapi.responses import JSONResponse
@@ -779,7 +779,7 @@ class TaskRunner(Generic[Context]):
                 if task2run:
                     print("setting up scheduled task to run", task2run.name)
                     logger.debug("scheduled task2run skill name" + task2run.skill.name)
-                    task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent)
 
                     logger.trace("scheduledtask2run init state" + str(task2run.metadata["state"]))
                     logger.trace("ready to run the right task" + task2run.name)
@@ -819,7 +819,7 @@ class TaskRunner(Generic[Context]):
                         if matched_tasks:
                             task2run = matched_tasks[0]
                             logger.debug("task2run skill name" + task2run.skill.name)
-                            task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent)
+                            task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent)
 
                             logger.trace("task2run init state" + str(task2run.metadata["state"]))
                             logger.trace("ready to run the right task" + task2run.name + str(msg))
@@ -882,7 +882,7 @@ class TaskRunner(Generic[Context]):
                         if task2run:
                             if justStarted:
                                 print("chatter task2run skill name", task2run.skill.name)
-                                task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg)
 
                                 print("interacted task2run init state", task2run.metadata["state"])
                                 print("ready to run the right task", task2run.name, type(msg), msg)
@@ -925,7 +925,7 @@ class TaskRunner(Generic[Context]):
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                             else:
                                 print(f"interacted {task2run.skill.name} no longer initial run", msg)
-                                task2run.metadata["state"] = init_skills_run(task2run.skill.name, self.agent, msg)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg)
 
                                 print("NI interacted task2run current state", task2run.metadata["state"])
                                 # print("ready to run the right task", task2run.name, msg)

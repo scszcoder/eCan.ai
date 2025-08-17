@@ -166,15 +166,9 @@ async def os_wait(mainwin, args):
         return result
     except Exception as e:
         # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorOSWait:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorOSWait: traceback information not available:" + str(e)
-        msg = ex_stat
-        logger.info(msg)
-        return [TextContent(type="text", text=ex_stat)]
+        err_trace = get_traceback(e, "ErrorOSWait")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 async def in_browser_wait_for_element(mainwin, args):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
@@ -406,7 +400,7 @@ async def in_browser_scrape_content(mainwin, args):
     try:
         crawler = mainwin.getWebCrawler()
         if not crawler:
-            web_driver = mainwin.web_driver
+            web_driver = mainwin.getWebDriver()
             dom_service = mainwin.dom_service
             dom_service.get_clickable_elements()
         else:

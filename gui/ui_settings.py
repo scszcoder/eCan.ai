@@ -38,6 +38,8 @@ class SettingsWidget(QMainWindow):
         self.commander_run = False
         self.overcapcity_warning = True
         self.overcapcity_force = True
+        # Ensure printers attribute always exists to avoid AttributeError if enumeration fails
+        self.printers = []
         try:
             self.list_wifi_networks()
             self.list_printers()
@@ -57,16 +59,24 @@ class SettingsWidget(QMainWindow):
             self.printer_label = QLabel("Printer:", alignment=Qt.AlignLeft)
             self.printer_line_edit = QLineEdit()
             self.printer_select = QComboBox()
-            for role in [p[2] for p in self.printers]:
-                self.printer_select.addItem(QApplication.translate("QComboBox", role))
+            if self.printers:
+                for role in [p[2] for p in self.printers]:
+                    self.printer_select.addItem(QApplication.translate("QComboBox", role))
 
-            found_idx = next((i for i, p in enumerate([p[2] for p in self.printers]) if p == default_printer), -1)
-            print("finding default printer", found_idx, default_printer, "among:", [p[2] for p in self.printers])
-            if found_idx >= 0:
-                self.printer_select.setCurrentIndex(found_idx)
+                found_idx = next((i for i, p in enumerate([p[2] for p in self.printers]) if p == default_printer), -1)
+                print("finding default printer", found_idx, default_printer, "among:", [p[2] for p in self.printers])
+                if found_idx >= 0:
+                    self.printer_select.setCurrentIndex(found_idx)
+                else:
+                    # If default not found, select first available
+                    self.printer_select.setCurrentIndex(0)
+                    self.default_printer = self.printer_select.currentText()
             else:
-                self.printer_select.setCurrentIndex(0)         #commander will be set if file based machine role is unknown
-                self.default_printer = self.printer_select.currentText()
+                # No printers available; show a disabled placeholder
+                placeholder = QApplication.translate("QComboBox", "No printers available")
+                self.printer_select.addItem(placeholder)
+                self.printer_select.setEnabled(False)
+                self.default_printer = ""
 
             self.printer_select.currentIndexChanged.connect(self.on_printer_selected)
 
@@ -137,7 +147,9 @@ class SettingsWidget(QMainWindow):
     def list_printers(self):
         try:
             if platform.system() == 'Windows':
-                printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
+                printers = win32print.EnumPrinters(
+                    win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+                )
                 self.printers = printers
             else:  # macOS
                 # Use lpstat to get printer list
@@ -165,6 +177,8 @@ class SettingsWidget(QMainWindow):
             else:
                 ex_stat = "ErrorListPrinters: traceback information not available:" + str(e)
             print(ex_stat)
+            # Ensure printers is defined even on failure
+            self.printers = []
 
     def list_wifi_networks(self):
         for i in range(3):  # Try scanning multiple times

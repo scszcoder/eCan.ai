@@ -1,19 +1,7 @@
 import json
-import os
-import re
-from datetime import datetime
-import base64
-import requests
-import boto3
-from botocore.exceptions import ClientError
-from boto3.s3.transfer import TransferConfig
-import logging
-import aiohttp
-import asyncio
 
 from bot.envi import getECBotDataHome
-from utils.logger_helper import logger_helper
-import websockets
+from utils.logger_helper import logger_helper as logger
 import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
@@ -34,7 +22,7 @@ API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazona
 # 	in_data: AWSJSON!
 # 	verbose: Boolean
 def gen_query_reqest_run_ext_agent_skill_string(query):
-    logger_helper.debug("in query:"+json.dumps(query))
+    logger.debug("in query:"+json.dumps(query))
     query_string = """
         mutation MyMutation {
       requestRunExtAgentSkill (input:[
@@ -58,12 +46,12 @@ def gen_query_reqest_run_ext_agent_skill_string(query):
     ]) 
     }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 #
 def gen_query_report_run_ext_agent_skill_status_string(query):
-    logger_helper.debug("in query:"+json.dumps(query))
+    logger.debug("in query:"+json.dumps(query))
     query_string = """
         mutation MyMutation {
       reportRunExtAgentSkillStatus (input:[
@@ -88,7 +76,7 @@ def gen_query_report_run_ext_agent_skill_status_string(query):
     ]) 
     }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -142,7 +130,7 @@ def gen_add_agents_string(agents):
 
     tail_string = ") } "
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug("query string:"+query_string)
+    logger.debug("query string:"+query_string)
     return query_string
 
 
@@ -203,7 +191,7 @@ def gen_update_agents_string(agents):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -229,7 +217,7 @@ def gen_remove_agents_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -242,7 +230,7 @@ def gen_query_agents_string(q_setting):
     rec_string = ""
     tail_string = ""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 def gen_get_agents_string():
@@ -251,7 +239,7 @@ def gen_get_agents_string():
 
     tail_string = "') }"
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -290,7 +278,7 @@ def gen_add_agent_skills_string(skills):
 
     tail_string = ") } "
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -336,7 +324,7 @@ def gen_update_agent_skills_string(skills):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -362,7 +350,7 @@ def gen_remove_agent_skills_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -376,7 +364,7 @@ def gen_query_agent_skills_string(q_setting):
     rec_string = ""
     tail_string = ""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 def gen_get_agent_skills_string():
@@ -385,7 +373,7 @@ def gen_get_agent_skills_string():
 
     tail_string = "') }"
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -434,7 +422,7 @@ def gen_add_agent_tasks_string(tasks, test_settings={}):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -458,7 +446,7 @@ def gen_remove_agent_tasks_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -502,7 +490,7 @@ def gen_update_agent_tasks_string(tasks):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -534,7 +522,7 @@ def gen_query_agent_tasks_by_time_string(query):
         ])
         }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -557,7 +545,7 @@ def gen_query_agent_tasks_string(query):
         ])
         }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -567,7 +555,7 @@ def gen_get_agent_tasks_string():
 
     tail_string = "') }"
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -614,7 +602,7 @@ def gen_add_agent_tools_string(tools, test_settings={}):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -638,7 +626,7 @@ def gen_remove_agent_tools_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -680,7 +668,7 @@ def gen_update_agent_tools_string(tools):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -712,7 +700,7 @@ def gen_query_agent_tools_by_time_string(query):
         ])
         }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -733,7 +721,7 @@ def gen_query_agent_tools_string(query):
         ])
         }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -744,7 +732,7 @@ def gen_get_agent_tools_string():
 
     tail_string = "') }"
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -791,7 +779,7 @@ def gen_add_knowledges_string(knowledges, test_settings={}):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -815,14 +803,14 @@ def gen_remove_knowledges_string(removeOrders):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
 
 def gen_update_knowledges_string(knowledges):
     query_string = """
-        mutation MyUMMutation {
+        mutation MyUMutation {
       updateKnowledges (input:[
     """
     rec_string = ""
@@ -855,7 +843,7 @@ def gen_update_knowledges_string(knowledges):
     ) 
     } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -887,7 +875,7 @@ def gen_query_knowledges_by_time_string(query):
         ])
         }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -908,7 +896,7 @@ def gen_query_knowledges_string(query):
         ])
         }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -920,7 +908,7 @@ def gen_get_knowledges_string():
 
     tail_string = "') }"
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 # 	component_id: ID!
@@ -951,7 +939,7 @@ def gen_query_components_string(components):
             ])
             }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 def gen_get_nodes_prompts_string(nodes):
@@ -971,7 +959,7 @@ def gen_get_nodes_prompts_string(nodes):
             ])
             }"""
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug(query_string)
+    logger.debug(query_string)
     return query_string
 
 
@@ -1000,7 +988,7 @@ def gen_update_agent_tasks_ex_status_string(tasksStats):
         ) 
         } """
     query_string = query_string + rec_string + tail_string
-    logger_helper.debug("DAILY REPORT QUERY STRING:"+query_string)
+    logger.debug("DAILY REPORT QUERY STRING:"+query_string)
     return query_string
 
 
@@ -1015,11 +1003,11 @@ def send_update_agent_tasks_ex_status_to_cloud(session, tasksStats, token, endpo
         if "errors" in jresp:
             screen_error = True
             jresponse = jresp["errors"][0]
-            logger_helper.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
+            logger.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
         else:
             jresponse = json.loads(jresp["data"]["updateAgentTasksExStatus"])
     else:
-        logger_helper.error("ERROR Type: EMPTY DAILY REPORTS")
+        logger.error("ERROR Type: EMPTY DAILY REPORTS")
         jresponse = "ERROR: EMPTY REPORTS"
     return jresponse
 
@@ -1036,11 +1024,11 @@ def send_completion_status_to_cloud(session, taskStats, token, endpoint, full=Tr
         if "errors" in jresp:
             screen_error = True
             jresponse = jresp["errors"][0]
-            logger_helper.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
+            logger.error("ERROR Type: " + json.dumps(jresponse["errorType"]) + " ERROR Info: " + json.dumps(jresponse["message"]))
         else:
             jresponse = json.loads(jresp["data"]["reportTaskStatus"])
     else:
-        logger_helper.error("ERROR Type: EMPTY DAILY REPORTS")
+        logger.error("ERROR Type: EMPTY DAILY REPORTS")
         jresponse = "ERROR: EMPTY REPORTS"
     return jresponse
 
@@ -1056,7 +1044,7 @@ def send_add_agents_request_to_cloud(session, agents, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
 
         jresponse = jresp["errors"][0]
     else:
@@ -1075,7 +1063,7 @@ def send_update_agents_request_to_cloud(session, bots, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateAgents"])
@@ -1094,7 +1082,7 @@ def send_remove_agents_request_to_cloud(session, removes, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeAgents"])
@@ -1109,7 +1097,7 @@ def send_query_agents_request_to_cloud(session, token, q_settings, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryAgents"])
@@ -1128,7 +1116,7 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["getAgents"])
@@ -1147,7 +1135,7 @@ def send_add_agent_skills_request_to_cloud(session, skills, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addAgentSkills"])
@@ -1165,7 +1153,7 @@ def send_update_agent_skills_request_to_cloud(session, bots, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateAgentSkills"])
@@ -1184,7 +1172,7 @@ def send_remove_agent_skills_request_to_cloud(session, removes, token, endpoint)
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeAgentSkills"])
@@ -1200,7 +1188,7 @@ def send_query_agent_skills_request_to_cloud(session, token, q_settings, endpoin
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryAgentSkills"])
@@ -1220,7 +1208,7 @@ def send_get_agent_skills_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["getAgentSkills"])
@@ -1238,7 +1226,7 @@ def send_add_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addAgentTasks"])
@@ -1255,7 +1243,7 @@ def send_update_agent_tasks_request_to_cloud(session, tasks, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateAgentTasks"])
@@ -1273,7 +1261,7 @@ def send_remove_agent_tasks_request_to_cloud(session, removes, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
+        logger.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeAgentTasks"])
@@ -1290,7 +1278,7 @@ def send_query_agent_tasks_request_to_cloud(session, token, q_settings, endpoint
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryAgentTasks"])
@@ -1307,7 +1295,7 @@ def send_query_agent_tasks_by_time_request_to_cloud(session, token, q_settings, 
 
         if "errors" in jresp:
             screen_error = True
-            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+            logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
             jresponse = jresp["errors"][0]
         else:
             jresponse = json.loads(jresp["data"]["queryAgentTasks"])
@@ -1320,7 +1308,7 @@ def send_query_agent_tasks_by_time_request_to_cloud(session, token, q_settings, 
             ex_stat = "ErrorQueryAgentTasksByTime:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorQueryAgentTasksByTime traceback information not available:" + str(e)
-        print(ex_stat)
+        logger.error(ex_stat)
         jresponse = {}
 
     return jresponse
@@ -1337,7 +1325,7 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["getAgentTasks"])
@@ -1354,7 +1342,7 @@ def send_add_agent_tools_request_to_cloud(session, tools, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addAgentTools"])
@@ -1371,7 +1359,7 @@ def send_update_agent_tools_request_to_cloud(session, tools, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateAgentTools"])
@@ -1389,7 +1377,7 @@ def send_remove_agent_tools_request_to_cloud(session, removes, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
+        logger.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeAgentTools"])
@@ -1406,7 +1394,7 @@ def send_query_agent_tools_request_to_cloud(session, token, q_settings, endpoint
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryAgentTools"])
@@ -1423,7 +1411,7 @@ def send_query_agent_tools_by_time_request_to_cloud(session, token, q_settings, 
 
         if "errors" in jresp:
             screen_error = True
-            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+            logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
             jresponse = jresp["errors"][0]
         else:
             jresponse = json.loads(jresp["data"]["queryAgentTools"])
@@ -1436,7 +1424,7 @@ def send_query_agent_tools_by_time_request_to_cloud(session, token, q_settings, 
             ex_stat = "ErrorQueryAgentToolsByTime:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorQueryAgentToolsByTime traceback information not available:" + str(e)
-        print(ex_stat)
+        logger.error(ex_stat)
         jresponse = {}
 
     return jresponse
@@ -1453,7 +1441,7 @@ def send_get_agent_tools_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["getAgentTools"])
@@ -1472,7 +1460,7 @@ def send_add_knowledges_request_to_cloud(session, tasks, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR message: "+json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["addKnowledges"])
@@ -1488,7 +1476,7 @@ def send_update_knowledges_request_to_cloud(session, vehicles, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["updateknowledges"])
@@ -1507,7 +1495,7 @@ def send_remove_knowledges_request_to_cloud(session, removes, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
+        logger.error("ERROR Type: "+json.dumps(jresp["errors"][0]["errorType"])+" ERROR Info: "+json.dumps(jresp["errors"][0]["message"]) )
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["removeKnowledges"])
@@ -1523,7 +1511,7 @@ def send_query_knowledges_request_to_cloud(session, token, q_settings, endpoint)
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryKnowledges"])
@@ -1543,7 +1531,7 @@ def send_get_knowledges_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["getKnowledges"])
@@ -1559,7 +1547,7 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryComponents"])
@@ -1570,17 +1558,22 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
 def send_get_nodes_prompts_request_to_cloud(session, token, nodes, endpoint):
 
     queryInfo = gen_get_nodes_prompts_string(nodes)
-    print("send_get_nodes_prompts_request_to_cloud sending: ", queryInfo)
+    logger.debug("send_get_nodes_prompts_request_to_cloud sending: ", queryInfo)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    print("send_get_nodes_prompts_request_to_cloud jresp: ", jresp)
+    logger.debug("send_get_nodes_prompts_request_to_cloud jresp: ", jresp)
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        error_msg = f"ERROR Type: {jresp['errors'][0]['errorType']} ERROR Info: {jresp['errors'][0]['message']}"
+        logger.error(error_msg)
+        # 返回错误信息而不是抛出异常，让调用者处理
+        return {"errors": jresp["errors"], "body": None}
     else:
-        jresponse = json.loads(jresp["data"]["getNodesPrompts"])
-
-    return jresponse
+        try:
+            jresponse = json.loads(jresp["data"]["getNodesPrompts"])
+            return {"body": json.dumps({"data": jresponse})}
+        except (KeyError, json.JSONDecodeError) as e:
+            logger.error(f"Error parsing response: {e}")
+            return {"errors": [{"errorType": "ParseError", "message": str(e)}], "body": None}
 
 
 
