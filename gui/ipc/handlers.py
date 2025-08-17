@@ -446,5 +446,39 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse
             f"Error during stop tests: {str(e)}"
         )
 
+
+
+
+@IPCHandlerRegistry.handler('login_with_google')
+def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理停止测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: 测试项
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Login with google handler called with request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'login with google successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in login with google handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'GOOGLE_LOGIN_ERROR',
+            f"Error during stop tests: {str(e)}"
+        )
+
+
 # 打印所有已注册的处理器
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")

@@ -62,7 +62,9 @@
     "newPasswordRequired": "Please enter the new password.",
     "logoAlt": "System Logo",
     "newPassword": "New Password",
-    "confirmCode": "Verification Code"
+    "confirmCode": "Verification Code",
+    "loginWithGoogle": "Sign in with Google",
+    "loginWithApple": "Sign in with Apple"
   },
   "roles": {
     "commander": "Commander",
