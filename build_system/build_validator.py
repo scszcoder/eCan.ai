@@ -387,7 +387,163 @@ class BuildValidator:
             "success_rate": f"{categories_passed}/{categories_total}",
             "overall_status": results.get("overall_status", "unknown")
         }
-    
+
+    def validate_build_artifacts(self, version: str, arch: str = "amd64") -> Dict[str, Any]:
+        """验证构建产物是否完整"""
+        self.logger.info(f"Validating build artifacts for version {version}, arch {arch}", "VALIDATOR")
+
+        checks = []
+        platform_name = platform.system()
+
+        if platform_name == "Windows":
+            checks.extend(self._validate_windows_artifacts(version, arch))
+        elif platform_name == "Darwin":
+            checks.extend(self._validate_macos_artifacts(version, arch))
+        elif platform_name == "Linux":
+            checks.extend(self._validate_linux_artifacts(version, arch))
+        else:
+            checks.append({
+                "name": "platform_support",
+                "status": "fail",
+                "message": f"Unsupported platform: {platform_name}"
+            })
+
+        all_checks_passed = all(check["status"] == "pass" for check in checks)
+
+        return {
+            "status": "pass" if all_checks_passed else "fail",
+            "checks": checks,
+            "summary": f"Build artifacts validation {'passed' if all_checks_passed else 'failed'}"
+        }
+
+    def _validate_windows_artifacts(self, version: str, arch: str) -> List[Dict[str, Any]]:
+        """验证 Windows 构建产物"""
+        checks = []
+
+        # 检查主执行文件
+        exe_path = Path("dist/eCan/eCan.exe")
+        if exe_path.exists():
+            size_mb = exe_path.stat().st_size / (1024 * 1024)
+            checks.append({
+                "name": "main_executable",
+                "status": "pass",
+                "message": f"Main executable found: {exe_path} ({size_mb:.1f} MB)"
+            })
+        else:
+            checks.append({
+                "name": "main_executable",
+                "status": "fail",
+                "message": f"Main executable not found: {exe_path}"
+            })
+
+        # 检查标准化的执行文件
+        std_exe = Path(f"dist/eCan-windows-{arch}-v{version}.exe")
+        if std_exe.exists():
+            size_mb = std_exe.stat().st_size / (1024 * 1024)
+            checks.append({
+                "name": "standardized_executable",
+                "status": "pass",
+                "message": f"Standardized executable found: {std_exe} ({size_mb:.1f} MB)"
+            })
+        else:
+            checks.append({
+                "name": "standardized_executable",
+                "status": "fail",
+                "message": f"Standardized executable not found: {std_exe}"
+            })
+
+        # 检查安装包（可选）
+        installer_path = Path(f"dist/eCan-Setup-windows-{arch}-v{version}.exe")
+        if installer_path.exists():
+            size_mb = installer_path.stat().st_size / (1024 * 1024)
+            checks.append({
+                "name": "installer",
+                "status": "pass",
+                "message": f"Installer found: {installer_path} ({size_mb:.1f} MB)"
+            })
+        else:
+            checks.append({
+                "name": "installer",
+                "status": "warn",
+                "message": f"Installer not found: {installer_path} (optional)"
+            })
+
+        return checks
+
+    def _validate_macos_artifacts(self, version: str, arch: str) -> List[Dict[str, Any]]:
+        """验证 macOS 构建产物"""
+        checks = []
+
+        # 检查 App Bundle
+        app_path = Path("dist/eCan.app")
+        if app_path.exists():
+            checks.append({
+                "name": "app_bundle",
+                "status": "pass",
+                "message": f"App bundle found: {app_path}"
+            })
+
+            # 检查 App 内的可执行文件
+            exe_path = app_path / "Contents" / "MacOS" / "eCan"
+            if exe_path.exists():
+                checks.append({
+                    "name": "app_executable",
+                    "status": "pass",
+                    "message": f"App executable found: {exe_path}"
+                })
+            else:
+                checks.append({
+                    "name": "app_executable",
+                    "status": "fail",
+                    "message": f"App executable not found: {exe_path}"
+                })
+        else:
+            checks.append({
+                "name": "app_bundle",
+                "status": "fail",
+                "message": f"App bundle not found: {app_path}"
+            })
+
+        # 检查 DMG 文件（可选）
+        dmg_path = Path(f"dist/eCan-macos-{arch}-v{version}.dmg")
+        if dmg_path.exists():
+            size_mb = dmg_path.stat().st_size / (1024 * 1024)
+            checks.append({
+                "name": "dmg_package",
+                "status": "pass",
+                "message": f"DMG found: {dmg_path} ({size_mb:.1f} MB)"
+            })
+        else:
+            checks.append({
+                "name": "dmg_package",
+                "status": "warn",
+                "message": f"DMG not found: {dmg_path} (optional)"
+            })
+
+        return checks
+
+    def _validate_linux_artifacts(self, version: str, arch: str) -> List[Dict[str, Any]]:
+        """验证 Linux 构建产物"""
+        checks = []
+
+        # 检查主执行文件
+        exe_path = Path("dist/eCan/eCan")
+        if exe_path.exists():
+            size_mb = exe_path.stat().st_size / (1024 * 1024)
+            checks.append({
+                "name": "main_executable",
+                "status": "pass",
+                "message": f"Main executable found: {exe_path} ({size_mb:.1f} MB)"
+            })
+        else:
+            checks.append({
+                "name": "main_executable",
+                "status": "fail",
+                "message": f"Main executable not found: {exe_path}"
+            })
+
+        return checks
+
     def print_validation_report(self, results: Optional[Dict[str, Any]] = None) -> None:
         """Print formatted validation report"""
         if results is None:
@@ -431,18 +587,29 @@ def main():
     parser = argparse.ArgumentParser(description="Build Validation Tool")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     parser.add_argument("--json", action="store_true", help="Output JSON format")
-    
+    parser.add_argument("--artifacts", action="store_true", help="Validate build artifacts only")
+    parser.add_argument("--version", help="Version string for artifact validation")
+    parser.add_argument("--arch", default="amd64", help="Architecture for artifact validation (default: amd64)")
+
     args = parser.parse_args()
-    
+
     validator = BuildValidator(verbose=args.verbose)
-    results = validator.run_full_validation()
-    
+
+    if args.artifacts:
+        if not args.version:
+            print("Error: --version is required when using --artifacts")
+            sys.exit(1)
+        results = {"artifacts": validator.validate_build_artifacts(args.version, args.arch)}
+        results["overall_status"] = results["artifacts"]["status"]
+    else:
+        results = validator.run_full_validation()
+
     if args.json:
         import json
         print(json.dumps(results, indent=2))
     else:
         validator.print_validation_report(results)
-    
+
     # Exit with appropriate code
     sys.exit(0 if results.get("overall_status") == "pass" else 1)
 
