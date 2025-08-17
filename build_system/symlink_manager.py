@@ -259,6 +259,175 @@ class SymlinkManager:
                     self._safe_remove_macos(path)
                 else:
                     shutil.rmtree(path, ignore_errors=True)
+
+    def cleanup_framework_symlinks(self, framework_path: Path) -> bool:
+        """
+        Clean up problematic symlinks in macOS frameworks before PyInstaller processing
+        This specifically handles QtWebEngineCore.framework symlink conflicts
+        """
+        if not self.is_macos or not framework_path.exists():
+            return True
+
+        self.log(f"Cleaning framework symlinks: {framework_path}")
+
+        try:
+            # Find all framework directories
+            for item in framework_path.rglob("*.framework"):
+                if item.is_dir():
+                    self._fix_framework_symlinks(item)
+
+            return True
+
+        except Exception as e:
+            self.log(f"Framework symlink cleanup failed: {e}", "ERROR")
+            return False
+
+    def find_qtwebengine_framework(self) -> Path:
+        """Find QtWebEngineCore.framework in the virtual environment"""
+        venv_path = Path("venv")
+        if not venv_path.exists():
+            return None
+
+        # Common paths for QtWebEngineCore.framework
+        possible_paths = [
+            venv_path / "lib" / "python3.11" / "site-packages" / "PySide6" / "Qt" / "lib" / "QtWebEngineCore.framework",
+            venv_path / "lib" / "python3.12" / "site-packages" / "PySide6" / "Qt" / "lib" / "QtWebEngineCore.framework",
+            venv_path / "lib" / "python3.10" / "site-packages" / "PySide6" / "Qt" / "lib" / "QtWebEngineCore.framework",
+        ]
+
+        for path in possible_paths:
+            if path.exists():
+                self.log(f"Found QtWebEngineCore.framework at: {path}")
+                return path
+
+        return None
+
+    def fix_qtwebengine_resources_symlink(self, framework_path: Path) -> bool:
+        """Fix the specific Resources symlink that causes PyInstaller FileExistsError"""
+        resources_symlink = framework_path / "Resources"
+
+        if not resources_symlink.exists():
+            self.log("Resources symlink does not exist, nothing to fix")
+            return True
+
+        if not resources_symlink.is_symlink():
+            self.log("Resources is not a symlink, nothing to fix")
+            return True
+
+        self.log("Found problematic Resources symlink")
+
+        try:
+            # Get the symlink target
+            target = resources_symlink.readlink()
+            self.log(f"Resources symlink points to: {target}")
+
+            # Remove the symlink
+            resources_symlink.unlink()
+            self.log("Removed Resources symlink")
+
+            # Find the actual Resources directory
+            versions_resources = framework_path / "Versions" / "Current" / "Resources"
+
+            if versions_resources.exists():
+                # Copy the actual directory
+                shutil.copytree(versions_resources, resources_symlink, symlinks=False)
+                self.log("Replaced symlink with directory copy")
+            else:
+                # Create empty directory as fallback
+                resources_symlink.mkdir(exist_ok=True)
+                self.log("Created empty Resources directory")
+
+            return True
+
+        except Exception as e:
+            self.log(f"Failed to fix Resources symlink: {e}", "ERROR")
+            return False
+
+    def fix_pyinstaller_conflicts(self) -> bool:
+        """Fix macOS framework symlinks that cause PyInstaller conflicts"""
+        if not self.is_macos:
+            return True
+
+        self.log("Fixing framework symlinks to prevent PyInstaller conflicts...")
+
+        try:
+            # Find QtWebEngineCore.framework
+            framework_path = self.find_qtwebengine_framework()
+            if not framework_path:
+                self.log("QtWebEngineCore.framework not found, skipping fix")
+                return True
+
+            self.log(f"Found QtWebEngineCore.framework at: {framework_path}")
+
+            # Fix the Resources symlink (main issue)
+            if not self.fix_qtwebengine_resources_symlink(framework_path):
+                return False
+
+            # Fix Versions/Current symlink if problematic
+            versions_dir = framework_path / "Versions"
+            if versions_dir.exists():
+                current_symlink = versions_dir / "Current"
+                if current_symlink.exists() and current_symlink.is_symlink():
+                    try:
+                        target = current_symlink.readlink()
+                        # Check if it's a problematic symlink
+                        if target.is_absolute() or ".." in str(target):
+                            self.log(f"Fixing problematic Versions/Current symlink: {target}")
+                            current_symlink.unlink()
+                            # Find actual version directories
+                            version_dirs = [d for d in versions_dir.iterdir() if d.is_dir() and d.name != "Current"]
+                            if version_dirs:
+                                current_symlink.symlink_to(version_dirs[0].name)
+                                self.log(f"Recreated Versions/Current symlink to: {version_dirs[0].name}")
+                    except Exception as e:
+                        self.log(f"Warning: Failed to fix Versions/Current symlink: {e}", "WARNING")
+
+            self.log("Framework symlink fix completed successfully")
+            return True
+
+        except Exception as e:
+            self.log(f"Framework symlink fix failed: {e}", "ERROR")
+            return False
+
+    def _fix_framework_symlinks(self, framework_dir: Path) -> None:
+        """Fix symlinks in a specific framework directory"""
+        self.log(f"Fixing symlinks in framework: {framework_dir.name}")
+
+        # Common problematic symlink patterns in frameworks
+        problematic_patterns = [
+            "Versions/Current/Resources",
+            "Resources",
+            "Helpers",
+            "Versions/Current/Helpers"
+        ]
+
+        for pattern in problematic_patterns:
+            symlink_path = framework_dir / pattern
+            if symlink_path.exists() and symlink_path.is_symlink():
+                try:
+                    target = symlink_path.readlink()
+                    self.log(f"Found problematic symlink: {symlink_path} -> {target}")
+
+                    # Remove the symlink
+                    symlink_path.unlink()
+                    self.log(f"Removed problematic symlink: {symlink_path}")
+
+                    # If the target exists and is a directory, copy it instead
+                    if target.is_absolute():
+                        # Skip absolute targets as they're external
+                        continue
+
+                    # Resolve relative target
+                    actual_target = symlink_path.parent / target
+                    if actual_target.exists() and actual_target.is_dir():
+                        try:
+                            shutil.copytree(actual_target, symlink_path, symlinks=False)
+                            self.log(f"Replaced symlink with copy: {symlink_path}")
+                        except Exception as e:
+                            self.log(f"Failed to copy target {actual_target}: {e}", "WARNING")
+
+                except Exception as e:
+                    self.log(f"Failed to fix symlink {symlink_path}: {e}", "WARNING")
     
     def get_copy_summary(self) -> Dict[str, int]:
         """Get summary of copy operations"""
