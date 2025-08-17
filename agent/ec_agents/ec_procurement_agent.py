@@ -37,6 +37,21 @@ def set_up_ec_procurement_agent(mainwin):
         else:
             logger.error("ec_procurement chatter skill not found!")
 
+        # 确保只有有效的技能被添加到skills列表中
+        valid_skills = []
+        if worker_skill:
+            valid_skills.append(worker_skill)
+        else:
+            logger.error("ec_procurement worker skill not found!")
+        if chatter_skill:
+            valid_skills.append(chatter_skill)
+        else:
+            logger.error("ec_procurement chatter skill not found!")
+        
+        # 如果没有有效技能，记录错误并返回None
+        if not valid_skills:
+            logger.error("No valid skills found for ec_procurement agent!")
+
         agent_card = AgentCard(
             name="Engineering Procurement Agent",
             description="Procure parts for product development",
@@ -45,14 +60,14 @@ def set_up_ec_procurement_agent(mainwin):
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            skills=[worker_skill, chatter_skill],
+            skills=valid_skills,
         )
         logger.info("ec_procurement agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_procurement_chat_task(mainwin)
         worker_task = create_ec_procurement_work_task(mainwin)
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[chatter_task, worker_task])
+        produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=valid_skills, tasks=[chatter_task, worker_task])
 
     except Exception as e:
         # Get the traceback information

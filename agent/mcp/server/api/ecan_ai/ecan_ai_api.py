@@ -14,16 +14,16 @@ def ecan_ai_api_query_components(mainwin, empty_components):
         img_engine = mainwin.getImageEngine()
         if img_engine == "lan":
             img_endpoint = mainwin.getLanImageEndpoint()
-            print("img endpoint:", img_endpoint)
+            logger.debug("img endpoint:", img_endpoint)
         else:
             img_endpoint = mainwin.getWanImageEndpoint()
 
         response = send_query_components_request_to_cloud(session, token, empty_components, img_endpoint)
-        print("send_query_components_request_to_cloud: respnose:", response)
+        logger.debug("send_query_components_request_to_cloud: respnose:", response)
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorEcanAiApiQueryComponents")
-        logger.debug(err_trace)
+        logger.error(err_trace)
     return filled_components
 
 def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
@@ -32,9 +32,20 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
         token = mainwin.tokens['AuthenticationResult']['IdToken']
 
         wan_api_endpoint = mainwin.wan_api_endpoint
-        print("wan api endpoint:", wan_api_endpoint)
+        logger.debug("wan api endpoint:", wan_api_endpoint)
         response = send_get_nodes_prompts_request_to_cloud(session, token, nodes, wan_api_endpoint)
-        print("api_ecan_ai_get_nodes_prompts: respnose:", response)
+        logger.debug("api_ecan_ai_get_nodes_prompts: respnose:", response)
+        
+        # 检查响应是否包含错误
+        if "errors" in response:
+            logger.debug("API returned errors:", response["errors"])
+            return []
+        
+        # 检查响应格式
+        if "body" not in response:
+            logger.debug("Response missing 'body' field:", response)
+            return []
+            
         prompts = json.loads(response["body"])["data"]
         usable_prompts = []
         for prompt in prompts:
@@ -52,6 +63,6 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
             )
     except Exception as e:
         err_trace = get_traceback(e, "ErrorEcanAiApiGetNodesPrompts")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         usable_prompts = []
     return usable_prompts

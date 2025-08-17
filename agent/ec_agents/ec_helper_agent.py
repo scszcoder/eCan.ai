@@ -27,6 +27,22 @@ def set_up_ec_helper_agent(mainwin):
         chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"), None)
         logger.info("worker_skill", getattr(worker_skill, 'name', None))
         logger.info("chatter_skill", getattr(chatter_skill, 'name', None))
+        
+        # 确保只有有效的技能被添加到skills列表中
+        valid_skills = []
+        if worker_skill:
+            valid_skills.append(worker_skill)
+        else:
+            logger.error("No worker skill found for ec_helper agent!")
+        if chatter_skill:
+            valid_skills.append(chatter_skill)
+        else:
+            logger.error("No chatter skill found for ec_helper agent!")
+
+        # 如果没有有效技能，记录错误并返回None
+        if not valid_skills:
+            logger.error("No valid skills found for ec_helper agent!")
+        
         agent_card = AgentCard(
             name="ECBot Helper Agent",
             description="Helps with ECBot RPA works",
@@ -35,7 +51,7 @@ def set_up_ec_helper_agent(mainwin):
             defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            skills=[worker_skill, chatter_skill],
+            skills=valid_skills,
         )
 
         logger.info("agent card created:", agent_card.name, agent_card.url)
@@ -47,7 +63,7 @@ def set_up_ec_helper_agent(mainwin):
         try:
             helper = EC_Agent(
                 mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="",
-                card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task]
+                card=agent_card, skill_set=valid_skills, tasks=[worker_task, chatter_task]
             )
         except RuntimeError as re:
             logger.error(f"Warning: browser_use resource loading failed in PyInstaller environment: {re}")
