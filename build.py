@@ -22,6 +22,16 @@ except ImportError:
     VALIDATOR_AVAILABLE = False
     BuildValidator = None
 
+# Import build utilities
+from build_system.build_utils import (
+    print_banner, print_mode_info, standardize_artifact_names,
+    show_build_results, clean_macos_build_artifacts,
+    prepare_third_party_assets, dev_sign_artifacts
+)
+
+# Import symlink manager for macOS fixes
+from build_system.symlink_manager import symlink_manager
+
 
 class BuildEnvironment:
     """Build environment detection and management"""
@@ -150,38 +160,7 @@ class BuildEnvironment:
         return False
 
 
-def print_banner():
-    """Print build banner"""
-    print("=" * 60)
-    print("eCan Unified Build System v9.0")
-    print("=" * 60)
 
-def print_mode_info(mode: str, fast: bool = False):
-    """Print build mode information"""
-    print(f"Build Mode: {mode.upper()}")
-
-    if fast:
-        print("[FAST] Fast Build Features:")
-        print("  * Parallel compilation (multi-core CPU acceleration)")
-        print("  * Smart caching (incremental build)")
-        print("  * Optimized dependencies (~280 packages)")
-        print("  * Debug symbols stripped")
-        print("  * Estimated time: 2-5 minutes")
-    elif mode == "dev":
-        print("[DEV] Development Build Features:")
-        print("  * Parallel compilation (multi-core CPU acceleration)")
-        print("  * Console output enabled")
-        print("  * Debug symbols preserved")
-        print("  * Estimated time: 5-10 minutes")
-    else:
-        print("[PROD] Production Build Features:")
-        print("  * Parallel compilation (multi-core CPU acceleration)")
-        print("  * Full optimization and cleanup")
-        print("  * Debug symbols stripped")
-        print("  * LZMA best compression")
-        print("  - Estimated time: 15-25 minutes")
-
-    print("=" * 60)
 
 
 def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
@@ -322,6 +301,9 @@ def _clean_macos_build_artifacts(build_path: Path) -> None:
         print(f"[MACOS] Warning: Framework cleanup failed: {e}")
         # Fallback to regular cleanup
         shutil.rmtree(build_path, ignore_errors=True)
+
+
+
 
 
 def _prepare_third_party_assets() -> None:
@@ -654,7 +636,7 @@ Usage examples:
         if not args.installer_only:
             print("[THIRD-PARTY] Preparing third-party assets for packaging...")
             _t_tp_start = time.perf_counter()
-            _prepare_third_party_assets()
+            prepare_third_party_assets()
             _t_tp_end = time.perf_counter()
             print(f"[TIME] Third-party assets: {(_t_tp_end - _t_tp_start):.2f}s")
         else:
@@ -664,12 +646,18 @@ Usage examples:
         if sys.platform == "darwin":
             print("[MACOS] Using special PyInstaller options for Playwright browsers")
             print("[MACOS] Custom hooks will handle Playwright browser codesign exclusions")
-            
+
             # Ensure hooks directory exists
             hooks_dir = Path("hooks")
             if not hooks_dir.exists():
                 hooks_dir.mkdir()
                 print("[MACOS] Created hooks directory")
+
+            # Fix framework symlinks to prevent PyInstaller conflicts
+            if not symlink_manager.fix_pyinstaller_conflicts():
+                print("[MACOS] Warning: Framework symlink fix failed, but continuing with build...")
+            else:
+                print("[MACOS] Framework symlink fix completed successfully")
             
         # 1) Frontend
         if args.installer_only:
@@ -734,7 +722,7 @@ Usage examples:
 
         # 5) Dev-only local signing (disabled by default)
         try:
-            _dev_sign_artifacts(args.dev_sign)
+            dev_sign_artifacts(args.dev_sign)
         except Exception as _e:
             print(f"[DEV-SIGN] error: {_e}")
 
@@ -749,7 +737,7 @@ Usage examples:
             try:
                 # 获取架构信息（从环境变量或默认值）
                 arch = os.getenv('BUILD_ARCH', 'amd64')
-                _standardize_artifact_names(args.version, arch)
+                standardize_artifact_names(args.version, arch)
             except Exception as e:
                 print(f"[RENAME] Warning: Failed to standardize names: {e}")
             _t_rename_end = time.perf_counter()
@@ -761,7 +749,7 @@ Usage examples:
 
         # Show build results
         _t_results_start = time.perf_counter()
-        _show_build_results()
+        show_build_results()
         _t_results_end = time.perf_counter()
         print(f"[TIME] Results reporting: {(_t_results_end - _t_results_start):.2f}s")
 
