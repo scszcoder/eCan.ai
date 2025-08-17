@@ -184,6 +184,66 @@ def print_mode_info(mode: str, fast: bool = False):
     print("=" * 60)
 
 
+def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
+    """标准化构建产物文件名以匹配 release.yml 期望的格式"""
+    import shutil
+
+    platform_name = platform.system()
+
+    if platform_name == "Windows":
+        platform_str = "windows"
+
+        # 重命名主执行文件
+        src_exe = Path("dist/eCan/eCan.exe")
+        dst_exe = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.exe")
+        if src_exe.exists():
+            try:
+                shutil.copy2(src_exe, dst_exe)
+                print(f"[RENAME] Created: {dst_exe.name}")
+            except Exception as e:
+                print(f"[RENAME] Warning: Failed to copy {src_exe} to {dst_exe}: {e}")
+
+        # 重命名安装包
+        src_setup = Path("dist/eCan-Setup.exe")
+        dst_setup = Path(f"dist/eCan-Setup-{platform_str}-{arch}-v{version}.exe")
+        if src_setup.exists():
+            try:
+                shutil.move(str(src_setup), str(dst_setup))
+                print(f"[RENAME] Renamed: {dst_setup.name}")
+            except Exception as e:
+                print(f"[RENAME] Warning: Failed to rename {src_setup} to {dst_setup}: {e}")
+
+    elif platform_name == "Darwin":
+        platform_str = "macos"
+
+        # 创建 DMG 文件
+        app_path = Path("dist/eCan.app")
+        dmg_path = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.dmg")
+        if app_path.exists() and not dmg_path.exists():
+            try:
+                # 创建临时 DMG 目录
+                dmg_temp = Path("build/dmg")
+                dmg_temp.mkdir(parents=True, exist_ok=True)
+
+                # 清理并复制 app
+                if (dmg_temp / "eCan.app").exists():
+                    shutil.rmtree(dmg_temp / "eCan.app")
+                shutil.copytree(app_path, dmg_temp / "eCan.app")
+
+                # 创建 DMG
+                cmd = [
+                    "hdiutil", "create",
+                    "-volname", "eCan",
+                    "-srcfolder", str(dmg_temp),
+                    "-ov", "-format", "UDZO",
+                    str(dmg_path)
+                ]
+                subprocess.run(cmd, check=True, capture_output=True)
+                print(f"[RENAME] Created: {dmg_path.name}")
+            except Exception as e:
+                print(f"[RENAME] Warning: Failed to create DMG: {e}")
+
+
 def _show_build_results():
     """Show build results"""
     print("\n[RESULT] Build Results:")
@@ -416,7 +476,6 @@ Usage examples:
         "mode",
         choices=["fast", "dev", "prod"],
         default="fast",
-        nargs="?",
         help="Build mode (default: fast)"
     )
 
@@ -683,7 +742,18 @@ Usage examples:
             print("\n[ERROR] Build failed!")
             return 1
 
-
+        # 标准化构建产物文件名（如果指定了版本）
+        if args.version and not args.installer_only:
+            print("\n[RENAME] Standardizing artifact names...")
+            _t_rename_start = time.perf_counter()
+            try:
+                # 获取架构信息（从环境变量或默认值）
+                arch = os.getenv('BUILD_ARCH', 'amd64')
+                _standardize_artifact_names(args.version, arch)
+            except Exception as e:
+                print(f"[RENAME] Warning: Failed to standardize names: {e}")
+            _t_rename_end = time.perf_counter()
+            print(f"[TIME] Artifact renaming: {(_t_rename_end - _t_rename_start):.2f}s")
 
         print("\n" + "=" * 60)
         print("[SUCCESS] Build completed successfully!")
