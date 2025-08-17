@@ -223,7 +223,6 @@
         "turtle",
         "unittest.mock",
         "venv",
-        "webbrowser",
         "wheel",
         "PySide6.Qt3DAnimation",
         "PySide6.Qt3DCore",
