@@ -32,6 +32,9 @@ from build_system.build_utils import (
 # Import symlink manager for macOS fixes
 from build_system.symlink_manager import symlink_manager
 
+# Import build optimizer for performance improvements
+from build_system.build_optimizer import build_optimizer, set_optimizer_verbose
+
 
 class BuildEnvironment:
     """Build environment detection and management"""
@@ -437,9 +440,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Build mode description:
-  fast     Fast build (parallel+cache, 2-5 minutes)
-  dev      Development build (parallel+console, 5-10 minutes)
-  prod     Production build (parallel+best compression, 15-25 minutes)
+  fast     Fast build (parallel+cache, 2-5 minutes) - Uses intelligent caching
+  dev      Development build (parallel+console, 5-10 minutes) - Always rebuilds, clears cache
+  prod     Production build (parallel+best compression, 15-25 minutes) - Always rebuilds, clears cache
 
 Usage examples:
   python build.py fast              # Fast build
@@ -517,6 +520,18 @@ Usage examples:
         help="Enable development signing (requires DEV_* environment variables)"
     )
 
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force rebuild even if no changes detected"
+    )
+
+    parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Clear build cache before building"
+    )
+
     args = parser.parse_args()
 
     # Validate installer-only mode
@@ -559,6 +574,25 @@ Usage examples:
         os.environ.setdefault("PYTHONUTF8", "1")
     except Exception:
         pass
+
+    # Initialize build optimizer
+    set_optimizer_verbose(args.verbose)
+
+    # Clear cache if requested or for dev/prod modes
+    if args.clear_cache or args.mode in ["dev", "prod"]:
+        if args.mode in ["dev", "prod"]:
+            print(f"[OPTIMIZER] {args.mode.upper()} mode: automatically clearing cache for clean build")
+        else:
+            print("[OPTIMIZER] Clearing build cache...")
+        build_optimizer.clear_cache()
+
+    # Quick optimization check (only for fast mode)
+    if not args.installer_only and not args.force and build_optimizer.should_skip_build(force=False, build_mode=args.mode):
+        print("[OPTIMIZER] No changes detected, skipping build")
+        print("[OPTIMIZER] Use --force or modify source files to trigger rebuild")
+        cache_stats = build_optimizer.get_cache_stats()
+        print(f"[OPTIMIZER] Cache: {cache_stats['file_count']} files, {cache_stats['cache_size_mb']:.1f}MB")
+        return 0
 
     # Validate environment
     _t_env_start = time.perf_counter()
@@ -664,13 +698,24 @@ Usage examples:
             print("[FRONTEND] Installer-only mode: skipping frontend build")
             print("[TIME] Frontend build: skipped")
         elif not args.skip_frontend:
-            _t_front_start = time.perf_counter()
-            ok_front = frontend.build()
-            _t_front_end = time.perf_counter()
-            print(f"[TIME] Frontend build: {(_t_front_end - _t_front_start):.2f}s")
-            if not ok_front:
-                print("[ERROR] Frontend build failed")
-                return 1
+            # Check if frontend rebuild is needed
+            if args.force or build_optimizer.should_rebuild_frontend(force=args.force, build_mode=args.mode):
+                if args.mode in ["dev", "prod"]:
+                    print(f"[FRONTEND] {args.mode.upper()} mode: rebuilding frontend for consistency...")
+                else:
+                    print("[FRONTEND] Changes detected, rebuilding frontend...")
+                _t_front_start = time.perf_counter()
+                ok_front = frontend.build()
+                _t_front_end = time.perf_counter()
+                print(f"[TIME] Frontend build: {(_t_front_end - _t_front_start):.2f}s")
+                if not ok_front:
+                    print("[ERROR] Frontend build failed")
+                    return 1
+                build_optimizer.mark_frontend_built()
+            else:
+                print("[FRONTEND] No changes detected, skipping frontend build")
+                print("[TIME] Frontend build: skipped (cached)")
+                ok_front = True
         else:
             print("[FRONTEND] Skipped")
             print("[TIME] Frontend build: skipped")
@@ -682,10 +727,22 @@ Usage examples:
             success = True
             print("[TIME] Core app build: skipped")
         else:
-            _t_core_start = time.perf_counter()
-            success = minispec.build(build_mode)
-            _t_core_end = time.perf_counter()
-            print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
+            # Check if core rebuild is needed
+            if args.force or build_optimizer.should_rebuild_core(force=args.force, build_mode=args.mode):
+                if args.mode in ["dev", "prod"]:
+                    print(f"[CORE] {args.mode.upper()} mode: rebuilding core application for consistency...")
+                else:
+                    print("[CORE] Changes detected, rebuilding core application...")
+                _t_core_start = time.perf_counter()
+                success = minispec.build(build_mode)
+                _t_core_end = time.perf_counter()
+                print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
+                if success:
+                    build_optimizer.mark_core_built()
+            else:
+                print("[CORE] No changes detected, skipping core build")
+                print("[TIME] Core app build: skipped (cached)")
+                success = True
 
         # 3) Installer
         if args.installer_only or (success and not args.skip_installer):
@@ -752,6 +809,13 @@ Usage examples:
         show_build_results()
         _t_results_end = time.perf_counter()
         print(f"[TIME] Results reporting: {(_t_results_end - _t_results_start):.2f}s")
+
+        # Show optimization statistics
+        cache_stats = build_optimizer.get_cache_stats()
+        print(f"\n[OPTIMIZER] Cache statistics:")
+        print(f"[OPTIMIZER]   Files cached: {cache_stats['file_count']}")
+        print(f"[OPTIMIZER]   Cache size: {cache_stats['cache_size_mb']:.1f}MB")
+        print(f"[OPTIMIZER]   Components: {cache_stats['components_cached']}")
 
         _t_total_end = time.perf_counter()
         print(f"[TIME] Total build time: {(_t_total_end - overall_start):.2f}s")
