@@ -255,6 +255,20 @@ export class IPCAPI {
     }
 
     /**
+     * Initiate Google login flow via backend
+     */
+    public async loginWithGoogle<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('login_with_google', {});
+    }
+
+    /**
+     * Initiate Apple login flow via backend
+     */
+    public async loginWithApple<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('login_with_apple', {});
+    }
+
+    /**
      * 获取可调用函数列表
      * @param filter - 过滤条件，可选包含：
      *   - text: 文本过滤条件，会搜索函数名、描述和参数
