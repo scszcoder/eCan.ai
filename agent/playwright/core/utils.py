@@ -90,35 +90,56 @@ class PlaywrightCoreUtils:
         """验证浏览器安装是否有效"""
         if not path or not path.exists():
             return False
-        
+
         # 检查关键文件 - 更宽松的验证
         try:
             # 检查 browsers.json 文件
             browsers_json = path / "browsers.json"
             if not browsers_json.exists():
+                logger.warning(f"[PLAYWRIGHT] browsers.json not found at {browsers_json}")
                 return False
-            
+
+            # 验证 browsers.json 文件格式
+            try:
+                import json
+                with open(browsers_json, 'r') as f:
+                    browsers_data = json.load(f)
+                if not isinstance(browsers_data, dict):
+                    logger.warning(f"[PLAYWRIGHT] browsers.json is not a valid JSON object")
+                    return False
+                logger.debug(f"[PLAYWRIGHT] browsers.json is valid JSON")
+            except Exception as e:
+                logger.warning(f"[PLAYWRIGHT] browsers.json is invalid: {e}")
+                return False
+
             # 检查是否有任何 chromium 相关目录
             chromium_dirs = list(path.glob("chromium*"))
             if not chromium_dirs:
                 # 如果没有 chromium 目录，检查是否有其他浏览器目录
-                browser_dirs = [d for d in path.iterdir() 
+                browser_dirs = [d for d in path.iterdir()
                               if d.is_dir() and not d.name.startswith('.')]
                 if not browser_dirs:
+                    logger.warning(f"[PLAYWRIGHT] No browser directories found in {path}")
                     return False
-            
+                logger.debug(f"[PLAYWRIGHT] Found browser directories: {[d.name for d in browser_dirs]}")
+            else:
+                logger.debug(f"[PLAYWRIGHT] Found chromium directories: {[d.name for d in chromium_dirs]}")
+
             # 检查目录是否包含实际文件（不是空目录）
             for browser_dir in chromium_dirs[:1]:  # 只检查第一个
                 if browser_dir.is_dir():
                     files = list(browser_dir.rglob("*"))
                     if len(files) < 10:  # 至少应该有10个文件
+                        logger.warning(f"[PLAYWRIGHT] Browser directory {browser_dir} has too few files: {len(files)}")
                         return False
+                    logger.debug(f"[PLAYWRIGHT] Browser directory {browser_dir} has {len(files)} files")
                     break
-            
+
+            logger.debug(f"[PLAYWRIGHT] Browser installation at {path} is valid")
             return True
-            
+
         except Exception as e:
-            print(f"[PLAYWRIGHT] Validation error: {e}")
+            logger.error(f"[PLAYWRIGHT] Validation error: {e}")
             return False
     
     @staticmethod
@@ -197,22 +218,49 @@ class PlaywrightCoreUtils:
         if dst_path.exists():
             logger.warning(f"[PLAYWRIGHT] Cleaning existing {dst_path}")
             shutil.rmtree(dst_path, ignore_errors=True)
-        
+
         logger.info(f"[PLAYWRIGHT] Copying {src_path} -> {dst_path}")
         shutil.copytree(src_path, dst_path)
-        
-        # 也复制 browsers.json 从 playwright 包（如果存在）
-        try:
-            import playwright
-            playwright_package_dir = Path(playwright.__file__).parent / "driver" / "package"
-            browsers_json_src = playwright_package_dir / "browsers.json"
-            if browsers_json_src.exists():
-                shutil.copy2(browsers_json_src, dst_path / "browsers.json")
-                logger.info(f"[PLAYWRIGHT] Copied browsers.json from {browsers_json_src}")
-            else:
-                logger.warning(f"[PLAYWRIGHT] Warning: browsers.json not found at {browsers_json_src}")
-        except Exception as e:
-            logger.error(f"[PLAYWRIGHT] Warning: Could not copy browsers.json: {e}")
+
+        # 确保 browsers.json 文件存在且有效
+        browsers_json_dst = dst_path / "browsers.json"
+
+        # 首先检查复制的文件中是否已有有效的 browsers.json
+        if browsers_json_dst.exists():
+            try:
+                import json
+                with open(browsers_json_dst, 'r') as f:
+                    json.load(f)
+                logger.info(f"[PLAYWRIGHT] Valid browsers.json already exists at {browsers_json_dst}")
+            except Exception as e:
+                logger.warning(f"[PLAYWRIGHT] Invalid browsers.json found, will replace: {e}")
+                browsers_json_dst.unlink(missing_ok=True)
+
+        # 如果没有有效的 browsers.json，从 playwright 包复制
+        if not browsers_json_dst.exists():
+            try:
+                import playwright
+                playwright_package_dir = Path(playwright.__file__).parent / "driver" / "package"
+                browsers_json_src = playwright_package_dir / "browsers.json"
+                if browsers_json_src.exists():
+                    shutil.copy2(browsers_json_src, browsers_json_dst)
+                    logger.info(f"[PLAYWRIGHT] Copied browsers.json from {browsers_json_src}")
+
+                    # 验证复制的文件
+                    try:
+                        import json
+                        with open(browsers_json_dst, 'r') as f:
+                            json.load(f)
+                        logger.info(f"[PLAYWRIGHT] Verified browsers.json is valid")
+                    except Exception as e:
+                        logger.error(f"[PLAYWRIGHT] Copied browsers.json is invalid: {e}")
+                        raise
+                else:
+                    logger.warning(f"[PLAYWRIGHT] Warning: browsers.json not found at {browsers_json_src}")
+                    raise FileNotFoundError(f"browsers.json not found at {browsers_json_src}")
+            except Exception as e:
+                logger.error(f"[PLAYWRIGHT] Failed to copy browsers.json: {e}")
+                raise
     
 
     
