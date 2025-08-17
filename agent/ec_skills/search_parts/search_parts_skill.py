@@ -275,7 +275,7 @@ def search_parametric_filters_node(state: NodeState) -> NodeState:
         state["error"] = "Agent not ready"
         return state
     mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -306,7 +306,7 @@ def collect_search_results_node(state: NodeState) -> NodeState:
         state["error"] = "Agent not ready"
         return state
     mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -338,7 +338,7 @@ def final_select_node(state: NodeState) -> NodeState:
         state["error"] = "Agent not ready"
         return state
     mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         # score and ranking
         if state["tool_result"]:
@@ -364,7 +364,7 @@ def check_goals_node(state: NodeState) -> NodeState:
         state["error"] = "Agent not ready"
         return state
     mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         # do final round of filtering and ranking based on original goals and user preferences
@@ -396,7 +396,7 @@ def send_results_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         # use A2A to send results to chatter process, and chatter will send
         # results to supervisor via chat.

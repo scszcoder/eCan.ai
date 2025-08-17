@@ -174,7 +174,7 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])

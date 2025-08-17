@@ -38,7 +38,7 @@ from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, llm_no
 
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
-
+OWNER = "pubic"
 def _ensure_context(ctx: WorkFlowContext) -> WorkFlowContext:
     """Get params that configure the search algorithm."""
     if ctx.this_node:
@@ -52,7 +52,7 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -175,7 +175,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         current_node_name = runtime.context["this_node"].get("name")
         # print("current node:", current_node)
         nodes = [{"askid": "skid0", "name": current_node_name}]
-        full_node_name = f"{THIS_SKILL_NAME}:{current_node_name}"
+        full_node_name = f"{OWNER}{THIS_SKILL_NAME}:{current_node_name}"
         nodes_prompts = run_pre_llm_hook(current_node_name, agent, state)
 
         print("networked prompts:", nodes_prompts)
