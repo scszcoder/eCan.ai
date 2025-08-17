@@ -400,7 +400,7 @@ async def in_browser_scrape_content(mainwin, args):
     try:
         crawler = mainwin.getWebCrawler()
         if not crawler:
-            web_driver = mainwin.web_driver
+            web_driver = mainwin.getWebDriver()
             dom_service = mainwin.dom_service
             dom_service.get_clickable_elements()
         else:

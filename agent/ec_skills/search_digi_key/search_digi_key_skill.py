@@ -429,7 +429,7 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -457,7 +457,7 @@ def fill_user_parametric_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -485,7 +485,7 @@ def obtain_search_results_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -514,7 +514,7 @@ def final_select_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         webdriver.switch_to.window(webdriver.window_handles[0])
@@ -542,7 +542,7 @@ def check_goals_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         # do final round of filtering and ranking based on original goals and user preferences
@@ -566,7 +566,7 @@ def send_results_node(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    webdriver = mainwin.default_webdriver
+    webdriver = mainwin.getWebDriver()
     try:
         url = state["messages"][0]
         # adapt results to GUI notification format.
