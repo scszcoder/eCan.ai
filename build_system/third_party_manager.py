@@ -292,108 +292,6 @@ class PlaywrightHandler(ThirdPartyHandler):
         return False
 
 
-class ElectronHandler(ThirdPartyHandler):
-    """Handler for Electron runtime files"""
-    
-    def find_source_files(self) -> List[Path]:
-        """Find Electron installation"""
-        # Implementation similar to PlaywrightHandler
-        current_platform = platform.system().lower()
-        source_paths = self.config.get('source_paths', {}).get(current_platform, [])
-        
-        found_paths = []
-        for path_str in source_paths:
-            expanded_path = Path(path_str.replace('~', str(Path.home())))
-            if expanded_path.exists():
-                found_paths.append(expanded_path)
-        
-        return found_paths
-    
-    def validate_source(self, source_path: Path) -> bool:
-        """Validate Electron installation"""
-        # Look for electron executable or electron directory
-        electron_files = ['electron', 'electron.exe', 'Electron.app']
-        for electron_file in electron_files:
-            if (source_path / electron_file).exists():
-                return True
-        return False
-
-
-# Add more handlers as needed...
-class ChromeDriverHandler(ThirdPartyHandler):
-    """Handler for ChromeDriver standalone executable"""
-
-    def find_source_files(self) -> List[Path]:
-        current_platform = platform.system().lower()
-        source_paths = self.config.get('source_paths', {}).get(current_platform, [])
-
-        found_paths = []
-        for path_str in source_paths:
-            expanded_path = Path(path_str.replace('~', str(Path.home())))
-
-            if expanded_path.exists():
-                # Check if it's a directory containing chromedriver
-                if expanded_path.is_dir():
-                    chromedriver_files = self._find_chromedriver_in_dir(expanded_path)
-                    if chromedriver_files:
-                        found_paths.extend(chromedriver_files)
-                # Check if it's the chromedriver file itself
-                elif self._is_chromedriver_file(expanded_path):
-                    found_paths.append(expanded_path)
-
-        # Also search in PATH
-        path_chromedriver = self._find_chromedriver_in_path()
-        if path_chromedriver:
-            found_paths.append(path_chromedriver)
-
-        return found_paths
-
-    def validate_source(self, source_path: Path) -> bool:
-        """Validate ChromeDriver executable"""
-        if source_path.is_file():
-            return self._is_chromedriver_file(source_path)
-        elif source_path.is_dir():
-            return len(self._find_chromedriver_in_dir(source_path)) > 0
-        return False
-
-    def _is_chromedriver_file(self, file_path: Path) -> bool:
-        """Check if file is a ChromeDriver executable"""
-        if not file_path.is_file():
-            return False
-
-        name = file_path.name.lower()
-        return name in ['chromedriver', 'chromedriver.exe']
-
-    def _find_chromedriver_in_dir(self, directory: Path) -> List[Path]:
-        """Find ChromeDriver files in a directory"""
-        chromedriver_files = []
-
-        # Look for chromedriver files
-        for pattern in ['chromedriver', 'chromedriver.exe']:
-            matches = list(directory.glob(pattern))
-            chromedriver_files.extend(matches)
-
-        # Also check subdirectories (one level deep)
-        for subdir in directory.iterdir():
-            if subdir.is_dir():
-                for pattern in ['chromedriver', 'chromedriver.exe']:
-                    matches = list(subdir.glob(pattern))
-                    chromedriver_files.extend(matches)
-
-        return chromedriver_files
-
-    def _find_chromedriver_in_path(self) -> Optional[Path]:
-        """Find ChromeDriver in system PATH"""
-        try:
-            import shutil
-            chromedriver_path = shutil.which('chromedriver')
-            if chromedriver_path:
-                return Path(chromedriver_path)
-        except Exception:
-            pass
-
-        return None
-
 
 class FFmpegHandler(ThirdPartyHandler):
     """Handler for FFmpeg multimedia framework"""
@@ -543,8 +441,6 @@ class ThirdPartyManager:
         """Register all available handlers"""
         handler_classes = {
             'PlaywrightHandler': PlaywrightHandler,
-            'ElectronHandler': ElectronHandler,
-            'ChromeDriverHandler': ChromeDriverHandler,
             'FFmpegHandler': FFmpegHandler,
             'SeleniumDriverHandler': SeleniumDriverHandler,
             'GitPortableHandler': GitPortableHandler
