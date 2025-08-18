@@ -137,6 +137,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         if ECHO_REPLY_ENABLED:
             echo_and_push_message_async(chat_args['chatId'], chat_args)
         else:
+            request['params']['human'] = True
             a2a_send_chat(main_window, request)
         return create_success_response(request, result)
     except Exception as e:

@@ -9,6 +9,8 @@ import time
 import traceback
 import platform
 import os
+import pywintypes
+import win32serviceutil
 
 # select webbrowser - exe path
 # select auto run time.
@@ -27,6 +29,64 @@ import os
 # translator = QTranslator(app)
 # translator.load('/usr/share/my_app/tr/qt_%s.qm' % locale[0])
 # app.installTranslator(translator)
+
+def ensure_spooler_running():
+    try:
+        status = win32serviceutil.QueryServiceStatus("Spooler")[1]
+        # 4 = RUNNING, 1 = STOPPED
+        if status != 4:
+            win32serviceutil.StartService("Spooler")
+            for _ in range(10):
+                time.sleep(0.5)
+                if win32serviceutil.QueryServiceStatus("Spooler")[1] == 4:
+                    break
+    except Exception:
+        # If permissions block service control, at least we tried.
+        pass
+
+def ensure_spooler_running():
+    try:
+        status = win32serviceutil.QueryServiceStatus("Spooler")[1]
+        # 4 = RUNNING, 1 = STOPPED
+        if status != 4:
+            win32serviceutil.StartService("Spooler")
+            for _ in range(10):
+                time.sleep(0.5)
+                if win32serviceutil.QueryServiceStatus("Spooler")[1] == 4:
+                    break
+    except Exception:
+        # If permissions block service control, at least we tried.
+        pass
+
+
+def win_list_printers(server: str | None = None, level: int = 2):
+    """
+    Enumerate printers. If `server` is None -> local; else enumerate on \\server.
+    Retries once if the spooler isn't running (common cause of RPC 1722).
+    """
+    if server:
+        server = r"\\" + server.lstrip("\\")   # ensure UNC
+        flags = win32print.PRINTER_ENUM_NAME
+        name  = server
+    else:
+        flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+        name  = None
+
+    def _enum():
+        return win32print.EnumPrinters(flags, name, level)
+
+    try:
+        return _enum()
+    except pywintypes.error as e:
+        if e.winerror == 1722:  # RPC server unavailable
+            # Try to start spooler and retry once
+            try:
+                win32serviceutil.StartService("Spooler")
+            except Exception:
+                pass
+            time.sleep(1.0)
+            return _enum()
+        raise  # rethrow other errors
 
 
 class SettingsWidget(QMainWindow):
@@ -147,10 +207,9 @@ class SettingsWidget(QMainWindow):
     def list_printers(self):
         try:
             if platform.system() == 'Windows':
-                printers = win32print.EnumPrinters(
-                    win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
-                )
-                self.printers = printers
+                # flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+                # printers = win32print.EnumPrinters(flags, None, 2)
+                self.printers = win_list_printers()
             else:  # macOS
                 # Use lpstat to get printer list
                 result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True)

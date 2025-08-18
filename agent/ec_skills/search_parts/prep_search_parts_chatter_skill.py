@@ -1,3 +1,5 @@
+from agent.ec_skill import NodeState
+
 
 # whatever attachments should have been saved, read, packaged into the right form by the human twin agent
 # and sent over via A2A, by the time we get them here, they'are already in the msg object
@@ -14,10 +16,21 @@ def prep_search_parts_chatter_skill(agent, msg):
             attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
                                 "file_data": part.file.bytes})
 
-    init_state = {
-        "messages": [agent.card.id, msg_txt],
-        "input": msg_txt,
-        "attachments": attachments
-    }
+    init_state = NodeState(
+        messages=[agent.card.id, msg_txt],
+        input=msg_txt,
+        attachments=attachments,
+        prompts=[],
+        formatted_prompts=[],
+        attributes={},
+        result={},
+        tool_input={},
+        tool_result={},
+        error="",
+        retries=3,
+        condition=False,
+        case="",
+        goals=[]
+    )
     return init_state
 
