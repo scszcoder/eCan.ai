@@ -109,7 +109,9 @@ import requests
 from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_openai import ChatOpenAI
-from langchain_community.chat_models import ChatDeepSeek, ChatQwen, ChatClaude
+from langchain_community.chat_models import ChatAnthropic
+from langchain_deepseek import ChatDeepSeek
+from langchain_qwq import ChatQwQ
 
 
 def get_country_by_ip() -> str | None:
@@ -140,14 +142,14 @@ def pick_llm(settings):
                         cn_llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
                 elif settings.get("cn_llm_model") == "qwen":
                     if settings.get("cn_llm_model", False):
-                        cn_llm = ChatQwen(model=settings.get("cn_llm_model"), temperature=0)
+                        cn_llm = ChatQwQ(model=settings.get("cn_llm_model"), temperature=0)
                     else:
-                        cn_llm = ChatQwen(model="qwen-max", temperature=0)
+                        cn_llm = ChatQwQ(model="qwq-plus", temperature=0)
             else:
                 cn_llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
             return cn_llm
         except Exception:
-            return ChatQwen(model="qwen-max", temperature=0)
+            return ChatQwQ(model="qwq-plus", temperature=0)
     elif country == "US":
         try:
             if settings.get("us_llm_provider", False):
@@ -158,15 +160,15 @@ def pick_llm(settings):
                         us_llm = ChatOpenAI(model="gpt-4o", temperature=0)
                 elif settings.get("us_llm_model") == "claude":
                     if settings.get("us_llm_model", False):
-                        us_llm = ChatClaude(model=settings.get("us_llm_model"), temperature=0)
+                        us_llm = ChatAnthropic(model=settings.get("us_llm_model"), temperature=0)
                     else:
-                        us_llm = ChatClaude(model="claude-sonnet-4-20250514", temperature=0)
+                        us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
             else:
                 us_llm = ChatOpenAI(model="gpt-4o", temperature=0)
 
             return us_llm
         except Exception:
-            us_llm = ChatClaude(model="Claude Sonnet 4", temperature=0)
+            us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
             return us_llm
     else:
         return ChatOpenAI(model="gpt-4o", temperature=0)
