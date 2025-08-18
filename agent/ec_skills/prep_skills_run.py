@@ -8,10 +8,10 @@ from agent.ec_skills.self_test.prep_self_test_skill import *
 from agent.ec_skills.self_test.prep_self_test_chatter_skill import *
 from agent.ec_skills.ecbot_rpa.prep_ecbot_rpa_skill import *
 from agent.ec_skills.ecbot_rpa.prep_ecbot_rpa_chatter_skill import *
-from agent.ec_skills.my_twin.init_my_twin_chatter_skill import *
+from agent.ec_skills.my_twin.prep_my_twin_chatter_skill import *
 
 SKILL_PREP_TABLE = {
-    "chatter for my digital twin": init_my_twin_chatter_skill,
+    "chatter for my digital twin": prep_my_twin_chatter_skill,
     "ecbot rpa helper": prep_ecbot_rpa_helper_skill,
     "chatter for ecbot rpa helper": prep_ecbot_rpa_helper_chatter_skill,
     "ecbot rpa operator run RPA": prep_ecbot_rpa_operator_skill,
