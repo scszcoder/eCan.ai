@@ -229,23 +229,23 @@ jobs:
       run: |
         echo "=== Checking Build Environment ==="
         python scripts/check_build_env.py
-        
+
         echo "=== Checking Architecture Selection ==="
         echo "Selected architecture: ${{ github.event.inputs.arch || 'amd64 (default)' }}"
         echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
         echo "Note: Windows only supports amd64 architecture"
-        
+
         echo "=== Checking Windows Environment Variables ==="
-        if [ "${{ env.WIN_CERT_PFX }}" != "NOT_SET" ]; then
+        if ("${{ env.WIN_CERT_PFX }}" -ne "NOT_SET") {
           echo "WIN_CERT_PFX: Set"
-        else
+        } else {
           echo "WIN_CERT_PFX: Not set"
-        fi
-        if [ "${{ env.WIN_CERT_PASSWORD }}" != "NOT_SET" ]; then
+        }
+        if ("${{ env.WIN_CERT_PASSWORD }}" -ne "NOT_SET") {
           echo "WIN_CERT_PASSWORD: Set"
-        else
+        } else {
           echo "WIN_CERT_PASSWORD: Not set"
-        fi
+        }
 
     - name: Build Windows EXE
       run: |

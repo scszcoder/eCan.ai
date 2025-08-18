@@ -59,26 +59,36 @@ def _get_browser_info(browsers_path: Path) -> Dict[str, Any]:
     return info
 
 
-def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None, 
+def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
                                    force_refresh: bool = False) -> Path:
     """Ensure Playwright browsers are available at a writable path and set env.
-    
+
     This function ensures that Playwright browsers are available at a writable
     location and sets the necessary environment variables.
-    
+
     Args:
         app_data_root: Optional path to app data directory. If None, uses default.
         force_refresh: If True, force refresh the browser installation.
-        
+
     Returns:
         Path to the directory containing Playwright browsers.
-        
+
     The function follows this logic:
     - Frozen runtime: <_MEIPASS>/third_party/ms-playwright
     - Dev runtime: <repo>/third_party/ms-playwright
     - If found, copy to <app_data_root>/ms-playwright when missing or incomplete.
     - Finally set PLAYWRIGHT_BROWSERS_PATH to the writable directory and return it.
     """
+    # PyInstaller 特殊处理：直接使用打包的浏览器
+    if getattr(sys, 'frozen', False):
+        bundled_path = Path(sys._MEIPASS) / 'third_party' / 'ms-playwright'
+        if bundled_path.exists() and _validate_browser_installation(bundled_path):
+            logger.info(f"Using bundled Playwright browsers in PyInstaller: {bundled_path}")
+            core_utils.set_environment_variables(bundled_path)
+            return bundled_path
+        else:
+            logger.warning(f"Bundled browsers not found or invalid at: {bundled_path}")
+
     # 检查是否已经设置了有效的环境变量
     existing_path = core_utils.get_environment_browsers_path()
     if existing_path and not force_refresh:

@@ -74,7 +74,7 @@ class AppContext:
     def get_playwright_browsers_path(self) -> Optional[str]:
         """获取 Playwright 浏览器路径（统一接口）"""
         # 优先从环境变量获取（实时状态）
-        from agent.playwright.core import setup_playwright
-        return setup_playwright.get_playwright_browsers_path()
+        from agent.playwright.core.setup import get_playwright_browsers_path
+        return get_playwright_browsers_path()
 
     # 你可以继续添加更多 set/get 方法 
