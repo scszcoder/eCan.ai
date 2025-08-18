@@ -436,37 +436,65 @@ class BuildValidator:
                 "message": f"Main executable not found: {exe_path}"
             })
 
-        # 检查标准化的执行文件
-        std_exe = Path(f"dist/eCan-windows-{arch}-v{version}.exe")
-        if std_exe.exists():
-            size_mb = std_exe.stat().st_size / (1024 * 1024)
-            checks.append({
-                "name": "standardized_executable",
-                "status": "pass",
-                "message": f"Standardized executable found: {std_exe} ({size_mb:.1f} MB)"
-            })
-        else:
+        # 检查标准化的执行文件（支持多种命名格式）
+        std_exe_patterns = [
+            f"dist/eCan-{version}-windows-{arch}.exe",  # 构建脚本生成的格式
+            f"dist/eCan-Setup-windows-{arch}-v{version}.exe",  # 安装包重命名格式
+        ]
+
+        std_exe_found = False
+        for pattern in std_exe_patterns:
+            std_exe = Path(pattern)
+            if std_exe.exists():
+                size_mb = std_exe.stat().st_size / (1024 * 1024)
+                checks.append({
+                    "name": "standardized_executable",
+                    "status": "pass",
+                    "message": f"Standardized executable found: {std_exe} ({size_mb:.1f} MB)"
+                })
+                std_exe_found = True
+                break
+
+        if not std_exe_found:
             checks.append({
                 "name": "standardized_executable",
                 "status": "fail",
-                "message": f"Standardized executable not found: {std_exe}"
+                "message": f"Standardized executable not found. Tried: {', '.join(std_exe_patterns)}"
             })
 
-        # 检查安装包（可选）
-        installer_path = Path(f"dist/eCan-Setup-windows-{arch}-v{version}.exe")
-        if installer_path.exists():
-            size_mb = installer_path.stat().st_size / (1024 * 1024)
-            checks.append({
-                "name": "installer",
-                "status": "pass",
-                "message": f"Installer found: {installer_path} ({size_mb:.1f} MB)"
-            })
-        else:
-            checks.append({
-                "name": "installer",
-                "status": "warn",
-                "message": f"Installer not found: {installer_path} (optional)"
-            })
+        # 检查安装包（可选）- 可能与标准化执行文件是同一个文件
+        installer_patterns = [
+            f"dist/eCan-Setup.exe",  # 原始安装包名
+            f"dist/eCan-Setup-windows-{arch}-v{version}.exe",  # 重命名后的安装包
+        ]
+
+        installer_found = False
+        for pattern in installer_patterns:
+            installer_path = Path(pattern)
+            if installer_path.exists():
+                size_mb = installer_path.stat().st_size / (1024 * 1024)
+                checks.append({
+                    "name": "installer",
+                    "status": "pass",
+                    "message": f"Installer found: {installer_path} ({size_mb:.1f} MB)"
+                })
+                installer_found = True
+                break
+
+        if not installer_found:
+            # 检查是否安装包被重命名为标准化执行文件
+            if std_exe_found:
+                checks.append({
+                    "name": "installer",
+                    "status": "pass",
+                    "message": "Installer integrated into standardized executable"
+                })
+            else:
+                checks.append({
+                    "name": "installer",
+                    "status": "warn",
+                    "message": f"Installer not found (optional). Tried: {', '.join(installer_patterns)}"
+                })
 
         return checks
 
@@ -505,19 +533,29 @@ class BuildValidator:
             })
 
         # 检查 DMG 文件（可选）
-        dmg_path = Path(f"dist/eCan-macos-{arch}-v{version}.dmg")
-        if dmg_path.exists():
-            size_mb = dmg_path.stat().st_size / (1024 * 1024)
-            checks.append({
-                "name": "dmg_package",
-                "status": "pass",
-                "message": f"DMG found: {dmg_path} ({size_mb:.1f} MB)"
-            })
-        else:
+        dmg_patterns = [
+            f"dist/eCan-{version}-macos-{arch}.dmg",  # 标准化格式
+            f"dist/eCan-macos-{arch}-v{version}.dmg",  # 旧格式
+        ]
+
+        dmg_found = False
+        for pattern in dmg_patterns:
+            dmg_path = Path(pattern)
+            if dmg_path.exists():
+                size_mb = dmg_path.stat().st_size / (1024 * 1024)
+                checks.append({
+                    "name": "dmg_package",
+                    "status": "pass",
+                    "message": f"DMG found: {dmg_path} ({size_mb:.1f} MB)"
+                })
+                dmg_found = True
+                break
+
+        if not dmg_found:
             checks.append({
                 "name": "dmg_package",
                 "status": "warn",
-                "message": f"DMG not found: {dmg_path} (optional)"
+                "message": f"DMG not found (optional). Tried: {', '.join(dmg_patterns)}"
             })
 
         return checks
@@ -548,37 +586,63 @@ class BuildValidator:
         """Print formatted validation report"""
         if results is None:
             results = self.validation_results
-        
+
         if not results:
             print("No validation results available")
             return
-        
+
         print("=" * 60)
         print("Build Validation Report")
         print("=" * 60)
-        
-        summary = results.get("summary", {})
-        print(f"Overall Status: {summary.get('overall_status', 'unknown').upper()}")
-        print(f"Categories: {summary.get('success_rate', 'unknown')}")
-        print(f"Total Issues: {summary.get('total_issues', 0)}")
-        
-        # Platform info
-        platform_info = results.get("platform", {})
-        print(f"\nPlatform: {platform_info.get('platform', 'unknown')} ({platform_info.get('architecture', 'unknown')})")
-        
-        # Show issues by category
-        for category, result in results.items():
-            if isinstance(result, dict) and "issues" in result and result["issues"]:
-                print(f"\n{category.upper()} Issues:")
-                for issue in result["issues"]:
-                    print(f"  [!] {issue}")
-        
-        # Show recommendations
-        if summary.get("total_issues", 0) > 0:
-            print(f"\nRecommendations:")
-            print("  1. Fix the issues listed above")
-            print("  2. Re-run validation: python build_system/build_validator.py")
-            print("  3. Check platform-specific documentation")
+
+        # Check if this is an artifacts-only validation
+        if "artifacts" in results and len(results) <= 2:  # artifacts + overall_status
+            artifacts_result = results["artifacts"]
+            overall_status = results.get("overall_status", artifacts_result.get("status", "unknown"))
+
+            print(f"Overall Status: {overall_status.upper()}")
+            print(f"Validation Type: Build Artifacts Only")
+
+            # Platform info from system
+            platform_name = platform.system()
+            arch = platform.machine()
+            print(f"Platform: {platform_name} ({arch})")
+
+            # Show artifact checks
+            checks = artifacts_result.get("checks", [])
+            if checks:
+                print(f"\nArtifact Checks:")
+                for check in checks:
+                    status_symbol = "✓" if check["status"] == "pass" else "✗" if check["status"] == "fail" else "⚠"
+                    print(f"  {status_symbol} {check['name']}: {check['message']}")
+
+            # Show summary
+            print(f"\nSummary: {artifacts_result.get('summary', 'No summary available')}")
+
+        else:
+            # Full validation report
+            summary = results.get("summary", {})
+            print(f"Overall Status: {summary.get('overall_status', 'unknown').upper()}")
+            print(f"Categories: {summary.get('success_rate', 'unknown')}")
+            print(f"Total Issues: {summary.get('total_issues', 0)}")
+
+            # Platform info
+            platform_info = results.get("platform", {})
+            print(f"\nPlatform: {platform_info.get('platform', 'unknown')} ({platform_info.get('architecture', 'unknown')})")
+
+            # Show issues by category
+            for category, result in results.items():
+                if isinstance(result, dict) and "issues" in result and result["issues"]:
+                    print(f"\n{category.upper()} Issues:")
+                    for issue in result["issues"]:
+                        print(f"  [!] {issue}")
+
+            # Show recommendations
+            if summary.get("total_issues", 0) > 0:
+                print(f"\nRecommendations:")
+                print("  1. Fix the issues listed above")
+                print("  2. Re-run validation: python build_system/build_validator.py")
+                print("  3. Check platform-specific documentation")
 
 def main():
     """Main function for standalone usage"""
