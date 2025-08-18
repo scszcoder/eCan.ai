@@ -13,7 +13,8 @@ from utils.logger_helper import get_agent_by_id, logger_helper as logger
 # and pipe agent response back to human
 
 def human_message(state):
-    human_msg = True
+    human_msg = state["attributes"].get("human", False)
+    logger.debug(f"human message? {human_msg}")
     return human_msg
 
 def parrot(state: NodeState) -> NodeState:
@@ -46,6 +47,25 @@ def parrot(state: NodeState) -> NodeState:
                 logger.error("recipient agent not found!")
             # result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
             result = agent.a2a_send_chat_message(recipient_agent, {"chat": state})
+        else:
+            # sendd this message to GUI
+            frontend_message = {
+                "content": {
+                    "type": state.attributes["params"]["metadata"]["type"],
+                    "text": state.messages[-1],
+                    "card": state.attributes["params"]["metadata"]["card"],
+                    "code": state.attributes["params"]["metadata"]["code"],
+                    "form": state.attributes["params"]["metadata"]["form"],
+                    "notification": state.attributes["params"]["metadata"]["notification"],
+                },
+                "role": state.attributes["params"]["role"],
+                "senderId": state.attributes["params"]["senderId"],
+                "createAt": state.attributes["params"]["createAt"],
+                "senderName": state.attributes["params"]["senderName"],
+                "status": state.attributes["params"]["status"],
+                "ext": state.attributes["params"]["ext"],
+            }
+            mainwin.top_gui.get_ipc_api().push_message_to_chat(state.messages[1], frontend_message)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
     except Exception as e:

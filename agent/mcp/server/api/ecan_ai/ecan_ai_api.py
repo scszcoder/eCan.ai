@@ -45,8 +45,15 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
         if "body" not in response:
             logger.debug("Response missing 'body' field:", response)
             return []
-            
-        prompts = json.loads(response["body"])["data"]
+
+        raw_body = response["body"]
+
+        # First decode
+        level1 = json.loads(raw_body)  # dict with keys: data
+        level2 = json.loads(level1["data"]["body"])  # inner string -> dict
+        prompts = level2["data"]  # [[[ "system", "..."], ["human", "..."]]]
+
+        # prompts = json.loads(response["body"])["data"]
         usable_prompts = []
         for prompt in prompts:
             usable_prompts.append(
