@@ -34,3 +34,4 @@ gui_v2/coverage/
 /third_party/
 /third_party/ms-playwright/
 .build_cache
+/webdrivers/

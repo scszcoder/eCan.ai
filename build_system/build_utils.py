@@ -103,12 +103,22 @@ def _standardize_macos_artifacts(version: str, arch: str):
             try:
                 # Use hdiutil to create DMG
                 import subprocess
-                subprocess.run([
-                    "hdiutil", "create", "-volname", "eCan",
-                    "-srcfolder", str(app_path),
-                    "-ov", "-format", "UDZO",
-                    str(dmg_path)
-                ], check=True)
+
+                subprocess.run(
+                    [
+                        "hdiutil",
+                        "create",
+                        "-volname",
+                        "eCan",
+                        "-srcfolder",
+                        str(app_path),
+                        "-ov",
+                        "-format",
+                        "UDZO",
+                        str(dmg_path),
+                    ],
+                    check=True,
+                )
                 print(f"[RENAME] Created: {dmg_path.name}")
             except Exception as e:
                 print(f"[RENAME] Warning: Failed to create DMG: {e}")
@@ -177,14 +187,16 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
             root_path = Path(root)
 
             # Handle framework symlinks specifically
-            if root_path.name.endswith('.framework'):
+            if root_path.name.endswith(".framework"):
                 for item in root_path.iterdir():
                     if item.is_symlink():
                         try:
                             item.unlink()
                             print(f"[MACOS] Removed symlink: {item}")
                         except Exception as e:
-                            print(f"[MACOS] Warning: Failed to remove symlink {item}: {e}")
+                            print(
+                                f"[MACOS] Warning: Failed to remove symlink {item}: {e}"
+                            )
 
             # Handle other symlinks
             for file in files:
@@ -194,7 +206,9 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
                         file_path.unlink()
                         print(f"[MACOS] Removed symlink: {file_path}")
                     except Exception as e:
-                        print(f"[MACOS] Warning: Failed to remove symlink {file_path}: {e}")
+                        print(
+                            f"[MACOS] Warning: Failed to remove symlink {file_path}: {e}"
+                        )
 
         # Now remove the directory tree
         shutil.rmtree(build_path, ignore_errors=True)
@@ -213,7 +227,8 @@ def prepare_third_party_assets() -> None:
         # Set verbose mode (try to get from args if available)
         try:
             import sys
-            verbose = '--verbose' in sys.argv or '-v' in sys.argv
+
+            verbose = "--verbose" in sys.argv or "-v" in sys.argv
             set_verbose(verbose)
         except:
             pass
@@ -228,7 +243,9 @@ def prepare_third_party_assets() -> None:
         total_count = len(results)
 
         if success_count > 0:
-            print(f"[THIRD-PARTY] Successfully processed {success_count}/{total_count} components")
+            print(
+                f"[THIRD-PARTY] Successfully processed {success_count}/{total_count} components"
+            )
             for name, success in results.items():
                 status = "✓" if success else "✗"
                 print(f"[THIRD-PARTY]   {status} {name}")
@@ -236,7 +253,7 @@ def prepare_third_party_assets() -> None:
             print("[THIRD-PARTY] No third-party components processed")
 
         # Special handling for Playwright if it failed
-        if not results.get('playwright', False):
+        if not results.get("playwright", False):
             print("[THIRD-PARTY] Playwright processing failed, using fallback...")
             prepare_playwright_assets_fallback()
 
@@ -252,7 +269,8 @@ def prepare_playwright_assets_fallback() -> None:
         from build_system.playwright.utils import build_utils
 
         third_party = Path.cwd() / "third_party" / "ms-playwright"
-        build_utils.prepare_playwright_for_build(third_party)
+        # Use the standard build-time preparation API
+        build_utils.prepare_playwright_assets(third_party)
         print("[THIRD-PARTY] Fallback Playwright preparation completed")
     except Exception as e:
         print(f"[THIRD-PARTY] Fallback Playwright preparation failed: {e}")
@@ -281,7 +299,9 @@ def _dev_sign_windows():
     cert_password = os.getenv("DEV_WIN_CERT_PASSWORD")
 
     if not cert_pfx or not cert_password:
-        print("[DEV-SIGN] Windows: DEV_WIN_CERT_PFX or DEV_WIN_CERT_PASSWORD not set, skipping")
+        print(
+            "[DEV-SIGN] Windows: DEV_WIN_CERT_PFX or DEV_WIN_CERT_PASSWORD not set, skipping"
+        )
         return
 
     print("[DEV-SIGN] Windows: Development signing enabled")

@@ -6810,7 +6810,8 @@ class MainWindow(QMainWindow):
                         api_missions = []
                         # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
                         dataType = "missionJSFile"
-                        filebmissions = json.load(filename)
+                        with open(filename, 'r', encoding='utf-8') as f:
+                            filebmissions = json.load(f)
                         if len(filebmissions) > 0:
                             #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
@@ -6864,8 +6865,9 @@ class MainWindow(QMainWindow):
                             mJson["pseudoBrand"] = self.generateShortHash(pkString+":"+mJson.get("brand", "NoneBrand"))
                             mJson["pseudoASIN"] = self.generateShortHash(pkString+":"+mJson["asin"])
 
-                            if not mJson["feedback_type"]:
-                                mJson["type"] = mTypeTable[mJson["feedback_type"]]
+                            ft = mJson.get("feedback_type")
+                            if ft:
+                                mJson["type"] = mTypeTable.get(ft, "buy")
                             else:
                                 mJson["type"] = "buy"
 
