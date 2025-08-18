@@ -143,6 +143,7 @@ class AgentTaskManager(InMemoryTaskManager):
         print("task id:", request.params.id, request.params.sessionId, request.params.metadata)
         validation_error = self._validate_request(request)
         if validation_error:
+            print("VALIDATION ERROR:", validation_error)
             return SendTaskResponse(id=request.id, error=validation_error.error)
         
         if request.params.pushNotification:
@@ -165,8 +166,10 @@ class AgentTaskManager(InMemoryTaskManager):
             msg_js = request.params.message  # need , encoding='utf-8'?
             print("meta type:", msg_js.metadata["type"])
             if msg_js.metadata["type"] == "send_task":
+                logger.info("task wait in line")
                 agent_wait_response = await self._agent.runner.task_wait_in_line(request)
             elif msg_js.metadata["type"] == "send_chat":
+                logger.info("chat wait in line")
                 agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
             else:
                 agent_wait_response = {}

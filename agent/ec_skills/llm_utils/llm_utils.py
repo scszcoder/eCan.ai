@@ -100,6 +100,18 @@ def prep_multi_modal_content(state, runtime):
         err_trace = get_traceback(e, "ErrorPrepMultiModalContent")
         logger.debug(err_trace)
 
+def get_standard_prompt(state:NodeState) -> NodeState:
+    boss = "Guest User"
+    standard_prompt_template = [
+                ("system", """
+                    You're a e-commerce business expert helping your human boss {boss_name} to run best performance e-commerce business. 
+                    Given the latest human boss message,  try your best to understand it and respond to it.
+                """),
+                ("human", "{input}")
+            ]
+    langchain_prompt = ChatPromptTemplate.from_messages(standard_prompt_template)
+    formatted_prompt = langchain_prompt.format_messages(boss_name=boss, input=state["input"])
+    return formatted_prompt
 
 
 def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore, skill_name) -> NodeState:

@@ -34,7 +34,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.mcp.local_client import mcp_call_tool
 from agent.chats.tests.test_notifications import sample_metrics_0
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
-from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, llm_node_with_raw_files
+from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, llm_node_with_raw_files, get_standard_prompt
 
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
@@ -174,17 +174,18 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         print("run time:", runtime)
         current_node_name = runtime.context["this_node"].get("name")
         # print("current node:", current_node)
-        nodes = [{"askid": "skid0", "name": current_node_name}]
-        full_node_name = f"{OWNER}{THIS_SKILL_NAME}:{current_node_name}"
-        nodes_prompts = run_pre_llm_hook(current_node_name, agent, state)
+        full_node_name = f"{OWNER}:{THIS_SKILL_NAME}:{current_node_name}"
+        run_pre_llm_hook(full_node_name, agent, state)
 
-        print("networked prompts:", nodes_prompts)
-        node_prompt = nodes_prompts[0]
+        print("networked prompts:", state["prompts"])
+        node_prompt = state["prompts"]
 
         mm_content = prep_multi_modal_content(state, runtime)
-        langchain_prompt = ChatPromptTemplate.from_messages(node_prompt)
-        formatted_prompt = langchain_prompt.format_messages(component_info=state["input"], categories=state["attributes"]["categories"])
 
+        if state["formatted_prompts"]:
+            formatted_prompt = state["formatted_prompts"][-1]
+        else:
+            formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
 
         llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
 
@@ -193,7 +194,7 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         response = llm.invoke(formatted_prompt)
         print("chat node: LLM response:", response)
         # Parse the response
-        run_post_llm_hook(current_node_name, agent, state, response)
+        run_post_llm_hook(full_node_name, agent, state, response)
 
     except Exception as e:
         # Get the traceback information

@@ -263,6 +263,7 @@ class NodeState(TypedDict):
     input: str
     attachments: List[FileAttachment]
     prompts: List[dict]
+    formatted_prompts: List[dict]
     messages: List[Any]
     attributes: dict
     result: dict

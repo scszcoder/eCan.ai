@@ -2,8 +2,9 @@ from utils.logger_helper import logger_helper as logger
 from agent.ec_skill import  *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
 from utils.logger_helper import get_agent_by_id, get_traceback
+from agent.ec_skills.search_parts.pre_llm_hooks import *
 from agent.ec_skills.search_parts.post_llm_hooks import *
-
+# from agent.ec_skills.llm_utils.llm_utils import *
 
 # just get the right prompt for this node
 def standard_pre_llm_hook(askid, full_node_name, agent, state):
@@ -11,8 +12,16 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
         agent_id = state["messages"][0]
         agent = get_agent_by_id(agent_id)
         mainwin = agent.mainwin
-        nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, [full_node_name])
+        node_info = {"askid": askid, "name": full_node_name}
+        nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, [node_info])
+        # mm_content = prep_multi_modal_content(state, runtime)
+
         state["prompts"] = nodes_prompts[0]
+        langchain_prompt = ChatPromptTemplate.from_messages(state["prompts"])
+        formatted_prompt = langchain_prompt.format_messages(boss_name = "Guest User", input=state["input"])
+        print("state:", state)
+        state["formatted_prompts"].append(formatted_prompt)
+
         logger.debug(f"standard_pre_llm_hook: {full_node_name} prompts: {nodes_prompts}")
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
@@ -20,14 +29,14 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state):
 
 
 
-def standard_post_llm_func(state, response):
+def standard_post_llm_func(askid, node_name, state, response):
     try:
         import json
         import ast  # Add this import at the top of your file
 
         # Extract content from AIMessage if needed
         raw_content = response.content if hasattr(response, 'content') else str(response)
-        print("Raw content:", raw_content)  # Debug log
+        print("standard_post_llm_func Raw llm response content:", raw_content)  # Debug log
 
         # Clean up the response
         if is_json_parsable(raw_content):
@@ -51,15 +60,67 @@ def standard_post_llm_func(state, response):
             else:
                 result = raw_content
 
-        return {"llm_result": result}
+        llm_result = {"llm_result": result}
+        logger.debug(f"standard_post_llm_func: llm_result: {llm_result}")
+        return llm_result
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPostLLMFunc")
         logger.debug(err_trace)
         return {"llm_result": err_trace}
 
+def send_response_back(state: NodeState) -> NodeState:
+    try:
+        agent_id = state["messages"][0]
+        # _ensure_context(runtime.context)
+        self_agent = get_agent_by_id(agent_id)
+        mainwin = self_agent.mainwin
+        twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
+
+        print("standard_post_llm_hook send_response_back:", state)
+        chat_id = state["messages"][1]
+        msg_id = str(uuid.uuid4()),
+        # send self a message to trigger the real component search work-flow
+        agent_response_message = {
+            "id": str(uuid.uuid4()),
+            "chat": {
+                "input": state["result"]["llm_result"],
+                "attachments": [],
+                "messages": [self_agent.card.id, chat_id, msg_id, "", state["result"]["llm_result"]],
+            },
+            "params": {
+                "content": state["result"]["llm_result"],
+                "attachments": state["attachments"],
+                "metadata": {
+                    "type": "text", # "text", "code", "form", "notification", "card
+                    "card": {},
+                    "code": {},
+                    "form": {},
+                    "notification": {},
+                },
+                "role": "",
+                "senderId": f"{agent_id}",
+                "createAt": int(time.time() * 1000),
+                "senderName": f"{self_agent.card.name}",
+                "status": "success",
+                "ext": "",
+                "human": False
+            }
+        }
+        print("sending response msg back to twin:", agent_response_message)
+        send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
+        # state.result = result
+        return send_result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorSendResponseBack")
+        logger.debug(err_trace)
+        return err_trace
+
+
+
 def standard_post_llm_hook(askid, node_name, agent, state, response):
-    logger.debug("standard_post_llm_hook: do none")
+    send_result = send_response_back(state)
+    logger.debug(f"standard_post_llm_hook: {send_result}")
 
 
 PRE_LLM_HOOKS_TABLE = {
@@ -104,6 +165,7 @@ POST_LLM_HOOKS_TABLE = {
 # pre llm is mostly about preparing the prompt
 def run_pre_llm_hook(node_name, agent, state):
     mainwin = agent.mainwin
+    print("node_name:", node_name, agent.card.name)
     skill_name = node_name.split(":")[1]
     this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)
     askid = this_skill.askid
@@ -124,7 +186,7 @@ def run_pre_llm_hook(node_name, agent, state):
     # raise KeyError(f"pre llm hook not found for '{node_name}'. Available: {available}")
 
 # post llm is mostly about parsing the response and set up conditional variable for conditional edges (if there is one)
-def run_post_llm_hook(askid, node_name, agent, state, response):
+def run_post_llm_hook(node_name, agent, state, response):
     mainwin = agent.mainwin
     skill_name = node_name.split(":")[1]
     this_skill = next((sk for sk in mainwin.agent_skills if sk.name == skill_name), None)

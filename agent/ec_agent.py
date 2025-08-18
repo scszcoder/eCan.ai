@@ -361,7 +361,7 @@ class EC_Agent(Agent):
 					"chatId": message['chat']['messages'][1],
 				}
 			)
-
+			print("client payload:", payload)
 			logger.info("client payload:", payload)
 			# response = await self.a2a_client.send_task(payload)
 			response = self.a2a_client.sync_send_task(payload.model_dump())
