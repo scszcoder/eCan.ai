@@ -281,11 +281,11 @@ exit /b 1
             # 创建CLI包装器
             self.create_cli_wrapper(current_platform)
             
-            print(f"✓ {name} bundled successfully")
+            print(f"[OK] {name} bundled successfully")
             return True
-            
+
         except Exception as e:
-            print(f"✗ Failed to bundle {name}: {e}")
+            print(f"[FAIL] Failed to bundle {name}: {e}")
             return False
     
     def bundle_all(self) -> bool:

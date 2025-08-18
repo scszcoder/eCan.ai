@@ -247,7 +247,7 @@ def prepare_third_party_assets() -> None:
                 f"[THIRD-PARTY] Successfully processed {success_count}/{total_count} components"
             )
             for name, success in results.items():
-                status = "✓" if success else "✗"
+                status = "[OK]" if success else "[FAIL]"
                 print(f"[THIRD-PARTY]   {status} {name}")
         else:
             print("[THIRD-PARTY] No third-party components processed")

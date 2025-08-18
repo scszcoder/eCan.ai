@@ -613,7 +613,13 @@ class BuildValidator:
             if checks:
                 print(f"\nArtifact Checks:")
                 for check in checks:
-                    status_symbol = "✓" if check["status"] == "pass" else "✗" if check["status"] == "fail" else "⚠"
+                    # Use ASCII-safe symbols for better compatibility
+                    if check["status"] == "pass":
+                        status_symbol = "[OK]"
+                    elif check["status"] == "fail":
+                        status_symbol = "[FAIL]"
+                    else:
+                        status_symbol = "[WARN]"
                     print(f"  {status_symbol} {check['name']}: {check['message']}")
 
             # Show summary

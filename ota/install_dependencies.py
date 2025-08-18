@@ -48,9 +48,9 @@ def install_python_dependencies():
         subprocess.run([
             sys.executable, "-m", "pip", "install", "-r", requirements_file
         ], check=True)
-        print(f"✓ Python dependencies installed from {requirements_file}")
+        print(f"[OK] Python dependencies installed from {requirements_file}")
     except subprocess.CalledProcessError as e:
-        print(f"✗ Failed to install Python dependencies: {e}")
+        print(f"[FAIL] Failed to install Python dependencies: {e}")
         return False
     
     return True
@@ -70,10 +70,10 @@ def install_sparkle_macos():
     if homebrew_available:
         try:
             subprocess.run(["brew", "install", "sparkle"], check=True)
-            print("✓ Sparkle installed via Homebrew")
+            print("[OK] Sparkle installed via Homebrew")
             return True
         except subprocess.CalledProcessError:
-            print("✗ Failed to install Sparkle via Homebrew")
+            print("[FAIL] Failed to install Sparkle via Homebrew")
     
     print("Homebrew not available or installation failed.")
     print("Please install Sparkle manually:")
@@ -111,9 +111,9 @@ def install_winsparkle_windows():
         
         if dll_files:
             shutil.copy2(dll_files[0], lib_dir / "winsparkle.dll")
-            print(f"✓ winSparkle DLL copied to {lib_dir / 'winsparkle.dll'}")
+            print(f"[OK] winSparkle DLL copied to {lib_dir / 'winsparkle.dll'}")
         else:
-            print("✗ winSparkle DLL not found in downloaded archive")
+            print("[FAIL] winSparkle DLL not found in downloaded archive")
             return False
         
         # Cleanup
@@ -123,7 +123,7 @@ def install_winsparkle_windows():
         return True
         
     except Exception as e:
-        print(f"✗ Failed to install winSparkle: {e}")
+        print(f"[FAIL] Failed to install winSparkle: {e}")
         print("Please install winSparkle manually:")
         print("1. Download from: https://github.com/vslavik/winsparkle/releases")
         print("2. Extract and copy winsparkle.dll to your application directory")
@@ -144,7 +144,7 @@ def verify_installation():
         updater = OTAUpdater()
         status = updater.get_status()
         
-        print(f"✓ OTA system initialized")
+        print(f"[OK] OTA system initialized")
         print(f"  Platform: {status['platform']}")
         print(f"  App version: {status['app_version']}")
         
@@ -155,23 +155,23 @@ def verify_installation():
             if hasattr(updater.platform_updater, '_find_sparkle_framework'):
                 framework_path = updater.platform_updater._find_sparkle_framework()
                 if framework_path:
-                    print(f"✓ Sparkle framework found at: {framework_path}")
+                    print(f"[OK] Sparkle framework found at: {framework_path}")
                 else:
-                    print("⚠ Sparkle framework not found - will use generic updates")
+                    print("[WARN] Sparkle framework not found - will use generic updates")
         
         elif current_platform == "windows":
             if hasattr(updater.platform_updater, '_find_winsparkle_dll'):
                 dll_path = updater.platform_updater._find_winsparkle_dll()
                 if dll_path:
-                    print(f"✓ winSparkle DLL found at: {dll_path}")
+                    print(f"[OK] winSparkle DLL found at: {dll_path}")
                 else:
-                    print("⚠ winSparkle DLL not found - will use generic updates")
+                    print("[WARN] winSparkle DLL not found - will use generic updates")
         
-        print("✓ Installation verification completed")
+        print("[OK] Installation verification completed")
         return True
-        
+
     except Exception as e:
-        print(f"✗ Installation verification failed: {e}")
+        print(f"[FAIL] Installation verification failed: {e}")
         return False
 
 
@@ -184,7 +184,7 @@ def main():
     print(f"Detected platform: {current_platform}")
     
     if current_platform == "unknown":
-        print("✗ Unsupported platform")
+        print("[FAIL] Unsupported platform")
         return 1
     
     # Install Python dependencies
@@ -197,11 +197,11 @@ def main():
     elif current_platform == "windows":
         install_winsparkle_windows()
     else:
-        print("✓ No additional dependencies needed for Linux")
+        print("[OK] No additional dependencies needed for Linux")
     
     # Verify installation
     if verify_installation():
-        print("\n🎉 Installation completed successfully!")
+        print("\n[SUCCESS] Installation completed successfully!")
         print("\nNext steps:")
         print("1. Configure your update server URL")
         print("2. Set up digital signing keys")
