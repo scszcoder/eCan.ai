@@ -1194,7 +1194,7 @@ class MainWindow(QMainWindow):
         
         load_dotenv(env_path)
         
-        self.llm = pick_llm()
+        self.llm = pick_llm(self.general_settings)
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
