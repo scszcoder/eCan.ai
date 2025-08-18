@@ -5,7 +5,8 @@ from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import MemorySaver
-from bot.Logger import *
+from agent.a2a.common.types import SendTaskRequest, TaskSendParams
+
 from agent.ec_skill import *
 from utils.logger_helper import get_agent_by_id, logger_helper as logger
 
@@ -50,23 +51,50 @@ def parrot(state: NodeState) -> NodeState:
         else:
             # sendd this message to GUI
             print("showing agent msg", state)
+            params = state["attributes"]["params"]
+            if isinstance(params, TaskSendParams):
+                mtype = params.metadata["type"]
+                card = params.metadata.get("card", "")
+                code = params.metadata.get("code", "")
+                form = params.metadata.get("form", "")
+                notification = params.metadata.get("notification", "")
+                role = params.message.role
+                senderId = params.metadata["senderId"]
+                createAt = params.metadata["createAt"]
+                senderName = params.metadata["senderName"]
+                status = params.metadata["status"]
+                ext = params.metadata["ext"]
+            else:
+                mtype = params["metadata"]["type"]
+                card = params["metadata"]["card"]
+                code = params["metadata"]["code"]
+                form = params["metadata"]["form"]
+                notification = params["metadata"]["notification"]
+                role = params["role"]
+                senderId = params["senderId"]
+                createAt = params["createAt"]
+                senderName = params["senderName"]
+                status = params["status"]
+                ext = params["ext"]
+
             frontend_message = {
                 "content": {
-                    "type": state["attributes"]["params"]["metadata"]["type"],
+                    "type": mtype,
                     "text": state["messages"][-1],
-                    "card": state["attributes"]["params"]["metadata"]["card"],
-                    "code": state["attributes"]["params"]["metadata"]["code"],
-                    "form": state["attributes"]["params"]["metadata"]["form"],
-                    "notification": state["attributes"]["params"]["metadata"]["notification"],
+                    "card": card,
+                    "code": code,
+                    "form": form,
+                    "notification": notification,
                 },
-                "role": state["attributes"]["params"]["role"],
-                "senderId": state["attributes"]["params"]["senderId"],
-                "createAt": state["attributes"]["params"]["createAt"],
-                "senderName": state["attributes"]["params"]["senderName"],
-                "status": state["attributes"]["params"]["status"],
-                "ext": state["attributes"]["params"]["ext"],
+                "role": role,
+                "senderId": senderId,
+                "createAt": createAt,
+                "senderName": senderName,
+                "status": status,
+                "ext": ext,
             }
-            mainwin.top_gui.get_ipc_api().push_message_to_chat(state.messages[1], frontend_message)
+            print("supposed chat id:", state["messages"][1][0])
+            mainwin.top_gui.push_message_to_chat(state["messages"][1][0], frontend_message)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
     except Exception as e:

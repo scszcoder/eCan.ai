@@ -11,6 +11,7 @@ from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
 from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
 from agent.mcp.config import mcp_http_base, mcp_sse_url
+from agent.ec_skills.llm_utils.llm_utils import pick_llm
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 import asyncio
@@ -1193,7 +1194,7 @@ class MainWindow(QMainWindow):
         
         load_dotenv(env_path)
         
-        self.llm = ChatOpenAI(model='gpt-4o')
+        self.llm = pick_llm()
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
