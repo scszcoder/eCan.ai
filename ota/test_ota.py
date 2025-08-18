@@ -18,10 +18,10 @@ def test_ota_import():
     print("Testing OTA package import...")
     try:
         from ota import OTAUpdater
-        print("✓ OTA package imported successfully")
+        print("[OK] OTA package imported successfully")
         return True
     except Exception as e:
-        print(f"✗ OTA package import failed: {e}")
+        print(f"[FAIL] OTA package import failed: {e}")
         return False
 
 def test_ota_updater():
@@ -49,10 +49,10 @@ def test_ota_updater():
         has_update = ota_updater.check_for_updates(silent=True)
         print(f"Update available: {has_update}")
         
-        print("✓ OTA updater functionality test passed")
+        print("[OK] OTA updater functionality test passed")
         return True
     except Exception as e:
-        print(f"✗ OTA updater functionality test failed: {e}")
+        print(f"[FAIL] OTA updater functionality test failed: {e}")
         return False
 
 def test_gui_components():
@@ -63,10 +63,10 @@ def test_gui_components():
         return True
     try:
         from ota.gui.dialog import UpdateDialog, UpdateNotificationDialog
-        print("✓ GUI components imported successfully")
+        print("[OK] GUI components imported successfully")
         return True
     except Exception as e:
-        print(f"✗ GUI components import failed: {e}")
+        print(f"[FAIL] GUI components import failed: {e}")
         return False
 
 def test_platform_updaters():
@@ -74,10 +74,10 @@ def test_platform_updaters():
     print("\nTesting platform updaters...")
     try:
         from ota.core.platforms import SparkleUpdater, WinSparkleUpdater, GenericUpdater
-        print("✓ Platform updaters imported successfully")
+        print("[OK] Platform updaters imported successfully")
         return True
     except Exception as e:
-        print(f"✗ Platform updaters import failed: {e}")
+        print(f"[FAIL] Platform updaters import failed: {e}")
         return False
 
 def test_server():
@@ -88,10 +88,10 @@ def test_server():
         return True
     try:
         from ota.server import update_server_app
-        print("✓ Update server imported successfully")
+        print("[OK] Update server imported successfully")
         return True
     except Exception as e:
-        print(f"✗ Update server import failed: {e}")
+        print(f"[FAIL] Update server import failed: {e}")
         return False
 
 def main():
