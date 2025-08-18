@@ -1,0 +1,18 @@
+<?xml version=1.0 encoding=utf-8?>
+<rss version=2.0 xmlns:sparkle=http://www.andymatuschak.org/xml-namespaces/sparkle>
+  <channel>
+    <title>ECBot Updates</title>
+    <description>Most recent updates to ECBot</description>
+    <language>en</language>
+    <item>
+      <title>Release 1.2.3</title>
+      <pubDate>Tue, 12 Aug 2025 10:00:00 +0000</pubDate>
+      <enclosure url=http://127.0.0.1:8001/eCan-windows-amd64-v1.2.3.exe
+                 sparkle:version=1.2.3
+                 sparkle:os=windows
+                 sparkle:arch=amd64
+                 length=12345678
+                 type=application/octet-stream />
+    </item>
+  </channel>
+</rss>

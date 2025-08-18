@@ -239,7 +239,7 @@ jobs:
         if [ "${{ env.WIN_CERT_PFX }}" != "NOT_SET" ]; then
           echo "WIN_CERT_PFX: Set"
         else
-          echo "WIN_CERT_PASSWORD: Not set"
+          echo "WIN_CERT_PFX: Not set"
         fi
         if [ "${{ env.WIN_CERT_PASSWORD }}" != "NOT_SET" ]; then
           echo "WIN_CERT_PASSWORD: Set"
@@ -256,37 +256,49 @@ jobs:
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
 
+        # Set environment variable for build architecture
+        $env:BUILD_ARCH = "amd64"
+
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
 
-        # Export/standardize naming artifacts to dist root directory (avoid cross-directory Rename-Item error)
+        # Check if build succeeded by verifying key files exist
+        $buildSuccess = $true
         $srcExe = "dist/eCan/eCan.exe"
-        $dstExe = "dist/eCan-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe"
-        if (Test-Path $srcExe) {
-          Copy-Item -LiteralPath $srcExe -Destination $dstExe -Force
-          Write-Host "Exported: $dstExe"
-        } else {
-          Write-Host "[WARN] $srcExe not found; skip exporting"
+        if (!(Test-Path $srcExe)) {
+            echo "[ERROR] Build failed - main executable not found: $srcExe"
+            $buildSuccess = $false
         }
 
-        $srcSetup = "dist/eCan-Setup.exe"
-        $dstSetup = "dist/eCan-Setup-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe"
-        if (Test-Path $srcSetup) {
-          Rename-Item -LiteralPath $srcSetup -NewName (Split-Path -Leaf $dstSetup)
-          Write-Host "Renamed: $dstSetup"
-        } else {
-          Write-Host "[WARN] $srcSetup not found; skip renaming"
+        # Check for standardized artifacts (created by build.py)
+        $stdExe = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe"
+
+        if ($buildSuccess) {
+            if (Test-Path $stdExe) {
+                Write-Host "[OK] Standardized executable found: $stdExe"
+            } else {
+                Write-Host "[WARN] Standardized executable not found, creating manually..."
+                if (Test-Path $srcExe) {
+                    Copy-Item -LiteralPath $srcExe -Destination $stdExe -Force
+                    Write-Host "Created: $stdExe"
+                }
+            }
         }
 
-        # Check exit code
-        if ($LASTEXITCODE -ne 0) {
-            echo "[ERROR] Build failed with exit code: $LASTEXITCODE"
+        if (-not $buildSuccess) {
             echo "=== Build Log ==="
             Get-Content "build.log"
             exit 1
         }
 
         echo "[OK] Build completed successfully"
+
+        echo "=== Validating Build Artifacts ==="
+        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch amd64
+        if ($LASTEXITCODE -ne 0) {
+            echo "[ERROR] Build artifact validation failed"
+            exit 1
+        }
 
         echo "=== Verifying OTA artifacts in dist ==="
         $distWinSparkle = @(
@@ -388,8 +400,7 @@ jobs:
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe
-          dist/eCan-Setup-windows-amd64-v${{ needs.validate-tag.outputs.version }}.exe
+          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe
           dist/*.msi
           build.log
         retention-days: 30
@@ -539,19 +550,48 @@ jobs:
         # Set environment variables
         export PYTHONPATH="$PWD"
         export PYTHONUNBUFFERED=1
+        export BUILD_ARCH="${{ github.event.inputs.arch || 'amd64' }}"
 
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
 
-        # Check exit code
-        if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "[ERROR] Build failed"
+        # Check if build succeeded by verifying key files exist
+        BUILD_SUCCESS=true
+        APP_PATH="dist/eCan.app"
+        if [ ! -d "$APP_PATH" ]; then
+            echo "[ERROR] Build failed - app bundle not found: $APP_PATH"
+            BUILD_SUCCESS=false
+        fi
+
+        # Check for standardized DMG (created by build.py)
+        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        STD_DMG="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
+
+        if [ "$BUILD_SUCCESS" = "true" ]; then
+            if [ -f "$STD_DMG" ]; then
+                echo "[OK] Standardized DMG found: $STD_DMG"
+            else
+                echo "[INFO] Standardized DMG will be created in next step"
+            fi
+        fi
+
+        if [ "$BUILD_SUCCESS" != "true" ]; then
             echo "=== Build Log ==="
             cat build.log
             exit 1
         fi
 
         echo "[OK] Build completed successfully"
+
+    - name: Validate build artifacts
+      run: |
+        echo "=== Validating Build Artifacts ==="
+        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch ${{ github.event.inputs.arch || 'amd64' }}
+        if [ $? -ne 0 ]; then
+            echo "[ERROR] Build artifact validation failed"
+            exit 1
+        fi
 
     - name: Create DMG from app
       if: ${{ always() }}
@@ -560,7 +600,7 @@ jobs:
         ARCH="${{ github.event.inputs.arch || 'amd64' }}"
         VERSION="${{ needs.validate-tag.outputs.version }}"
         APP_PATH="dist/eCan.app"
-        DMG_PATH="dist/eCan-macos-${ARCH}-v${VERSION}.dmg"
+        DMG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
         if [ -d "$APP_PATH" ]; then
           mkdir -p build/dmg
           rm -rf build/dmg/*
@@ -617,7 +657,7 @@ jobs:
         fi
         ARCH="${{ github.event.inputs.arch || 'amd64' }}"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        DMG_PATH="dist/eCan-macos-${ARCH}-v${VERSION}.dmg"
+        DMG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
         if [ -f "$DMG_PATH" ]; then
           echo "Submitting $DMG_PATH for notarization..."
           xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
@@ -647,7 +687,7 @@ jobs:
 
         ARCH="${{ github.event.inputs.arch || 'amd64' }}"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        DMG_PATH="dist/eCan-macos-${ARCH}-v${VERSION}.dmg"
+        DMG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
         if [ -f "$DMG_PATH" ]; then
             echo "[OK] macOS DMG found: $DMG_PATH"
             dmg_size=$(du -sh "$DMG_PATH" | cut -f1)
@@ -673,7 +713,7 @@ jobs:
       with:
         name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-macos-*-v${{ needs.validate-tag.outputs.version }}.dmg
+          dist/eCan-${{ needs.validate-tag.outputs.version }}-macos-*.dmg
           build.log
         retention-days: 30
 
@@ -851,24 +891,7 @@ jobs:
           main(release, platform_filter='windows', arch_filter='amd64', output_path='dist/appcast/appcast-windows-amd64.xml')
           PY
 
-      - name: Generate Windows appcast (aarch64)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from scripts.generate_appcast import main
-          assets = []
-          for pat in ('windows-artifacts/*aarch64*.exe','windows-artifacts/*arm64*.exe'):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='windows', arch_filter='aarch64', output_path='dist/appcast/appcast-windows-aarch64.xml')
-          PY
+
 
 
       - name: Generate macOS aggregate appcast (all arches)
@@ -927,13 +950,7 @@ jobs:
           main(release, platform_filter='windows', output_path='dist/appcast/appcast-windows.xml')
           PY
 
-      - name: Generate Windows appcast (aarch64)
-        if: ${{ false }}  # Windows doesn't support aarch64 architecture
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          echo "Skipping Windows aarch64 appcast - Windows only supports amd64 architecture"
+
 
       - name: Remove empty appcast files (if any)
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
@@ -979,7 +996,7 @@ jobs:
           echo "Appcast (macOS amd64):      https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml"
           echo "Appcast (macOS aarch64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml"
           echo "Appcast (Windows amd64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml"
-          echo "Note: Windows aarch64 appcast is not generated (Windows only supports amd64)"
+          echo "Note: Windows only supports amd64 architecture"
 
       - name: Final status summary
         run: |
