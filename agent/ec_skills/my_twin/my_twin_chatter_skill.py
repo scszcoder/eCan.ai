@@ -49,21 +49,22 @@ def parrot(state: NodeState) -> NodeState:
             result = agent.a2a_send_chat_message(recipient_agent, {"chat": state})
         else:
             # sendd this message to GUI
+            print("showing agent msg", state)
             frontend_message = {
                 "content": {
-                    "type": state.attributes["params"]["metadata"]["type"],
-                    "text": state.messages[-1],
-                    "card": state.attributes["params"]["metadata"]["card"],
-                    "code": state.attributes["params"]["metadata"]["code"],
-                    "form": state.attributes["params"]["metadata"]["form"],
-                    "notification": state.attributes["params"]["metadata"]["notification"],
+                    "type": state["attributes"]["params"]["metadata"]["type"],
+                    "text": state["messages"][-1],
+                    "card": state["attributes"]["params"]["metadata"]["card"],
+                    "code": state["attributes"]["params"]["metadata"]["code"],
+                    "form": state["attributes"]["params"]["metadata"]["form"],
+                    "notification": state["attributes"]["params"]["metadata"]["notification"],
                 },
-                "role": state.attributes["params"]["role"],
-                "senderId": state.attributes["params"]["senderId"],
-                "createAt": state.attributes["params"]["createAt"],
-                "senderName": state.attributes["params"]["senderName"],
-                "status": state.attributes["params"]["status"],
-                "ext": state.attributes["params"]["ext"],
+                "role": state["attributes"]["params"]["role"],
+                "senderId": state["attributes"]["params"]["senderId"],
+                "createAt": state["attributes"]["params"]["createAt"],
+                "senderName": state["attributes"]["params"]["senderName"],
+                "status": state["attributes"]["params"]["status"],
+                "ext": state["attributes"]["params"]["ext"],
             }
             mainwin.top_gui.get_ipc_api().push_message_to_chat(state.messages[1], frontend_message)
 

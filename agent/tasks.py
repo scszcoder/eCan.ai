@@ -868,6 +868,7 @@ class TaskRunner(Generic[Context]):
         print("launch_interacted_run....", self.agent.card.name)
         while chatNotDone:
             try:
+                logger.debug("checking chat queue...." + self.agent.card.name)
                 logger.trace("checking chat queue...." + self.agent.card.name)
                 # chatResponse = self.sendChatMessageToGUI("User (q/Q to quit): ")
                 thread_config = {"configurable": {"thread_id": uuid.uuid4()}}

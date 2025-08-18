@@ -107,6 +107,7 @@ def send_response_back(state: NodeState) -> NodeState:
                 "human": False
             }
         }
+        print("sending response msg back to twin:", agent_response_message)
         send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
         # state.result = result
         return send_result
