@@ -1193,7 +1193,12 @@ class MainWindow(QMainWindow):
             # Running in normal Python environment
             env_path = '.env'
         
-        load_dotenv(env_path)
+        if os.path.exists(env_path):
+            logger.info(f"\nLoading .env from: {env_path}")
+            load_dotenv(env_path)
+        else:
+            logger.warning(f"\nNo .env file found at: {env_path}")
+
         
         self.llm = ChatOpenAI(model='gpt-4o')
         self.agents = []
