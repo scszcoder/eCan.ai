@@ -45,7 +45,7 @@ def detect_chrome_version() -> str:
         return DEFAULT_CHROME_VERSION
 
 def find_existing_webdriver(webdriver_dir: str) -> Optional[str]:
-    """Find existing webdriver in the specified directory"""
+    """Find existing webdriver in the specified directory (recursive search)"""
     try:
         if not os.path.exists(webdriver_dir):
             return None
@@ -53,10 +53,10 @@ def find_existing_webdriver(webdriver_dir: str) -> Optional[str]:
         system = platform.system()
         driver_name = "chromedriver.exe" if system == "Windows" else "chromedriver"
         
-        for item in os.listdir(webdriver_dir):
-            item_path = os.path.join(webdriver_dir, item)
-            if os.path.isdir(item_path):
-                driver_path = os.path.join(item_path, driver_name)
+        # Recursive search for chromedriver
+        for root, dirs, files in os.walk(webdriver_dir):
+            if driver_name in files:
+                driver_path = os.path.join(root, driver_name)
                 if os.path.exists(driver_path) and os.access(driver_path, os.X_OK):
                     return driver_path
         
