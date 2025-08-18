@@ -10,7 +10,17 @@ import sys
 
 # Base URLs for Chrome for Testing
 CHROME_FOR_TESTING_BASE_URL = "https://registry.npmmirror.com/binary.html?path=chrome-for-testing/"
-CHROME_FOR_TESTING_DOWNLOAD_URL = "https://registry.npmmirror.com/binary/chrome-for-testing/"
+CHROME_FOR_TESTING_DOWNLOAD_URL = "https://registry.npmmirror.com/-/binary/chrome-for-testing/"
+
+# Alternative download URLs (fallback) - Only working sources
+ALTERNATIVE_DOWNLOAD_URLS = [
+    "https://registry.npmmirror.com/-/binary/chrome-for-testing/",  # Fixed npmmirror URL (primary)
+    "https://storage.googleapis.com/chrome-for-testing-public/"     # Chrome for Testing Public (fallback)
+]
+
+# SSL Configuration
+SSL_VERIFY = False  # Set to False to skip SSL certificate verification
+SSL_CHECK_HOSTNAME = False  # Set to False to skip hostname verification
 
 # Platform mapping for webdriver downloads
 PLATFORM_MAP = {
@@ -53,10 +63,78 @@ PROJECT_WEBDRIVER_PATHS = [
 ]
 
 def get_webdriver_dir() -> str:
-    """Get webdriver storage directory"""
-    home_path = os.path.expanduser("~")
-    ecbot_data_home = os.environ.get("ECBOT_DATA_HOME", f"{home_path}/.ecbot")
-    return os.path.join(ecbot_data_home, "webdrivers")
+    """Get webdriver storage directory using app_info paths"""
+    try:
+        from config.app_info import app_info
+        
+        # Use app_info.appdata_path for consistent path management
+        base_dir = os.path.join(app_info.appdata_path, "webdrivers")
+        
+        # Ensure directory exists
+        os.makedirs(base_dir, exist_ok=True)
+        
+        return base_dir
+        
+    except ImportError:
+        # Fallback if app_info is not available
+        if getattr(sys, 'frozen', False):
+            # Running in PyInstaller bundle
+            if platform.system() == "Windows":
+                app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
+                base_dir = os.path.join(app_data, 'eCan', 'webdrivers')
+            elif platform.system() == "Darwin":
+                base_dir = os.path.join(os.path.expanduser('~/Library/Application Support/eCan/webdrivers'))
+            else:
+                base_dir = os.path.join(os.path.expanduser('~/.local/share/eCan/webdrivers'))
+        else:
+            # Development mode
+            home_path = os.path.expanduser("~")
+            base_dir = os.path.join(home_path, ".eCan", "webdrivers")
+        
+        os.makedirs(base_dir, exist_ok=True)
+        return base_dir
+
+def get_cache_dir() -> str:
+    """Get cache directory for WebDriver files"""
+    webdriver_dir = get_webdriver_dir()
+    cache_dir = os.path.join(webdriver_dir, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    return cache_dir
+
+def get_metadata_file() -> str:
+    """Get metadata file path for caching information"""
+    cache_dir = get_cache_dir()
+    return os.path.join(cache_dir, "metadata.json")
+
+def get_temp_dir() -> str:
+    """Get temporary directory for WebDriver downloads"""
+    try:
+        from config.app_info import app_info
+        # Use app_info.appdata_temp_path for temporary files
+        temp_dir = os.path.join(app_info.appdata_temp_path, "webdriver_downloads")
+        os.makedirs(temp_dir, exist_ok=True)
+        return temp_dir
+    except ImportError:
+        # Fallback to system temp directory
+        import tempfile
+        temp_dir = os.path.join(tempfile.gettempdir(), "eCan_webdriver_downloads")
+        os.makedirs(temp_dir, exist_ok=True)
+        return temp_dir
+
+def get_log_dir() -> str:
+    """Get log directory for WebDriver operations"""
+    try:
+        from config.app_info import app_info
+        # Use app_info.appdata_path for logs
+        log_dir = os.path.join(app_info.appdata_path, "logs", "webdriver")
+        os.makedirs(log_dir, exist_ok=True)
+        return log_dir
+    except ImportError:
+        # Fallback
+        webdriver_dir = get_webdriver_dir()
+        log_dir = os.path.join(webdriver_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        return log_dir
 
 def get_current_platform() -> str:
     """Get current platform identifier"""

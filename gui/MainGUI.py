@@ -105,6 +105,8 @@ import concurrent.futures
 # from agent.mcp.sse_manager import SSEManager
 # from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 from gui.unified_browser_manager import get_unified_browser_manager
+from gui.webdriver.initializer import start_webdriver_initialization
+from gui.webdriver.initializer import get_webdriver_initializer_sync
 from browser_use.filesystem.file_system import FileSystem
 from langchain_openai import ChatOpenAI
 
@@ -344,9 +346,9 @@ class MainWindow(QMainWindow):
         self.missionWin = None
         self.chatWin = None
         # self.newGui = BrowserWindow(self)
-        # self.newGui.hide()  # 确保窗口在后台创建，不显示
+        # self.newGui.hide()  # Ensure window is created in background, not displayed
         # logger.info("newGui init done....")
-        # 由登录成功后再启动 LightRAG；此处仅占位
+        # LightRAG will be started after successful login; placeholder here
         self.lightrag_server = None
         self.trainNewSkillWin = None
         self.reminderWin = None
@@ -361,7 +363,7 @@ class MainWindow(QMainWindow):
         # self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
         self.logConsoleLayout = QVBoxLayout()
         self.logConsole.verticalScrollBar().valueChanged.connect(self.onScrollBarValueChanged)
-        self.isAutoScroll = False  # 初始化时默认不自动滚动
+        self.isAutoScroll = False  # Default to no auto-scroll during initialization
         logger.info("some vars init done1....")
         # self.toggle_button = QToolButton(
         #     text="log console", checkable=True, checked=False
@@ -377,10 +379,10 @@ class MainWindow(QMainWindow):
         self.logConsoleBox.setContentLayout(self.logConsoleLayout)
 
         self.SkillManagerWin = SkillManagerWindow(self)
-        self.SkillManagerWin.hide()  # 确保窗口在后台创建，不显示
+        self.SkillManagerWin.hide()  # Ensure window is created in background, not displayed
 
         self.netLogWin = CommanderLogWin(self)
-        self.netLogWin.hide()  # 确保窗口在后台创建，不显示
+        self.netLogWin.hide()  # Ensure window is created in background, not displayed
         self.machine_name = myname
         self.commander_name = ""
         self.system = platform.system()
@@ -460,7 +462,7 @@ class MainWindow(QMainWindow):
                 self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
         else:
             logger.warning("no general settings file." + self.general_settings_file)
-            # 如果配置文件不存在，使用默认值
+            # If configuration file doesn't exist, use default values
             self.general_settings = {}
             self.debug_mode = False
             self.schedule_mode = "auto"
@@ -473,7 +475,7 @@ class MainWindow(QMainWindow):
             self.local_user_db_server = "127.0.0.1"
             self.local_user_db_port = "5080"
 
-        # 确保所有必需的配置项都存在
+        # Ensure all required configuration items exist
         self._ensure_default_settings()
 
         self.local_agent_db_server = self.general_settings.get("localAgentDB_host", "192.168.0.16")
@@ -1177,8 +1179,8 @@ class MainWindow(QMainWindow):
             base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
             self.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
 
-        # FileSystem 现在通过统一浏览器管理器访问
-        # 保留路径设置用于其他用途
+        # FileSystem now accessed through unified browser manager
+        # Keep path settings for other purposes
         # self.browser_use_file_system = FileSystem(self.browser_use_file_system_path)
         
         # Load environment variables before initializing ChatOpenAI
@@ -1231,6 +1233,9 @@ class MainWindow(QMainWindow):
 
         # Initialize browser manager
         self.setupUnifiedBrowserManager()
+        
+        # Start WebDriver initialization in background
+        asyncio.create_task(self._start_webdriver_initialization())
 
     async def initialize_mcp(self):
         local_server_port = 4668
@@ -1255,15 +1260,15 @@ class MainWindow(QMainWindow):
 
     async def async_agents_init(self):
         """
-        异步初始化代理，必须等待服务器就绪后才能继续后续逻辑
-        优化了PyInstaller环境下的超时处理
+        Asynchronously initialize agents, must wait for server to be ready before continuing subsequent logic
+        Optimized timeout handling for PyInstaller environment
         """
         try:
             logger.info("initing agents async.....")
             local_server_port = self.get_local_server_port()
 
-            # 简化的服务器连接逻辑
-            server_timeout = 60  # 给 PyInstaller 首次解包更充裕的时间
+            # Simplified server connection logic
+            server_timeout = 60  # Give PyInstaller more time for first unpacking
             logger.info(f"Waiting for local server on port {local_server_port} (timeout: {server_timeout}s)")
 
             try:
@@ -1271,14 +1276,14 @@ class MainWindow(QMainWindow):
                 logger.info(f"✅ Local server ready on port {local_server_port}")
             except RuntimeError as e:
                 logger.error(f"❌ Failed to connect to local server: {e}")
-                error_msg = f"本地服务器连接失败 (端口: {local_server_port})。\n错误详情: {str(e)}"
+                error_msg = f"Local server connection failed (port: {local_server_port}).\nError details: {str(e)}"
                 self.showMsg(error_msg)
                 raise RuntimeError(f"Server connection failed: {e}")
             except Exception as e:
                 logger.error(f"❌ Unexpected error: {e}")
                 raise
 
-            # 服务器已就绪，开始初始化MCP客户端和代理
+            # Server is ready, start initializing MCP client and agents
             logger.info("🔄 Starting MCP client and agent initialization...")
 
             # result = await self.initialize_mcp()
@@ -1292,17 +1297,17 @@ class MainWindow(QMainWindow):
             # self.mcp_client = await create_sse_client()
             logger.info("MCP client created....")
 
-            # 获取MCP工具列表 - 使用标准MCP客户端
+            # Get MCP tools list - using standard MCP client
             try:
                 logger.info("📋 Listing MCP tools...")
                 tl_result = await local_mcp_list_tools(url)
 
-                # 处理 ListToolsResult 对象
+                # Handle ListToolsResult object
                 if hasattr(tl_result, 'tools'):
-                    tl = tl_result.tools  # 获取实际的工具列表
+                    tl = tl_result.tools  # Get actual tools list
                     logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
                 elif isinstance(tl_result, list):
-                    tl = tl_result  # 如果直接返回列表
+                    tl = tl_result  # If directly returning list
                     logger.info(f"✅ Successfully listed {len(tl)} MCP tools")
                 else:
                     logger.warning(f"Unexpected tools result type: {type(tl_result)}")
@@ -1316,13 +1321,13 @@ class MainWindow(QMainWindow):
                 logger.error(f"❌ Failed to list MCP tools: {e}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
-                # 继续执行，但记录错误
+                # Continue execution, but log error
                 tl = []
                 logger.warning("Continuing with empty tool list...")
 
             # tools = await self.mcp_client.get_tools(server_name="E-Commerce Agents Service")
 
-            # 初始化代理相关组件
+            # Initialize agent-related components
             logger.info("🤖 Initializing agent components...")
             self.agent_skills = []
             self.agent_tasks = []
@@ -1330,7 +1335,7 @@ class MainWindow(QMainWindow):
             self.agent_knowledges = []
 
             try:
-                # 按顺序初始化各个组件，每个步骤都等待完成
+                # Initialize each component in order, waiting for each step to complete
                 logger.info("🔧 Building agent skills...")
                 self.agent_skills = await build_agent_skills(self)
                 logger.info(f"✅ Built {len(self.agent_skills)} agent skills")
@@ -1365,21 +1370,21 @@ class MainWindow(QMainWindow):
                 logger.error(f"❌ Error during agent initialization: {e}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
-                error_msg = f"代理初始化过程中发生错误: {str(e)}\n\n" \
-                           f"这可能是由于：\n" \
-                           f"1. 依赖服务未完全启动\n" \
-                           f"2. 配置文件缺失或错误\n" \
-                           f"3. 网络连接问题\n\n" \
-                           f"请检查日志获取详细信息。"
+                error_msg = f"Error occurred during agent initialization: {str(e)}\n\n" \
+                           f"This may be due to:\n" \
+                           f"1. Dependent services not fully started\n" \
+                           f"2. Missing or incorrect configuration files\n" \
+                           f"3. Network connection issues\n\n" \
+                           f"Please check logs for detailed information."
                 self.showMsg(error_msg)
-                # 抛出异常，因为代理初始化失败会影响后续功能
+                # Throw exception because agent initialization failure will affect subsequent functionality
                 raise
 
         except Exception as e:
             logger.error(f"Critical error in async_agents_init: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
-            error_msg = f"代理初始化失败: {str(e)}"
+            error_msg = f"Agent initialization failed: {str(e)}"
             self.showMsg(error_msg)
 
         # self.top_gui.update_all(self)
@@ -1538,10 +1543,10 @@ class MainWindow(QMainWindow):
         logger.info("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
 
     def onScrollBarValueChanged(self, value):
-        """监听滚动条变化，判断是否自动滚动"""
+        """Monitor scrollbar changes to determine auto-scroll"""
         scrollbar = self.logConsole.verticalScrollBar()
         max_value = scrollbar.maximum()
-        # 如果滚动条接近底部（比如距离底部小于一个单位），则设置为自动滚动
+        # If scrollbar is near bottom (e.g., within one unit of bottom), set to auto-scroll
         if (max_value - value) <= 1:
             self.isAutoScroll = True
         else:
@@ -1660,10 +1665,10 @@ class MainWindow(QMainWindow):
 
     def _get_cpu_info_safely(self):
         """
-        安全获取CPU信息，避免多进程问题
+        Safely get CPU information, avoiding multiprocessing issues
 
         Returns:
-            dict: CPU信息字典，包含brand_raw和hz_advertised_friendly等字段
+            dict: CPU information dictionary containing fields like brand_raw and hz_advertised_friendly
         """
         from utils.cpu_info_helper import get_cpu_info_safely
         return get_cpu_info_safely()
@@ -1687,22 +1692,86 @@ class MainWindow(QMainWindow):
         return self.async_crawler
 
     def setupUnifiedBrowserManager(self):
-        """设置统一浏览器管理器"""
+        """Setup unified browser manager"""
         try:
             self.unified_browser_manager = get_unified_browser_manager()
 
-            # 传递文件系统路径
+            # Pass file system path
             file_system_path = getattr(self, 'browser_use_file_system_path', None)
 
             if self.unified_browser_manager.initialize(file_system_path=file_system_path):
-                logger.info("✅ 浏览器管理器初始化成功")
+                logger.info("✅ Browser manager initialized successfully")
             else:
-                logger.error("❌ 浏览器管理器初始化失败")
+                logger.error("❌ Browser manager initialization failed")
                 self.unified_browser_manager = None
 
         except Exception as e:
-            logger.error(f"浏览器管理器设置失败: {e}")
+            logger.error(f"Browser manager setup failed: {e}")
             self.unified_browser_manager = None
+
+    async def _start_webdriver_initialization(self):
+        """Start WebDriver automatic initialization"""
+        try:
+            from gui.webdriver.initializer import start_webdriver_initialization, get_webdriver_initializer
+            
+            logger.info("🚀 Starting WebDriver automatic initialization...")
+            
+            # First check for cached WebDriver
+            if self._check_cached_webdriver():
+                logger.info("✅ Using cached WebDriver, no need to download")
+                return
+            
+            # Start async initialization for dynamic download
+            success = await start_webdriver_initialization()
+            
+            if success:
+                logger.info("✅ WebDriver automatic initialization started successfully")
+                
+                # Get initializer and add callbacks
+                initializer = await get_webdriver_initializer()
+                
+                # Add callback to update default_webdriver_path when ready
+                def on_webdriver_ready(status):
+                    if status and status.webdriver_path:
+                        self.default_webdriver_path = status.webdriver_path
+                        self._cached_webdriver_path = status.webdriver_path
+                        logger.info(f"🎯 WebDriver ready callback: Updated default_webdriver_path to {status.webdriver_path}")
+                
+                def on_webdriver_error(error_msg, status):
+                    logger.error(f"❌ WebDriver error callback: {error_msg}")
+                
+                def on_webdriver_progress(progress, status):
+                    logger.info(f"📊 WebDriver progress callback: {progress.get('progress', 0)}%")
+                
+                initializer.add_ready_callback(on_webdriver_ready)
+                initializer.add_error_callback(on_webdriver_error)
+                initializer.add_progress_callback(on_webdriver_progress)
+                
+            else:
+                logger.error("❌ WebDriver automatic initialization startup failed")
+                
+        except Exception as e:
+            logger.error(f"WebDriver automatic initialization exception: {e}")
+ 
+    def getWebDriverDownloadProgress(self):
+        """Get WebDriver download progress (compatibility method)"""
+        try:
+            from gui.webdriver.initializer import get_webdriver_initializer_sync
+            initializer = get_webdriver_initializer_sync()
+            return initializer.get_download_progress()
+        except Exception as e:
+            logger.error(f"Failed to get WebDriver download progress: {e}")
+            return None
+    
+    def isWebDriverDownloadComplete(self):
+        """Check if WebDriver download is complete (compatibility method)"""
+        try:
+            from gui.webdriver.initializer import get_webdriver_initializer_sync
+            initializer = get_webdriver_initializer_sync()
+            return initializer.is_ready()
+        except Exception as e:
+            logger.error(f"Failed to check WebDriver download status: {e}")
+            return False
 
     @property
     def async_crawler(self):
@@ -1755,6 +1824,46 @@ class MainWindow(QMainWindow):
             return self.unified_browser_manager.get_status()
         return {'initialized': False}
 
+    def getWebDriverManagerStatus(self):
+        """Get WebDriver manager status (compatibility method)"""
+        try:
+            from gui.webdriver.initializer import get_webdriver_initializer_sync
+            initializer = get_webdriver_initializer_sync()
+            status = initializer.get_status()
+            if status:
+                return {
+                    'initialized': status.initialized,
+                    'webdriver_path': status.webdriver_path,
+                    'chrome_version': status.chrome_version
+                }
+        except Exception as e:
+            logger.error(f"Failed to get WebDriver manager status: {e}")
+        
+        return {'initialized': False, 'webdriver_path': None, 'chrome_version': None}
+    
+    def _check_cached_webdriver(self):
+        """Check for cached WebDriver and update default_webdriver_path if found"""
+        try:
+            from gui.webdriver.utils import find_existing_webdriver
+            from gui.webdriver.config import get_webdriver_dir
+            
+            # Check webdriver directory for existing files
+            webdriver_dir = get_webdriver_dir()
+            cached_path = find_existing_webdriver(webdriver_dir)
+            
+            if cached_path:
+                self.default_webdriver_path = cached_path
+                self._cached_webdriver_path = cached_path
+                logger.info(f"✅ Found cached WebDriver: {cached_path}")
+                return True
+            else:
+                logger.info("No cached WebDriver found, will download dynamically")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to check cached WebDriver: {e}")
+            return False
+
     def load_build_dom_tree_script(self):
         script = ""
         try:
@@ -1792,7 +1901,7 @@ class MainWindow(QMainWindow):
         return self.general_settings.get("default_printer", "unknown")
 
     def _ensure_default_settings(self):
-        """确保所有必需的配置项都存在默认值"""
+        """Ensure all required configuration items have default values"""
         default_settings = {
             "schedule_mode": "auto",
             "debug_mode": False,
@@ -1823,7 +1932,7 @@ class MainWindow(QMainWindow):
             "mids_forced_to_run": []
         }
 
-        # 为缺失的配置项设置默认值
+        # Set default values for missing configuration items
         for key, default_value in default_settings.items():
             if key not in self.general_settings:
                 self.general_settings[key] = default_value

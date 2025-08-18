@@ -5,9 +5,9 @@ import multiprocessing
 import sys
 import traceback
 
-# 最外层异常处理，捕获所有导入和运行时异常
+# Top-level exception handling, catch all import and runtime exceptions
 try:
-    # 多进程保护 - 必须在所有其他导入之前
+    # Multi-process protection - must be before all other imports
     if __name__ == '__main__':
         # Worker-mode support for packaged subprocesses: execute external script and exit
         import os
@@ -28,21 +28,21 @@ try:
         from utils.ecbot_crashlog import install_crash_logger
         install_crash_logger()
 
-        # 设置多进程启动方法为spawn，避免fork问题
+        # Set multiprocessing start method to spawn to avoid fork issues
         if hasattr(multiprocessing, 'set_start_method'):
             try:
                 multiprocessing.set_start_method('spawn', force=True)
             except RuntimeError:
-                pass  # 已经设置过了
+                pass  # Already set
 
-        # 禁用资源跟踪器以避免重复启动问题
+        # Disable resource tracker to avoid duplicate startup issues
         try:
             import multiprocessing.resource_tracker
             multiprocessing.resource_tracker._resource_tracker = None
         except Exception:
-            pass  # 忽略任何错误
+            pass  # Ignore any errors
     else:
-        # 如果不是主模块，直接退出
+        # If not the main module, exit directly
         sys.exit(0)
 
     from utils.time_util import TimeUtil
@@ -50,44 +50,44 @@ try:
     print(TimeUtil.formatted_now_with_ms() + " app start...")
     print(TimeUtil.formatted_now_with_ms() + " importing modules...")
 
-    # 标准导入
+    # Standard imports
     import asyncio
     import qasync
     from PySide6.QtWidgets import QApplication
     from setproctitle import setproctitle
 
-    # 基础配置导入
+    # Basic configuration imports
     from config.app_info import app_info
     from config.app_settings import app_settings
     from utils.logger_helper import set_top_web_gui, logger_helper as logger
     from app_context import AppContext
 
     def fix_pyinstaller_environment():
-        """跨平台的 PyInstaller 环境修复"""
+        """Cross-platform PyInstaller environment fix"""
         if not getattr(sys, 'frozen', False):
             return
 
         try:
             import os
 
-            # 只处理最关键的 cv2 路径问题
+            # Only handle the most critical cv2 path issue
             if hasattr(sys, '_MEIPASS'):
                 cv2_path = os.path.join(sys._MEIPASS, 'cv2')
                 if os.path.exists(cv2_path) and cv2_path not in sys.path:
                     sys.path.insert(0, cv2_path)
 
-                # 平台特定的库路径修复
+                # Platform-specific library path fixes
                 if sys.platform == 'win32':
-                    # Windows: 添加 DLL 目录（如果支持）
+                    # Windows: Add DLL directory (if supported)
                     try:
                         os.add_dll_directory(cv2_path)
                     except (OSError, AttributeError):
-                        pass  # Python < 3.8 或不支持
+                        pass  # Python < 3.8 or not supported
 
                 elif sys.platform == 'darwin':
-                    # macOS: 设置动态库路径
+                    # macOS: Set dynamic library path
                     try:
-                        # 添加 cv2 库路径到 DYLD_LIBRARY_PATH
+                        # Add cv2 library path to DYLD_LIBRARY_PATH
                         dyld_path = os.environ.get('DYLD_LIBRARY_PATH', '')
                         if cv2_path not in dyld_path:
                             if dyld_path:
@@ -95,7 +95,7 @@ try:
                             else:
                                 os.environ['DYLD_LIBRARY_PATH'] = cv2_path
 
-                        # 也尝试添加到 DYLD_FALLBACK_LIBRARY_PATH
+                        # Also try to add to DYLD_FALLBACK_LIBRARY_PATH
                         fallback_path = os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')
                         if cv2_path not in fallback_path:
                             if fallback_path:
@@ -104,10 +104,10 @@ try:
                                 os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = cv2_path
 
                     except Exception:
-                        pass  # 忽略 macOS 特定的错误
+                        pass  # Ignore macOS-specific errors
 
                 elif sys.platform.startswith('linux'):
-                    # Linux: 设置 LD_LIBRARY_PATH
+                    # Linux: Set LD_LIBRARY_PATH
                     try:
                         ld_path = os.environ.get('LD_LIBRARY_PATH', '')
                         if cv2_path not in ld_path:
@@ -116,69 +116,69 @@ try:
                             else:
                                 os.environ['LD_LIBRARY_PATH'] = cv2_path
                     except Exception:
-                        pass  # 忽略 Linux 特定的错误
+                        pass  # Ignore Linux-specific errors
 
             print(f"[PYINSTALLER_FIX] Cross-platform environment fix applied for {sys.platform}")
 
         except Exception as e:
             print(f"[PYINSTALLER_FIX] Warning: {e}")
-            # 不要因为修复失败而阻止程序启动
+            # Don't prevent program startup due to fix failure
 
-    # 在所有导入之前修复环境
+    # Fix environment before all imports
     fix_pyinstaller_environment()
 
-    # 导入其他必要模块
+    # Import other necessary modules
     import utils
     from gui.LoginoutGUI import Login
     from gui.WebGUI import WebGUI
 
-    # 测试模块（可选）
+    # Test modules (optional)
     # Do not import test modules in production build
     # try:
     #     from tests.unittests import *
     #     from tests.scraper_test import *
     # except ImportError:
-    #     pass  # 测试模块不存在时忽略
+    #     pass  # Ignore when test modules don't exist
 
     def main():
-        """主函数"""
-        print("🚀 进入main函数...")
+        """Main function"""
+        print("🚀 Entering main function...")
 
-        # 启动热更新监控（开发模式）
+        # Start hot reload monitoring (development mode)
         if app_settings.is_dev_mode:
             try:
                 from utils.hot_reload import start_watching
                 watch_paths = ['agent', 'bot', 'config', 'common', 'gui', 'skills', 'utils']
                 start_watching(watch_paths, None)
             except ImportError:
-                pass  # 热更新模块不存在时忽略
+                pass  # Ignore when hot reload module doesn't exist
 
-        # 创建应用程序实例
+        # Create application instance
         app = QApplication.instance()
         if not app:  # If no instance, create a new QApplication
             app = QApplication(sys.argv)
 
-        # 设置应用程序信息和图标（统一管理）
+        # Set application info and icon (unified management)
         from utils.app_setup_helper import setup_application_info, set_app_icon, set_app_icon_delayed
         setup_application_info(app, logger)
 
-        # 初始化全局 AppContext
+        # Initialize global AppContext
         ctx = AppContext()
         ctx.set_app(app)
         ctx.set_logger(logger)
         ctx.set_config(app_settings)
         ctx.set_app_info(app_info)
 
-        # 设置应用程序图标
+        # Set application icon
         set_app_icon(app, logger)
-        # 延迟设置 Windows 任务栏图标（等待主窗口创建）
+        # Delay setting Windows taskbar icon (wait for main window creation)
         set_app_icon_delayed(app, logger)
 
-        # 创建事件循环
+        # Create event loop
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
 
-        # 创建登录组件
+        # Create login component
         utils.logger_helper.login = Login()
         ctx.set_login(utils.logger_helper.login)
 
@@ -201,37 +201,37 @@ try:
         utils.logger_helper.login.setLoop(loop)
         ctx.set_main_loop(loop)
 
-        # 打印当前运行模式
+        # Print current running mode
         if app_settings.is_dev_mode:
             logger.info("Running in development mode (Vite dev server)")
         else:
             logger.info("Running in production mode (built files)")
 
-        # 创建并显示 Web GUI
-        print("🚀 开始创建WebGUI实例...")
+        # Create and show Web GUI
+        print("🚀 Starting to create WebGUI instance...")
         logger.info("Creating WebGUI instance...")
         web_gui = WebGUI()
-        print("✅ WebGUI实例创建成功")
+        print("✅ WebGUI instance created successfully")
         logger.info("WebGUI instance created successfully")
 
         ctx.set_web_gui(web_gui)
         set_top_web_gui(web_gui)
 
-        print("🖥️  显示WebGUI窗口...")
+        print("🖥️  Showing WebGUI window...")
         logger.info("Showing WebGUI...")
         web_gui.show()
-        print("✅ WebGUI窗口显示成功")
+        print("✅ WebGUI window shown successfully")
         logger.info("WebGUI shown successfully")
 
         utils.logger_helper.login.setTopGUI(web_gui)
         logger.info("WebGUI setup completed")
 
-        # 运行主循环
+        # Run main loop
         loop.run_forever()
 
     if __name__ == '__main__':
         print(TimeUtil.formatted_now_with_ms() + " main function run start...")
-        # 注意：不要在这里重新设置进程标题，因为前面已经设置为'eCan'了
+        # Note: Don't reset process title here as it's already set to 'eCan'
         print(f"[PLATFORM] Running on {sys.platform}")
         if getattr(sys, 'frozen', False):
             print("[PYINSTALLER] Running from PyInstaller bundle")
@@ -270,15 +270,15 @@ try:
         main()
     except Exception as e:
         error_info = traceback.format_exc()
-        print(f"\n❌ 应用程序启动失败:")
-        print(f"错误类型: {type(e).__name__}")
-        print(f"错误信息: {str(e)}")
-        print(f"\n完整异常堆栈:")
+        print(f"\n❌ Application startup failed:")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        print(f"\nComplete exception stack:")
         print(error_info)
 
-        # 尝试记录到日志
+        # Try to log to file
         try:
-            logger.error(f"应用程序启动失败: {str(e)}")
+            logger.error(f"Application startup failed: {str(e)}")
             logger.error(error_info)
         except:
             pass
@@ -286,11 +286,11 @@ try:
         sys.exit(1)
 
 except Exception as e:
-    # 最外层异常处理，捕获所有导入异常
+    # Top-level exception handling, catch all import exceptions
     error_info = traceback.format_exc()
-    print(f"\n❌ 程序导入或初始化失败:")
-    print(f"错误类型: {type(e).__name__}")
-    print(f"错误信息: {str(e)}")
-    print(f"\n完整异常堆栈:")
+    print(f"\n❌ Program import or initialization failed:")
+    print(f"Error type: {type(e).__name__}")
+    print(f"Error message: {str(e)}")
+    print(f"\nComplete exception stack:")
     print(error_info)
     sys.exit(1)
