@@ -8,7 +8,7 @@ import os
 import platform
 import shutil
 from pathlib import Path
-from typing import Optional
+
 
 
 def print_banner():
@@ -477,6 +477,142 @@ def validate_build_config(verbose: bool = False) -> bool:
         if verbose:
             print(f"[CONFIG] Validation failed: {e}")
         return False
+
+
+def process_data_files(data_files_config: dict, verbose: bool = False) -> list:
+    """
+    Process data files configuration with cross-platform compatibility
+    """
+    import platform
+
+    # Use platform-specific processing
+    if platform.system() == "Darwin":
+        if verbose:
+            print("[DATA] macOS: Using symlink-aware processing")
+        return _process_macos_data(data_files_config, verbose)
+    else:
+        if verbose:
+            print(f"[DATA] {platform.system()}: Using standard processing")
+        return _process_standard_data(data_files_config, verbose)
+
+
+def _process_standard_data(data_files_config: dict, verbose: bool = False) -> list:
+    """Standard data files processing for Windows/Linux"""
+    processed_files = []
+
+    # Process directories
+    directories = data_files_config.get("directories", [])
+    for directory in directories:
+        src_path = Path(directory)
+        if src_path.exists():
+            processed_files.append((directory, directory))
+        elif verbose:
+            print(f"[DATA] Directory not found: {directory}")
+
+    # Process files
+    files = data_files_config.get("files", [])
+    for file_path in files:
+        src_path = Path(file_path)
+        if src_path.exists():
+            processed_files.append((file_path, file_path))
+        elif verbose:
+            print(f"[DATA] File not found: {file_path}")
+
+    return processed_files
+
+
+def _process_macos_data(data_files_config: dict, verbose: bool = False) -> list:
+    """macOS data files processing with simple symlink handling"""
+    import tempfile
+    import shutil
+
+    processed_files = []
+
+    # Process directories
+    directories = data_files_config.get("directories", [])
+    for directory in directories:
+        src_path = Path(directory)
+        if not src_path.exists():
+            if verbose:
+                print(f"[DATA] Directory not found: {directory}")
+            continue
+
+        # Check if directory contains symlinks
+        if _has_symlinks(src_path):
+            if verbose:
+                print(f"[DATA] Processing symlinks in: {directory}")
+
+            # Create symlink-free copy
+            temp_dir = Path(tempfile.mkdtemp(prefix=f"{src_path.name}_fixed_"))
+            try:
+                _copy_and_resolve_symlinks(src_path, temp_dir / src_path.name, verbose)
+                processed_files.append((str(temp_dir / src_path.name), directory))
+            except Exception as e:
+                if verbose:
+                    print(f"[DATA] Failed to process {directory}: {e}")
+                # Cleanup and use original path
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                processed_files.append((directory, directory))
+        else:
+            processed_files.append((directory, directory))
+
+    # Process files
+    files = data_files_config.get("files", [])
+    for file_path in files:
+        src_path = Path(file_path)
+        if src_path.exists():
+            processed_files.append((file_path, file_path))
+        elif verbose:
+            print(f"[DATA] File not found: {file_path}")
+
+    return processed_files
+
+
+def _has_symlinks(path: Path) -> bool:
+    """Simple check if directory contains symlinks"""
+    try:
+        for item in path.rglob("*"):
+            if item.is_symlink():
+                return True
+    except (OSError, PermissionError):
+        pass
+    return False
+
+
+def _copy_and_resolve_symlinks(src: Path, dst: Path, verbose: bool = False):
+    """Copy directory, resolving symlinks to actual files"""
+    import shutil
+
+    dst.mkdir(parents=True, exist_ok=True)
+
+    for item in src.iterdir():
+        src_item = src / item.name
+        dst_item = dst / item.name
+
+        try:
+            if src_item.is_symlink():
+                # Resolve symlink
+                try:
+                    target = src_item.resolve(strict=True)
+                    if target.is_file():
+                        shutil.copy2(target, dst_item)
+                    elif target.is_dir():
+                        _copy_and_resolve_symlinks(target, dst_item, verbose)
+                except (OSError, FileNotFoundError):
+                    if verbose:
+                        print(f"[DATA] Skipping broken symlink: {src_item}")
+                    continue
+            elif src_item.is_file():
+                shutil.copy2(src_item, dst_item)
+            elif src_item.is_dir():
+                _copy_and_resolve_symlinks(src_item, dst_item, verbose)
+        except Exception as e:
+            if verbose:
+                print(f"[DATA] Warning: Failed to process {src_item}: {e}")
+            continue
+
+
+
 
 
 

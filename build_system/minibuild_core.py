@@ -307,20 +307,24 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 '''
         return template
     def _generate_data_files_code(self) -> str:
-        """Generate code for data files collection"""
+        """Generate code for data files collection with symlink handling"""
         lines = []
         build_config = self.cfg.get("build", {})
         data_cfg = build_config.get("data_files", {})
 
-        # Directories
-        for d in data_cfg.get("directories", []) or []:
-            lines.append(f"if (project_root / '{d}').exists():")
-            lines.append(f"    data_files.append((str(project_root / '{d}'), '{d}'))")
-
-        # Files
-        for f in data_cfg.get("files", []) or []:
-            lines.append(f"if (project_root / '{f}').exists():")
-            lines.append(f"    data_files.append((str(project_root / '{f}'), '.'))")
+        lines.append("# Data files with cross-platform processing")
+        lines.append("from build_system.build_utils import process_data_files")
+        lines.append("import platform")
+        lines.append("")
+        lines.append(f"data_files_config = {repr(data_cfg)}")
+        lines.append("processed_data_files = process_data_files(data_files_config, verbose=True)")
+        lines.append("")
+        lines.append("for src_path, dst_path in processed_data_files:")
+        lines.append("    if Path(src_path).exists():")
+        lines.append("        data_files.append((src_path, dst_path))")
+        lines.append("        print(f'[SPEC] Added data: {src_path} -> {dst_path}')")
+        lines.append("    else:")
+        lines.append("        print(f'[SPEC] Warning: Data file not found: {src_path}')")
 
         return "\n".join(lines)
 
