@@ -48,12 +48,16 @@ try:
     from utils.time_util import TimeUtil
 
     print(TimeUtil.formatted_now_with_ms() + " app start...")
+
+    # Create QApplication and show themed splash as early as possible
+    from gui.splash import init_startup_splash
+    startup_splash = init_startup_splash()
+
     print(TimeUtil.formatted_now_with_ms() + " importing modules...")
 
     # Standard imports
     import asyncio
     import qasync
-    from PySide6.QtWidgets import QApplication
     from setproctitle import setproctitle
 
     # Basic configuration imports
@@ -153,10 +157,11 @@ try:
             except ImportError:
                 pass  # Ignore when hot reload module doesn't exist
 
-        # Create application instance
-        app = QApplication.instance()
-        if not app:  # If no instance, create a new QApplication
-            app = QApplication(sys.argv)
+        # Reuse early-initialized QApplication
+        from PySide6.QtWidgets import QApplication as _QApp
+        app = _QApp.instance()
+        if not app:  # Fallback safety
+            app = _QApp(sys.argv)
 
         # Set application info and icon (unified management)
         from utils.app_setup_helper import setup_application_info, set_app_icon, set_app_icon_delayed
@@ -207,21 +212,15 @@ try:
         else:
             logger.info("Running in production mode (built files)")
 
-        # Create and show Web GUI
+        # Create Web GUI (do not show yet; wait until resources are loaded)
         print("🚀 Starting to create WebGUI instance...")
         logger.info("Creating WebGUI instance...")
-        web_gui = WebGUI()
+        web_gui = WebGUI(splash=startup_splash)
         print("✅ WebGUI instance created successfully")
         logger.info("WebGUI instance created successfully")
 
         ctx.set_web_gui(web_gui)
         set_top_web_gui(web_gui)
-
-        print("🖥️  Showing WebGUI window...")
-        logger.info("Showing WebGUI...")
-        web_gui.show()
-        print("✅ WebGUI window shown successfully")
-        logger.info("WebGUI shown successfully")
 
         utils.logger_helper.login.setTopGUI(web_gui)
         logger.info("WebGUI setup completed")
