@@ -1,4 +1,7 @@
 import re
+
+from selenium.webdriver.support.expected_conditions import element_selection_state_to_be
+
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
 import json
@@ -100,6 +103,78 @@ def prep_multi_modal_content(state, runtime):
         err_trace = get_traceback(e, "ErrorPrepMultiModalContent")
         logger.debug(err_trace)
 
+
+
+import requests
+from langgraph.graph import StateGraph
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_openai import ChatOpenAI
+from langchain_community.chat_models import ChatAnthropic
+from langchain_deepseek import ChatDeepSeek
+from langchain_qwq import ChatQwQ
+
+
+def get_country_by_ip() -> str | None:
+    """Return country code of current public IP, e.g., 'CN' for China."""
+    try:
+        resp = requests.get("https://ipinfo.io/json", timeout=5)
+        if resp.status_code == 200:
+            logger.debug(f"This host IP lookup result: {resp.json()}")
+            return resp.json().get("country")
+    except Exception as e:
+        print(f"IP lookup failed: {e}")
+    return None
+
+
+def pick_llm(settings):
+    """Return appropriate LLM instance depending on IP location."""
+    country = get_country_by_ip()
+    print(f"Detected country: {country}")
+
+    if country == "CN":
+        # Prefer DeepSeek, fallback to Qwen
+        try:
+            if settings.get("cn_llm_provider", False):
+                if settings.get("cn_llm_model") == "deepseek":
+                    if settings.get("cn_llm_model", False):
+                        cn_llm = ChatDeepSeek(model=settings.get("cn_llm_model"), temperature=0)
+                    else:
+                        cn_llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
+                elif settings.get("cn_llm_model") == "qwen":
+                    if settings.get("cn_llm_model", False):
+                        cn_llm = ChatQwQ(model=settings.get("cn_llm_model"), temperature=0)
+                    else:
+                        cn_llm = ChatQwQ(model="qwq-plus", temperature=0)
+            else:
+                cn_llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
+            return cn_llm
+        except Exception:
+            return ChatQwQ(model="qwq-plus", temperature=0)
+    elif country == "US":
+        try:
+            if settings.get("us_llm_provider", False):
+                if settings.get("us_llm_model") == "openai":
+                    if settings.get("us_llm_model", False):
+                        us_llm = ChatOpenAI(model=settings.get("us_llm_model"), temperature=0)
+                    else:
+                        us_llm = ChatOpenAI(model="gpt-4o", temperature=0)
+                elif settings.get("us_llm_model") == "claude":
+                    if settings.get("us_llm_model", False):
+                        us_llm = ChatAnthropic(model=settings.get("us_llm_model"), temperature=0)
+                    else:
+                        us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
+            else:
+                us_llm = ChatOpenAI(model="gpt-4o", temperature=0)
+
+            return us_llm
+        except Exception:
+            us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
+            return us_llm
+    else:
+        return ChatOpenAI(model="gpt-4o", temperature=0)
+
+
+
 def get_standard_prompt(state:NodeState) -> NodeState:
     boss = "Guest User"
     standard_prompt_template = [
@@ -143,4 +218,6 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
     print("chat node: LLM response:", response)
     # Parse the response
     run_post_llm_hook(current_node_name, agent, state, response)
+
+
 
