@@ -1,6 +1,6 @@
 """
-eCan 菜单管理器
-负责管理应用程序的所有菜单功能
+eCan Menu Manager
+Responsible for managing all menu functionality of the application
 """
 
 import os
@@ -15,146 +15,146 @@ from utils.logger_helper import logger_helper as logger
 
 
 class MenuManager:
-    """菜单管理器类"""
+    """Menu Manager Class"""
     
     def __init__(self, main_window):
         """
-        初始化菜单管理器
+        Initialize menu manager
         
         Args:
-            main_window: 主窗口实例
+            main_window: Main window instance
         """
         self.main_window = main_window
         
     def setup_menu(self):
-        """设置eCan菜单栏 - 跨平台支持"""
+        """Set up eCan menu bar - cross-platform support"""
         menubar = self.main_window.menuBar()
         
-        # 注意：应用程序基本信息已在main.py中统一设置，这里不需要重复设置
+        # Note: Application basic info is already set in main.py, no need to repeat here
         
-        # 根据平台设置菜单
+        # Set up menus based on platform
         if sys.platform == 'darwin':  # macOS
             self._setup_macos_menus(menubar)
         elif sys.platform == 'win32':  # Windows
             self._setup_windows_menus(menubar)
-        else:  # Linux和其他平台
+        else:  # Linux and other platforms
             self._setup_linux_menus(menubar)
     
     def _setup_macos_menus(self, menubar):
-        """设置macOS完整菜单"""
+        """Set up complete macOS menu"""
         try:
-            # 启用原生macOS菜单栏
+            # Enable native macOS menu bar
             menubar.setNativeMenuBar(True)
-            logger.info("启用macOS原生菜单栏")
+            logger.info("Enabled native macOS menu bar")
             
-            # 检查是否已经有菜单，避免重复添加
+            # Check if menus already exist to avoid duplicate setup
             existing_menus = menubar.actions()
             if existing_menus:
-                logger.info(f"发现已存在 {len(existing_menus)} 个菜单，跳过重复设置")
+                logger.info(f"Found {len(existing_menus)} existing menus, skipping duplicate setup")
                 return
             
-            # 在macOS上，第一个菜单会自动变成应用程序菜单
-            # 使用空字符串让系统自动设置应用程序菜单名称
-            app_menu = menubar.addMenu('')  # 空字符串让系统自动设置应用程序菜单
-            self._setup_macos_app_menu(app_menu)  # 使用专门的macOS应用菜单设置
+            # On macOS, the first menu automatically becomes the application menu
+            # Use empty string to let system auto-set application menu name
+            app_menu = menubar.addMenu('')  # Empty string lets system auto-set application menu
+            self._setup_macos_app_menu(app_menu)  # Use specialized macOS app menu setup
             
-            logger.info("macOS应用程序菜单设置完成")
+            logger.info("macOS application menu setup complete")
             
         except Exception as e:
-            logger.warning(f"macOS菜单设置失败，使用默认方式: {e}")
-            # 如果失败，尝试添加基本菜单
+            logger.warning(f"macOS menu setup failed, using default method: {e}")
+            # If failed, try to add basic menu
             try:
-                app_menu = menubar.addMenu('')  # 即使失败也使用空字符串
+                app_menu = menubar.addMenu('')  # Use empty string even if failed
                 self._setup_app_menu(app_menu)
             except Exception as e2:
-                logger.error(f"备用菜单设置也失败: {e2}")
+                logger.error(f"Fallback menu setup also failed: {e2}")
                 return
         
-        # 设置其他标准菜单
+        # Set up other standard menus
         self._setup_common_menus(menubar)
         
-        # macOS特有的Window菜单
+        # macOS-specific Window menu
         window_menu = menubar.addMenu('Window')
         self._setup_window_menu(window_menu)
         
-        logger.info("macOS菜单栏设置完成")
+        logger.info("macOS menu bar setup complete")
     
     def _setup_windows_menus(self, menubar):
-        """设置Windows完整菜单"""
+        """Set up complete Windows menu"""
         try:
-            # Windows使用非原生菜单栏以获得更好的控制
+            # Windows uses non-native menu bar for better control
             menubar.setNativeMenuBar(False)
 
-            # 设置菜单栏样式，使其集成到标题栏中
+            # Set menu bar style to integrate with title bar
             self._setup_titlebar_menu_style(menubar)
 
-            logger.info("使用Qt菜单栏（Windows优化，集成到标题栏）")
+            logger.info("Using Qt menu bar (Windows optimized, integrated with title bar)")
 
         except Exception as e:
-            logger.warning(f"Windows菜单设置失败: {e}")
+            logger.warning(f"Windows menu setup failed: {e}")
 
-        # Windows上显示完整的应用程序菜单
+        # Show complete application menu on Windows
         app_menu = menubar.addMenu('eCan')
         self._setup_app_menu(app_menu)
 
-        # 设置其他标准菜单
+        # Set up other standard menus
         self._setup_common_menus(menubar)
 
-        # Windows特有的Tools菜单
+        # Windows-specific Tools menu
         tools_menu = menubar.addMenu('Tools')
         self._setup_tools_menu(tools_menu)
     
     def _setup_linux_menus(self, menubar):
-        """设置Linux完整菜单"""
+        """Set up complete Linux menu"""
         try:
-            # Linux通常使用Qt菜单栏
+            # Linux typically uses Qt menu bar
             menubar.setNativeMenuBar(False)
 
-            # 设置菜单栏样式，使其集成到标题栏中
+            # Set menu bar style to integrate with title bar
             self._setup_titlebar_menu_style(menubar)
 
-            logger.info("使用Qt菜单栏（Linux，集成到标题栏）")
+            logger.info("Using Qt menu bar (Linux, integrated with title bar)")
 
         except Exception as e:
-            logger.warning(f"Linux菜单设置失败: {e}")
+            logger.warning(f"Linux menu setup failed: {e}")
 
-        # Linux上的标准菜单布局
+        # Standard menu layout on Linux
         app_menu = menubar.addMenu('eCan')
         self._setup_app_menu(app_menu)
 
-        # 设置其他标准菜单
+        # Set up other standard menus
         self._setup_common_menus(menubar)
 
-        # Linux可选的Tools菜单
+        # Optional Tools menu on Linux
         tools_menu = menubar.addMenu('Tools')
         self._setup_tools_menu(tools_menu)
 
     def _setup_titlebar_menu_style(self, menubar):
-        """设置菜单栏样式，使其集成到标题栏中"""
+        """Set menu bar style to integrate with title bar"""
         try:
-            # 设置菜单栏的样式，使其看起来像是标题栏的一部分
+            # Set menu bar style to make it look like part of the title bar
             menubar.setStyleSheet("""
                 QMenuBar {
-                    background-color: #2d2d2d;  /* 与标题栏颜色一致 */
+                    background-color: #2d2d2d;  /* Match title bar color */
                     color: #e0e0e0;
                     border: none;
-                    border-bottom: 1px solid #404040;  /* 添加底部边框分隔 */
-                    padding: 0px 8px;  /* 左右添加一些内边距 */
+                    border-bottom: 1px solid #404040;  /* Add bottom border separator */
+                    padding: 0px 8px;  /* Add some left-right padding */
                     margin: 0px;
                     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-size: 13px;
                     font-weight: 500;
-                    height: 30px;  /* 稍微减小高度，更紧凑 */
-                    spacing: 8px;  /* 菜单项之间的间距 */
+                    height: 30px;  /* Slightly reduce height for compactness */
+                    spacing: 8px;  /* Spacing between menu items */
                 }
 
                 QMenuBar::item {
                     background-color: transparent;
                     color: #e0e0e0;
-                    padding: 4px 10px;  /* 减小内边距，更紧凑 */
-                    margin: 2px 1px;  /* 添加小的外边距 */
-                    border-radius: 3px;  /* 稍微减小圆角 */
-                    min-width: 40px;  /* 最小宽度 */
+                    padding: 4px 10px;  /* Reduce padding for compactness */
+                    margin: 2px 1px;  /* Add small margins */
+                    border-radius: 3px;  /* Slightly reduce corner radius */
+                    min-width: 40px;  /* Minimum width */
                 }
 
                 QMenuBar::item:selected {
@@ -175,16 +175,16 @@ class MenuManager:
                     padding: 4px 0px;
                     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-size: 13px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);  /* 添加阴影效果 */
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);  /* Add shadow effect */
                 }
 
                 QMenu::item {
                     background-color: transparent;
                     color: #e0e0e0;
-                    padding: 8px 24px;  /* 增加内边距，更舒适 */
+                    padding: 8px 24px;  /* Increase padding for comfort */
                     margin: 1px 4px;
                     border-radius: 4px;
-                    min-height: 20px;  /* 最小高度 */
+                    min-height: 20px;  /* Minimum height */
                 }
 
                 QMenu::item:selected {
@@ -193,13 +193,13 @@ class MenuManager:
                 }
 
                 QMenu::item:disabled {
-                    color: #808080;  /* 禁用项的颜色 */
+                    color: #808080;  /* Color for disabled items */
                 }
 
                 QMenu::separator {
                     height: 1px;
                     background-color: #404040;
-                    margin: 6px 12px;  /* 增加分隔符的边距 */
+                    margin: 6px 12px;  /* Increase separator margins */
                 }
 
                 QMenu::indicator {
@@ -209,7 +209,7 @@ class MenuManager:
                 }
 
                 QMenu::indicator:checked {
-                    background-color: #0078d4;  /* 使用蓝色表示选中状态 */
+                    background-color: #0078d4;  /* Use blue for selected state */
                     border-radius: 2px;
                 }
 
@@ -220,47 +220,47 @@ class MenuManager:
                 }
             """)
 
-            # 设置菜单栏的固定高度，使其更紧凑
+            # Set fixed height for menu bar to make it more compact
             menubar.setFixedHeight(30)
 
-            logger.info("菜单栏样式已设置为标题栏集成模式")
+            logger.info("Menu bar style set to title bar integration mode")
 
         except Exception as e:
-            logger.error(f"设置菜单栏样式失败: {e}")
+            logger.error(f"Failed to set menu bar style: {e}")
     
     def _setup_common_menus(self, menubar):
-        """设置所有平台通用的菜单"""
-        # File菜单
+        """Set up menus common to all platforms"""
+        # File menu
         file_menu = menubar.addMenu('File')
         self._setup_file_menu(file_menu)
         
-        # Edit菜单
+        # Edit menu
         edit_menu = menubar.addMenu('Edit')
         self._setup_edit_menu(edit_menu)
         
-        # View菜单
+        # View menu
         view_menu = menubar.addMenu('View')
         self._setup_view_menu(view_menu)
         
-        # Help菜单
+        # Help menu
         help_menu = menubar.addMenu('Help')
         self._setup_help_menu(help_menu)
     
     def _setup_app_menu(self, app_menu):
-        """设置应用菜单"""
-        # 关于eCan
+        """Set up application menu"""
+        # About eCan
         about_action = QAction('About eCan', self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
-        # 检查更新
+        # Check for updates
         check_update_action = QAction('Check for Updates...', self.main_window)
         check_update_action.triggered.connect(self.show_update_dialog)
         app_menu.addAction(check_update_action)
         
         app_menu.addSeparator()
         
-        # 偏好设置/设置
+        # Preferences/Settings
         preferences_action = QAction('Preferences...', self.main_window)
         preferences_action.setShortcut('Ctrl+,')
         preferences_action.triggered.connect(self.show_settings)
@@ -268,64 +268,64 @@ class MenuManager:
         
         app_menu.addSeparator()
         
-        # 服务菜单（macOS标准）
+        # Services menu (macOS standard)
         services_menu = app_menu.addMenu('Services')
-        # 服务菜单通常由系统管理，这里只是占位
+        # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
-        # 隐藏eCan
+        # Hide eCan
         hide_action = QAction('Hide eCan', self.main_window)
         hide_action.setShortcut('Ctrl+H')
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
-        # 隐藏其他
+        # Hide others
         hide_others_action = QAction('Hide Others', self.main_window)
         hide_others_action.setShortcut('Ctrl+Alt+H')
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
-        # 显示全部
+        # Show all
         show_all_action = QAction('Show All', self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
-        # 退出eCan
+        # Quit eCan
         quit_action = QAction('Quit eCan', self.main_window)
         quit_action.setShortcut('Ctrl+Q')
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
     
     def _setup_file_menu(self, file_menu):
-        """设置文件菜单"""
-        # 新建项目
+        """Set up File menu"""
+        # New project
         new_project_action = QAction('New Project...', self.main_window)
         new_project_action.setShortcut('Ctrl+N')
         new_project_action.triggered.connect(self.new_project)
         file_menu.addAction(new_project_action)
         
-        # 打开项目
+        # Open project
         open_project_action = QAction('Open Project...', self.main_window)
         open_project_action.setShortcut('Ctrl+O')
         open_project_action.triggered.connect(self.open_project)
         file_menu.addAction(open_project_action)
         
-        # 最近打开的项目
+        # Recently opened projects
         recent_menu = file_menu.addMenu('Open Recent')
         recent_menu.addAction('Clear Menu').triggered.connect(self.clear_recent)
         
         file_menu.addSeparator()
         
-        # 保存项目
+        # Save project
         save_project_action = QAction('Save Project', self.main_window)
         save_project_action.setShortcut('Ctrl+S')
         save_project_action.triggered.connect(self.save_project)
         file_menu.addAction(save_project_action)
         
-        # 另存为
+        # Save as
         save_as_action = QAction('Save Project As...', self.main_window)
         save_as_action.setShortcut('Ctrl+Shift+S')
         save_as_action.triggered.connect(self.save_project_as)
@@ -333,27 +333,27 @@ class MenuManager:
         
         file_menu.addSeparator()
         
-        # 导入数据
+        # Import data
         import_data_action = QAction('Import Data...', self.main_window)
         import_data_action.setShortcut('Ctrl+I')
         import_data_action.triggered.connect(self.import_data)
         file_menu.addAction(import_data_action)
         
-        # 导出数据
+        # Export data
         export_data_action = QAction('Export Data...', self.main_window)
         export_data_action.setShortcut('Ctrl+E')
         export_data_action.triggered.connect(self.export_data)
         file_menu.addAction(export_data_action)
     
     def _setup_edit_menu(self, edit_menu):
-        """设置编辑菜单"""
-        # 撤销
+        """Set up Edit menu"""
+        # Undo
         undo_action = QAction('Undo', self.main_window)
         undo_action.setShortcut('Ctrl+Z')
         undo_action.triggered.connect(self.undo)
         edit_menu.addAction(undo_action)
         
-        # 重做
+        # Redo
         redo_action = QAction('Redo', self.main_window)
         redo_action.setShortcut('Ctrl+Shift+Z')
         redo_action.triggered.connect(self.redo)
@@ -361,25 +361,25 @@ class MenuManager:
         
         edit_menu.addSeparator()
         
-        # 剪切
+        # Cut
         cut_action = QAction('Cut', self.main_window)
         cut_action.setShortcut('Ctrl+X')
         cut_action.triggered.connect(self.cut)
         edit_menu.addAction(cut_action)
         
-        # 复制
+        # Copy
         copy_action = QAction('Copy', self.main_window)
         copy_action.setShortcut('Ctrl+C')
         copy_action.triggered.connect(self.copy)
         edit_menu.addAction(copy_action)
         
-        # 粘贴
+        # Paste
         paste_action = QAction('Paste', self.main_window)
         paste_action.setShortcut('Ctrl+V')
         paste_action.triggered.connect(self.paste)
         edit_menu.addAction(paste_action)
         
-        # 全选
+        # Select all
         select_all_action = QAction('Select All', self.main_window)
         select_all_action.setShortcut('Ctrl+A')
         select_all_action.triggered.connect(self.select_all)
@@ -387,22 +387,22 @@ class MenuManager:
         
         edit_menu.addSeparator()
         
-        # 查找
+        # Find
         find_action = QAction('Find...', self.main_window)
         find_action.setShortcut('Ctrl+F')
         find_action.triggered.connect(self.find)
         edit_menu.addAction(find_action)
     
     def _setup_view_menu(self, view_menu):
-        """设置视图菜单"""
-        # 工具栏
+        """Set up View menu"""
+        # Toolbar
         toolbar_action = QAction('Show Toolbar', self.main_window)
         toolbar_action.setCheckable(True)
         toolbar_action.setChecked(True)
         toolbar_action.triggered.connect(self.toggle_toolbar)
         view_menu.addAction(toolbar_action)
         
-        # 状态栏
+        # Status bar
         statusbar_action = QAction('Show Status Bar', self.main_window)
         statusbar_action.setCheckable(True)
         statusbar_action.setChecked(True)
@@ -411,125 +411,125 @@ class MenuManager:
         
         view_menu.addSeparator()
         
-        # 全屏
+        # Full screen
         fullscreen_action = QAction('Enter Full Screen', self.main_window)
         fullscreen_action.setShortcut('Ctrl+Ctrl+F')
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(fullscreen_action)
     
     def _setup_help_menu(self, help_menu):
-        """设置帮助菜单"""
-        # 用户手册
+        """Set up Help menu"""
+        # User manual
         user_manual_action = QAction('eCan Help', self.main_window)
         user_manual_action.setShortcut('F1')
         user_manual_action.triggered.connect(self.show_user_manual)
         help_menu.addAction(user_manual_action)
         
-        # 快速入门
+        # Quick start guide
         quick_start_action = QAction('Quick Start Guide', self.main_window)
         quick_start_action.triggered.connect(self.show_quick_start)
         help_menu.addAction(quick_start_action)
         
-        # 键盘快捷键
+        # Keyboard shortcuts
         shortcuts_action = QAction('Keyboard Shortcuts', self.main_window)
         shortcuts_action.triggered.connect(self.show_shortcuts)
         help_menu.addAction(shortcuts_action)
         
         help_menu.addSeparator()
         
-        # 反馈问题
+        # Report issue
         feedback_action = QAction('Report Issue...', self.main_window)
         feedback_action.triggered.connect(self.report_issue)
         help_menu.addAction(feedback_action)
         
-        # 发送反馈
+        # Send feedback
         send_feedback_action = QAction('Send Feedback...', self.main_window)
         send_feedback_action.triggered.connect(self.send_feedback)
         help_menu.addAction(send_feedback_action)
     
     def _setup_macos_app_menu(self, app_menu):
-        """设置macOS专用的应用菜单（确保包含所有功能）"""
-        # 关于eCan
+        """Set up macOS-specific application menu (ensure all functionality included)"""
+        # About eCan
         about_action = QAction('About eCan', self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
         app_menu.addSeparator()
         
-        # 检查更新（OTA功能）
+        # Check for updates (OTA functionality)
         check_update_action = QAction('Check for Updates...', self.main_window)
         check_update_action.triggered.connect(self.show_update_dialog)
         app_menu.addAction(check_update_action)
         
         app_menu.addSeparator()
         
-        # 偏好设置/设置
+        # Preferences/Settings
         preferences_action = QAction('Preferences...', self.main_window)
-        preferences_action.setShortcut('Cmd+,')  # macOS使用Cmd而不是Ctrl
+        preferences_action.setShortcut('Cmd+,')  # macOS uses Cmd instead of Ctrl
         preferences_action.triggered.connect(self.show_settings)
         app_menu.addAction(preferences_action)
         
         app_menu.addSeparator()
         
-        # 服务菜单（macOS标准）
+        # Services menu (macOS standard)
         services_menu = app_menu.addMenu('Services')
-        # 服务菜单通常由系统管理，这里只是占位
+        # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
-        # 隐藏eCan
+        # Hide eCan
         hide_action = QAction('Hide eCan', self.main_window)
-        hide_action.setShortcut('Cmd+H')  # macOS使用Cmd
+        hide_action.setShortcut('Cmd+H')  # macOS uses Cmd
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
-        # 隐藏其他
+        # Hide others
         hide_others_action = QAction('Hide Others', self.main_window)
-        hide_others_action.setShortcut('Cmd+Alt+H')  # macOS使用Cmd
+        hide_others_action.setShortcut('Cmd+Alt+H')  # macOS uses Cmd
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
-        # 显示全部
+        # Show all
         show_all_action = QAction('Show All', self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
-        # 退出eCan
+        # Quit eCan
         quit_action = QAction('Quit eCan', self.main_window)
-        quit_action.setShortcut('Cmd+Q')  # macOS使用Cmd
+        quit_action.setShortcut('Cmd+Q')  # macOS uses Cmd
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
         
-        logger.info("macOS应用菜单设置完成，包含OTA检查功能")
+        logger.info("macOS application menu setup complete, includes OTA check functionality")
     
     def _setup_window_menu(self, window_menu):
-        """设置Window菜单（macOS标准）"""
-        # 最小化
+        """Set up Window menu (macOS standard)"""
+        # Minimize
         minimize_action = QAction('Minimize', self.main_window)
         if sys.platform == 'darwin':
-            minimize_action.setShortcut('Cmd+M')  # macOS使用Cmd
+            minimize_action.setShortcut('Cmd+M')  # macOS uses Cmd
         else:
             minimize_action.setShortcut('Ctrl+M')
         minimize_action.triggered.connect(self.minimize_window)
         window_menu.addAction(minimize_action)
         
-        # 缩放
+        # Zoom
         zoom_action = QAction('Zoom', self.main_window)
         zoom_action.triggered.connect(self.zoom_window)
         window_menu.addAction(zoom_action)
         
         window_menu.addSeparator()
         
-        # 前置所有窗口
+        # Bring all windows to front
         bring_all_to_front_action = QAction('Bring All to Front', self.main_window)
         bring_all_to_front_action.triggered.connect(self.bring_all_to_front)
         window_menu.addAction(bring_all_to_front_action)
     
     def _setup_tools_menu(self, tools_menu):
-        """设置Tools菜单（Windows/Linux）"""
-        # 选项/首选项
+        """Set up Tools menu (Windows/Linux)"""
+        # Options/Preferences
         options_action = QAction('Options...', self.main_window)
         options_action.setShortcut('Ctrl+,')
         options_action.triggered.connect(self.show_settings)
@@ -537,30 +537,30 @@ class MenuManager:
         
         tools_menu.addSeparator()
         
-        # 插件管理
+        # Plugin management
         plugins_action = QAction('Manage Plugins...', self.main_window)
         plugins_action.triggered.connect(self.manage_plugins)
         tools_menu.addAction(plugins_action)
         
-        # 扩展
+        # Extensions
         extensions_action = QAction('Extensions...', self.main_window)
         extensions_action.triggered.connect(self.manage_extensions)
         tools_menu.addAction(extensions_action)
         
         tools_menu.addSeparator()
         
-        # 开发者工具
+        # Developer tools
         dev_tools_action = QAction('Developer Tools', self.main_window)
         dev_tools_action.setShortcut('F12')
         dev_tools_action.triggered.connect(self.show_developer_tools)
         tools_menu.addAction(dev_tools_action)
     
-    # ==================== 应用菜单功能实现 ====================
+    # ==================== Application Menu Function Implementation ====================
     
     def show_about_dialog(self):
-        """显示关于对话框"""
+        """Show About dialog"""
         try:
-            # 读取版本信息
+            # Read version information
             version = "1.0.0"
             try:
                 with open("VERSION", "r") as f:
@@ -585,15 +585,15 @@ class MenuManager:
             logger.error(f"Failed to show about dialog: {e}")
     
     def show_update_dialog(self):
-        """显示更新对话框"""
+        """Show update dialog"""
         try:
-            # 按需导入和初始化OTA组件
+            # Import and initialize OTA components on demand
             from ota import OTAUpdater, UpdateDialog
             
-            # 创建OTA更新器实例（仅在需要时）
+            # Create OTA updater instance (only when needed)
             ota_updater = OTAUpdater()
             
-            # 创建并显示更新对话框，传递OTA更新器实例
+            # Create and show update dialog, pass OTA updater instance
             dialog = UpdateDialog(ota_updater, self.main_window)
             dialog.exec()
         except Exception as e:
@@ -601,7 +601,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open update dialog")
     
     def show_settings(self):
-        """显示设置对话框"""
+        """Show settings dialog"""
         try:
             settings_dialog = QDialog(self.main_window)
             settings_dialog.setWindowTitle("eCan Settings")
@@ -610,12 +610,12 @@ class MenuManager:
             
             layout = QVBoxLayout()
             
-            # 设置标签
+            # Settings label
             title_label = QLabel("Application Settings")
             title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
             layout.addWidget(title_label)
             
-            # 设置项（示例）
+            # Settings items (examples)
             auto_save_checkbox = QCheckBox("Auto-save projects")
             auto_save_checkbox.setChecked(True)
             layout.addWidget(auto_save_checkbox)
@@ -623,7 +623,7 @@ class MenuManager:
             dark_mode_checkbox = QCheckBox("Dark mode")
             layout.addWidget(dark_mode_checkbox)
             
-            # 按钮
+            # Buttons
             button_layout = QHBoxLayout()
             ok_button = QPushButton("OK")
             cancel_button = QPushButton("Cancel")
@@ -643,7 +643,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open settings")
     
     def hide_app(self):
-        """隐藏应用程序"""
+        """Hide application"""
         try:
             self.main_window.hide()
             logger.info("Application hidden")
@@ -651,18 +651,18 @@ class MenuManager:
             logger.error(f"Failed to hide app: {e}")
     
     def hide_others(self):
-        """隐藏其他应用程序"""
+        """Hide other applications"""
         try:
-            # 在Qt中，这个功能主要在macOS上有效
+            # In Qt, this functionality mainly works on macOS
             QApplication.instance().setQuitOnLastWindowClosed(False)
             logger.info("Hide others action triggered")
         except Exception as e:
             logger.error(f"Failed to hide others: {e}")
     
     def show_all(self):
-        """显示所有应用程序"""
+        """Show all applications"""
         try:
-            # 显示应用程序的所有窗口
+            # Show all windows of the application
             self.main_window.show()
             self.main_window.raise_()
             self.main_window.activateWindow()
@@ -670,14 +670,14 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to show all: {e}")
     
-    # ==================== 文件菜单功能实现 ====================
+    # ==================== File Menu Function Implementation ====================
     
     def new_project(self):
-        """新建项目"""
+        """Create new project"""
         try:
             project_name, ok = QInputDialog.getText(self.main_window, 'New Project', 'Enter project name:')
             if ok and project_name:
-                # 这里可以调用项目管理相关的API
+                # Here you can call project management related APIs
                 QMessageBox.information(self.main_window, "Success", f"Project '{project_name}' created successfully!")
                 logger.info(f"New project created: {project_name}")
         except Exception as e:
@@ -685,7 +685,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to create new project")
     
     def open_project(self):
-        """打开项目"""
+        """Open project"""
         try:
             file_dialog = QFileDialog(self.main_window)
             file_dialog.setFileMode(QFileDialog.ExistingFile)
@@ -702,9 +702,9 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open project")
     
     def save_project(self):
-        """保存项目"""
+        """Save project"""
         try:
-            # 这里可以调用项目保存相关的API
+            # Here you can call project save related APIs
             QMessageBox.information(self.main_window, "Success", "Project saved successfully!")
             logger.info("Project saved")
         except Exception as e:
@@ -712,7 +712,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to save project")
     
     def save_project_as(self):
-        """另存为项目"""
+        """Save project as"""
         try:
             file_dialog = QFileDialog(self.main_window)
             file_dialog.setFileMode(QFileDialog.AnyFile)
@@ -731,13 +731,13 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to save project as")
     
     def clear_recent(self):
-        """清除最近打开的项目列表"""
+        """Clear recently opened projects list"""
         try:
             reply = QMessageBox.question(self.main_window, "Clear Recent", 
                                        "Are you sure you want to clear the recent projects list?",
                                        QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
-                # 这里可以清除最近项目的记录
+                # Here you can clear recent project records
                 QMessageBox.information(self.main_window, "Success", "Recent projects list cleared")
                 logger.info("Recent projects list cleared")
         except Exception as e:
@@ -745,7 +745,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to clear recent projects")
     
     def import_data(self):
-        """导入数据"""
+        """Import data"""
         try:
             file_dialog = QFileDialog(self.main_window)
             file_dialog.setFileMode(QFileDialog.ExistingFile)
@@ -762,7 +762,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to import data")
     
     def export_data(self):
-        """导出数据"""
+        """Export data"""
         try:
             file_dialog = QFileDialog(self.main_window)
             file_dialog.setFileMode(QFileDialog.AnyFile)
@@ -780,30 +780,30 @@ class MenuManager:
             logger.error(f"Failed to export data: {e}")
             QMessageBox.warning(self.main_window, "Error", "Failed to export data")
     
-    # ==================== 编辑菜单功能实现 ====================
+    # ==================== Edit Menu Function Implementation ====================
     
     def undo(self):
-        """撤销操作"""
+        """Undo operation"""
         try:
-            # 这里可以实现撤销逻辑
+            # Here you can implement undo logic
             QMessageBox.information(self.main_window, "Undo", "Undo operation performed")
             logger.info("Undo action triggered")
         except Exception as e:
             logger.error(f"Failed to undo: {e}")
     
     def redo(self):
-        """重做操作"""
+        """Redo operation"""
         try:
-            # 这里可以实现重做逻辑
+            # Here you can implement redo logic
             QMessageBox.information(self.main_window, "Redo", "Redo operation performed")
             logger.info("Redo action triggered")
         except Exception as e:
             logger.error(f"Failed to redo: {e}")
     
     def cut(self):
-        """剪切操作"""
+        """Cut operation"""
         try:
-            # 获取当前焦点widget并执行剪切
+            # Get current focused widget and execute cut
             focused_widget = QApplication.focusWidget()
             if focused_widget and hasattr(focused_widget, 'cut'):
                 focused_widget.cut()
@@ -812,9 +812,9 @@ class MenuManager:
             logger.error(f"Failed to cut: {e}")
     
     def copy(self):
-        """复制操作"""
+        """Copy operation"""
         try:
-            # 获取当前焦点widget并执行复制
+            # Get current focused widget and execute copy
             focused_widget = QApplication.focusWidget()
             if focused_widget and hasattr(focused_widget, 'copy'):
                 focused_widget.copy()
@@ -823,9 +823,9 @@ class MenuManager:
             logger.error(f"Failed to copy: {e}")
     
     def paste(self):
-        """粘贴操作"""
+        """Paste operation"""
         try:
-            # 获取当前焦点widget并执行粘贴
+            # Get current focused widget and execute paste
             focused_widget = QApplication.focusWidget()
             if focused_widget and hasattr(focused_widget, 'paste'):
                 focused_widget.paste()
@@ -834,9 +834,9 @@ class MenuManager:
             logger.error(f"Failed to paste: {e}")
     
     def select_all(self):
-        """全选操作"""
+        """Select all operation"""
         try:
-            # 获取当前焦点widget并执行全选
+            # Get current focused widget and execute select all
             focused_widget = QApplication.focusWidget()
             if focused_widget and hasattr(focused_widget, 'selectAll'):
                 focused_widget.selectAll()
@@ -845,7 +845,7 @@ class MenuManager:
             logger.error(f"Failed to select all: {e}")
     
     def find(self):
-        """查找功能"""
+        """Find functionality"""
         try:
             find_dialog = QDialog(self.main_window)
             find_dialog.setWindowTitle("Find")
@@ -854,7 +854,7 @@ class MenuManager:
             
             layout = QVBoxLayout()
             
-            # 查找输入框
+            # Find input field
             find_label = QLabel("Find:")
             layout.addWidget(find_label)
             
@@ -862,7 +862,7 @@ class MenuManager:
             find_input.setPlaceholderText("Enter text to find...")
             layout.addWidget(find_input)
             
-            # 按钮
+            # Buttons
             button_layout = QHBoxLayout()
             find_button = QPushButton("Find")
             cancel_button = QPushButton("Cancel")
@@ -890,12 +890,12 @@ class MenuManager:
             logger.error(f"Failed to show find dialog: {e}")
             QMessageBox.warning(self.main_window, "Error", "Failed to open find dialog")
     
-    # ==================== 视图菜单功能实现 ====================
+    # ==================== View Menu Function Implementation ====================
     
     def toggle_toolbar(self, checked):
-        """切换工具栏显示"""
+        """Toggle toolbar display"""
         try:
-            # 这里可以实现工具栏的显示/隐藏
+            # Here you can implement toolbar show/hide
             if checked:
                 logger.info("Toolbar shown")
             else:
@@ -904,9 +904,9 @@ class MenuManager:
             logger.error(f"Failed to toggle toolbar: {e}")
     
     def toggle_statusbar(self, checked):
-        """切换状态栏显示"""
+        """Toggle status bar display"""
         try:
-            # 这里可以实现状态栏的显示/隐藏
+            # Here you can implement status bar show/hide
             if hasattr(self.main_window, 'statusBar'):
                 if checked:
                     self.main_window.statusBar().show()
@@ -917,7 +917,7 @@ class MenuManager:
             logger.error(f"Failed to toggle status bar: {e}")
     
     def toggle_fullscreen(self):
-        """切换全屏模式"""
+        """Toggle fullscreen mode"""
         try:
             if self.main_window.isFullScreen():
                 self.main_window.showNormal()
@@ -928,10 +928,10 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to toggle fullscreen: {e}")
     
-    # ==================== 帮助菜单功能实现 ====================
+    # ==================== Help Menu Function Implementation ====================
     
     def show_user_manual(self):
-        """显示用户手册"""
+        """Show user manual"""
         try:
             manual_text = """
             <h2>eCan User Manual</h2>
@@ -966,7 +966,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open user manual")
     
     def show_quick_start(self):
-        """显示快速入门指南"""
+        """Show quick start guide"""
         try:
             quick_start_text = """
             <h2>Quick Start Guide</h2>
@@ -999,7 +999,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open quick start guide")
     
     def show_shortcuts(self):
-        """显示键盘快捷键"""
+        """Show keyboard shortcuts"""
         try:
             shortcuts_text = """
             <h2>Keyboard Shortcuts</h2>
@@ -1046,7 +1046,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open shortcuts")
     
     def report_issue(self):
-        """报告问题"""
+        """Report issue"""
         try:
             issue_dialog = QDialog(self.main_window)
             issue_dialog.setWindowTitle("Report Issue")
@@ -1055,12 +1055,12 @@ class MenuManager:
             
             layout = QVBoxLayout()
             
-            # 标题
+            # Title
             title_label = QLabel("Report an Issue")
             title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
             layout.addWidget(title_label)
             
-            # 问题类型
+            # Issue type
             type_label = QLabel("Issue Type:")
             layout.addWidget(type_label)
             
@@ -1068,7 +1068,7 @@ class MenuManager:
             type_combo.addItems(["Bug Report", "Feature Request", "Performance Issue", "Other"])
             layout.addWidget(type_combo)
             
-            # 问题描述
+            # Issue description
             desc_label = QLabel("Description:")
             layout.addWidget(desc_label)
             
@@ -1076,7 +1076,7 @@ class MenuManager:
             desc_text.setPlaceholderText("Please describe the issue in detail...")
             layout.addWidget(desc_text)
             
-            # 按钮
+            # Buttons
             button_layout = QHBoxLayout()
             submit_button = QPushButton("Submit")
             cancel_button = QPushButton("Cancel")
@@ -1106,7 +1106,7 @@ class MenuManager:
             QMessageBox.warning(self.main_window, "Error", "Failed to open issue report dialog")
     
     def send_feedback(self):
-        """发送反馈"""
+        """Send feedback"""
         try:
             feedback_dialog = QDialog(self.main_window)
             feedback_dialog.setWindowTitle("Send Feedback")
@@ -1115,12 +1115,12 @@ class MenuManager:
             
             layout = QVBoxLayout()
             
-            # 标题
+            # Title
             title_label = QLabel("Send Feedback to eCan Team")
             title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
             layout.addWidget(title_label)
             
-            # 反馈类型
+            # Feedback type
             type_label = QLabel("Feedback Type:")
             layout.addWidget(type_label)
             
@@ -1128,7 +1128,7 @@ class MenuManager:
             type_combo.addItems(["General Feedback", "Feature Suggestion", "Compliment", "Question"])
             layout.addWidget(type_combo)
             
-            # 反馈内容
+            # Feedback content
             content_label = QLabel("Your Feedback:")
             layout.addWidget(content_label)
             
@@ -1136,7 +1136,7 @@ class MenuManager:
             content_text.setPlaceholderText("Please share your thoughts, suggestions, or questions...")
             layout.addWidget(content_text)
             
-            # 按钮
+            # Buttons
             button_layout = QHBoxLayout()
             send_button = QPushButton("Send")
             cancel_button = QPushButton("Cancel")
@@ -1165,20 +1165,20 @@ class MenuManager:
             logger.error(f"Failed to show feedback dialog: {e}")
             QMessageBox.warning(self.main_window, "Error", "Failed to open feedback dialog")
     
-    # ==================== 辅助方法 ====================
+    # ==================== Helper Methods ====================
     
     def _apply_messagebox_style(self, msg):
-        """应用消息框样式"""
+        """Apply message box style"""
         try:
-            # 这里可以应用自定义样式
+            # Here you can apply custom styles
             pass
         except Exception as e:
             logger.error(f"Failed to apply messagebox style: {e}")
     
-    # ==================== Window菜单功能实现 ====================
+    # ==================== Window Menu Function Implementation ====================
     
     def minimize_window(self):
-        """最小化窗口"""
+        """Minimize window"""
         try:
             self.main_window.showMinimized()
             logger.info("Window minimized")
@@ -1186,7 +1186,7 @@ class MenuManager:
             logger.error(f"Failed to minimize window: {e}")
     
     def zoom_window(self):
-        """缩放窗口"""
+        """Zoom window"""
         try:
             if self.main_window.isMaximized():
                 self.main_window.showNormal()
@@ -1198,7 +1198,7 @@ class MenuManager:
             logger.error(f"Failed to zoom window: {e}")
     
     def bring_all_to_front(self):
-        """前置所有窗口"""
+        """Bring all windows to front"""
         try:
             self.main_window.raise_()
             self.main_window.activateWindow()
@@ -1206,10 +1206,10 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to bring windows to front: {e}")
     
-    # ==================== Tools菜单功能实现 ====================
+    # ==================== Tools Menu Function Implementation ====================
     
     def manage_plugins(self):
-        """管理插件"""
+        """Manage plugins"""
         try:
             QMessageBox.information(self.main_window, "Plugins", 
                                   "Plugin management feature coming soon!")
@@ -1218,7 +1218,7 @@ class MenuManager:
             logger.error(f"Failed to show plugin management: {e}")
     
     def manage_extensions(self):
-        """管理扩展"""
+        """Manage extensions"""
         try:
             QMessageBox.information(self.main_window, "Extensions", 
                                   "Extension management feature coming soon!")
@@ -1227,7 +1227,7 @@ class MenuManager:
             logger.error(f"Failed to show extension management: {e}")
     
     def show_developer_tools(self):
-        """显示开发者工具"""
+        """Show developer tools"""
         try:
             QMessageBox.information(self.main_window, "Developer Tools", 
                                   "Developer tools feature coming soon!")

@@ -20,7 +20,7 @@ from agent.chats.chat_service import ChatService
 import time
 
 
-# 配置日志以抑制 macOS IMK 警告
+# Configure logging to suppress macOS IMK warnings
 if sys.platform == 'darwin':
     os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
 
@@ -35,35 +35,35 @@ class WebGUI(QMainWindow):
         self.setWindowIcon(QIcon(icon_path))
         self.setGeometry(100, 100, 1200, 800)
 
-        # 创建中心部件和布局
+        # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        # 创建 Web 引擎
+        # Create web engine
         self.web_engine_view = WebEngineView(self)
 
-        # 创建开发者工具管理器
+        # Create developer tools manager
         self.dev_tools_manager = DevToolsManager(self)
 
-        # 设置 Windows 平台的窗口样式，与内容主题一致
+        # Set Windows window style to match content theme
         self._setup_window_style()
 
-        # 获取 IPC API
+        # Initialize IPC API
         self._ipc_api = None
         
-        # 获取 Web URL
+        # Get web URL
         try:
             web_url = app_settings.get_web_url()
             logger.info(f"Web URL from settings: {web_url}")
 
             if web_url:
                 if app_settings.is_dev_mode:
-                    # 开发模式：使用 Vite 开发服务器
+                    # Development mode: use Vite dev server
                     logger.info(f"Development mode: Loading from {web_url}")
                     self.web_engine_view.load_url(web_url)
                 else:
-                    # 生产模式：加载本地文件
+                    # Production mode: load local file
                     logger.info("Production mode: Loading local HTML file")
                     self.load_local_html()
             else:
@@ -76,23 +76,23 @@ class WebGUI(QMainWindow):
             logger.error(traceback.format_exc())
             self._show_error_page(f"Initialization error: {str(e)}")
         
-        # 添加 Web 引擎到布局
+        # Add web engine to layout
         layout.addWidget(self.web_engine_view)
         layout.setSpacing(0)
 
-        # 设置快捷键（在所有组件初始化完成后）
+        # Set up shortcuts (after all components initialized)
         self._setup_shortcuts()
         
-        # 在Windows和Linux平台上创建自定义标题栏菜单
+        # Create custom title bar menu on Windows and Linux
         if sys.platform in ['win32', 'linux']:
             self._setup_custom_titlebar_with_menu()
         else:
-            # macOS使用标准菜单栏
+            # Use standard menu bar on macOS
             self.menu_manager = MenuManager(self)
             self.menu_manager.setup_menu()
 
     def _show_error_page(self, error_message):
-        """显示错误页面"""
+        """Show error page"""
         try:
             error_html = f"""
             <!DOCTYPE html>
@@ -160,42 +160,42 @@ class WebGUI(QMainWindow):
             logger.error(f"Failed to show error page: {e}")
 
     def _setup_window_style(self):
-        """设置窗口样式，与内容主题一致"""
-        # Windows 平台特定的样式和原生设置
+        """Set window style to match content theme"""
+        # Windows-specific styles and native settings
         if sys.platform == 'win32':
-            # 设置 Windows 平台的灰色主题样式
+            # Apply Windows dark gray theme style
             self.setStyleSheet("""
                 QMainWindow {
-                    background-color: #1a1a1a;  /* 深灰色背景 */
-                    border: 1px solid #404040;  /* 中灰色边框 */
-                    color: #e0e0e0;  /* 浅灰色文字 */
+                    background-color: #1a1a1a;  /* Dark gray background */
+                    border: 1px solid #404040;  /* Medium gray border */
+                    color: #e0e0e0;  /* Light gray text */
                 }
                 QMainWindow::title {
-                    background-color: #2d2d2d;  /* 中深灰色标题栏 */
-                    color: #e0e0e0;  /* 浅灰色文字 */
+                    background-color: #2d2d2d;  /* Darker gray title bar */
+                    color: #e0e0e0;  /* Light gray text */
                     padding: 8px;
                     font-weight: 600;
                     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 }
             """)
 
-            # Windows 原生 API 设置
+            # Windows native API settings
             try:
-                # 导入 Windows API
+                # Import Windows API
                 import ctypes
 
-                # 获取窗口句柄
+                # Get window handle
                 hwnd = int(self.winId())
 
-                # DWM API 常量
+                # DWM API constants
                 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
                 DWMWA_WINDOW_CORNER_PREFERENCE = 33
                 DWMWCP_ROUND = 2
 
-                # 设置深色标题栏（Windows 10/11）
+                # Set dark title bar (Windows 10/11)
                 try:
                     dwmapi = ctypes.windll.dwmapi
-                    value = ctypes.c_int(1)  # 启用深色模式
+                    value = ctypes.c_int(1)  # Enable dark mode
                     dwmapi.DwmSetWindowAttribute(
                         hwnd,
                         DWMWA_USE_IMMERSIVE_DARK_MODE,
@@ -203,7 +203,7 @@ class WebGUI(QMainWindow):
                         ctypes.sizeof(value)
                     )
 
-                    # 设置圆角窗口（Windows 11）
+                    # Set rounded window (Windows 11)
                     corner_value = ctypes.c_int(DWMWCP_ROUND)
                     dwmapi.DwmSetWindowAttribute(
                         hwnd,
@@ -212,88 +212,88 @@ class WebGUI(QMainWindow):
                         ctypes.sizeof(corner_value)
                     )
 
-                    logger.info("Windows 深色标题栏和样式已应用")
+                    logger.info("Windows dark title bar and styles applied")
 
                 except Exception as e:
-                    logger.warning(f"设置深色标题栏失败: {e}")
+                    logger.warning(f"Failed to set dark title bar: {e}")
 
             except Exception as e:
-                logger.warning(f"设置 Windows 窗口样式失败: {e}")
+                logger.warning(f"Failed to set Windows window style: {e}")
         else:
-            # 非 Windows 平台，不应用任何样式
-            logger.info(f"当前平台 {sys.platform} 不支持自定义窗口样式，保持系统默认样式")
+            # Non-Windows platform, keep default style
+            logger.info(f"Current platform {sys.platform} does not support custom window styles; using system default")
 
     def _apply_messagebox_style(self, msg_box):
-        """为 QMessageBox 应用灰色主题样式（仅 Windows 平台）"""
+        """Apply dark gray theme to QMessageBox (Windows only)"""
         if sys.platform == 'win32':
             msg_box.setStyleSheet("""
                 QMessageBox {
-                    background-color: #2d2d2d;  /* 中深灰色背景 */
-                    color: #e0e0e0;  /* 浅灰色文字 */
-                    border: 1px solid #404040;  /* 中灰色边框 */
-                    border-radius: 8px;  /* 圆角 */
+                    background-color: #2d2d2d;  /* Dark gray background */
+                    color: #e0e0e0;  /* Light gray text */
+                    border: 1px solid #404040;  /* Medium gray border */
+                    border-radius: 8px;  /* Rounded corners */
                     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 }
                 QMessageBox::title {
-                    background-color: #1a1a1a;  /* 深灰色标题栏背景 */
-                    color: #e0e0e0;  /* 浅灰色标题文字 */
+                    background-color: #1a1a1a;  /* Dark title bar background */
+                    color: #e0e0e0;  /* Light title text */
                     padding: 8px 12px;
                     font-weight: 600;
                     font-size: 14px;
-                    border-bottom: 1px solid #404040;  /* 标题栏底部分割线 */
+                    border-bottom: 1px solid #404040;  /* Bottom border of title bar */
                 }
                 QMessageBox QLabel {
                     background-color: transparent;
-                    color: #e0e0e0;  /* 浅灰色文字 */
+                    color: #e0e0e0;  /* Light gray text */
                     font-size: 14px;
                     padding: 10px;
                 }
                 QMessageBox QPushButton {
-                    background-color: #404040;  /* 中灰色按钮背景 */
-                    color: #e0e0e0;  /* 浅灰色按钮文字 */
-                    border: 1px solid #606060;  /* 稍亮的边框 */
+                    background-color: #404040;  /* Medium gray button background */
+                    color: #e0e0e0;  /* Light gray button text */
+                    border: 1px solid #606060;  /* Slightly brighter border */
                     border-radius: 6px;
                     padding: 8px 16px;
                     font-weight: 500;
                     min-width: 80px;
                 }
                 QMessageBox QPushButton:hover {
-                    background-color: #505050;  /* 悬停时稍亮 */
+                    background-color: #505050;  /* Slightly brighter on hover */
                     border-color: #707070;
                 }
                 QMessageBox QPushButton:pressed {
-                    background-color: #353535;  /* 按下时稍暗 */
+                    background-color: #353535;  /* Slightly darker when pressed */
                 }
                 QMessageBox QPushButton:default {
-                    background-color: #5a5a5a;  /* 默认按钮稍亮 */
+                    background-color: #5a5a5a;  /* Default button slightly brighter */
                     border-color: #707070;
                 }
                 QMessageBox QPushButton:default:hover {
                     background-color: #656565;
                 }
             """)
-            logger.info("MessageBox Windows 样式已应用")
+            logger.info("MessageBox Windows style applied")
         else:
-            # 非 Windows 平台，保持系统默认样式
-            logger.info(f"当前平台 {sys.platform} 不支持自定义 MessageBox 样式，保持系统默认样式")
+            # Non-Windows platform, keep system default style
+            logger.info(f"Current platform {sys.platform} does not support custom MessageBox style; using system default")
 
     def _apply_dark_titlebar_to_messagebox(self, msg_box):
-        """为 MessageBox 应用 Windows 深色标题栏"""
+        """Apply Windows dark title bar to MessageBox"""
         try:
             import ctypes
 
-            # 显示对话框以获取窗口句柄
+            # Show dialog to get window handle
             msg_box.show()
 
-            # 获取 MessageBox 的窗口句柄
+            # Get MessageBox window handle
             hwnd = int(msg_box.winId())
 
-            # DWM API 常量
+            # DWM API constants
             DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 
-            # 设置深色标题栏
+            # Set dark title bar
             dwmapi = ctypes.windll.dwmapi
-            value = ctypes.c_int(1)  # 启用深色模式
+            value = ctypes.c_int(1)  # Enable dark mode
             dwmapi.DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_USE_IMMERSIVE_DARK_MODE,
@@ -301,24 +301,24 @@ class WebGUI(QMainWindow):
                 ctypes.sizeof(value)
             )
 
-            # 隐藏对话框，等待正式显示
+            # Hide dialog until ready to show
             msg_box.hide()
 
-            logger.info("MessageBox 深色标题栏已应用")
+            logger.info("MessageBox dark title bar applied")
 
         except Exception as e:
-            logger.warning(f"设置 MessageBox 深色标题栏失败: {e}")
+            logger.warning(f"Failed to set MessageBox dark title bar: {e}")
     def set_parent(self, parent):
         self.parent = parent
 
     def load_local_html(self):
-        """加载本地 HTML 文件"""
+        """Load local HTML file"""
         index_path = app_settings.dist_dir / "index.html"
         logger.info(f"Looking for index.html at: {index_path}")
         
         if index_path.exists():
             try:
-                # 直接加载本地文件
+                # Load local file directly
                 self.web_engine_view.load_local_file(index_path)
                 logger.info(f"Production mode: Loading from {index_path}")
                 
@@ -328,7 +328,7 @@ class WebGUI(QMainWindow):
                 logger.error(traceback.format_exc())
         else:
             logger.error(f"index.html not found in {app_settings.dist_dir}")
-            # 列出目录内容以便调试
+            # List directory contents for debugging
             if app_settings.dist_dir.exists():
                 logger.info(f"Contents of {app_settings.dist_dir}:")
                 for item in app_settings.dist_dir.iterdir():
@@ -337,18 +337,18 @@ class WebGUI(QMainWindow):
                 logger.error(f"Directory {app_settings.dist_dir} does not exist")
     
     def _setup_shortcuts(self):
-        """设置快捷键"""
-        # 开发者工具快捷键
+        """Set up shortcuts"""
+        # Developer tools shortcut
         self.dev_tools_shortcut = QShortcut(QKeySequence("F12"), self)
         self.dev_tools_shortcut.activated.connect(self.dev_tools_manager.toggle)
         
-        # F5 重新加载
+        # F5 reload
         reload_action = QAction(self)
         reload_action.setShortcut(QKeySequence('F5'))
         reload_action.triggered.connect(self.reload)
         self.addAction(reload_action)
         
-        # Ctrl+L 清除日志
+        # Ctrl+L clear logs
         clear_logs_action = QAction(self)
         clear_logs_action.setShortcut(QKeySequence('Ctrl+L'))
         clear_logs_action.triggered.connect(self.dev_tools_manager.clear_all)
@@ -358,7 +358,7 @@ class WebGUI(QMainWindow):
         print("self confirming top web gui....")
 
     def reload(self):
-        """重新加载页面"""
+        """Reload page"""
         logger.info("Reloading page...")
         if app_settings.is_dev_mode:
             self.web_engine_view.reload_page()
@@ -366,25 +366,25 @@ class WebGUI(QMainWindow):
             self.load_local_html()
     
     def closeEvent(self, event):
-        """窗口关闭事件 - 调试版本"""
+        """Window close event - debug version"""
         logger.info("closeEvent triggered")
 
         try:
-            # 创建自定义对话框
+            # Create custom dialog
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle('Confirm Exit')
             msg_box.setText('Are you sure you want to exit the program?')
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
 
-            # 设置对话框的灰色主题样式
+            # Apply dark gray theme to dialog
             self._apply_messagebox_style(msg_box)
 
-            # 为 Windows 平台设置深色标题栏
+            # Apply dark title bar for Windows
             if sys.platform == 'win32':
                 self._apply_dark_titlebar_to_messagebox(msg_box)
 
-            # 尝试设置图标，如果失败就使用默认图标
+            # Try to set icon; fall back to default icon on failure
             try:
                 logo_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
                 pixmap = QPixmap(logo_path)
@@ -396,31 +396,31 @@ class WebGUI(QMainWindow):
             except:
                 msg_box.setIcon(QMessageBox.Question)
 
-            logger.info("🔔 [DEBUG] 显示对话框")
+            logger.info("🔔 [DEBUG] Show dialog")
             reply = msg_box.exec()
-            logger.info(f"🔔 [DEBUG] 用户选择: {reply}")
+            logger.info(f"🔔 [DEBUG] User selection: {reply}")
 
             if reply == QMessageBox.Yes:
                 logger.info("User confirmed exit")
                 event.accept()
 
-                logger.info("🔔 [DEBUG] 开始退出流程")
+                logger.info("🔔 [DEBUG] Start exit process")
 
-                # 停止 LightragServer
+                # Stop LightragServer
                 try:
-                    logger.info("🔔 [DEBUG] 停止 LightragServer")
+                    logger.info("🔔 [DEBUG] Stopping LightragServer")
                     from app_context import AppContext
                     ctx = AppContext()
                     if ctx.main_window and hasattr(ctx.main_window, 'lightrag_server'):
-                        logger.info("🔔 [DEBUG] 找到 LightragServer，正在停止...")
+                        logger.info("🔔 [DEBUG] Found LightragServer, stopping...")
                         ctx.main_window.lightrag_server.stop()
-                        logger.info("🔔 [DEBUG] LightragServer 已停止")
+                        logger.info("🔔 [DEBUG] LightragServer stopped")
                     else:
-                        logger.info("🔔 [DEBUG] 未找到 LightragServer 或 MainWindow")
+                        logger.info("🔔 [DEBUG] LightragServer or MainWindow not found")
                 except Exception as e:
                     logger.warning(f"Error stopping LightragServer: {e}")
 
-                # 强制退出
+                # Force exit
                 import os
                 logger.info("Force exiting with os._exit(0)")
                 os._exit(0)
@@ -446,22 +446,22 @@ class WebGUI(QMainWindow):
     #     role: 'user' | 'assistant' | 'system' | 'agent';
     # id: string;
     # createAt: number;
-    # content: string | Content | Content[]; // 支持字符串、单个Content对象或Content数组
-    # status: MessageStatus; // 使用枚举类型
-    # attachments?: Attachment[]; // 统一使用
+    # content: string | Content | Content[]; // Supports string, single Content object, or Content array
+    # status: MessageStatus; // Enum type
+    # attachments?: Attachment[]; // Unified usage
     # attachments
-    # 字段，匹配后端数据结构
+    # Fields matching backend data structure
     #
-    #      // 以下字段为应用内部使用，不是Semi
-    # Chat组件必需的
+    #      // The following fields are for internal app use, not Semi
+    # Required by Chat component
     # chatId?: string;
     # senderId?: string;
     # senderName?: string;
     # time?: number;
-    # isRead?: boolean; // 新增，表示消息是否已读
+    # isRead?: boolean; // New: whether the message has been read
     # }
     def push_message_to_chat(self, chatId, msg):
-        """类型分发，自动调用 chat_service.add_xxx_message，推送到前端，并记录数据库写入结果"""
+        """Dispatch by type, call chat_service.add_xxx_message, push to frontend, and record DB write result"""
         main_window = self.parent
         logger.info(f"push_message echo_msg: {msg}")
         chat_service: ChatService = main_window.chat_service
@@ -473,7 +473,7 @@ class WebGUI(QMainWindow):
         status = msg.get('status')[0]
         ext = msg.get('ext')
         attachments = msg.get('attachments')
-        # 类型分发
+        # Type dispatch
         db_result = None
         if isinstance(content, dict):
             msg_type = content.get('type')
@@ -532,10 +532,10 @@ class WebGUI(QMainWindow):
                 senderName=senderName, status=status, ext=ext, attachments=attachments)
         logger.info(f"push_message db_result: {db_result}")
         print("push_message db_result:", db_result)
-        # 推送到前端
+        # Push to frontend
         app_ctx = AppContext()
         web_gui = app_ctx.web_gui
-        # 推送写入数据库后的真实数据
+        # Push actual data after database write
         if db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type != "notification":
             print("push_message db_result['data']:", db_result['data'])
             web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
@@ -563,37 +563,37 @@ class WebGUI(QMainWindow):
         print("receive_new_chat_message response::", response)
 
     def _adjust_layout_for_titlebar_menu(self):
-        """调整Windows和Linux平台的窗口布局以适应标题栏菜单"""
+        """Adjust window layout on Windows/Linux to fit the title bar menu"""
         try:
-            # 获取菜单栏
+            # Get menu bar
             menubar = self.menuBar()
 
-            # 确保菜单栏位置正确
-            # 在Qt中，菜单栏默认就在标题栏下方，我们通过样式让它看起来像在标题栏中
-            menubar.setCornerWidget(None)  # 清除任何角落部件
+            # Ensure the menu bar is positioned correctly
+            # In Qt, the menu bar is below the title bar by default; styling makes it appear in the title bar
+            menubar.setCornerWidget(None)  # Clear any corner widgets
 
-            # 调整主窗口的内容边距，为菜单栏留出空间
+            # Adjust main window margins to leave space for the menu bar
             central_widget = self.centralWidget()
             if central_widget:
                 layout = central_widget.layout()
                 if layout:
-                    # 减少顶部边距，因为菜单栏现在更紧凑
+                    # Reduce top margin as the menu bar is more compact now
                     layout.setContentsMargins(0, 0, 0, 0)
 
-            logger.info("Windows窗口布局已调整为标题栏菜单模式")
+            logger.info("Windows layout adjusted to title bar menu mode")
 
         except Exception as e:
-            logger.error(f"调整窗口布局失败: {e}")
+            logger.error(f"Failed to adjust window layout: {e}")
 
     def _setup_custom_titlebar_with_menu(self):
-        """设置自定义标题栏，将菜单栏集成到标题栏中"""
+        """Set a custom title bar and integrate the menu bar into it"""
         try:
-            # 隐藏默认标题栏
+            # Hide default title bar
             self.setWindowFlags(Qt.FramelessWindowHint)
 
-            # 创建自定义标题栏容器
+            # Create custom title bar container
             self.custom_titlebar = QWidget()
-            self.custom_titlebar.setFixedHeight(32)  # 标准Windows标题栏高度
+            self.custom_titlebar.setFixedHeight(32)  # Standard Windows title bar height
             self.custom_titlebar.setStyleSheet("""
                 QWidget {
                     background-color: #2d2d2d;
@@ -601,19 +601,19 @@ class WebGUI(QMainWindow):
                 }
             """)
 
-            # 创建标题栏布局
+            # Create title bar layout
             titlebar_layout = QHBoxLayout(self.custom_titlebar)
-            titlebar_layout.setContentsMargins(8, 0, 0, 0)  # 右边距为0，让控制按钮贴边
+            titlebar_layout.setContentsMargins(8, 0, 0, 0)  # Right margin 0 to align control buttons to the edge
             titlebar_layout.setSpacing(0)
 
-            # 添加应用图标
+            # Add application icon
             self.app_icon = QLabel()
             self.app_icon.setFixedSize(24, 24)
             icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
             if os.path.exists(icon_path):
                 pixmap = QPixmap(icon_path)
                 if not pixmap.isNull():
-                    # 缩放图片以适应24x24的大小，保持宽高比
+                    # Scale image to fit 24x24 while preserving aspect ratio
                     scaled_pixmap = pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.app_icon.setPixmap(scaled_pixmap)
                     self.app_icon.setAlignment(Qt.AlignCenter)
@@ -625,7 +625,7 @@ class WebGUI(QMainWindow):
             """)
             titlebar_layout.addWidget(self.app_icon)
 
-            # 创建菜单栏并添加到标题栏
+            # Create menu bar and add to title bar
             self.custom_menubar = QMenuBar()
             self.custom_menubar.setStyleSheet("""
                 QMenuBar {
@@ -728,18 +728,18 @@ class WebGUI(QMainWindow):
                     image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAxMiAxMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuNSAyTDguNSA2TDQuNSAxMCIgc3Ryb2tlPSIjZTBlMGUwIiBzdHJva2Utd2lkdGg9IjEuNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo=);
                 }
 
-                /* 快捷键样式 */
+                /* Shortcut key style */
                 QMenu::item:selected QKeySequence {
                     color: rgba(255, 255, 255, 0.8);
                 }
 
-                /* 子菜单样式 */
+                /* Submenu style */
                 QMenu QMenu {
                     margin-left: 2px;
                     border: 1px solid #505050;
                 }
 
-                /* 菜单项图标样式 */
+                /* Menu item icon style */
                 QMenu::icon {
                     padding-left: 8px;
                     width: 16px;
@@ -747,15 +747,15 @@ class WebGUI(QMainWindow):
                 }
             """)
 
-            # 手动设置菜单项
+            # Manually set menu items
             self._setup_custom_menus()
 
             titlebar_layout.addWidget(self.custom_menubar)
 
-            # 添加弹性空间，让标题居中
+            # Add stretch to center the title
             titlebar_layout.addStretch()
 
-            # 添加标题（居中显示）
+            # Add title (centered)
             self.title_label = QLabel("eCan.ai")
             self.title_label.setAlignment(Qt.AlignCenter)
             self.title_label.setStyleSheet("""
@@ -769,37 +769,37 @@ class WebGUI(QMainWindow):
             """)
             titlebar_layout.addWidget(self.title_label)
 
-            # 添加弹性空间，保持标题居中
+            # Add stretch to keep title centered
             titlebar_layout.addStretch()
 
-            # 初始化菜单管理器（如果需要其他功能）
+            # Initialize menu manager (if other features are needed)
             self.menu_manager = MenuManager(self)
-            # 重写menuBar方法以返回我们的自定义菜单栏
+            # Override menuBar to return our custom menu bar
             self.menuBar = lambda: self.custom_menubar
 
-            # 添加窗口控制按钮
+            # Add window control buttons
             self._add_window_controls(titlebar_layout)
 
-            # 将自定义标题栏添加到主布局
+            # Add custom title bar to main layout
             main_layout = self.centralWidget().layout()
             main_layout.insertWidget(0, self.custom_titlebar)
 
-            # 使标题栏可拖拽
+            # Make title bar draggable
             self._make_titlebar_draggable()
 
-            logger.info("自定义标题栏菜单已设置完成")
+            logger.info("Custom title bar menu set up successfully")
 
         except Exception as e:
-            logger.error(f"设置自定义标题栏失败: {e}")
-            # 如果失败，回退到标准菜单栏
+            logger.error(f"Failed to set custom title bar: {e}")
+            # Fallback to standard menu bar on failure
             self.setWindowFlags(Qt.Window)
             self.menu_manager = MenuManager(self)
             self.menu_manager.setup_menu()
 
     def _setup_custom_menus(self):
-        """设置自定义菜单栏的菜单项"""
+        """Set up custom menu bar items"""
         try:
-            # 添加主要菜单项
+            # Add primary menu items
             app_menu = self.custom_menubar.addMenu('eCan')
             self._add_app_menu_items(app_menu)
 
@@ -819,11 +819,11 @@ class WebGUI(QMainWindow):
             self._add_help_menu_items(help_menu)
 
         except Exception as e:
-            logger.error(f"设置自定义菜单失败: {e}")
+            logger.error(f"Failed to set custom menu: {e}")
 
     def _add_app_menu_items(self, menu):
-        """添加应用菜单项"""
-        # 关于
+        """Add application menu items"""
+        # About
         about_action = QAction('About eCan.ai', self)
         about_action.setStatusTip('Show information about eCan.ai')
         about_action.triggered.connect(self._show_about)
@@ -831,20 +831,20 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 偏好设置
+        # Preferences
         preferences_action = QAction('Preferences...', self)
         preferences_action.setShortcut('Ctrl+,')
         preferences_action.setStatusTip('Open application preferences')
         menu.addAction(preferences_action)
 
-        # 检查更新
+        # Check for updates
         update_action = QAction('Check for Updates...', self)
         update_action.setStatusTip('Check for application updates')
         menu.addAction(update_action)
 
         menu.addSeparator()
 
-        # 退出
+        # Quit
         quit_action = QAction('Quit eCan.ai', self)
         quit_action.setShortcut('Ctrl+Q')
         quit_action.setStatusTip('Quit the application')
@@ -852,8 +852,8 @@ class WebGUI(QMainWindow):
         menu.addAction(quit_action)
 
     def _add_file_menu_items(self, menu):
-        """添加文件菜单项"""
-        # 新建
+        """Add File menu items"""
+        # New
         new_action = QAction('New Chat', self)
         new_action.setShortcut('Ctrl+N')
         new_action.setStatusTip('Create a new chat conversation')
@@ -866,17 +866,17 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 打开
+        # Open
         open_action = QAction('Open...', self)
         open_action.setShortcut('Ctrl+O')
         open_action.setStatusTip('Open an existing file or project')
         menu.addAction(open_action)
 
-        # 最近文件子菜单
+        # Recent files submenu
         recent_menu = menu.addMenu('Open Recent')
         recent_menu.setStatusTip('Open recently used files')
 
-        # 添加一些示例最近文件
+        # Add some sample recent files
         for i in range(3):
             recent_action = QAction(f'Recent File {i+1}', self)
             recent_menu.addAction(recent_action)
@@ -887,7 +887,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 保存
+        # Save
         save_action = QAction('Save', self)
         save_action.setShortcut('Ctrl+S')
         save_action.setStatusTip('Save the current file')
@@ -900,7 +900,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 导入导出
+        # Import/Export
         import_action = QAction('Import...', self)
         import_action.setStatusTip('Import data from external sources')
         menu.addAction(import_action)
@@ -910,8 +910,8 @@ class WebGUI(QMainWindow):
         menu.addAction(export_action)
 
     def _add_edit_menu_items(self, menu):
-        """添加编辑菜单项"""
-        # 撤销重做
+        """Add Edit menu items"""
+        # Undo/Redo
         undo_action = QAction('Undo', self)
         undo_action.setShortcut('Ctrl+Z')
         undo_action.setStatusTip('Undo the last action')
@@ -924,7 +924,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 剪切板操作
+        # Clipboard operations
         cut_action = QAction('Cut', self)
         cut_action.setShortcut('Ctrl+X')
         cut_action.setStatusTip('Cut the selection to clipboard')
@@ -947,7 +947,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 选择操作
+        # Selection operations
         select_all_action = QAction('Select All', self)
         select_all_action.setShortcut('Ctrl+A')
         select_all_action.setStatusTip('Select all content')
@@ -955,7 +955,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 查找替换
+        # Find/Replace
         find_action = QAction('Find...', self)
         find_action.setShortcut('Ctrl+F')
         find_action.setStatusTip('Find text in the current document')
@@ -967,8 +967,8 @@ class WebGUI(QMainWindow):
         menu.addAction(find_replace_action)
 
     def _add_view_menu_items(self, menu):
-        """添加视图菜单项"""
-        # 窗口模式
+        """Add View menu items"""
+        # Window mode
         fullscreen_action = QAction('Enter Full Screen', self)
         fullscreen_action.setShortcut('F11')
         fullscreen_action.setStatusTip('Enter or exit full screen mode')
@@ -977,7 +977,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 缩放控制
+        # Zoom controls
         zoom_menu = menu.addMenu('Zoom')
         zoom_menu.setStatusTip('Control page zoom level')
 
@@ -998,7 +998,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 界面元素
+        # UI elements
         sidebar_action = QAction('Toggle Sidebar', self)
         sidebar_action.setShortcut('Ctrl+B')
         sidebar_action.setStatusTip('Show or hide the sidebar')
@@ -1020,7 +1020,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 页面控制
+        # Page controls
         reload_action = QAction('Reload Page', self)
         reload_action.setShortcut('Ctrl+R')
         reload_action.setStatusTip('Reload the current page')
@@ -1033,7 +1033,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 开发者工具
+        # Developer tools
         dev_tools_action = QAction('Developer Tools', self)
         dev_tools_action.setShortcut('F12')
         dev_tools_action.setStatusTip('Open developer tools')
@@ -1041,8 +1041,8 @@ class WebGUI(QMainWindow):
         menu.addAction(dev_tools_action)
 
     def _add_tools_menu_items(self, menu):
-        """添加工具菜单项"""
-        # AI工具
+        """Add Tools menu items"""
+        # AI tools
         ai_menu = menu.addMenu('AI Tools')
         ai_menu.setStatusTip('Access AI-powered tools')
 
@@ -1061,7 +1061,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 系统工具
+        # System tools
         settings_action = QAction('Settings...', self)
         settings_action.setShortcut('Ctrl+,')
         settings_action.setStatusTip('Open application settings')
@@ -1073,7 +1073,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 实用工具
+        # Utilities
         calculator_action = QAction('Calculator', self)
         calculator_action.setStatusTip('Open calculator')
         menu.addAction(calculator_action)
@@ -1084,14 +1084,14 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 系统信息
+        # System information
         system_info_action = QAction('System Information', self)
         system_info_action.setStatusTip('View system information')
         menu.addAction(system_info_action)
 
     def _add_help_menu_items(self, menu):
-        """添加帮助菜单项"""
-        # 帮助文档
+        """Add Help menu items"""
+        # Help documentation
         help_action = QAction('User Guide', self)
         help_action.setShortcut('F1')
         help_action.setStatusTip('Open user guide')
@@ -1108,7 +1108,7 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 在线资源
+        # Online resources
         website_action = QAction('Visit Website', self)
         website_action.setStatusTip('Visit the official website')
         menu.addAction(website_action)
@@ -1123,18 +1123,18 @@ class WebGUI(QMainWindow):
 
         menu.addSeparator()
 
-        # 关于
+        # About
         about_action = QAction('About eCan.ai', self)
         about_action.setStatusTip('Show information about eCan.ai')
         about_action.triggered.connect(self._show_about)
         menu.addAction(about_action)
 
     def _add_window_controls(self, layout):
-        """添加窗口控制按钮（最小化、最大化、关闭）"""
+        """Add window control buttons (minimize, maximize, close)"""
         try:
-            # 最小化按钮
+            # Minimize button
             minimize_btn = QPushButton('−')
-            minimize_btn.setFixedSize(46, 32)  # 标准Windows控制按钮大小
+            minimize_btn.setFixedSize(46, 32)  # Standard Windows control button size
             minimize_btn.setStyleSheet("""
                 QPushButton {
                     background-color: transparent;
@@ -1153,9 +1153,9 @@ class WebGUI(QMainWindow):
             minimize_btn.clicked.connect(self.showMinimized)
             layout.addWidget(minimize_btn)
 
-            # 最大化/还原按钮
+            # Maximize/restore button
             self.maximize_btn = QPushButton('□')
-            self.maximize_btn.setFixedSize(46, 32)  # 标准Windows控制按钮大小
+            self.maximize_btn.setFixedSize(46, 32)  # Standard Windows control button size
             self.maximize_btn.setStyleSheet("""
                 QPushButton {
                     background-color: transparent;
@@ -1174,9 +1174,9 @@ class WebGUI(QMainWindow):
             self.maximize_btn.clicked.connect(self._toggle_maximize)
             layout.addWidget(self.maximize_btn)
 
-            # 关闭按钮
+            # Close button
             close_btn = QPushButton('×')
-            close_btn.setFixedSize(46, 32)  # 标准Windows控制按钮大小
+            close_btn.setFixedSize(46, 32)  # Standard Windows control button size
             close_btn.setStyleSheet("""
                 QPushButton {
                     background-color: transparent;
@@ -1197,35 +1197,35 @@ class WebGUI(QMainWindow):
             layout.addWidget(close_btn)
 
         except Exception as e:
-            logger.error(f"添加窗口控制按钮失败: {e}")
+            logger.error(f"Failed to add window control buttons: {e}")
 
     def _make_titlebar_draggable(self):
-        """使标题栏可拖拽"""
+        """Make title bar draggable"""
         self.custom_titlebar.mousePressEvent = self._titlebar_mouse_press
         self.custom_titlebar.mouseMoveEvent = self._titlebar_mouse_move
         self.custom_titlebar.mouseDoubleClickEvent = self._titlebar_double_click
         self._drag_position = None
 
     def _titlebar_mouse_press(self, event):
-        """标题栏鼠标按下事件"""
+        """Title bar mouse press event"""
         if event.button() == Qt.LeftButton:
             self._drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
     def _titlebar_mouse_move(self, event):
-        """标题栏鼠标移动事件"""
+        """Title bar mouse move event"""
         if event.buttons() == Qt.LeftButton and self._drag_position:
             self.move(event.globalPosition().toPoint() - self._drag_position)
             event.accept()
 
     def _titlebar_double_click(self, event):
-        """标题栏双击事件"""
+        """Title bar double-click event"""
         if event.button() == Qt.LeftButton:
             self._toggle_maximize()
             event.accept()
 
     def _toggle_maximize(self):
-        """切换最大化/还原窗口"""
+        """Toggle maximize/restore window"""
         if self.isMaximized():
             self.showNormal()
             self.maximize_btn.setText('□')
@@ -1234,19 +1234,19 @@ class WebGUI(QMainWindow):
             self.maximize_btn.setText('❐')
 
     def _toggle_fullscreen(self):
-        """切换全屏模式"""
+        """Toggle fullscreen mode"""
         if self.isFullScreen():
             self.showNormal()
         else:
             self.showFullScreen()
 
     def _toggle_dev_tools(self):
-        """切换开发者工具"""
+        """Toggle developer tools"""
         if hasattr(self, 'dev_tools_manager'):
             self.dev_tools_manager.toggle_dev_tools()
 
     def _show_about(self):
-        """显示关于对话框"""
+        """Show About dialog"""
         QMessageBox.about(self, "About eCan.AI",
                          "eCan.AI\nVersion 1.0.0\n\nAn AI-powered e-commerce automation platform.")
 

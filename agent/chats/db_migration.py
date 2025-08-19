@@ -3,36 +3,34 @@ from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, 
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-import os
-import logging
 from agent.chats.chats_db import Base, DBVersion
 
 from utils.logger_helper import logger_helper as logger
 
 class DBMigration:
-    """数据库迁移管理器"""
+    """Database Migration Manager"""
     
     def __init__(self, db_path: str = None):
         """
-        初始化数据库迁移管理器
+        Initialize database migration manager
         
         Args:
-            db_path (str, optional): 数据库文件路径
+            db_path (str, optional): Database file path
         """
-        # 延迟导入，避免循环依赖
+        # Lazy import to avoid circular dependency
         from .chats_db import get_engine
         self.db_path = db_path
         self.engine = get_engine(db_path)
         self.Session = sessionmaker(bind=self.engine)
         
     def get_current_version(self) -> Optional[str]:
-        """获取当前数据库版本，若无则自动插入1.0.0"""
+        """Get current database version, auto-insert 1.0.0 if none exists"""
         session = self.Session()
         try:
             version = DBVersion.get_current_version(session)
             if not version:
-                # 自动插入初始版本
-                DBVersion.upgrade_version(session, '1.0.0', description='初始化版本')
+                # Auto-insert initial version
+                DBVersion.upgrade_version(session, '1.0.0', description='Initial version')
                 version = DBVersion.get_current_version(session)
             return version.version if version else '1.0.0'
         finally:
@@ -40,70 +38,70 @@ class DBMigration:
             
     def upgrade_to_version(self, target_version: str, description: str = None) -> bool:
         """
-        升级数据库到指定版本
+        Upgrade database to specified version
         
         Args:
-            target_version (str): 目标版本号
-            description (str, optional): 升级描述
+            target_version (str): Target version number
+            description (str, optional): Upgrade description
             
         Returns:
-            bool: 升级是否成功
+            bool: Whether upgrade was successful
         """
         current_version = self.get_current_version()
         if not current_version:
-            logger.error("无法获取当前数据库版本")
+            logger.error("Unable to get current database version")
             return False
         
-        # 版本号比较，禁止降级
+        # Version comparison, prohibit downgrade
         current_parts = [int(x) for x in current_version.split('.')]
         target_parts = [int(x) for x in target_version.split('.')]
         if current_parts > target_parts:
-            logger.error(f"不允许降级操作: {current_version} -> {target_version}")
+            logger.error(f"Downgrade not allowed: {current_version} -> {target_version}")
             return False
         
-        # 获取所有可用的升级脚本
+        # Get all available upgrade scripts
         upgrade_scripts = self._get_upgrade_scripts(current_version, target_version)
         if not upgrade_scripts:
-            logger.info(f"数据库已经是最新版本 {current_version}")
+            logger.info(f"Database is already at latest version {current_version}")
             return True
         
         session = self.Session()
         try:
-            # 执行每个升级脚本
+            # Execute each upgrade script
             for script in upgrade_scripts:
-                logger.info(f"执行升级脚本: {script['version']} - {script['description']}")
+                logger.info(f"Executing upgrade script: {script['version']} - {script['description']}")
                 if not self._execute_upgrade_script(session, script):
                     session.rollback()
                     return False
-            # 更新版本记录
+            # Update version record
             DBVersion.upgrade_version(session, target_version, description)
             session.commit()
-            logger.info(f"数据库升级成功: {current_version} -> {target_version}")
+            logger.info(f"Database upgrade successful: {current_version} -> {target_version}")
             return True
         except Exception as e:
             session.rollback()
-            logger.error(f"数据库升级失败: {str(e)}")
+            logger.error(f"Database upgrade failed: {str(e)}")
             return False
         finally:
             session.close()
             
     def _get_upgrade_scripts(self, current_version: str, target_version: str) -> List[Dict[str, Any]]:
         """
-        获取从当前版本到目标版本的所有升级脚本
+        Get all upgrade scripts from current version to target version
         
         Args:
-            current_version (str): 当前版本
-            target_version (str): 目标版本
+            current_version (str): Current version
+            target_version (str): Target version
             
         Returns:
-            List[Dict[str, Any]]: 升级脚本列表
+            List[Dict[str, Any]]: List of upgrade scripts
         """
-        # 定义所有已知的升级路径
+        # Define all known upgrade paths
         upgrade_path = [
             ("1.0.0", "1.0.1"),
             ("1.0.1", "2.0.0"),
         ]
-        # 生成所有需要执行的升级步骤
+        # Generate all upgrade steps that need to be executed
         scripts = []
         version = current_version
         while version != target_version:
@@ -117,45 +115,45 @@ class DBMigration:
                     version = to_v
                     break
             else:
-                # 没有找到下一个升级路径，说明目标版本不可达
+                # No next upgrade path found, target version is unreachable
                 break
         return scripts
         
     def _execute_upgrade_script(self, session, script: Dict[str, Any]) -> bool:
         """
-        执行升级脚本
+        Execute upgrade script
         
         Args:
-            session: 数据库会话
-            script (Dict[str, Any]): 升级脚本信息
+            session: Database session
+            script (Dict[str, Any]): Upgrade script information
             
         Returns:
-            bool: 执行是否成功
+            bool: Whether execution was successful
         """
         try:
-            # 执行升级函数
+            # Execute upgrade function
             script['upgrade_func'](session)
             return True
         except Exception as e:
-            logger.error(f"执行升级脚本失败: {str(e)}")
+            logger.error(f"Failed to execute upgrade script: {str(e)}")
             return False
             
     def _create_upgrade_function(self, from_version: str, to_version: str):
         """
-        创建升级函数
+        Create upgrade function
         """
         def upgrade_func(session):
-            # 这里实现具体的数据库结构升级逻辑
-            # 例如：添加新表、修改表结构等
+            # Here implement specific database structure upgrade logic
+            # For example: add new tables, modify table structure, etc.
             if from_version == "1.0.0" and to_version == "1.0.1":
-                # 为 db_version 表添加 upgraded_at 字段（如果不存在）
+                # Add upgraded_at field to db_version table (if it doesn't exist)
                 with self.engine.connect() as conn:
                     result = conn.execute(text("PRAGMA table_info(db_version);"))
                     columns = [row[1] for row in result]
                     if "upgraded_at" not in columns:
                         conn.execute(text("ALTER TABLE db_version ADD COLUMN upgraded_at DATETIME;"))
             if from_version == "1.0.1" and to_version == "2.0.0":
-                # 创建 chat_notification 表
+                # Create chat_notification table
                 metadata = MetaData()
                 chat_notification = Table(
                     'chat_notification',
@@ -167,32 +165,32 @@ class DBMigration:
                     Column('isRead', Boolean, default=False)
                 )
                 metadata.create_all(self.engine, tables=[chat_notification])
-            # 可继续添加更多升级分支
+            # Can continue to add more upgrade branches
         return upgrade_func
         
     def create_migration_script(self, version: str, description: str) -> str:
         """
-        创建迁移脚本模板
+        Create migration script template
         
         Args:
-            version (str): 版本号
-            description (str): 描述
+            version (str): Version number
+            description (str): Description
             
         Returns:
-            str: 迁移脚本模板
+            str: Migration script template
         """
         template = f"""from datetime import datetime
 from sqlalchemy import Table, Column, String, Integer, DateTime, MetaData, JSON, Boolean
 
 def upgrade(session, engine):
     \"\"\"
-    数据库升级脚本: {version}
-    描述: {description}
+    Database upgrade script: {version}
+    Description: {description}
     \"\"\"
     metadata = MetaData()
     
-    # 在这里添加升级逻辑
-    # 例如：
+    # Add upgrade logic here
+    # For example:
     # new_table = Table(
     #     'new_table',
     #     metadata,

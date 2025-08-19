@@ -3,14 +3,19 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QFormLayout, QLineEdit, QCheckBox, QLabel, QComboBox, QApplication
 if sys.platform == "win32":
     import win32print
+    import pywintypes
+    import win32serviceutil
+else:
+    win32print = None
+    pywintypes = None
+    win32serviceutil = None
 import subprocess
 import re
 import time
 import traceback
 import platform
 import os
-import pywintypes
-import win32serviceutil
+from utils.logger_helper import logger_helper as logger
 
 # select webbrowser - exe path
 # select auto run time.
@@ -31,33 +36,43 @@ import win32serviceutil
 # app.installTranslator(translator)
 
 def ensure_spooler_running():
-    try:
-        status = win32serviceutil.QueryServiceStatus("Spooler")[1]
-        # 4 = RUNNING, 1 = STOPPED
-        if status != 4:
-            win32serviceutil.StartService("Spooler")
-            for _ in range(10):
-                time.sleep(0.5)
-                if win32serviceutil.QueryServiceStatus("Spooler")[1] == 4:
-                    break
-    except Exception:
-        # If permissions block service control, at least we tried.
-        pass
+    """Ensure printing backend is running on the current platform.
 
-def ensure_spooler_running():
-    try:
-        status = win32serviceutil.QueryServiceStatus("Spooler")[1]
-        # 4 = RUNNING, 1 = STOPPED
-        if status != 4:
-            win32serviceutil.StartService("Spooler")
-            for _ in range(10):
-                time.sleep(0.5)
-                if win32serviceutil.QueryServiceStatus("Spooler")[1] == 4:
-                    break
-    except Exception:
-        # If permissions block service control, at least we tried.
-        pass
+    - Windows: ensure Spooler service is running
+    - Others: no-op
+    """
+    if sys.platform == "win32" and win32serviceutil is not None:
+        try:
+            status = win32serviceutil.QueryServiceStatus("Spooler")[1]
+            if status != 4:
+                win32serviceutil.StartService("Spooler")
+                for _ in range(10):
+                    time.sleep(0.5)
+                    if win32serviceutil.QueryServiceStatus("Spooler")[1] == 4:
+                        break
+        except Exception:
+            logger.error("Error ensuring spooler running: " + traceback.format_exc())
+            pass
+    else:
+        return
 
+def ensure_cups_running():
+    """Ensure printing backend is running on the current platform.
+
+    - macOS: ensure CUPS scheduler is running
+    - Others: no-op
+    """
+    if sys.platform == "darwin":
+        try:
+            res = subprocess.run(["lpstat", "-r"], capture_output=True, text=True)
+            if "not running" in (res.stdout or "").lower():
+                # Best-effort start without sudo; may fail silently on restricted envs
+                subprocess.run(["launchctl", "start", "org.cups.cupsd"], capture_output=True)
+        except Exception:
+            logger.error("Error ensuring cups running: " + traceback.format_exc())
+            pass
+    else:
+        return
 
 def win_list_printers(server: str | None = None, level: int = 2):
     """
@@ -77,17 +92,26 @@ def win_list_printers(server: str | None = None, level: int = 2):
 
     try:
         return _enum()
-    except pywintypes.error as e:
-        if e.winerror == 1722:  # RPC server unavailable
-            # Try to start spooler and retry once
+    except Exception as e:
+        if sys.platform == 'win32' and pywintypes is not None and isinstance(e, pywintypes.error) and getattr(e, 'winerror', None) == 1722:
             try:
                 win32serviceutil.StartService("Spooler")
             except Exception:
                 pass
             time.sleep(1.0)
             return _enum()
-        raise  # rethrow other errors
+        raise
 
+
+def mac_list_printers():
+    result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True)
+    printer_lines = result.stdout.strip().split('\n')
+    printers = []
+    for line in printer_lines:
+        if line.startswith('printer'):
+            printer_name = line.split(' ')[1]
+            printers.append(printer_name)
+    return printers
 
 class SettingsWidget(QMainWindow):
     def __init__(self, parent):
@@ -124,7 +148,7 @@ class SettingsWidget(QMainWindow):
                     self.printer_select.addItem(QApplication.translate("QComboBox", role))
 
                 found_idx = next((i for i, p in enumerate([p[2] for p in self.printers]) if p == default_printer), -1)
-                print("finding default printer", found_idx, default_printer, "among:", [p[2] for p in self.printers])
+                logger.info("finding default printer", found_idx, default_printer, "among:", [p[2] for p in self.printers])
                 if found_idx >= 0:
                     self.printer_select.setCurrentIndex(found_idx)
                 else:
@@ -150,7 +174,7 @@ class SettingsWidget(QMainWindow):
                 self.wifi_select.addItem(QApplication.translate("QComboBox", wifi))
 
             found_idx = next((i for i, w in enumerate(self.parent.wifis) if w == default_wifi), -1)
-            print("finding default wifi", found_idx, default_wifi, "among:", self.parent.wifis)
+            logger.info("finding default wifi", found_idx, default_wifi, "among:", self.parent.wifis)
             if found_idx >= 0:
                 self.wifi_select.setCurrentIndex(found_idx)
             else:
@@ -193,7 +217,7 @@ class SettingsWidget(QMainWindow):
                 ex_stat = "ErrorSettingsWidgetInit:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorSettingsWidgetInit: traceback information not available:" + str(e)
-            print(ex_stat)
+            logger.error(ex_stat)
     def save_settings(self):
         self.commander_run = (self.commander_run_cb.checkState() == Qt.Checked)
         self.overcapcity_warning = (self.overcapcity_warning_cb.checkState() == Qt.Checked)
@@ -209,24 +233,13 @@ class SettingsWidget(QMainWindow):
             if platform.system() == 'Windows':
                 # flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
                 # printers = win32print.EnumPrinters(flags, None, 2)
+                ensure_spooler_running()
                 self.printers = win_list_printers()
             else:  # macOS
-                # Use lpstat to get printer list
-                result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True)
-                printer_lines = result.stdout.strip().split('\n')
+                ensure_cups_running
+                self.printers = mac_list_printers()
                 
-                # Format to match Windows structure: (flags, description, name, comment)
-                self.printers = []
-                for line in printer_lines:
-                    if line.startswith('printer'):
-                        # Extract printer name from the line
-                        printer_name = line.split(' ')[1]
-                        # Create tuple with same structure as Windows
-                        # (flags, description, name, comment)
-                        printer_info = (0, '', printer_name, '')
-                        self.printers.append(printer_info)
-                
-            print([p[2] for p in self.printers])
+            logger.info("Printers: " + str([p[2] for p in self.printers]))
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -235,7 +248,7 @@ class SettingsWidget(QMainWindow):
                 ex_stat = "ErrorListPrinters:" + traceback.format_exc() + " " + str(e)
             else:
                 ex_stat = "ErrorListPrinters: traceback information not available:" + str(e)
-            print(ex_stat)
+            logger.error(ex_stat)
             # Ensure printers is defined even on failure
             self.printers = []
 
@@ -277,21 +290,21 @@ class SettingsWidget(QMainWindow):
             # Use regular expression to find all SSID lines and extract SSID names
             ssid_list = re.findall(r"SSID \d+ : (.+)", networks_output)
             if ssid_list:
-                print("Available Wi-Fi Networks (Scan {}):".format(i + 1))
+                logger.info("Available Wi-Fi Networks (Scan {}):".format(i + 1))
                 for ssid in ssid_list:
-                    print(f"- {ssid}")
+                    logger.info(f"- {ssid}")
             else:
-                print("No Wi-Fi networks found.")
+                logger.warning("No Wi-Fi networks found.")
 
         self.wifi_list = ssid_list
 
     def on_printer_selected(self):
-        print("Index changed", self.printer_select.currentIndex())
+        logger.info("Index changed", self.printer_select.currentIndex())
         self.default_printer = self.printer_select.currentText()
-        print("new printer selected: "+self.default_printer)
+        logger.info("new printer selected: "+self.default_printer)
 
 
     def on_wifi_selected(self):
-        print("Index changed", self.wifi_select.currentIndex())
+        logger.info("Index changed", self.wifi_select.currentIndex())
         self.default_wifi = self.wifi_select.currentText()
-        print("new wifi selected: "+self.default_wifi)
+        logger.info("new wifi selected: "+self.default_wifi)
