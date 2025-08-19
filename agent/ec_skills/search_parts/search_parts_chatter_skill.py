@@ -78,6 +78,12 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
 
 def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
     # highlight-next-line
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    print("run time:", runtime)
+    current_node_name = runtime.context["this_node"].get("name")
+
     print("pend_for_human_input_node:", state)
     if state.get("tool_result", None):
         qa_form = state.get("tool_result").get("qa_form", None)
@@ -99,6 +105,69 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
         "pended": interrupted # (3)!
     }
 
+
+def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
+    # highlight-next-line
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    print("run time:", runtime)
+    current_node_name = runtime.context["this_node"].get("name")
+
+    print("pend_for_human_fill_FOM_node:", current_node_name, state)
+    if state.get("tool_result", None):
+        qa_form = state.get("tool_result").get("qa_form", None)
+        notification = state.get("tool_result").get("notification", None)
+    else:
+        qa_form = None
+        notification = None
+
+    interrupted = interrupt(  # (1)!
+        {
+            "prompt_to_human": state["result"],  # (2)!
+            "qa_form_to_human": qa_form,
+            "notification_to_human": notification
+        }
+    )
+    print("node running:", runtime.context.current_node)
+    print("interrupted:", interrupted)
+    return {
+        "pended": interrupted  # (3)!
+    }
+
+
+
+def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
+    # highlight-next-line
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    print("run time:", runtime)
+    current_node_name = runtime.context["this_node"].get("name")
+
+    print("pend_for_human_fill_specs_node:", current_node_name, state)
+    if state.get("tool_result", None):
+        qa_form = state.get("tool_result").get("qa_form", None)
+        notification = state.get("tool_result").get("notification", None)
+    else:
+        qa_form = None
+        notification = None
+
+    interrupted = interrupt(  # (1)!
+        {
+            "prompt_to_human": state["result"],  # (2)!
+            "qa_form_to_human": qa_form,
+            "notification_to_human": notification
+        }
+    )
+    print("node running:", runtime.context.current_node)
+    print("interrupted:", interrupted)
+    return {
+        "pended": interrupted  # (3)!
+    }
+
+
+
 def examine_filled_specs_node(state):
     if state["result"]:
         state["condition"] = True
@@ -113,7 +182,13 @@ def confirm_FOM_node(state):
 
 def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
     # highlight-next-line
-    print("pend_for_human_input_node:", state)
+    agent_id = state["messages"][0]
+    agent = get_agent_by_id(agent_id)
+    mainwin = agent.mainwin
+    print("run time:", runtime)
+    current_node_name = runtime.context["this_node"].get("name")
+
+    print("pend_for_result_message_node:", current_node_name, state)
     if state.get("tool_result", None):
         qa_form = state.get("tool_result").get("qa_form", None)
         notification = state.get("tool_result").get("notification", None)
@@ -201,6 +276,70 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
         err_trace = get_traceback(e, "ErrorLLMNodeWithRawFiles")
         logger.debug(err_trace)
 
+def send_data_back(dtype, data, state) -> NodeState:
+    try:
+        agent_id = state["messages"][0]
+        # _ensure_context(runtime.context)
+        self_agent = get_agent_by_id(agent_id)
+        mainwin = self_agent.mainwin
+        twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
+
+        print("standard_post_llm_hook send_response_back:", state)
+        chat_id = state["messages"][1]
+        msg_id = str(uuid.uuid4()),
+        # send self a message to trigger the real component search work-flow
+        if dtype == "form":
+            card = {}
+            code = {}
+            form = data
+            notification = {}
+        elif dtype == "notification":
+            card = {}
+            code = {}
+            form = {}
+            notification = data
+        else:
+            card = {}
+            code = {}
+            form = {}
+            notification = {}
+
+        agent_response_message = {
+            "id": str(uuid.uuid4()),
+            "chat": {
+                "input": state["result"]["llm_result"],
+                "attachments": [],
+                "messages": [self_agent.card.id, chat_id, msg_id, "", state["result"]["llm_result"]],
+            },
+            "params": {
+                "content": state["result"]["llm_result"],
+                "attachments": state["attachments"],
+                "metadata": {
+                    "type": dtype, # "text", "code", "form", "notification", "card
+                    "card": card,
+                    "code": code,
+                    "form": form,
+                    "notification": notification,
+                },
+                "role": "",
+                "senderId": f"{agent_id}",
+                "createAt": int(time.time() * 1000),
+                "senderName": f"{self_agent.card.name}",
+                "status": "success",
+                "ext": "",
+                "human": False
+            }
+        }
+        print("sending response msg back to twin:", agent_response_message)
+        send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
+        # state.result = result
+        return send_result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorSendResponseBack")
+        logger.debug(err_trace)
+        return err_trace
+
+
 
 
 def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
@@ -215,13 +354,15 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             tool_result = loop.run_until_complete(mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]} ))
-            # tool_result = await mainwin.mcp_client.call_tool(
-            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
-            # )
+            # what we should get here is a dict of parametric search filters based on the preliminary
+            # component info, this should be passed to human for filling out and confirmation
             print("query components completed:", type(tool_result), tool_result)
             if "completed" in tool_result.content[0].text:
                 state.result = tool_result.content[0].text
                 state.tool_result = getattr(tool_result, 'meta', None)
+
+                # if parametric_search_filters are returned, pass them to human twin
+                #     state["parametric_search_filters"] = parametric_search_filters
             else:
                 state["error"] = tool_result.content[0].text
 
@@ -368,17 +509,17 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("chat", node_wrapper(llm_node_with_raw_files, "chat"))
         workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)
-        workflow.add_node("casually_respond_and_pend_for_next_human_msg", node_wrapper(llm_node_with_raw_files, "casually_respond_and_pend_for_next_human_msg"))
+        workflow.add_node("pend_for_next_human_msg", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg"))
         workflow.add_node("more_analysis_app", node_wrapper(llm_node_with_raw_files, "more_analysis_app"))
-        workflow.add_conditional_edges("chat", chat_or_work, ["casually_respond_and_pend_for_next_human_msg", "more_analysis_app"])
-        workflow.add_edge("casually_respond_and_pend_for_next_human_msg", "chat")
+        workflow.add_conditional_edges("chat", chat_or_work, ["pend_for_next_human_msg", "more_analysis_app"])
+        workflow.add_edge("pend_for_next_human_msg", "chat")
 
 
-        workflow.add_node("respond_and_pend_for_next_human_msg0", node_wrapper(llm_node_with_raw_files, "respond_and_pend_for_next_human_msg0"))
+        workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0"))
         workflow.add_node("query_component_specs", query_component_specs_node)
 
-        workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "respond_and_pend_for_next_human_msg0"])
-        workflow.add_edge("respond_and_pend_for_next_human_msg0", "more_analysis_app")      # chat infinite loop
+        workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "pend_for_next_human_msg0"])
+        workflow.add_edge("pend_for_next_human_msg0", "more_analysis_app")      # chat infinite loop
 
 
         workflow.add_node("pend_for_human_input_fill_specs", pend_for_human_input_node)
@@ -386,24 +527,24 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_edge("query_component_specs", "pend_for_human_input_fill_specs")
         workflow.add_node("examine_filled_specs", examine_filled_specs_node)
 
-        workflow.add_node("respond_and_pend_for_next_human_msg1", node_wrapper(llm_node_with_raw_files, "respond_and_pend_for_next_human_msg1"))
+        workflow.add_node("pend_for_next_human_msg1", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg1"))
 
-        workflow.add_conditional_edges("examine_filled_specs", are_component_specs_filled, ["request_FOM", "respond_and_pend_for_next_human_msg1"])
-        workflow.add_edge("respond_and_pend_for_next_human_msg1", "examine_filled_specs")
+        workflow.add_conditional_edges("examine_filled_specs", are_component_specs_filled, ["request_FOM", "pend_for_next_human_msg1"])
+        workflow.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
 
         workflow.add_node("request_FOM", request_FOM_node)
 
-        workflow.add_node("pend_for_human_input_fill_FOM", pend_for_human_input_node)
+        workflow.add_node("pend_for_human_input_fill_FOM", pend_for_human_fill_FOM_node)
         workflow.add_node("confirm_FOM", confirm_FOM_node)
 
-        workflow.add_node("respond_and_pend_for_next_human_msg2", node_wrapper(llm_node_with_raw_files, "respond_and_pend_for_next_human_msg2"))
+        workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2"))
 
-        workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["run_search", "respond_and_pend_for_next_human_msg2"])
-        workflow.add_edge("respond_and_pend_for_next_human_msg2", "confirm_FOM")
+        workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["run_search", "pend_for_next_human_msg2"])
+        workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")
 
 
         workflow.add_node("run_search", run_search_node)
-        workflow.add_node("pend_for_result", pend_for_result_message_node)
+        workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result"))
 
         workflow.add_node("show_results", show_results_node)
         workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])
