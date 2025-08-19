@@ -309,67 +309,7 @@ def _clean_macos_build_artifacts(build_path: Path) -> None:
 
 
 
-def _prepare_third_party_assets() -> None:
-    """Prepare all third-party assets using the unified manager"""
-    try:
-        from build_system.third_party_manager import third_party_manager, set_verbose
-
-        # Set verbose mode (try to get from args if available)
-        verbose_mode = False
-        try:
-            # Try to access args from the calling context
-            frame = sys._getframe(1)
-            if 'args' in frame.f_locals and hasattr(frame.f_locals['args'], 'verbose'):
-                verbose_mode = frame.f_locals['args'].verbose
-        except:
-            pass
-
-        set_verbose(verbose_mode)
-
-        print("[THIRD-PARTY] Processing third-party components...")
-        results = third_party_manager.process_all()
-
-        success_count = sum(results.values())
-        total_count = len(results)
-
-        print(f"[THIRD-PARTY] Processed {success_count}/{total_count} components")
-
-        if success_count < total_count:
-            failed = [name for name, success in results.items() if not success]
-            print(f"[THIRD-PARTY] Failed components: {failed}")
-
-        # Fallback to original Playwright handling if needed
-        if not results.get('playwright', False):
-            print("[THIRD-PARTY] Falling back to original Playwright handling...")
-            _prepare_playwright_assets_fallback()
-
-    except ImportError as e:
-        print(f"[THIRD-PARTY] Third-party manager not available: {e}")
-        print("[THIRD-PARTY] Using fallback Playwright handling...")
-        _prepare_playwright_assets_fallback()
-    except Exception as e:
-        print(f"[THIRD-PARTY] Error in third-party processing: {e}")
-        print("[THIRD-PARTY] Using fallback Playwright handling...")
-        _prepare_playwright_assets_fallback()
-
-
-def _prepare_playwright_assets_fallback() -> None:
-    """Fallback Playwright asset preparation"""
-    try:
-        from build_system.playwright.utils import build_utils
-
-        third_party = Path.cwd() / "third_party" / "ms-playwright"
-
-        # Prepare Playwright assets using build-time utilities
-        build_utils.prepare_playwright_assets(third_party)
-    except Exception as e:
-        print(f"[THIRD-PARTY] Fallback Playwright preparation failed: {e}")
-
-
-# Keep the old function name for compatibility
-def _prepare_playwright_assets() -> None:
-    """Prepare Playwright assets (compatibility wrapper)"""
-    _prepare_playwright_assets_fallback()
+# Third-party asset preparation is now handled directly in build_utils.py
 
 
 
@@ -759,23 +699,18 @@ Usage examples:
         # 4) macOS-specific post-build validation
         if sys.platform == "darwin" and success:
             try:
-                from build_system.symlink_validator import symlink_validator
-                from build_system.build_logger import build_logger
+                from build_system.build_utils import validate_macos_app_bundle
 
                 # Get app name from config
                 app_name = cfg.get_app_info().get("name", "eCan")
                 app_bundle = Path("dist") / f"{app_name}.app"
                 if app_bundle.exists():
-                    print("[MACOS] Validating symlinks in app bundle...")
-                    validation_result = symlink_validator.validate_app_bundle(app_bundle)
-                    symlink_validator.print_validation_report(validation_result)
-
-                    if validation_result["status"] == "error":
-                        print("[WARNING] Symlink validation failed, but continuing...")
+                    print("[MACOS] Validating app bundle...")
+                    validate_macos_app_bundle(app_bundle)
                 else:
-                    print("[WARNING] App bundle not found for symlink validation")
+                    print("[WARNING] App bundle not found for validation")
             except Exception as e:
-                print(f"[WARNING] Symlink validation error: {e}")
+                print(f"[WARNING] App bundle validation failed: {e}")
 
         # 5) Dev-only local signing (disabled by default)
         try:

@@ -220,60 +220,155 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
 
 
 def prepare_third_party_assets() -> None:
-    """Prepare all third-party assets using the unified manager"""
+    """Prepare third-party assets (simplified - direct Playwright handling)"""
+    print("[THIRD-PARTY] Preparing Playwright assets...")
+
     try:
-        from build_system.third_party_manager import third_party_manager, set_verbose
-
-        # Set verbose mode (try to get from args if available)
-        try:
-            import sys
-
-            verbose = "--verbose" in sys.argv or "-v" in sys.argv
-            set_verbose(verbose)
-        except:
-            pass
-
-        print("[THIRD-PARTY] Processing third-party assets...")
-
-        # Process all enabled third-party components
-        results = third_party_manager.process_all()
-
-        # Report results
-        success_count = sum(1 for success in results.values() if success)
-        total_count = len(results)
-
-        if success_count > 0:
-            print(
-                f"[THIRD-PARTY] Successfully processed {success_count}/{total_count} components"
-            )
-            for name, success in results.items():
-                status = "[OK]" if success else "[FAIL]"
-                print(f"[THIRD-PARTY]   {status} {name}")
-        else:
-            print("[THIRD-PARTY] No third-party components processed")
-
-        # Special handling for Playwright if it failed
-        if not results.get("playwright", False):
-            print("[THIRD-PARTY] Playwright processing failed, using fallback...")
-            prepare_playwright_assets_fallback()
+        # Use simplified Playwright preparation
+        _prepare_playwright_simple()
+        print("[THIRD-PARTY] Playwright assets prepared successfully")
 
     except Exception as e:
-        print(f"[THIRD-PARTY] Error in third-party processing: {e}")
-        print("[THIRD-PARTY] Using fallback Playwright handling...")
-        prepare_playwright_assets_fallback()
+        print(f"[THIRD-PARTY] Playwright preparation failed: {e}")
+        print("[THIRD-PARTY] This may cause issues with browser automation features")
+        # Don't fail the build, just warn
+        return
 
 
-def prepare_playwright_assets_fallback() -> None:
-    """Fallback Playwright asset preparation"""
+def _prepare_playwright_simple() -> None:
+    """Simplified Playwright asset preparation"""
+    import subprocess
+    import sys
+    import shutil
+    from pathlib import Path
+
+    target_path = Path.cwd() / "third_party" / "ms-playwright"
+
+    # 1. Ensure playwright is installed
     try:
-        from build_system.playwright.utils import build_utils
+        subprocess.run([sys.executable, "-m", "pip", "show", "playwright"],
+                      check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        print("[BUILD] Installing playwright...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
 
-        third_party = Path.cwd() / "third_party" / "ms-playwright"
-        # Use the standard build-time preparation API
-        build_utils.prepare_playwright_assets(third_party)
-        print("[THIRD-PARTY] Fallback Playwright preparation completed")
+    # 2. Find existing cache or install browsers
+    cache_path = _find_playwright_cache()
+    if not cache_path:
+        print("[BUILD] Installing Playwright browsers...")
+        # Install to default location
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        cache_path = _find_playwright_cache()
+
+        if not cache_path:
+            raise RuntimeError("Failed to install or locate Playwright browsers")
+
+    # 3. Copy to target location
+    print(f"[BUILD] Copying Playwright assets: {cache_path} -> {target_path}")
+    if target_path.exists():
+        shutil.rmtree(target_path, ignore_errors=True)
+
+    # Use symlink manager if available for safe copying
+    try:
+        from build_system.symlink_manager import symlink_manager
+        success = symlink_manager.safe_copytree(cache_path, target_path, "PLAYWRIGHT")
+        if not success:
+            raise Exception("Symlink manager copy failed")
+    except Exception:
+        # Fallback to standard copy
+        shutil.copytree(cache_path, target_path, symlinks=False)
+
+    print(f"[BUILD] Playwright assets copied to {target_path}")
+
+
+def _find_playwright_cache() -> Path:
+    """Find Playwright cache directory (simplified)"""
+    import os
+    import platform
+    from pathlib import Path
+
+    # Check environment variable first
+    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    if env_path:
+        env_path_obj = Path(env_path)
+        if env_path_obj.exists() and (env_path_obj / "browsers.json").exists():
+            return env_path_obj
+
+    # Platform-specific default paths
+    if platform.system() == "Windows":
+        possible_paths = [
+            Path.home() / "AppData" / "Local" / "ms-playwright",
+            Path(os.getenv("LOCALAPPDATA", "")) / "ms-playwright",
+        ]
+    elif platform.system() == "Darwin":  # macOS
+        possible_paths = [
+            Path.home() / ".cache" / "ms-playwright",
+            Path.home() / "Library" / "Caches" / "ms-playwright",
+        ]
+    else:  # Linux
+        possible_paths = [
+            Path.home() / ".cache" / "ms-playwright",
+            Path.home() / ".local" / "share" / "ms-playwright",
+        ]
+
+    # Find first valid path
+    for path in possible_paths:
+        if path.exists() and (path / "browsers.json").exists():
+            return path
+
+    return None
+
+
+def validate_macos_app_bundle(app_bundle_path: Path) -> bool:
+    """Simple macOS app bundle validation (simplified from symlink_validator)"""
+    import platform
+
+    if platform.system() != "Darwin":
+        return True  # Skip on non-macOS
+
+    if not app_bundle_path.exists():
+        print(f"[MACOS] Warning: App bundle not found: {app_bundle_path}")
+        return False
+
+    print(f"[MACOS] Validating app bundle: {app_bundle_path}")
+
+    # Basic structure check
+    contents_dir = app_bundle_path / "Contents"
+    if not contents_dir.exists():
+        print("[MACOS] Warning: Contents directory missing")
+        return False
+
+    # Check for executable
+    macos_dir = contents_dir / "MacOS"
+    if not macos_dir.exists():
+        print("[MACOS] Warning: MacOS directory missing")
+        return False
+
+    # Count broken symlinks (simple check)
+    broken_count = 0
+    total_symlinks = 0
+
+    try:
+        for item in app_bundle_path.rglob("*"):
+            if item.is_symlink():
+                total_symlinks += 1
+                try:
+                    # Try to resolve the symlink
+                    item.resolve(strict=True)
+                except (OSError, FileNotFoundError):
+                    broken_count += 1
     except Exception as e:
-        print(f"[THIRD-PARTY] Fallback Playwright preparation failed: {e}")
+        print(f"[MACOS] Warning: Error during symlink check: {e}")
+
+    print(f"[MACOS] Found {total_symlinks} symlinks, {broken_count} broken")
+
+    if broken_count > 0:
+        print(f"[MACOS] Warning: {broken_count} broken symlinks found")
+        print("[MACOS] This may cause runtime issues but build will continue")
+    else:
+        print("[MACOS] App bundle validation passed")
+
+    return True  # Don't fail build for symlink issues
 
 
 def dev_sign_artifacts(enable: bool) -> None:
