@@ -33,7 +33,8 @@
         "skills",
         "telemetry",
         "gui_v2/dist",
-        "ota"
+        "ota",
+        "third_party"
       ],
       "files": [
         "app_context.py",

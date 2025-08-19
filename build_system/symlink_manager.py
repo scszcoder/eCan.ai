@@ -140,33 +140,18 @@ class SymlinkManager:
             # First, clean up any existing build artifacts
             self._cleanup_build_conflicts()
 
+            # Fix Playwright browser symlinks (main cause of the error)
+            self._fix_playwright_browsers()
+
             # Find QtWebEngineCore.framework
             framework_path = self._find_qtwebengine_framework()
-            if not framework_path:
-                self.log("QtWebEngineCore.framework not found, skipping fix")
-                return True
+            if framework_path:
+                self.log(f"Found QtWebEngineCore.framework at: {framework_path}")
+                self._fix_framework_symlinks(framework_path)
+            else:
+                self.log("QtWebEngineCore.framework not found, skipping Qt fix")
 
-            self.log(f"Found QtWebEngineCore.framework at: {framework_path}")
-
-            # Fix the Resources symlink (main issue)
-            resources_symlink = framework_path / "Resources"
-            if resources_symlink.exists() and resources_symlink.is_symlink():
-                self.log("Fixing problematic Resources symlink")
-                try:
-                    resources_symlink.unlink()
-
-                    # Try to copy the actual directory
-                    versions_resources = framework_path / "Versions" / "Current" / "Resources"
-                    if versions_resources.exists():
-                        shutil.copytree(versions_resources, resources_symlink, symlinks=False)
-                        self.log("Replaced Resources symlink with directory copy")
-                    else:
-                        resources_symlink.mkdir(exist_ok=True)
-                        self.log("Created empty Resources directory")
-                except Exception as e:
-                    self.log(f"Failed to fix Resources symlink: {e}", "WARNING")
-
-            self.log("Framework symlink fix completed")
+            self.log("All framework symlink fixes completed")
             return True
 
         except Exception as e:
@@ -189,58 +174,110 @@ class SymlinkManager:
             self.log("Removing existing build directory")
             self._safe_remove(build_dir)
 
-        # Clean any Playwright browser caches that might conflict
+        # Clean PyInstaller cache that might contain conflicting symlinks
+        import tempfile
+        pyinstaller_cache = Path(tempfile.gettempdir()) / "pyinstaller"
+        if pyinstaller_cache.exists():
+            self.log("Cleaning PyInstaller cache")
+            self._safe_remove(pyinstaller_cache)
+
+        # Clean user-specific PyInstaller cache
+        user_cache = Path.home() / "Library" / "Application Support" / "pyinstaller"
+        if user_cache.exists():
+            self.log("Cleaning user PyInstaller cache")
+            self._safe_remove(user_cache)
+
+    def _fix_playwright_browsers(self):
+        """Fix Playwright browser symlinks that cause PyInstaller conflicts"""
+        self.log("Fixing Playwright browser symlinks...")
+
+        # Common Playwright browser locations
         playwright_dirs = [
+            Path("third_party") / "ms-playwright",
             Path.home() / "Library" / "Caches" / "ms-playwright",
-            Path("third_party") / "ms-playwright"
+            Path("~/.cache/ms-playwright").expanduser()
         ]
 
         for playwright_dir in playwright_dirs:
             if playwright_dir.exists():
-                self.log(f"Checking Playwright directory: {playwright_dir}")
-                self._fix_playwright_symlinks(playwright_dir)
+                self.log(f"Processing Playwright directory: {playwright_dir}")
+                self._process_playwright_directory(playwright_dir)
 
-    def _fix_playwright_symlinks(self, playwright_dir: Path):
-        """Fix problematic symlinks in Playwright browser installations"""
+    def _process_playwright_directory(self, playwright_dir: Path):
+        """Process a Playwright directory to fix symlinks"""
         try:
             # Look for Chromium installations
             for chromium_path in playwright_dir.rglob("*chromium*/chrome-mac/Chromium.app"):
                 if chromium_path.exists():
-                    self.log(f"Fixing Chromium symlinks in: {chromium_path}")
+                    self.log(f"Found Chromium app: {chromium_path}")
 
-                    # Fix framework symlinks
-                    frameworks_dir = chromium_path / "Contents" / "Frameworks"
-                    if frameworks_dir.exists():
-                        for framework in frameworks_dir.rglob("*.framework"):
-                            self._fix_framework_symlinks(framework)
+                    # For severe symlink conflicts, remove the entire browser
+                    if self._has_problematic_symlinks(chromium_path):
+                        self.log(f"Removing problematic Chromium installation: {chromium_path}")
+                        self._safe_remove(chromium_path)
+                    else:
+                        # Fix frameworks in the Chromium app
+                        frameworks_dir = chromium_path / "Contents" / "Frameworks"
+                        if frameworks_dir.exists():
+                            for framework in frameworks_dir.rglob("*.framework"):
+                                self._fix_framework_symlinks(framework)
 
         except Exception as e:
-            self.log(f"Warning: Could not fix Playwright symlinks: {e}", "WARNING")
+            self.log(f"Warning: Failed to process Playwright directory {playwright_dir}: {e}", "WARNING")
+
+    def _has_problematic_symlinks(self, app_path: Path) -> bool:
+        """Check if app has problematic symlinks that cause PyInstaller conflicts"""
+        try:
+            frameworks_dir = app_path / "Contents" / "Frameworks"
+            if not frameworks_dir.exists():
+                return False
+
+            # Check for the specific symlink pattern that causes the error
+            for framework in frameworks_dir.rglob("*.framework"):
+                helpers_link = framework / "Helpers"
+                versions_current = framework / "Versions" / "Current"
+
+                if helpers_link.is_symlink() and versions_current.is_symlink():
+                    self.log(f"Found problematic symlink pattern in: {framework.name}")
+                    return True
+
+            return False
+
+        except Exception:
+            return True  # If we can't check, assume it's problematic
 
     def _fix_framework_symlinks(self, framework_path: Path):
         """Fix symlinks in a specific framework"""
         try:
-            # Common problematic symlinks
-            problematic_paths = [
-                "Helpers",
+            self.log(f"Fixing symlinks in framework: {framework_path.name}")
+
+            # Common problematic symlinks in frameworks
+            problematic_links = [
                 "Resources",
+                "Helpers",
                 "Versions/Current",
                 "Libraries",
                 "Headers"
             ]
 
-            for path_str in problematic_paths:
-                symlink_path = framework_path / path_str
-                if symlink_path.is_symlink():
+            for link_name in problematic_links:
+                link_path = framework_path / link_name
+                if link_path.is_symlink():
                     try:
                         # Test if symlink is broken
-                        symlink_path.resolve(strict=True)
+                        link_path.resolve(strict=True)
                     except (OSError, FileNotFoundError):
-                        self.log(f"Removing broken symlink: {symlink_path}")
-                        symlink_path.unlink()
+                        self.log(f"Removing broken symlink: {link_path}")
+                        link_path.unlink()
+                    except Exception:
+                        # If we can't resolve it, it might be problematic
+                        self.log(f"Removing potentially problematic symlink: {link_path}")
+                        link_path.unlink()
 
         except Exception as e:
-            self.log(f"Warning: Could not fix framework symlinks in {framework_path}: {e}", "WARNING")
+            self.log(f"Warning: Failed to fix framework symlinks in {framework_path}: {e}", "WARNING")
+
+
 
     def _find_qtwebengine_framework(self) -> Optional[Path]:
         """Find QtWebEngineCore.framework in the virtual environment"""

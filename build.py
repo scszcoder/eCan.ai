@@ -167,7 +167,7 @@ class BuildEnvironment:
 
 
 def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
-    """标准化构建产物文件名以匹配 release.yml 期望的格式"""
+    """Standardize build artifact names to match release.yml expected format"""
     import shutil
 
     platform_name = platform.system()
@@ -175,7 +175,7 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
     if platform_name == "Windows":
         platform_str = "windows"
 
-        # 重命名主执行文件
+        # Rename main executable
         src_exe = Path("dist/eCan/eCan.exe")
         dst_exe = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.exe")
         if src_exe.exists():
@@ -185,7 +185,7 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
             except Exception as e:
                 print(f"[RENAME] Warning: Failed to copy {src_exe} to {dst_exe}: {e}")
 
-        # 重命名安装包
+        # Rename installer package
         src_setup = Path("dist/eCan-Setup.exe")
         dst_setup = Path(f"dist/eCan-Setup-{platform_str}-{arch}-v{version}.exe")
         if src_setup.exists():
@@ -198,21 +198,21 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
     elif platform_name == "Darwin":
         platform_str = "macos"
 
-        # 创建 DMG 文件
+        # Create DMG file
         app_path = Path("dist/eCan.app")
         dmg_path = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.dmg")
         if app_path.exists() and not dmg_path.exists():
             try:
-                # 创建临时 DMG 目录
+                # Create temporary DMG directory
                 dmg_temp = Path("build/dmg")
                 dmg_temp.mkdir(parents=True, exist_ok=True)
 
-                # 清理并复制 app
+                # Clean and copy app
                 if (dmg_temp / "eCan.app").exists():
                     shutil.rmtree(dmg_temp / "eCan.app")
                 shutil.copytree(app_path, dmg_temp / "eCan.app")
 
-                # 创建 DMG
+                # Create DMG
                 cmd = [
                     "hdiutil", "create",
                     "-volname", "eCan",
@@ -758,12 +758,12 @@ Usage examples:
             print("\n[ERROR] Build failed!")
             return 1
 
-        # 标准化构建产物文件名（如果指定了版本）
+        # Standardize build artifact names (if version specified)
         if args.version and not args.installer_only:
             print("\n[RENAME] Standardizing artifact names...")
             _t_rename_start = time.perf_counter()
             try:
-                # 获取架构信息（从环境变量或默认值）
+                # Get architecture info (from environment variable or default)
                 arch = os.getenv('BUILD_ARCH', 'amd64')
                 standardize_artifact_names(args.version, arch)
             except Exception as e:
