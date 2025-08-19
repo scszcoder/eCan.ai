@@ -136,8 +136,7 @@ class MiniSpecBuilder:
         pyinstaller_cfg = build_config.get("pyinstaller", {})
         modules.update(pyinstaller_cfg.get("collect_all", []))
         modules.update(pyinstaller_cfg.get("collect_data_only", []))
-        modules.update(pyinstaller_cfg.get("force_includes", []))
-        modules.update(pyinstaller_cfg.get("force_hiddenimports", []))
+        modules.update(pyinstaller_cfg.get("hiddenimports", []))
 
         return modules
 
@@ -326,7 +325,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=None)
         return "\n".join(lines)
 
     def _generate_collect_packages_code(self) -> str:
-        """Generate code for package collection"""
+        """Generate code for package collection (simplified)"""
         build_config = self.cfg.get("build", {})
         pyinstaller_cfg = build_config.get("pyinstaller", {})
 
@@ -349,6 +348,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=None)
         # Collect data-only packages
         collect_data_only = pyinstaller_cfg.get("collect_data_only", []) or []
         if collect_data_only:
+            lines.append("")
             lines.append("from PyInstaller.utils.hooks import collect_data_files")
             lines.append(f"for pkg in {repr(collect_data_only)}:")
             lines.append("    try:")
@@ -479,12 +479,8 @@ if sys.platform == 'darwin':
         build_config = self.cfg.get("build", {})
         pyinstaller_cfg = build_config.get("pyinstaller", {})
 
-        # Add force includes and hidden imports
-        for m in pyinstaller_cfg.get("force_includes", []) or []:
-            if isinstance(m, str) and m:
-                base.add(m)
-
-        for m in pyinstaller_cfg.get("force_hiddenimports", []) or []:
+        # Add hidden imports
+        for m in pyinstaller_cfg.get("hiddenimports", []) or []:
             if isinstance(m, str) and m:
                 base.add(m)
 

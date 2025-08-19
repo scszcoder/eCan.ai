@@ -518,6 +518,12 @@ Usage examples:
     # Initialize build optimizer
     set_optimizer_verbose(args.verbose)
 
+    # Validate build configuration
+    from build_system.build_utils import validate_build_config
+    if not validate_build_config(verbose=args.verbose):
+        print("[ERROR] Build configuration validation failed")
+        return 1
+
     # Clear cache if requested or for dev/prod modes
     if args.clear_cache or args.mode in ["dev", "prod"]:
         if args.mode in ["dev", "prod"]:
@@ -525,6 +531,32 @@ Usage examples:
         else:
             print("[OPTIMIZER] Clearing build cache...")
         build_optimizer.clear_cache()
+
+    # Platform-specific pre-build fixes
+    import platform
+    current_platform = platform.system()
+
+    if current_platform == "Darwin":
+        print("[BUILD] macOS detected - Running symlink conflict fixes...")
+        try:
+            from build_system.symlink_manager import symlink_manager
+            if not symlink_manager.fix_pyinstaller_conflicts():
+                print("[ERROR] Failed to fix macOS symlink conflicts")
+                if not args.force:
+                    print("[ERROR] Use --force to continue despite symlink issues")
+                    return 1
+                else:
+                    print("[WARNING] Continuing build despite symlink issues (--force used)")
+        except Exception as e:
+            print(f"[ERROR] macOS symlink fix crashed: {e}")
+            if not args.force:
+                return 1
+    elif current_platform == "Windows":
+        print("[BUILD] Windows detected - No pre-build fixes needed")
+    elif current_platform == "Linux":
+        print("[BUILD] Linux detected - No pre-build fixes needed")
+    else:
+        print(f"[BUILD] Unknown platform: {current_platform} - Proceeding with default behavior")
 
     # Quick optimization check (only for fast mode)
     if not args.installer_only and not args.force and build_optimizer.should_skip_build(force=False, build_mode=args.mode):
@@ -616,22 +648,9 @@ Usage examples:
         else:
             print("[THIRD-PARTY] Installer-only mode: skipping third-party preparation")
         
-        # On macOS, we'll use special PyInstaller options to handle codesign
-        if sys.platform == "darwin":
-            print("[MACOS] Using special PyInstaller options for Playwright browsers")
-            print("[MACOS] Custom hooks will handle Playwright browser codesign exclusions")
-
-            # Ensure hooks directory exists
-            hooks_dir = Path("hooks")
-            if not hooks_dir.exists():
-                hooks_dir.mkdir()
-                print("[MACOS] Created hooks directory")
-
-            # Fix framework symlinks to prevent PyInstaller conflicts
-            if not symlink_manager.fix_pyinstaller_conflicts():
-                print("[MACOS] Warning: Framework symlink fix failed, but continuing with build...")
-            else:
-                print("[MACOS] Framework symlink fix completed successfully")
+        # Platform-specific build preparation (already done in pre-build phase)
+        if current_platform == "Darwin":
+            print("[BUILD] macOS build preparation completed in pre-build phase")
             
         # 1) Frontend
         if args.installer_only:
@@ -696,21 +715,38 @@ Usage examples:
             print("[INSTALLER] Skipped")
             print("[TIME] Installer: skipped")
 
-        # 4) macOS-specific post-build validation
-        if sys.platform == "darwin" and success:
-            try:
-                from build_system.build_utils import validate_macos_app_bundle
+        # 4) Platform-specific post-build validation
+        if success:
+            if current_platform == "Darwin":
+                try:
+                    from build_system.build_utils import validate_macos_app_bundle
 
-                # Get app name from config
+                    # Get app name from config
+                    app_name = cfg.get_app_info().get("name", "eCan")
+                    app_bundle = Path("dist") / f"{app_name}.app"
+                    if app_bundle.exists():
+                        print("[BUILD] macOS: Validating app bundle...")
+                        validate_macos_app_bundle(app_bundle)
+                    else:
+                        print("[WARNING] macOS: App bundle not found for validation")
+                except Exception as e:
+                    print(f"[WARNING] macOS: App bundle validation failed: {e}")
+            elif current_platform == "Windows":
+                # Windows-specific validation
                 app_name = cfg.get_app_info().get("name", "eCan")
-                app_bundle = Path("dist") / f"{app_name}.app"
-                if app_bundle.exists():
-                    print("[MACOS] Validating app bundle...")
-                    validate_macos_app_bundle(app_bundle)
+                exe_path = Path("dist") / f"{app_name}.exe"
+                if exe_path.exists():
+                    print(f"[BUILD] Windows: Executable created successfully ({exe_path})")
                 else:
-                    print("[WARNING] App bundle not found for validation")
-            except Exception as e:
-                print(f"[WARNING] App bundle validation failed: {e}")
+                    print("[WARNING] Windows: Executable not found")
+            elif current_platform == "Linux":
+                # Linux-specific validation
+                app_name = cfg.get_app_info().get("name", "eCan")
+                exe_path = Path("dist") / app_name
+                if exe_path.exists():
+                    print(f"[BUILD] Linux: Executable created successfully ({exe_path})")
+                else:
+                    print("[WARNING] Linux: Executable not found")
 
         # 5) Dev-only local signing (disabled by default)
         try:

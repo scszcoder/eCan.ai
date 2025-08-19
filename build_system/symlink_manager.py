@@ -137,6 +137,9 @@ class SymlinkManager:
         self.log("Fixing framework symlinks to prevent PyInstaller conflicts...")
 
         try:
+            # First, clean up any existing build artifacts
+            self._cleanup_build_conflicts()
+
             # Find QtWebEngineCore.framework
             framework_path = self._find_qtwebengine_framework()
             if not framework_path:
@@ -169,6 +172,75 @@ class SymlinkManager:
         except Exception as e:
             self.log(f"Framework symlink fix failed: {e}", "ERROR")
             return False
+
+    def _cleanup_build_conflicts(self):
+        """Clean up potential build conflicts before starting"""
+        self.log("Cleaning up potential build conflicts...")
+
+        # Clean dist directory completely
+        dist_dir = Path("dist")
+        if dist_dir.exists():
+            self.log("Removing existing dist directory")
+            self._safe_remove(dist_dir)
+
+        # Clean build directory
+        build_dir = Path("build")
+        if build_dir.exists():
+            self.log("Removing existing build directory")
+            self._safe_remove(build_dir)
+
+        # Clean any Playwright browser caches that might conflict
+        playwright_dirs = [
+            Path.home() / "Library" / "Caches" / "ms-playwright",
+            Path("third_party") / "ms-playwright"
+        ]
+
+        for playwright_dir in playwright_dirs:
+            if playwright_dir.exists():
+                self.log(f"Checking Playwright directory: {playwright_dir}")
+                self._fix_playwright_symlinks(playwright_dir)
+
+    def _fix_playwright_symlinks(self, playwright_dir: Path):
+        """Fix problematic symlinks in Playwright browser installations"""
+        try:
+            # Look for Chromium installations
+            for chromium_path in playwright_dir.rglob("*chromium*/chrome-mac/Chromium.app"):
+                if chromium_path.exists():
+                    self.log(f"Fixing Chromium symlinks in: {chromium_path}")
+
+                    # Fix framework symlinks
+                    frameworks_dir = chromium_path / "Contents" / "Frameworks"
+                    if frameworks_dir.exists():
+                        for framework in frameworks_dir.rglob("*.framework"):
+                            self._fix_framework_symlinks(framework)
+
+        except Exception as e:
+            self.log(f"Warning: Could not fix Playwright symlinks: {e}", "WARNING")
+
+    def _fix_framework_symlinks(self, framework_path: Path):
+        """Fix symlinks in a specific framework"""
+        try:
+            # Common problematic symlinks
+            problematic_paths = [
+                "Helpers",
+                "Resources",
+                "Versions/Current",
+                "Libraries",
+                "Headers"
+            ]
+
+            for path_str in problematic_paths:
+                symlink_path = framework_path / path_str
+                if symlink_path.is_symlink():
+                    try:
+                        # Test if symlink is broken
+                        symlink_path.resolve(strict=True)
+                    except (OSError, FileNotFoundError):
+                        self.log(f"Removing broken symlink: {symlink_path}")
+                        symlink_path.unlink()
+
+        except Exception as e:
+            self.log(f"Warning: Could not fix framework symlinks in {framework_path}: {e}", "WARNING")
 
     def _find_qtwebengine_framework(self) -> Optional[Path]:
         """Find QtWebEngineCore.framework in the virtual environment"""

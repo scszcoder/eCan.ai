@@ -12,6 +12,7 @@ REQUIRED_LLM_API_ENV_VARS = {
 	'ChatAnthropic': ['ANTHROPIC_API_KEY'],
 	'ChatGoogleGenerativeAI': ['GEMINI_API_KEY'],
 	'ChatDeepSeek': ['DEEPSEEK_API_KEY'],
+	'ChatQwQ': ['DASHSCOPE_API_KEY'],
 	'ChatOllama': [],
 }
 
