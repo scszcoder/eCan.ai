@@ -383,14 +383,17 @@ OutputDir=..\dist
 OutputBaseFilename=eCan-Setup
 Compression={compression}
 SolidCompression={solid_compression}
-UsePreviousAppDir=no
+UsePreviousAppDir=yes
 PrivilegesRequired=lowest
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
 UninstallDisplayIcon={{app}}\eCan.exe
-CreateUninstallRegKey=true
-AllowNoIcons=true
+CreateUninstallRegKey=yes
+AllowNoIcons=yes
 DisableProgramGroupPage=auto
+CloseApplications=yes
+RestartApplications=no
+VersionInfoVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

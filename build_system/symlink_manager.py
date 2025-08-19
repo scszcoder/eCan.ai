@@ -140,16 +140,8 @@ class SymlinkManager:
             # First, clean up any existing build artifacts
             self._cleanup_build_conflicts()
 
-            # Fix Playwright browser symlinks (main cause of the error)
-            self._fix_playwright_browsers()
-
-            # Find QtWebEngineCore.framework
-            framework_path = self._find_qtwebengine_framework()
-            if framework_path:
-                self.log(f"Found QtWebEngineCore.framework at: {framework_path}")
-                self._fix_framework_symlinks(framework_path)
-            else:
-                self.log("QtWebEngineCore.framework not found, skipping Qt fix")
+            # Simple: find and fix all .framework directories
+            self._fix_all_frameworks()
 
             self.log("All framework symlink fixes completed")
             return True
@@ -186,6 +178,30 @@ class SymlinkManager:
         if user_cache.exists():
             self.log("Cleaning user PyInstaller cache")
             self._safe_remove(user_cache)
+
+    def _fix_all_frameworks(self):
+        """Find and fix all .framework directories with symlink issues"""
+        self.log("Scanning for frameworks with symlink issues...")
+
+        # Simple search in common locations
+        search_dirs = [
+            Path("."),  # Project root
+            Path("venv"),  # Virtual environment
+        ]
+
+        frameworks_found = 0
+        frameworks_fixed = 0
+
+        for search_dir in search_dirs:
+            if search_dir.exists():
+                # Find all .framework directories
+                for framework in search_dir.rglob("*.framework"):
+                    if framework.is_dir():
+                        frameworks_found += 1
+                        if self._fix_framework_symlinks(framework):
+                            frameworks_fixed += 1
+
+        self.log(f"Framework scan complete: {frameworks_found} found, {frameworks_fixed} fixed")
 
     def _fix_playwright_browsers(self):
         """Fix Playwright browser symlinks that cause PyInstaller conflicts"""
@@ -225,6 +241,22 @@ class SymlinkManager:
         except Exception as e:
             self.log(f"Warning: Failed to process Playwright directory {playwright_dir}: {e}", "WARNING")
 
+    def _fix_sparkle_frameworks(self):
+        """Fix Sparkle framework symlinks that cause PyInstaller conflicts"""
+        self.log("Fixing Sparkle framework symlinks...")
+
+        # Common Sparkle framework locations
+        sparkle_paths = [
+            Path("ota") / "dependencies" / "Sparkle.framework",
+            Path("third_party") / "Sparkle.framework",
+            Path("dependencies") / "Sparkle.framework"
+        ]
+
+        for sparkle_path in sparkle_paths:
+            if sparkle_path.exists():
+                self.log(f"Found Sparkle framework: {sparkle_path}")
+                self._fix_framework_symlinks(sparkle_path)
+
     def _has_problematic_symlinks(self, app_path: Path) -> bool:
         """Check if app has problematic symlinks that cause PyInstaller conflicts"""
         try:
@@ -246,36 +278,79 @@ class SymlinkManager:
         except Exception:
             return True  # If we can't check, assume it's problematic
 
-    def _fix_framework_symlinks(self, framework_path: Path):
-        """Fix symlinks in a specific framework"""
+    def _fix_framework_symlinks(self, framework_path: Path) -> bool:
+        """Fix symlinks in a specific framework, return True if any fixes were made"""
         try:
-            self.log(f"Fixing symlinks in framework: {framework_path.name}")
+            # Find all symlinks in the framework
+            symlinks_found = []
+            for item in framework_path.rglob("*"):
+                if item.is_symlink():
+                    symlinks_found.append(item)
 
-            # Common problematic symlinks in frameworks
-            problematic_links = [
-                "Resources",
-                "Helpers",
-                "Versions/Current",
-                "Libraries",
-                "Headers"
-            ]
+            if not symlinks_found:
+                return False
 
-            for link_name in problematic_links:
-                link_path = framework_path / link_name
-                if link_path.is_symlink():
-                    try:
-                        # Test if symlink is broken
-                        link_path.resolve(strict=True)
-                    except (OSError, FileNotFoundError):
-                        self.log(f"Removing broken symlink: {link_path}")
-                        link_path.unlink()
-                    except Exception:
-                        # If we can't resolve it, it might be problematic
-                        self.log(f"Removing potentially problematic symlink: {link_path}")
-                        link_path.unlink()
+            self.log(f"Fixing {len(symlinks_found)} symlinks in: {framework_path.name}")
+
+            fixed_count = 0
+            for link_path in symlinks_found:
+                if self._fix_single_symlink(link_path):
+                    fixed_count += 1
+
+            if fixed_count > 0:
+                self.log(f"Fixed {fixed_count} symlinks in {framework_path.name}")
+                return True
+            else:
+                return False
 
         except Exception as e:
             self.log(f"Warning: Failed to fix framework symlinks in {framework_path}: {e}", "WARNING")
+            return False
+
+    def _fix_single_symlink(self, link_path: Path) -> bool:
+        """Fix a single symlink, return True if fixed"""
+        try:
+            self.log(f"Fixing symlink: {link_path}")
+
+            # Get the original target before removing
+            original_target = None
+            try:
+                original_target = link_path.readlink()
+            except:
+                pass
+
+            # Remove the symlink
+            link_path.unlink()
+
+            # Try to replace with actual content
+            if original_target:
+                try:
+                    # Resolve target relative to symlink's parent
+                    if not original_target.is_absolute():
+                        resolved_target = (link_path.parent / original_target).resolve()
+                    else:
+                        resolved_target = original_target.resolve()
+
+                    if resolved_target.exists():
+                        if resolved_target.is_dir():
+                            import shutil
+                            shutil.copytree(resolved_target, link_path, symlinks=False)
+                            return True
+                        elif resolved_target.is_file():
+                            import shutil
+                            shutil.copy2(resolved_target, link_path)
+                            return True
+                except Exception:
+                    pass
+
+            # Fallback: create empty directory
+            link_path.mkdir(exist_ok=True)
+            return True
+
+        except Exception as e:
+            self.log(f"Warning: Could not fix symlink {link_path}: {e}", "WARNING")
+            return False
+
 
 
 
