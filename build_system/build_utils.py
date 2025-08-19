@@ -537,8 +537,10 @@ def _process_macos_data(data_files_config: dict, verbose: bool = False) -> list:
                 print(f"[DATA] Directory not found: {directory}")
             continue
 
-        # Check if directory contains symlinks
-        if _has_symlinks(src_path):
+        # Check if directory contains symlinks or is a known problematic directory
+        needs_processing = _has_symlinks(src_path) or _is_problematic_directory(directory)
+
+        if needs_processing:
             if verbose:
                 print(f"[DATA] Processing symlinks in: {directory}")
 
@@ -576,6 +578,21 @@ def _has_symlinks(path: Path) -> bool:
                 return True
     except (OSError, PermissionError):
         pass
+    return False
+
+
+def _is_problematic_directory(directory: str) -> bool:
+    """Check if directory is known to contain problematic symlinks"""
+    problematic_patterns = [
+        "third_party",
+        "ota",
+        "dependencies"
+    ]
+
+    for pattern in problematic_patterns:
+        if pattern in directory:
+            return True
+
     return False
 
 
