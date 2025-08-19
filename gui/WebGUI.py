@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QMessageBox, QApplication, QHBoxLayout, QLabel, QPushButton, QMenuBar
 from PySide6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QPixmap
 from PySide6.QtCore import Qt
+from typing import Optional
 import sys
 import os
 from gui.ipc.api import IPCAPI
@@ -26,10 +27,11 @@ if sys.platform == 'darwin':
 
 
 class WebGUI(QMainWindow):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, splash: Optional[object] = None):
         super().__init__()
         self.setWindowTitle("eCan.ai")
         self.parent = parent
+        self._splash = splash
         # Set window icon
         icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
         self.setWindowIcon(QIcon(icon_path))
@@ -52,6 +54,14 @@ class WebGUI(QMainWindow):
         # Initialize IPC API
         self._ipc_api = None
         
+        # Wire splash updates to web load if provided
+        if self._splash is not None:
+            try:
+                self.web_engine_view.loadProgress.connect(self._on_load_progress)
+                self.web_engine_view.loadFinished.connect(self._on_load_finished)
+            except Exception as e:
+                logger.warning(f"Failed to bind splash to web view: {e}")
+
         # Get web URL
         try:
             web_url = app_settings.get_web_url()
@@ -90,6 +100,35 @@ class WebGUI(QMainWindow):
             # Use standard menu bar on macOS
             self.menu_manager = MenuManager(self)
             self.menu_manager.setup_menu()
+
+        # Show behavior: if no splash, show immediately; else splash will call show on finished
+        if self._splash is None:
+            try:
+                self.show()
+            except Exception:
+                pass
+
+    # --- Splash handlers ---
+    def _on_load_progress(self, progress: int):
+        try:
+            if self._splash is not None:
+                self._splash.set_status(f"Loading {progress}%…")
+                self._splash.set_progress(progress)
+        except Exception:
+            pass
+
+    def _on_load_finished(self, success: bool):
+        try:
+            if self._splash is not None:
+                self._splash.finish(self)
+                self._splash = None
+            # Show main window when ready
+            self.show()
+        except Exception:
+            try:
+                self.show()
+            except Exception:
+                pass
 
     def _show_error_page(self, error_message):
         """Show error page"""
