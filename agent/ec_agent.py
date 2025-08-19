@@ -348,6 +348,23 @@ class EC_Agent(Agent):
 
 			chat_msg = Message(role="user", parts=msg_parts, metadata={"type": "send_chat"})
 
+			if "attributes" in message["chat"]:
+				msgId = message['chat']['messages'][2],
+				chatId = message['chat']["attributes"]["params"]["chatId"],
+				senderId = message['chat']["attributes"]["params"]["senderId"],
+				createAt = message['chat']["attributes"]["params"]["createAt"],
+				senderName = message['chat']["attributes"]["params"]["senderName"],
+				status = message['chat']["attributes"]["params"]["status"],
+				ext = ""
+			else:
+				msgId = message['chat']['messages'][2],
+				chatId = message['chat']['messages'][1][0],
+				senderId = message["params"]["senderId"],
+				createAt = message["params"]["createAt"],
+				senderName = message["params"]["senderName"],
+				status = message["params"]["status"],
+				ext = message["params"].get("ext", "")
+
 			payload = TaskSendParams(
 				id="0001",
 				sessionId= message['chat']['messages'][3],
@@ -357,8 +374,13 @@ class EC_Agent(Agent):
 				historyLength = None,
 				metadata = {
 					"type": "send_chat",
-					"msgId": message['chat']['messages'][2],
-					"chatId": message['chat']['messages'][1],
+					"msgId": msgId,
+					"chatId": chatId,
+					"senderId": senderId,
+					"createAt": createAt,
+					"senderName": senderName,
+					"status": status,
+					"ext": ""
 				}
 			)
 			print("client payload:", payload)

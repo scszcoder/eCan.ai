@@ -467,17 +467,17 @@ class WebGUI(QMainWindow):
         chat_service: ChatService = main_window.chat_service
         content = msg.get('content')
         role = msg.get('role')
-        senderId = msg.get('senderId')
-        createAt = msg.get('createAt')
-        senderName = msg.get('senderName')
-        status = msg.get('status')
+        senderId = msg.get('senderId')[0]
+        createAt = msg.get('createAt')[0]
+        senderName = msg.get('senderName')[0]
+        status = msg.get('status')[0]
         ext = msg.get('ext')
         attachments = msg.get('attachments')
         # 类型分发
         db_result = None
         if isinstance(content, dict):
             msg_type = content.get('type')
-            if msg_type == 'text':
+            if msg_type == 'text' or "text" in content:
                 print("pushing text message", content)
                 db_result = chat_service.add_text_message(
                     chatId=chatId, role=role, text=content.get('text', ''), senderId=senderId, createAt=createAt,
