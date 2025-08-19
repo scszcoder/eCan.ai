@@ -144,11 +144,23 @@ class SettingsWidget(QMainWindow):
             self.printer_line_edit = QLineEdit()
             self.printer_select = QComboBox()
             if self.printers:
-                for role in [p[2] for p in self.printers]:
+                # Extract printer names safely
+                printer_names = []
+                for p in self.printers:
+                    if isinstance(p, dict) and 'pPrinterName' in p:
+                        printer_names.append(p['pPrinterName'])
+                    elif isinstance(p, (list, tuple)) and len(p) > 2:
+                        printer_names.append(p[2])
+                    elif isinstance(p, (list, tuple)) and len(p) > 0:
+                        printer_names.append(str(p[0]))
+                    else:
+                        printer_names.append(str(p))
+
+                for role in printer_names:
                     self.printer_select.addItem(QApplication.translate("QComboBox", role))
 
-                found_idx = next((i for i, p in enumerate([p[2] for p in self.printers]) if p == default_printer), -1)
-                logger.info("finding default printer", found_idx, default_printer, "among:", [p[2] for p in self.printers])
+                found_idx = next((i for i, name in enumerate(printer_names) if name == default_printer), -1)
+                logger.info("finding default printer", found_idx, default_printer, "among:", printer_names)
                 if found_idx >= 0:
                     self.printer_select.setCurrentIndex(found_idx)
                 else:
@@ -239,7 +251,18 @@ class SettingsWidget(QMainWindow):
                 ensure_cups_running
                 self.printers = mac_list_printers()
                 
-            logger.info("Printers: " + str([p[2] for p in self.printers]))
+            # Extract printer names safely for logging
+            printer_names = []
+            for p in self.printers:
+                if isinstance(p, dict) and 'pPrinterName' in p:
+                    printer_names.append(p['pPrinterName'])  # Windows dictionary format
+                elif isinstance(p, (list, tuple)) and len(p) > 2:
+                    printer_names.append(p[2])  # Standard tuple format
+                elif isinstance(p, (list, tuple)) and len(p) > 0:
+                    printer_names.append(str(p[0]))  # Fallback to first element
+                else:
+                    printer_names.append(str(p))  # Fallback to string representation
+            logger.info("Printers: " + str(printer_names))
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)

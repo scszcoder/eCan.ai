@@ -320,7 +320,7 @@ def _find_playwright_cache() -> Path:
 
 
 def validate_macos_app_bundle(app_bundle_path: Path) -> bool:
-    """Simple macOS app bundle validation (simplified from symlink_validator)"""
+    """Enhanced macOS app bundle validation with QtWebEngine checks"""
     import platform
 
     if platform.system() != "Darwin":
@@ -344,9 +344,40 @@ def validate_macos_app_bundle(app_bundle_path: Path) -> bool:
         print("[MACOS] Warning: MacOS directory missing")
         return False
 
-    # Count broken symlinks (simple check)
+    # Check for Frameworks directory (important for QtWebEngine)
+    frameworks_dir = contents_dir / "Frameworks"
+    if frameworks_dir.exists():
+        print(f"[MACOS] Frameworks directory found")
+
+        # Check for QtWebEngine frameworks
+        qtwebengine_frameworks = [
+            "QtWebEngineCore.framework",
+            "QtWebEngineWidgets.framework"
+        ]
+
+        for framework_name in qtwebengine_frameworks:
+            framework_path = frameworks_dir / framework_name
+            if framework_path.exists():
+                print(f"[MACOS]  {framework_name} found")
+
+                # Check framework structure
+                resources_path = framework_path / "Resources"
+                if resources_path.exists():
+                    if resources_path.is_symlink():
+                        print(f"[MACOS]   Resources is symlink (may cause issues)")
+                    else:
+                        print(f"[MACOS]   Resources is directory (good)")
+                else:
+                    print(f"[MACOS]   Warning: Resources missing in {framework_name}")
+            else:
+                print(f"[MACOS] {framework_name} not found (may cause QtWebEngine issues)")
+    else:
+        print("[MACOS] Warning: No Frameworks directory found")
+
+    # Count broken symlinks (enhanced check)
     broken_count = 0
     total_symlinks = 0
+    critical_broken = 0
 
     try:
         for item in app_bundle_path.rglob("*"):
@@ -357,18 +388,98 @@ def validate_macos_app_bundle(app_bundle_path: Path) -> bool:
                     item.resolve(strict=True)
                 except (OSError, FileNotFoundError):
                     broken_count += 1
+                    # Check if this is a critical symlink
+                    if any(critical in str(item) for critical in ["QtWebEngine", "Framework", "Resources"]):
+                        critical_broken += 1
+                        print(f"[MACOS] Critical broken symlink: {item}")
     except Exception as e:
         print(f"[MACOS] Warning: Error during symlink check: {e}")
 
-    print(f"[MACOS] Found {total_symlinks} symlinks, {broken_count} broken")
+    print(f"[MACOS] Found {total_symlinks} symlinks, {broken_count} broken ({critical_broken} critical)")
 
-    if broken_count > 0:
-        print(f"[MACOS] Warning: {broken_count} broken symlinks found")
-        print("[MACOS] This may cause runtime issues but build will continue")
+    if critical_broken > 0:
+        print(f"[MACOS] ERROR: {critical_broken} critical symlinks broken!")
+        print("[MACOS] This will likely cause QtWebEngine runtime failures")
+        print("[MACOS] Consider running symlink fix before building")
+        return False
+    elif broken_count > 0:
+        print(f"[MACOS] Warning: {broken_count} non-critical broken symlinks found")
+        print("[MACOS] App should still work but monitor for issues")
     else:
         print("[MACOS] App bundle validation passed")
 
-    return True  # Don't fail build for symlink issues
+    return True
+
+
+def validate_build_config(verbose: bool = False) -> bool:
+    """
+    验证 build_config.json 的基本正确性
+    检查字段定义和包配置
+    """
+    try:
+        import json
+        config_path = Path("build_system/build_config.json")
+
+        if not config_path.exists():
+            if verbose:
+                print("[CONFIG] build_config.json not found")
+            return False
+
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+
+        pyinstaller_config = config.get("build", {}).get("pyinstaller", {})
+
+        # 检查必需字段
+        required_fields = ["collect_all", "collect_data_only", "hiddenimports", "excludes"]
+        missing_fields = []
+
+        for field in required_fields:
+            if field not in pyinstaller_config:
+                missing_fields.append(field)
+
+        if missing_fields:
+            if verbose:
+                print(f"[CONFIG] Missing required fields: {missing_fields}")
+            return False
+
+        # 检查重复包
+        all_packages = set()
+        duplicates = []
+
+        for field in ["collect_all", "collect_data_only"]:  # 这两个字段不应该重复
+            packages = pyinstaller_config.get(field, [])
+            for pkg in packages:
+                if pkg in all_packages:
+                    duplicates.append(pkg)
+                all_packages.add(pkg)
+
+        if duplicates:
+            if verbose:
+                print(f"[CONFIG] Duplicate packages found: {duplicates}")
+            return False
+
+        if verbose:
+            collect_all_count = len(pyinstaller_config.get("collect_all", []))
+            collect_data_count = len(pyinstaller_config.get("collect_data_only", []))
+            hidden_imports_count = len(pyinstaller_config.get("hiddenimports", []))
+            excludes_count = len(pyinstaller_config.get("excludes", []))
+
+            print(f"[CONFIG] Configuration valid:")
+            print(f"[CONFIG]   collect_all: {collect_all_count} packages")
+            print(f"[CONFIG]   collect_data_only: {collect_data_count} packages")
+            print(f"[CONFIG]   hiddenimports: {hidden_imports_count} modules")
+            print(f"[CONFIG]   excludes: {excludes_count} modules")
+
+        return True
+
+    except Exception as e:
+        if verbose:
+            print(f"[CONFIG] Validation failed: {e}")
+        return False
+
+
+
 
 
 def dev_sign_artifacts(enable: bool) -> None:
