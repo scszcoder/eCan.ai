@@ -344,7 +344,11 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=None)
             lines.append("        d, b, h = collect_all(pkg)")
             lines.append("        data_files.extend(d)")
             lines.append("        binaries.extend(b)")
-            lines.append("        hiddenimports.extend(h)")
+            lines.append("        # Filter out invalid hiddenimports from collect_all")
+            lines.append("        valid_h = [m for m in h if isinstance(m, str) and not ('hook-' in m or '_pyinstaller' in m or '/' in m or '\\\\' in m)]")
+            lines.append("        hiddenimports.extend(valid_h)")
+            lines.append("        if len(h) != len(valid_h):")
+            lines.append("            print(f'[SPEC] Filtered {len(h) - len(valid_h)} invalid hiddenimports from {pkg}')")
             lines.append("        print(f'[SPEC] Collected: {pkg}')")
             lines.append("    except Exception as e:")
             lines.append("        print(f'[SPEC] Warning: Failed to collect {pkg}: {e}')")
@@ -478,17 +482,55 @@ if sys.platform == 'darwin':
 
     # ---- Helpers ----
     def _hiddenimports_from_config(self) -> List[str]:
-        """Get hiddenimports from config"""
+        """Get hiddenimports from config with validation"""
         base: Set[str] = set()
         build_config = self.cfg.get("build", {})
         pyinstaller_cfg = build_config.get("pyinstaller", {})
 
-        # Add hidden imports
+        # Add hidden imports with validation
         for m in pyinstaller_cfg.get("hiddenimports", []) or []:
             if isinstance(m, str) and m:
-                base.add(m)
+                # Filter out invalid module names (hook files, paths, etc.)
+                if self._is_valid_module_name(m):
+                    base.add(m)
+                else:
+                    print(f"[SPEC] Skipping invalid hiddenimport: {m}")
 
         return sorted(base)
+
+    def _is_valid_module_name(self, module_name: str) -> bool:
+        """Check if a string is a valid Python module name"""
+        # Skip hook files
+        if "hook-" in module_name:
+            return False
+        
+        # Skip file paths
+        if "/" in module_name or "\\" in module_name:
+            return False
+        
+        # Skip _pyinstaller internal modules
+        if "_pyinstaller" in module_name:
+            return False
+        
+        # Must not be empty
+        if not module_name.strip():
+            return False
+        
+        # Check each part separated by dots
+        parts = module_name.split(".")
+        for part in parts:
+            if not part:  # Empty part
+                return False
+            
+            # Must start with letter or underscore (not digit)
+            if not (part[0].isalpha() or part[0] == '_'):
+                return False
+            
+            # Must contain only alphanumeric characters and underscores
+            if not part.replace("_", "").isalnum():
+                return False
+        
+        return True
 
 
 __all__ = ["MiniSpecBuilder"]
