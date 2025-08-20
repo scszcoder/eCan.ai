@@ -27,33 +27,57 @@ if sys.platform == 'darwin':
 
 
 class WebGUI(QMainWindow):
-    def __init__(self, parent=None, splash: Optional[object] = None):
+    def __init__(self, parent=None, splash: Optional[object] = None, progress_callback=None):
         super().__init__()
         self.setWindowTitle("eCan.ai")
         self.parent = parent
         self._splash = splash
+        self._progress_callback = progress_callback
+
+        # Update progress if callback is available
+        if self._progress_callback:
+            self._progress_callback(72, "Setting up main window...")
+
         # Set window icon
         icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
         self.setWindowIcon(QIcon(icon_path))
-        self.setGeometry(100, 100, 1200, 800)
+        # Set window size first, then center it
+        self.resize(1200, 800)
+        self._center_on_screen()
+
+        if self._progress_callback:
+            self._progress_callback(74, "Creating interface layout...")
 
         # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        if self._progress_callback:
+            self._progress_callback(76, "Initializing web engine...")
+
         # Create web engine
         self.web_engine_view = WebEngineView(self)
 
+        if self._progress_callback:
+            self._progress_callback(78, "Setting up developer tools...")
+
         # Create developer tools manager
         self.dev_tools_manager = DevToolsManager(self)
+
+        if self._progress_callback:
+            self._progress_callback(80, "Configuring window style...")
 
         # Set Windows window style to match content theme
         self._setup_window_style()
 
         # Initialize IPC API
         self._ipc_api = None
-        
+
+        if self._progress_callback:
+            self._progress_callback(82, "Connecting web engine...")
+
         # Wire splash updates to web load if provided
         if self._splash is not None:
             try:
@@ -1289,6 +1313,13 @@ class WebGUI(QMainWindow):
         QMessageBox.about(self, "About eCan.AI",
                          "eCan.AI\nVersion 1.0.0\n\nAn AI-powered e-commerce automation platform.")
 
-
-
-
+    def _center_on_screen(self):
+        """Center the window on the screen"""
+        screen = QApplication.primaryScreen()
+        if not screen:
+            return
+        sg = screen.availableGeometry()
+        self.move(
+            sg.center().x() - self.width() // 2,
+            sg.center().y() - self.height() // 2,
+        )

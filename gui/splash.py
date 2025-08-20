@@ -169,6 +169,7 @@ class ThemedSplashScreen(QWidget):
         self._py_worker.moveToThread(self._py_thread)
         self._py_thread.started.connect(self._py_worker.run)
         self._py_worker.progress.connect(self._on_py_progress)
+        self._py_worker.status_update.connect(self._on_status_update)
         self._py_worker.finished.connect(self._on_py_finished)
         self._py_worker.finished.connect(self._py_thread.quit)
         self._py_worker.finished.connect(self._py_worker.deleteLater)
@@ -197,6 +198,12 @@ class ThemedSplashScreen(QWidget):
             sg.center().x() - self.width() // 2,
             sg.center().y() - self.height() // 2,
         )
+
+    def showEvent(self, event):
+        """Override showEvent to ensure the window is always centered when shown"""
+        super().showEvent(event)
+        # Re-center the window after it's shown to ensure it's always in the center
+        QTimer.singleShot(0, self._center_on_screen)
 
     def _load_logo_pixmap(self):
         # Prefer the specified logo path
@@ -243,6 +250,9 @@ class ThemedSplashScreen(QWidget):
         try:
             if hasattr(self, 'status_label') and self.status_label is not None:
                 self.status_label.setText(str(text))
+                # Force immediate repaint of the status label
+                self.status_label.repaint()
+                QApplication.processEvents()
         except Exception:
             pass
 
@@ -251,6 +261,8 @@ class ThemedSplashScreen(QWidget):
             # Treat as WebView load progress
             self._web_progress = max(0, min(100, int(value)))
             self._update_combined()
+            # Force immediate UI update
+            QApplication.processEvents()
         except Exception:
             pass
 
@@ -282,6 +294,15 @@ class ThemedSplashScreen(QWidget):
         except Exception:
             pass
 
+    def _on_status_update(self, status: str):
+        """Handle status updates from Python initialization worker"""
+        try:
+            self.set_status(status)
+            # Force immediate UI update
+            QApplication.processEvents()
+        except Exception:
+            pass
+
     def _update_combined(self):
         try:
             combined = int(round((self._web_progress + self._py_progress) / 2))
@@ -295,6 +316,8 @@ class ThemedSplashScreen(QWidget):
                         # Show centered percentage text
                         self.progress_bar.setFormat(f"{self._progress_value}%")
                         self.progress_bar.setAlignment(Qt.AlignCenter)
+                        # Force immediate repaint of the progress bar
+                        self.progress_bar.repaint()
                     except Exception:
                         pass
         except Exception:
@@ -413,28 +436,82 @@ class CircularProgress(QWidget):
 
 class PythonInitWorker(QObject):
     progress = Signal(int)
+    status_update = Signal(str)
     finished = Signal()
 
     def run(self):
         try:
-            # Phase 1
-            self.progress.emit(10)
+            # Phase 1: Basic initialization
+            self.status_update.emit("Initializing Python environment...")
+            self.progress.emit(5)
 
-            # Phase 2: DB migration (blocking) off UI thread
+            # Phase 2: Import core modules
+            self.status_update.emit("Loading core modules...")
+            self.progress.emit(15)
+
+            # Phase 3: Database migration
+            self.status_update.emit("Checking database...")
             try:
                 from agent.chats.db_migration import DBMigration
                 migration = DBMigration()
                 ok = migration.upgrade_to_version('2.0.0', 'Auto-upgrade at startup')
-                self.progress.emit(40 if not ok else 60)
-            except Exception:
-                self.progress.emit(40)
+                self.progress.emit(35 if not ok else 45)
+                if ok:
+                    self.status_update.emit("Database updated successfully")
+                else:
+                    self.status_update.emit("Database check completed")
+            except Exception as e:
+                self.status_update.emit("Database initialization failed")
+                self.progress.emit(35)
 
-            # Phase 3: placeholders for other preparations
-            self.progress.emit(75)
+            # Phase 4: Load configuration
+            self.status_update.emit("Loading configuration...")
+            self.progress.emit(55)
+
+            # Phase 5: Initialize services
+            self.status_update.emit("Initializing services...")
+            self.progress.emit(70)
+
+            # Phase 6: Prepare GUI components
+            self.status_update.emit("Preparing interface...")
             self.progress.emit(85)
+
+            # Phase 7: Final preparations
+            self.status_update.emit("Finalizing startup...")
+            self.progress.emit(95)
+
         finally:
+            self.status_update.emit("Ready to launch!")
             self.progress.emit(100)
             self.finished.emit()
+
+
+class StartupProgressManager:
+    """Manages startup progress updates for the splash screen"""
+
+    def __init__(self, splash_screen):
+        self.splash = splash_screen
+        self.current_progress = 0
+
+    def update_progress(self, progress: int, status: str = None):
+        """Update progress and optionally status"""
+        if self.splash:
+            self.current_progress = max(self.current_progress, progress)
+            self.splash.set_progress(self.current_progress)
+            if status:
+                self.splash.set_status(status)
+            QApplication.processEvents()
+
+    def update_status(self, status: str):
+        """Update only status text"""
+        if self.splash:
+            self.splash.set_status(status)
+            QApplication.processEvents()
+
+    def finish(self, main_window=None):
+        """Finish the splash screen"""
+        if self.splash:
+            self.splash.finish(main_window)
 
 
 def init_startup_splash():
@@ -450,8 +527,16 @@ def init_startup_splash():
         splash = ThemedSplashScreen()
         splash.show()
         app.processEvents()
+        # Ensure the splash is centered after showing and processing events
+        splash._center_on_screen()
+        app.processEvents()
         return splash
     except Exception:
         return None
+
+
+def create_startup_progress_manager(splash_screen):
+    """Create a startup progress manager for the given splash screen"""
+    return StartupProgressManager(splash_screen)
 
 
