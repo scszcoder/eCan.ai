@@ -235,12 +235,12 @@ jobs:
         echo "Note: Windows only supports amd64 architecture"
 
         echo "=== Checking Windows Environment Variables ==="
-        if ("${{ env.WIN_CERT_PFX }}" -ne "NOT_SET") {
+        if ("$env:WIN_CERT_PFX" -ne "NOT_SET") {
           echo "WIN_CERT_PFX: Set"
         } else {
           echo "WIN_CERT_PFX: Not set"
         }
-        if ("${{ env.WIN_CERT_PASSWORD }}" -ne "NOT_SET") {
+        if ("$env:WIN_CERT_PASSWORD" -ne "NOT_SET") {
           echo "WIN_CERT_PASSWORD: Set"
         } else {
           echo "WIN_CERT_PASSWORD: Not set"
@@ -377,24 +377,17 @@ jobs:
             }
         }
 
-        # Check for standardized installer first, then legacy name
+        # Check for standardized installer
         $stdSetup = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
-        $legacySetup = "dist/eCan-Setup.exe"
 
         if (Test-Path $stdSetup) {
             $setup = Get-Item $stdSetup
-            echo "Standardized installer found: $stdSetup"
-            echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
-            echo "   Created: $($setup.CreationTime)"
-            $setupFound = $true
-        } elseif (Test-Path $legacySetup) {
-            $setup = Get-Item $legacySetup
-            echo "Legacy installer found: $legacySetup"
+            echo "Installer found: $stdSetup"
             echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
             echo "   Created: $($setup.CreationTime)"
             $setupFound = $true
         } else {
-            echo "WARN: No installer found (checked both standardized and legacy names)"
+            echo "WARN: No installer found: $stdSetup"
         }
 
         if (-not $exeFound) {
@@ -411,7 +404,6 @@ jobs:
         path: |
           dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe
           dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe
-          dist/eCan-Setup.exe
           dist/*.msi
           build.log
         retention-days: 30
@@ -537,17 +529,17 @@ jobs:
         echo "Note: macOS supports both amd64 and aarch64 architectures"
         
         echo "=== Checking macOS Environment Variables ==="
-        if [ "${{ env.MAC_CERT_P12 }}" != "NOT_SET" ]; then
+        if [ "${MAC_CERT_P12}" != "NOT_SET" ]; then
           echo "MAC_CERT_P12: Set"
         else
           echo "MAC_CERT_P12: Not set"
         fi
-        if [ "${{ env.MAC_CERT_PASSWORD }}" != "NOT_SET" ]; then
+        if [ "${MAC_CERT_PASSWORD}" != "NOT_SET" ]; then
           echo "MAC_CERT_PASSWORD: Set"
         else
           echo "MAC_CERT_PASSWORD: Not set"
         fi
-        if [ "${{ env.MAC_CODESIGN_IDENTITY }}" != "NOT_SET" ]; then
+        if [ "${MAC_CODESIGN_IDENTITY}" != "NOT_SET" ]; then
           echo "MAC_CODESIGN_IDENTITY: Set"
         else
           echo "MAC_CODESIGN_IDENTITY: Not set"
@@ -574,16 +566,16 @@ jobs:
             BUILD_SUCCESS=false
         fi
 
-        # Check for standardized DMG (created by build.py)
+        # Check for standardized PKG (created by build.py)
         ARCH="${{ github.event.inputs.arch || 'amd64' }}"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        STD_DMG="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
+        STD_PKG="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
 
         if [ "$BUILD_SUCCESS" = "true" ]; then
-            if [ -f "$STD_DMG" ]; then
-                echo "[OK] Standardized DMG found: $STD_DMG"
+            if [ -f "$STD_PKG" ]; then
+                echo "[OK] Standardized PKG found: $STD_PKG"
             else
-                echo "[INFO] Standardized DMG will be created in next step"
+                echo "[INFO] Standardized PKG will be created in next step"
             fi
         fi
 
@@ -604,22 +596,54 @@ jobs:
             exit 1
         fi
 
-    - name: Create DMG from app
+    - name: Create PKG from app
       if: ${{ always() }}
       run: |
-        echo "=== Creating DMG ==="
+        echo "=== Creating PKG ==="
         ARCH="${{ github.event.inputs.arch || 'amd64' }}"
         VERSION="${{ needs.validate-tag.outputs.version }}"
         APP_PATH="dist/eCan.app"
-        DMG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
+        PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
         if [ -d "$APP_PATH" ]; then
-          mkdir -p build/dmg
-          rm -rf build/dmg/*
-          cp -R "$APP_PATH" build/dmg/
-          hdiutil create -volname "eCan" -srcfolder build/dmg -ov -format UDZO "$DMG_PATH"
-          echo "[OK] DMG created at: $DMG_PATH"
+          mkdir -p build/pkg
+          rm -rf build/pkg/*
+
+          # Create component PKG (only include the .app bundle)
+          pkgbuild --component "$APP_PATH" --identifier "com.ecan.ecan" --version "$VERSION" --install-location "/Applications" "build/pkg/eCan-component.pkg"
+
+          # Create distribution XML
+          cat > build/pkg/distribution.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <installer-gui-script minSpecVersion="1">
+              <title>eCan ${VERSION}</title>
+              <organization>com.ecan</organization>
+              <domains enable_localSystem="true"/>
+              <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+
+              <pkg-ref id="com.ecan.ecan"/>
+
+              <choices-outline>
+                  <line choice="default">
+                      <line choice="com.ecan.ecan"/>
+                  </line>
+              </choices-outline>
+
+              <choice id="default"/>
+              <choice id="com.ecan.ecan" visible="false">
+                  <pkg-ref id="com.ecan.ecan"/>
+              </choice>
+
+              <pkg-ref id="com.ecan.ecan" version="${VERSION}" onConclusion="none">
+                  eCan-component.pkg
+              </pkg-ref>
+          </installer-gui-script>
+          EOF
+
+          # Create final PKG
+          productbuild --distribution "build/pkg/distribution.xml" --package-path "build/pkg" "$PKG_PATH"
+          echo "[OK] PKG created at: $PKG_PATH"
         else
-          echo "[WARN] App not found at $APP_PATH; skip DMG creation"
+          echo "[WARN] App not found at $APP_PATH; skip PKG creation"
         fi
 
     - name: Code sign macOS app (optional)
@@ -654,27 +678,33 @@ jobs:
           echo "dist/eCan.app not found; skip codesign"
         fi
 
-    - name: Notarize macOS DMG (optional)
+    - name: Notarize macOS PKG (optional)
       if: ${{ env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' }}
       env:
         APPLE_ID: ${{ env.APPLE_ID }}
         APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
         TEAM_ID: ${{ env.TEAM_ID }}
       run: |
-        echo "=== Notarize macOS DMG (if Apple credentials provided) ==="
+        echo "=== Notarize macOS PKG (if Apple credentials provided) ==="
         if [ -z "${APPLE_ID}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD}" ] || [ -z "${TEAM_ID}" ]; then
           echo "No Apple notarization credentials; skip notarization"
           exit 0
         fi
         ARCH="${{ github.event.inputs.arch || 'amd64' }}"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        DMG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
-        if [ -f "$DMG_PATH" ]; then
-          echo "Submitting $DMG_PATH for notarization..."
-          xcrun notarytool submit "$DMG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
-          echo "[OK] Notarization completed"
+        PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_PATH" ]; then
+          echo "Submitting $PKG_PATH for notarization..."
+          xcrun notarytool submit "$PKG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
+          if [ $? -eq 0 ]; then
+            echo "Stapling notarization to PKG..."
+            xcrun stapler staple "$PKG_PATH"
+            echo "[OK] Notarization and stapling completed"
+          else
+            echo "[WARN] Notarization failed"
+          fi
         else
-          echo "DMG not found, skip notarization"
+          echo "PKG not found, skip notarization"
         fi
 
     - name: Check build result
@@ -698,11 +728,11 @@ jobs:
 
         ARCH="${{ github.event.inputs.arch || 'amd64' }}"
         VERSION="${{ needs.validate-tag.outputs.version }}"
-        DMG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.dmg"
-        if [ -f "$DMG_PATH" ]; then
-            echo "[OK] macOS DMG found: $DMG_PATH"
-            dmg_size=$(du -sh "$DMG_PATH" | cut -f1)
-            echo "   Size: $dmg_size"
+        PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_PATH" ]; then
+            echo "[OK] macOS PKG found: $PKG_PATH"
+            pkg_size=$(du -sh "$PKG_PATH" | cut -f1)
+            echo "   Size: $pkg_size"
         elif [ -d "dist/eCan.app" ]; then
             echo "[OK] macOS App found: dist/eCan.app"
             app_size=$(du -sh dist/eCan.app | cut -f1)
@@ -711,8 +741,8 @@ jobs:
             find dist/eCan.app -type f -name "eCan" | head -5
         else
             echo "[ERROR] macOS build not found"
-            echo "Searching for .dmg and .app files..."
-            find dist -name "*.dmg" 2>/dev/null || echo "No .dmg files found"
+            echo "Searching for .pkg and .app files..."
+            find dist -name "*.pkg" 2>/dev/null || echo "No .pkg files found"
             find dist -name "*.app" 2>/dev/null || echo "No .app files found"
             exit 1
         fi
@@ -724,7 +754,7 @@ jobs:
       with:
         name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-macos-*.dmg
+          dist/eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg
           build.log
         retention-days: 30
 
@@ -801,7 +831,7 @@ jobs:
       - name: Check environment variables
         run: |
           echo "=== Checking Appcast Generation Environment ==="
-          if [ "${{ env.ED25519_PRIVATE_KEY }}" != "NOT_SET" ]; then
+          if [ "${ED25519_PRIVATE_KEY}" != "NOT_SET" ]; then
             echo "ED25519_PRIVATE_KEY: Available - Appcast generation enabled"
           else
             echo "ED25519_PRIVATE_KEY: Not available - Appcast generation disabled"
@@ -1017,7 +1047,7 @@ jobs:
           echo "Environment Variables Status:"
           echo "  ED25519_PRIVATE_KEY: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Available' || 'Not Available' }}"
           echo ""
-          if [ "${{ env.ED25519_PRIVATE_KEY }}" != "NOT_SET" ]; then
+          if [ "${ED25519_PRIVATE_KEY}" != "NOT_SET" ]; then
             echo "Appcast generation: Enabled"
             echo "OTA updates: Available"
           else

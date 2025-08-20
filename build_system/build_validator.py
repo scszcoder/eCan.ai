@@ -539,30 +539,31 @@ class BuildValidator:
                 "message": f"App bundle not found: {app_path}"
             })
 
-        # Check DMG file (optional)
-        dmg_patterns = [
-            f"dist/eCan-{version}-macos-{arch}.dmg",  # Standardized format
-            f"dist/eCan-macos-{arch}-v{version}.dmg",  # Legacy format
+        # Check PKG installer file
+        pkg_patterns = [
+            f"dist/eCan-{version}-macos-{arch}.pkg",  # Standardized format
+            f"dist/eCan-macos-{arch}-v{version}.pkg",  # Legacy format
+            f"dist/eCan-{version}.pkg",  # Simple format
         ]
 
-        dmg_found = False
-        for pattern in dmg_patterns:
-            dmg_path = Path(pattern)
-            if dmg_path.exists():
-                size_mb = dmg_path.stat().st_size / (1024 * 1024)
+        pkg_found = False
+        for pattern in pkg_patterns:
+            pkg_path = Path(pattern)
+            if pkg_path.exists():
+                size_mb = pkg_path.stat().st_size / (1024 * 1024)
                 checks.append({
-                    "name": "dmg_package",
+                    "name": "pkg_installer",
                     "status": "pass",
-                    "message": f"DMG found: {dmg_path} ({size_mb:.1f} MB)"
+                    "message": f"PKG installer found: {pkg_path} ({size_mb:.1f} MB)"
                 })
-                dmg_found = True
+                pkg_found = True
                 break
 
-        if not dmg_found:
+        if not pkg_found:
             checks.append({
-                "name": "dmg_package",
+                "name": "pkg_installer",
                 "status": "warn",
-                "message": f"DMG not found (optional). Tried: {', '.join(dmg_patterns)}"
+                "message": f"PKG installer not found. Tried: {', '.join(pkg_patterns)}"
             })
 
         return checks

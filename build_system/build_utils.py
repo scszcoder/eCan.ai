@@ -61,30 +61,53 @@ def _standardize_windows_artifacts(version: str, arch: str):
     """Standardize Windows build artifacts"""
     dist_dir = Path("dist")
 
-    # Find eCan-Setup.exe (installer)
+    # Find and standardize installer files (Setup.exe)
     setup_files = list(dist_dir.glob("*Setup*.exe"))
-    if setup_files:
-        old_path = setup_files[0]
-        new_name = f"eCan-{version}-windows-{arch}.exe"
-        new_path = dist_dir / new_name
+    for setup_file in setup_files:
+        # Check if it's already in standardized format
+        expected_name = f"eCan-{version}-windows-{arch}-Setup.exe"
+        expected_path = dist_dir / expected_name
 
-        try:
-            if old_path != new_path:
-                shutil.move(old_path, new_path)
-                print(f"[RENAME] {old_path.name} -> {new_name}")
-        except Exception as e:
-            print(f"[RENAME] Warning: Failed to rename {old_path}: {e}")
+        if setup_file.name != expected_name:
+            try:
+                if not expected_path.exists():
+                    shutil.move(setup_file, expected_path)
+                    print(f"[RENAME] {setup_file.name} -> {expected_name}")
+                else:
+                    # Remove duplicate if standardized version already exists
+                    setup_file.unlink()
+                    print(f"[RENAME] Removed duplicate: {setup_file.name}")
+            except Exception as e:
+                print(f"[RENAME] Warning: Failed to rename {setup_file}: {e}")
+
+    # Find and standardize executable files (main app)
+    exe_files = [f for f in dist_dir.glob("*.exe") if "Setup" not in f.name]
+    for exe_file in exe_files:
+        expected_name = f"eCan-{version}-windows-{arch}.exe"
+        expected_path = dist_dir / expected_name
+
+        if exe_file.name != expected_name and "eCan" in exe_file.name:
+            try:
+                if not expected_path.exists():
+                    shutil.move(exe_file, expected_path)
+                    print(f"[RENAME] {exe_file.name} -> {expected_name}")
+                else:
+                    # Remove duplicate if standardized version already exists
+                    exe_file.unlink()
+                    print(f"[RENAME] Removed duplicate: {exe_file.name}")
+            except Exception as e:
+                print(f"[RENAME] Warning: Failed to rename {exe_file}: {e}")
 
 
 def _standardize_macos_artifacts(version: str, arch: str):
     """Standardize macOS build artifacts"""
     dist_dir = Path("dist")
 
-    # Find .dmg files
-    dmg_files = list(dist_dir.glob("*.dmg"))
-    if dmg_files:
-        old_path = dmg_files[0]
-        new_name = f"eCan-{version}-macos-{arch}.dmg"
+    # Find .pkg files (PKG is now the default installer format)
+    pkg_files = list(dist_dir.glob("*.pkg"))
+    if pkg_files:
+        old_path = pkg_files[0]
+        new_name = f"eCan-{version}-macos-{arch}.pkg"
         new_path = dist_dir / new_name
 
         try:
@@ -94,35 +117,7 @@ def _standardize_macos_artifacts(version: str, arch: str):
         except Exception as e:
             print(f"[RENAME] Warning: Failed to rename {old_path}: {e}")
     else:
-        # If no DMG found, try to create one
-        app_dirs = list(dist_dir.glob("*.app"))
-        if app_dirs:
-            app_path = app_dirs[0]
-            dmg_name = f"eCan-{version}-macos-{arch}.dmg"
-            dmg_path = dist_dir / dmg_name
-
-            try:
-                # Use hdiutil to create DMG
-                import subprocess
-
-                subprocess.run(
-                    [
-                        "hdiutil",
-                        "create",
-                        "-volname",
-                        "eCan",
-                        "-srcfolder",
-                        str(app_path),
-                        "-ov",
-                        "-format",
-                        "UDZO",
-                        str(dmg_path),
-                    ],
-                    check=True,
-                )
-                print(f"[RENAME] Created: {dmg_path.name}")
-            except Exception as e:
-                print(f"[RENAME] Warning: Failed to create DMG: {e}")
+        print("[RENAME] No PKG installer found for macOS")
 
 
 def _standardize_linux_artifacts(version: str, arch: str):

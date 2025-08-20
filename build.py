@@ -198,32 +198,82 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
     elif platform_name == "Darwin":
         platform_str = "macos"
 
-        # Create DMG file
+        # Create PKG installer file
         app_path = Path("dist/eCan.app")
-        dmg_path = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.dmg")
-        if app_path.exists() and not dmg_path.exists():
+        pkg_path = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.pkg")
+
+        # Check if PKG already exists (created by installer builder)
+        if pkg_path.exists():
+            print(f"[RENAME] PKG already exists: {pkg_path.name}")
+        elif app_path.exists():
+            # Create PKG as default installer format
             try:
-                # Create temporary DMG directory
-                dmg_temp = Path("build/dmg")
-                dmg_temp.mkdir(parents=True, exist_ok=True)
+                print(f"[RENAME] Creating PKG installer: {pkg_path.name}")
 
-                # Clean and copy app
-                if (dmg_temp / "eCan.app").exists():
-                    shutil.rmtree(dmg_temp / "eCan.app")
-                shutil.copytree(app_path, dmg_temp / "eCan.app")
+                # Create temporary directory for PKG creation
+                pkg_temp = Path("build/pkg")
+                pkg_temp.mkdir(parents=True, exist_ok=True)
 
-                # Create DMG
-                cmd = [
-                    "hdiutil", "create",
-                    "-volname", "eCan",
-                    "-srcfolder", str(dmg_temp),
-                    "-ov", "-format", "UDZO",
-                    str(dmg_path)
+                # Create component PKG (only include the .app bundle)
+                component_pkg = pkg_temp / "eCan-component.pkg"
+                pkgbuild_cmd = [
+                    "pkgbuild",
+                    "--component", str(app_path),
+                    "--identifier", "com.ecan.ecan",
+                    "--version", version,
+                    "--install-location", "/Applications",
+                    str(component_pkg)
                 ]
-                subprocess.run(cmd, check=True, capture_output=True)
-                print(f"[RENAME] Created: {dmg_path.name}")
+
+                subprocess.run(pkgbuild_cmd, check=True, capture_output=True, timeout=600)
+
+                # Create simple distribution XML
+                distribution_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>eCan {version}</title>
+    <organization>com.ecan</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+
+    <pkg-ref id="com.ecan.ecan"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.ecan.ecan"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+    <choice id="com.ecan.ecan" visible="false">
+        <pkg-ref id="com.ecan.ecan"/>
+    </choice>
+
+    <pkg-ref id="com.ecan.ecan" version="{version}" onConclusion="none">
+        eCan-component.pkg
+    </pkg-ref>
+</installer-gui-script>"""
+
+                distribution_file = pkg_temp / "distribution.xml"
+                with open(distribution_file, 'w', encoding='utf-8') as f:
+                    f.write(distribution_xml)
+
+                # Create final PKG
+                productbuild_cmd = [
+                    "productbuild",
+                    "--distribution", str(distribution_file),
+                    "--package-path", str(pkg_temp),
+                    str(pkg_path)
+                ]
+
+                subprocess.run(productbuild_cmd, check=True, capture_output=True, timeout=600)
+                print(f"[RENAME] Created: {pkg_path.name}")
+
+                # Cleanup
+                shutil.rmtree(pkg_temp, ignore_errors=True)
+
             except Exception as e:
-                print(f"[RENAME] Warning: Failed to create DMG: {e}")
+                print(f"[RENAME] Error: Failed to create PKG: {e}")
+                print(f"[RENAME] PKG creation failed, no installer will be created")
 
 
 def _show_build_results():
@@ -695,6 +745,50 @@ Usage examples:
                         validate_macos_app_bundle(app_bundle)
                     else:
                         print("[WARNING] macOS: App bundle not found for validation")
+
+                    # Apply QtWebEngine final fix
+                    print("[BUILD] macOS: Applying QtWebEngine final fix...")
+                    try:
+                        qtwebengine_frameworks = [
+                            "dist/eCan/_internal/PySide6/Qt/lib/QtWebEngineCore.framework",
+                            "dist/eCan.app/Contents/Frameworks/PySide6/Qt/lib/QtWebEngineCore.framework"
+                        ]
+
+                        for framework_path in qtwebengine_frameworks:
+                            if os.path.exists(framework_path):
+                                # Fix Helpers symlink
+                                helpers_link = os.path.join(framework_path, "Helpers")
+                                helpers_target = os.path.join(framework_path, "Versions/Main/Helpers")
+
+                                if os.path.exists(helpers_target):
+                                    # Remove existing symlink if it exists
+                                    if os.path.exists(helpers_link) or os.path.islink(helpers_link):
+                                        os.unlink(helpers_link)
+
+                                    # Create new symlink
+                                    os.symlink("Versions/Main/Helpers", helpers_link)
+                                    print(f"[BUILD] Created Helpers symlink: {os.path.basename(framework_path)}")
+
+                                # Fix Resources - copy from Main to A
+                                main_resources = os.path.join(framework_path, "Versions/Main/Resources")
+                                a_resources = os.path.join(framework_path, "Versions/A/Resources")
+
+                                if os.path.exists(main_resources) and os.path.exists(a_resources):
+                                    # Check if A/Resources is missing QtWebEngine files
+                                    qtwebengine_pak = os.path.join(a_resources, "qtwebengine_resources.pak")
+                                    main_pak = os.path.join(main_resources, "qtwebengine_resources.pak")
+
+                                    if os.path.exists(main_pak) and not os.path.exists(qtwebengine_pak):
+                                        import subprocess
+                                        # Copy all QtWebEngine resources from Main to A
+                                        copy_cmd = ["cp", "-r", f"{main_resources}/", a_resources]
+                                        subprocess.run(copy_cmd, check=False)
+                                        print(f"[BUILD] Copied QtWebEngine resources: {os.path.basename(framework_path)}")
+
+                        print("[BUILD] QtWebEngine final fix completed")
+                    except Exception as qtwe_e:
+                        print(f"[WARNING] QtWebEngine final fix failed: {qtwe_e}")
+
                 except Exception as e:
                     print(f"[WARNING] macOS: App bundle validation failed: {e}")
             elif current_platform == "Windows":
