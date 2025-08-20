@@ -60,6 +60,8 @@ class FrameworkManager:
             self._process_path(dist_dir)
             # Auto-repair any damaged symlinks in the build
             self._auto_repair_symlinks(dist_dir)
+            # Fix framework version symlinks
+            self._fix_framework_version_symlinks(dist_dir)
             self.log("Post-build optimization completed successfully")
             return True
         except Exception as e:
@@ -145,6 +147,9 @@ class FrameworkManager:
             if item.is_symlink() and not item.exists():
                 # Focus on framework-related symlinks that are critical
                 if ".framework" in str(item):
+                    # Skip framework version symlinks - they're handled separately
+                    if "QtWebEngineCore.framework" in str(item) and item.name == "Current":
+                        continue
                     damaged_links.append(item)
 
         if not damaged_links:
@@ -217,6 +222,283 @@ class FrameworkManager:
                             return subdir
 
         return None
+
+    def _fix_framework_version_symlinks(self, dist_dir: Path) -> None:
+        """Fix framework version symlinks to point to correct versions"""
+        self.log("Fixing framework version symlinks...")
+
+        # Find all QtWebEngineCore.framework instances (main problematic framework)
+        qtwebengine_frameworks = list(dist_dir.rglob("QtWebEngineCore.framework"))
+
+        for framework in qtwebengine_frameworks:
+            self._fix_single_framework_version_symlink(framework)
+
+    def _fix_single_framework_version_symlink(self, framework_path: Path) -> None:
+        """Fix a single framework's version symlink"""
+        versions_dir = framework_path / "Versions"
+        if not versions_dir.exists():
+            return
+
+        current_link = versions_dir / "Current"
+        version_a = versions_dir / "A"
+        version_main = versions_dir / "Main"
+
+        # Check which version has the Helpers directory
+        helpers_in_a = (version_a / "Helpers").exists() if version_a.exists() else False
+        helpers_in_main = (version_main / "Helpers").exists() if version_main.exists() else False
+
+        if helpers_in_main and not helpers_in_a:
+            # Main has Helpers but A doesn't, point Current to Main
+            if current_link.exists() or current_link.is_symlink():
+                current_link.unlink()
+            current_link.symlink_to("Main")
+            self.log(f"Fixed framework version symlink to point to Main: {framework_path}")
+        elif helpers_in_a:
+            # A has Helpers, ensure Current points to A
+            if current_link.exists() or current_link.is_symlink():
+                current_link.unlink()
+            current_link.symlink_to("A")
+            self.log(f"Fixed framework version symlink to point to A: {framework_path}")
+
+        # Additional fix: Create direct Helpers symlink if missing
+        self._create_direct_helpers_symlink(framework_path)
+
+        # Additional fix: Comprehensive QtWebEngine fix
+        self._comprehensive_qtwebengine_fix(framework_path)
+
+    def _create_direct_helpers_symlink(self, framework_path: Path) -> None:
+        """Create direct Helpers symlink in framework root if missing"""
+        try:
+            # Check if this is QtWebEngineCore framework
+            if "QtWebEngineCore.framework" not in str(framework_path):
+                return
+
+            direct_helpers = framework_path / "Helpers"
+            versions_dir = framework_path / "Versions"
+
+            if not versions_dir.exists():
+                return
+
+            # Find where the actual Helpers directory is
+            actual_helpers = None
+            for version in ["Main", "A", "Current"]:
+                version_helpers = versions_dir / version / "Helpers"
+                if version_helpers.exists():
+                    actual_helpers = version_helpers
+                    break
+
+            if actual_helpers is None:
+                self.log(f"No Helpers directory found in any version: {framework_path}")
+                return
+
+            # Create or fix the direct Helpers symlink
+            if direct_helpers.exists() or direct_helpers.is_symlink():
+                if direct_helpers.is_symlink():
+                    # Check if symlink is correct
+                    try:
+                        if direct_helpers.resolve() == actual_helpers.resolve():
+                            return  # Already correct
+                    except Exception:
+                        pass
+                # Remove incorrect symlink or directory
+                try:
+                    if direct_helpers.is_symlink():
+                        direct_helpers.unlink()
+                    else:
+                        import shutil
+                        shutil.rmtree(direct_helpers)
+                except Exception as e:
+                    self.log(f"Failed to remove existing Helpers: {e}")
+                    return
+
+            # Create the symlink
+            try:
+                # Use relative path for the symlink
+                relative_path = os.path.relpath(actual_helpers, framework_path)
+                direct_helpers.symlink_to(relative_path)
+                self.log(f"Created direct Helpers symlink: {framework_path}/Helpers -> {relative_path}")
+            except Exception as e:
+                self.log(f"Failed to create Helpers symlink: {e}")
+
+        except Exception as e:
+            self.log(f"Error in _create_direct_helpers_symlink: {e}")
+
+    def _comprehensive_qtwebengine_fix(self, framework_path: Path) -> None:
+        """Comprehensive QtWebEngine fix - solve all possible issues at once"""
+        try:
+            # Check if this is QtWebEngineCore framework
+            if "QtWebEngineCore.framework" not in str(framework_path):
+                return
+
+            self.log(f"Comprehensive QtWebEngine fix: {framework_path}")
+
+            # 1. Ensure directory structure
+            self._ensure_qtwebengine_structure(framework_path)
+
+            # 2. Fix all symlinks
+            self._fix_qtwebengine_symlinks(framework_path)
+
+            # 3. Copy missing files
+            self._copy_qtwebengine_files(framework_path)
+
+            # 4. Fix permissions
+            self._fix_qtwebengine_permissions(framework_path)
+
+            self.log(f"QtWebEngine comprehensive fix completed: {framework_path}")
+
+        except Exception as e:
+            self.log(f"QtWebEngine comprehensive fix failed: {e}")
+
+    def _ensure_qtwebengine_structure(self, framework_path: Path) -> None:
+        """Ensure QtWebEngine directory structure is complete"""
+        versions_dir = framework_path / "Versions"
+
+        # Ensure A and Main version directories exist
+        for version in ["A", "Main"]:
+            version_dir = versions_dir / version
+            if not version_dir.exists():
+                version_dir.mkdir(parents=True, exist_ok=True)
+
+            # Ensure each version has Resources and Helpers directories
+            for subdir in ["Resources", "Helpers"]:
+                subdir_path = version_dir / subdir
+                if not subdir_path.exists():
+                    subdir_path.mkdir(parents=True, exist_ok=True)
+
+    def _fix_qtwebengine_symlinks(self, framework_path: Path) -> None:
+        """Fix all QtWebEngine symlinks"""
+        versions_dir = framework_path / "Versions"
+
+        # Fix Current symlink - point to version with complete content
+        current_link = versions_dir / "Current"
+        main_resources = versions_dir / "Main" / "Resources" / "qtwebengine_resources.pak"
+
+        target_version = "Main" if main_resources.exists() else "A"
+
+        if current_link.exists() or current_link.is_symlink():
+            current_link.unlink()
+        current_link.symlink_to(target_version)
+
+        # Fix root level symlinks
+        root_symlinks = {
+            "Resources": "Versions/Current/Resources",
+            "Helpers": "Versions/Current/Helpers",
+            "QtWebEngineCore": "Versions/Current/QtWebEngineCore"
+        }
+
+        for link_name, target in root_symlinks.items():
+            link_path = framework_path / link_name
+
+            # Check if target exists, if not find alternative
+            if not (framework_path / target).exists():
+                for version in ["A", "Main"]:
+                    alt_target = f"Versions/{version}/{link_name}"
+                    if (framework_path / alt_target).exists():
+                        target = alt_target
+                        break
+
+            if link_path.exists() or link_path.is_symlink():
+                link_path.unlink()
+
+            try:
+                link_path.symlink_to(target)
+            except Exception as e:
+                self.log(f"Failed to create symlink {link_name}: {e}")
+
+    def _copy_qtwebengine_files(self, framework_path: Path) -> None:
+        """Copy missing QtWebEngine files"""
+        versions_dir = framework_path / "Versions"
+        main_dir = versions_dir / "Main"
+        a_dir = versions_dir / "A"
+
+        # Copy resources
+        self._copy_qtwebengine_resources(main_dir / "Resources", a_dir / "Resources")
+
+        # Copy helpers
+        self._copy_qtwebengine_helpers(main_dir / "Helpers", a_dir / "Helpers")
+
+        # Copy binary
+        self._copy_qtwebengine_binary(main_dir / "QtWebEngineCore", a_dir / "QtWebEngineCore")
+
+    def _copy_qtwebengine_resources(self, src_dir: Path, dst_dir: Path) -> None:
+        """Copy QtWebEngine resource files"""
+        if not src_dir.exists():
+            return
+
+        resource_files = [
+            "qtwebengine_resources.pak",
+            "qtwebengine_devtools_resources.pak",
+            "qtwebengine_resources_100p.pak",
+            "qtwebengine_resources_200p.pak",
+            "icudtl.dat",
+            "v8_context_snapshot.arm64.bin",
+            "v8_context_snapshot.x86_64.bin",
+            "Info.plist",
+            "PrivacyInfo.xcprivacy"
+        ]
+
+        for file_name in resource_files:
+            src_file = src_dir / file_name
+            dst_file = dst_dir / file_name
+
+            if src_file.exists() and not dst_file.exists():
+                try:
+                    import shutil
+                    shutil.copy2(src_file, dst_file)
+                except Exception as e:
+                    self.log(f"Failed to copy {file_name}: {e}")
+
+        # Copy locales directory
+        src_locales = src_dir / "qtwebengine_locales"
+        dst_locales = dst_dir / "qtwebengine_locales"
+        if src_locales.exists() and not dst_locales.exists():
+            try:
+                import shutil
+                shutil.copytree(src_locales, dst_locales)
+            except Exception as e:
+                self.log(f"Failed to copy locales: {e}")
+
+    def _copy_qtwebengine_helpers(self, src_dir: Path, dst_dir: Path) -> None:
+        """Copy QtWebEngine Helpers"""
+        if not src_dir.exists():
+            return
+
+        if not (dst_dir / "QtWebEngineProcess.app").exists():
+            try:
+                import shutil
+                if dst_dir.exists():
+                    shutil.rmtree(dst_dir)
+                shutil.copytree(src_dir, dst_dir, symlinks=True)
+            except Exception as e:
+                self.log(f"Failed to copy Helpers: {e}")
+
+    def _copy_qtwebengine_binary(self, src_file: Path, dst_file: Path) -> None:
+        """Copy QtWebEngine binary file"""
+        if src_file.exists() and not dst_file.exists():
+            try:
+                import shutil
+                shutil.copy2(src_file, dst_file)
+            except Exception as e:
+                self.log(f"Failed to copy binary: {e}")
+
+    def _fix_qtwebengine_permissions(self, framework_path: Path) -> None:
+        """Fix QtWebEngine file permissions"""
+        try:
+            # Ensure executable files have execute permissions
+            executables = [
+                "Helpers/QtWebEngineProcess.app/Contents/MacOS/QtWebEngineProcess",
+                "QtWebEngineCore",
+                "Versions/A/QtWebEngineCore",
+                "Versions/Main/QtWebEngineCore"
+            ]
+
+            for exe_path in executables:
+                exe_file = framework_path / exe_path
+                if exe_file.exists():
+                    import os
+                    os.chmod(exe_file, 0o755)
+        except Exception as e:
+            self.log(f"Failed to fix permissions: {e}")
 
     def clean_build_artifacts(self, paths: List[str]) -> None:
         """Clean build artifacts"""

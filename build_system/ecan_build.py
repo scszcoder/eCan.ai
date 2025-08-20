@@ -510,29 +510,31 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                     except Exception as e:
                         print(f"[WARNING] Failed to create standardized EXE: {e}")
 
-            # Create standardized installer filename and legacy compatibility
+            # Only keep standardized installer filename to avoid duplicates
             installer_std = self.dist_dir / f"eCan-{app_version}-windows-{arch}-Setup.exe"
             installer_legacy = self.dist_dir / "eCan-Setup.exe"
 
-            # If standardized installer exists, create legacy name for compatibility
-            if installer_std.exists() and not installer_legacy.exists():
+            # Remove legacy installer if it exists to avoid duplicates
+            if installer_legacy.exists():
                 try:
-                    shutil.copy2(installer_std, installer_legacy)
-                    print(f"[INFO] Created legacy installer name: {installer_legacy.name}")
+                    installer_legacy.unlink()
+                    print(f"[INFO] Removed duplicate legacy installer: {installer_legacy.name}")
                 except Exception as e:
-                    print(f"[WARNING] Failed to create legacy installer name: {e}")
+                    print(f"[WARNING] Failed to remove legacy installer: {e}")
+
+            # Verify standardized installer exists
+            if installer_std.exists():
+                print(f"[INFO] Standardized installer ready: {installer_std.name}")
+            else:
+                print(f"[WARNING] Standardized installer not found: {installer_std.name}")
 
         except Exception as e:
             print(f"[WARNING] Failed to create standardized Windows artifacts: {e}")
 
     def _build_macos_installer(self) -> bool:
-        """Build macOS DMG installer with proper UI and shortcuts"""
+        """Build macOS PKG installer"""
         try:
-            print("[INSTALLER] Building macOS DMG installer...")
-
-            # Auto-install create-dmg tool if needed
-            if not self._ensure_create_dmg_installed():
-                print("[WARNING] create-dmg tool not available, will use fallback method")
+            print("[INSTALLER] Building macOS PKG installer...")
 
             installer_config = self.config.config.get("installer", {})
             macos_config = installer_config.get("macos", {})
@@ -540,7 +542,18 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
 
             app_name = app_info.get("name", "eCan")
             app_version = app_info.get("version", "1.0.0")
-            volume_name = macos_config.get("app_name", app_name)
+
+            # Build PKG installer (default and recommended format)
+            return self._build_macos_pkg_installer(app_name, app_version, macos_config)
+
+        except Exception as e:
+            print(f"[ERROR] macOS installer creation failed: {e}")
+            return False
+
+    def _build_macos_pkg_installer(self, app_name: str, app_version: str, macos_config: Dict[str, Any]) -> bool:
+        """Build macOS PKG installer"""
+        try:
+            print("[INSTALLER] Creating macOS PKG installer...")
 
             # Locate app bundle built by PyInstaller
             app_bundle_dir = self.dist_dir / f"{app_name}.app"
@@ -548,320 +561,253 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 print(f"[ERROR] App bundle not found: {app_bundle_dir}")
                 return False
 
-            # Prepare a staging directory for DMG contents
-            dmg_root = self.dist_dir / "dmgroot"
-            try:
-                if dmg_root.exists():
-                    shutil.rmtree(dmg_root)
-                dmg_root.mkdir(parents=True, exist_ok=True)
-                
-                # Copy app bundle
-                dest_app = dmg_root / f"{app_name}.app"
-                shutil.copytree(app_bundle_dir, dest_app, symlinks=True)
-                
-                # Create Applications folder symlink
-                applications_link = dmg_root / "Applications"
-                if applications_link.exists() or applications_link.is_symlink():
-                    try:
-                        applications_link.unlink()
-                    except Exception:
-                        pass
-                os.symlink("/Applications", str(applications_link))
-                
-                # Create background image for DMG
-                self._create_dmg_background(dmg_root, app_name)
-                
-                # Create .DS_Store for proper icon positioning
-                self._create_dmg_ds_store(dmg_root, app_name)
-                
-            except Exception as e:
-                print(f"[ERROR] Failed to prepare DMG root: {e}")
-                return False
-
-            # Create standardized DMG filename with platform and architecture
+            # Create standardized PKG filename with platform and architecture
             arch = os.environ.get('BUILD_ARCH', 'amd64')
             if arch == 'x86_64':
                 arch = 'amd64'
             elif arch == 'arm64':
                 arch = 'aarch64'
 
-            dmg_file = self.dist_dir / f"{app_name}-{app_version}-macos-{arch}.dmg"
-            if dmg_file.exists():
+            pkg_file = self.dist_dir / f"{app_name}-{app_version}-macos-{arch}.pkg"
+            if pkg_file.exists():
                 try:
-                    dmg_file.unlink()
+                    pkg_file.unlink()
                 except Exception:
                     pass
 
-            # Check if create-dmg is available
-            if self._check_create_dmg():
-                print("[INSTALLER] Using create-dmg for enhanced DMG creation...")
-                success = self._create_dmg_with_create_dmg(dmg_root, app_name, app_version, volume_name, dmg_file)
-            else:
-                print("[INSTALLER] create-dmg not available, using hdiutil...")
-                success = self._create_dmg_with_hdiutil(dmg_root, volume_name, dmg_file)
+            # Create PKG using pkgbuild and productbuild
+            success = self._create_pkg_installer(app_bundle_dir, app_name, app_version, pkg_file, macos_config)
 
             if not success:
                 return False
 
-            if not dmg_file.exists() or dmg_file.stat().st_size == 0:
-                print(f"[ERROR] DMG file not created or empty: {dmg_file}")
+            if not pkg_file.exists() or pkg_file.stat().st_size == 0:
+                print(f"[ERROR] PKG file not created or empty: {pkg_file}")
                 return False
 
-            print(f"[SUCCESS] macOS DMG created: {dmg_file} ({dmg_file.stat().st_size / (1024*1024):.1f} MB)")
+            print(f"[SUCCESS] macOS PKG created: {pkg_file} ({pkg_file.stat().st_size / (1024*1024):.1f} MB)")
 
             # Create legacy filename for backward compatibility (if needed)
-            legacy_dmg = self.dist_dir / f"{app_name}-{app_version}.dmg"
-            if not legacy_dmg.exists():
+            legacy_pkg = self.dist_dir / f"{app_name}-{app_version}.pkg"
+            if not legacy_pkg.exists():
                 try:
-                    shutil.copy2(dmg_file, legacy_dmg)
-                    print(f"[INFO] Created legacy DMG name: {legacy_dmg.name}")
+                    shutil.copy2(pkg_file, legacy_pkg)
+                    print(f"[INFO] Created legacy PKG name: {legacy_pkg.name}")
                 except Exception as e:
-                    print(f"[WARNING] Failed to create legacy DMG name: {e}")
+                    print(f"[WARNING] Failed to create legacy PKG name: {e}")
 
-            # Cleanup staging directory
-            try:
-                if dmg_root.exists():
-                    shutil.rmtree(dmg_root)
-                    print(f"[CLEANUP] Removed dmgroot: {dmg_root}")
-            except Exception as e:
-                print(f"[WARNING] Failed to cleanup dmgroot: {e}")
+            # Optional: Code signing for PKG
+            if macos_config.get("codesign", {}).get("enabled", False):
+                if not self._codesign_pkg(pkg_file, macos_config):
+                    print("[WARNING] PKG code signing failed, but continuing...")
 
-            # Optional: Notarization for DMG
+            # Optional: Notarization for PKG
             if macos_config.get("notarization", {}).get("enabled", False):
-                if not self._notarize_dmg(dmg_file, macos_config):
-                    print("[WARNING] Notarization failed, but continuing...")
+                if not self._notarize_pkg(pkg_file, macos_config):
+                    print("[WARNING] PKG notarization failed, but continuing...")
 
             return True
 
         except Exception as e:
-            print(f"[ERROR] macOS DMG installer creation failed: {e}")
+            print(f"[ERROR] macOS PKG installer creation failed: {e}")
             return False
 
-    def _create_dmg_background(self, dmg_root: Path, app_name: str) -> None:
-        """Create a background image for the DMG"""
+
+
+    def _create_pkg_installer(self, app_bundle_dir: Path, app_name: str, app_version: str, pkg_file: Path, macos_config: Dict[str, Any]) -> bool:
+        """Create PKG installer using pkgbuild and productbuild"""
         try:
-            # Create a simple background image using Python
-            from PIL import Image, ImageDraw, ImageFont
-            
-            # Create a background image (800x600)
-            width, height = 800, 600
-            background = Image.new('RGB', (width, height), color='#f0f0f0')
-            draw = ImageDraw.Draw(background)
-            
-            # Add some text
-            try:
-                # Try to use a system font
-                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 24)
-            except:
-                font = ImageFont.load_default()
-            
-            # Draw title
-            title = f"Install {app_name}"
-            title_bbox = draw.textbbox((0, 0), title, font=font)
-            title_width = title_bbox[2] - title_bbox[0]
-            title_x = (width - title_width) // 2
-            draw.text((title_x, 50), title, fill='#333333', font=font)
-            
-            # Draw instructions
-            instructions = [
-                "1. Drag the application to Applications folder",
-                "2. Double-click to launch",
-                "3. Enjoy using the application!"
+            # Create temporary directories for PKG creation
+            temp_dir = self.dist_dir / "pkg_temp"
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create component PKG first
+            component_pkg = temp_dir / f"{app_name}-component.pkg"
+
+            # Use pkgbuild to create component package (only include the .app bundle)
+            pkgbuild_cmd = [
+                "pkgbuild",
+                "--component", str(app_bundle_dir),  # Only the .app bundle
+                "--identifier", f"com.ecan.{app_name.lower()}",
+                "--version", app_version,
+                "--install-location", "/Applications",
+                str(component_pkg)
             ]
-            
-            for i, instruction in enumerate(instructions):
-                y_pos = 150 + i * 40
-                draw.text((100, y_pos), instruction, fill='#666666', font=font)
-            
-            # Save background image
-            background_path = dmg_root / ".background" / "background.png"
-            background_path.parent.mkdir(exist_ok=True)
-            background.save(background_path, "PNG")
-            
-            print(f"[DMG] Created background image: {background_path}")
-            
-        except ImportError:
-            print("[DMG] PIL not available, skipping background image creation")
-        except Exception as e:
-            print(f"[DMG] Warning: Could not create background image: {e}")
 
-    def _create_dmg_ds_store(self, dmg_root: Path, app_name: str) -> None:
-        """Create .DS_Store file for proper icon positioning in DMG"""
-        try:
-            # Create .DS_Store file with proper icon positioning
-            ds_store_content = self._generate_ds_store_content(app_name)
-            ds_store_path = dmg_root / ".DS_Store"
-            
-            with open(ds_store_path, 'wb') as f:
-                f.write(ds_store_content)
-            
-            print(f"[DMG] Created .DS_Store file: {ds_store_path}")
-            
-        except Exception as e:
-            print(f"[DMG] Warning: Could not create .DS_Store file: {e}")
+            print(f"[PKG] Creating component package...")
+            result = subprocess.run(
+                pkgbuild_cmd,
+                capture_output=True,
+                text=True,
+                timeout=600  # Increased timeout for large app bundles
+            )
 
-    def _generate_ds_store_content(self, app_name: str) -> bytes:
-        """Generate .DS_Store content for proper icon positioning"""
-        # This is a simplified .DS_Store content
-        # In a real implementation, you might want to use a library like ds_store
-        
-        # Basic .DS_Store structure for icon positioning
-        ds_store = b'\x00\x00\x00\x01Bud1\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-        
-        # Add icon positions for app and Applications folder
-        # App icon at (100, 100)
-        # Applications folder at (300, 100)
-        
-        return ds_store
-
-    def _ensure_create_dmg_installed(self) -> bool:
-        """Ensure create-dmg tool is installed, install if needed"""
-        try:
-            # Check if already installed
-            if self._check_create_dmg():
-                print("[TOOL] create-dmg tool already installed")
-                return True
-            
-            print("[TOOL] create-dmg tool not found, attempting to install...")
-            
-            # Check if Homebrew is available
-            if not self._check_homebrew():
-                print("[TOOL] Homebrew not available, cannot install create-dmg")
+            if result.returncode != 0:
+                print(f"[ERROR] pkgbuild failed:")
+                print(f"[ERROR] STDOUT: {result.stdout}")
+                print(f"[ERROR] STDERR: {result.stderr}")
                 return False
-            
-            # Install create-dmg
-            if self._install_create_dmg():
-                print("[TOOL] create-dmg tool installed successfully")
-                return True
-            else:
-                print("[TOOL] Failed to install create-dmg tool")
+
+            # Create distribution XML for productbuild
+            distribution_xml = self._create_distribution_xml(app_name, app_version, macos_config)
+            distribution_file = temp_dir / "distribution.xml"
+
+            with open(distribution_file, 'w', encoding='utf-8') as f:
+                f.write(distribution_xml)
+
+            # Use productbuild to create final installer
+            productbuild_cmd = [
+                "productbuild",
+                "--distribution", str(distribution_file),
+                "--package-path", str(temp_dir),
+                str(pkg_file)
+            ]
+
+            print(f"[PKG] Creating final installer package...")
+            result = subprocess.run(
+                productbuild_cmd,
+                capture_output=True,
+                text=True,
+                timeout=600  # Increased timeout for large packages
+            )
+
+            if result.returncode != 0:
+                print(f"[ERROR] productbuild failed:")
+                print(f"[ERROR] STDOUT: {result.stdout}")
+                print(f"[ERROR] STDERR: {result.stderr}")
                 return False
-                
+
+            # Cleanup temporary directory
+            try:
+                shutil.rmtree(temp_dir)
+                print(f"[CLEANUP] Removed pkg_temp: {temp_dir}")
+            except Exception as e:
+                print(f"[WARNING] Failed to cleanup pkg_temp: {e}")
+
+            return True
+
         except Exception as e:
-            print(f"[TOOL] Error during create-dmg installation: {e}")
+            print(f"[ERROR] PKG creation failed: {e}")
             return False
 
-    def _check_homebrew(self) -> bool:
-        """Check if Homebrew is available"""
-        try:
-            result = subprocess.run(["which", "brew"], capture_output=True, text=True)
-            return result.returncode == 0
-        except Exception:
-            return False
+    def _create_distribution_xml(self, app_name: str, app_version: str, macos_config: Dict[str, Any]) -> str:
+        """Create distribution XML for productbuild"""
+        pkg_config = macos_config.get("pkg", {})
 
-    def _install_create_dmg(self) -> bool:
-        """Install create-dmg tool using Homebrew"""
+        # Get configuration values
+        title = pkg_config.get("title", f"{app_name} {app_version}")
+        welcome_file = pkg_config.get("welcome_file", "")
+        readme_file = pkg_config.get("readme_file", "")
+        license_file = pkg_config.get("license_file", "")
+        conclusion_file = pkg_config.get("conclusion_file", "")
+
+        # Build welcome section
+        welcome_section = ""
+        if welcome_file and Path(welcome_file).exists():
+            welcome_section = f'<welcome file="{welcome_file}"/>'
+
+        # Build readme section
+        readme_section = ""
+        if readme_file and Path(readme_file).exists():
+            readme_section = f'<readme file="{readme_file}"/>'
+
+        # Build license section
+        license_section = ""
+        if license_file and Path(license_file).exists():
+            license_section = f'<license file="{license_file}"/>'
+
+        # Build conclusion section
+        conclusion_section = ""
+        if conclusion_file and Path(conclusion_file).exists():
+            conclusion_section = f'<conclusion file="{conclusion_file}"/>'
+
+        distribution_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>{title}</title>
+    <organization>com.ecan</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+
+    {welcome_section}
+    {readme_section}
+    {license_section}
+    {conclusion_section}
+
+    <pkg-ref id="com.ecan.{app_name.lower()}"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.ecan.{app_name.lower()}"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+    <choice id="com.ecan.{app_name.lower()}" visible="false">
+        <pkg-ref id="com.ecan.{app_name.lower()}"/>
+    </choice>
+
+    <pkg-ref id="com.ecan.{app_name.lower()}" version="{app_version}" onConclusion="none">
+        {app_name}-component.pkg
+    </pkg-ref>
+</installer-gui-script>"""
+
+        return distribution_xml
+
+    def _notarize_pkg(self, pkg_file: Path, macos_config: Dict[str, Any]) -> bool:
+        """Notarize PKG file with Apple"""
         try:
-            print("[TOOL] Installing create-dmg via Homebrew...")
-            
-            cmd = ["brew", "install", "create-dmg"]
+            notarization_config = macos_config.get("notarization", {})
+            apple_id = notarization_config.get("apple_id", "")
+            team_id = notarization_config.get("team_id", "")
+            app_password = notarization_config.get("app_password", "")
+
+            if not all([apple_id, team_id, app_password]):
+                print("[WARNING] Incomplete notarization configuration for PKG")
+                return False
+
+            print(f"[INSTALLER] Starting PKG notarization for: {pkg_file}")
+            cmd = [
+                "xcrun", "notarytool", "submit",
+                str(pkg_file),
+                "--apple-id", apple_id,
+                "--team-id", team_id,
+                "--password", app_password,
+                "--wait"
+            ]
+
             result = subprocess.run(
                 cmd,
+                capture_output=True,
+                text=True,
+                timeout=1800
+            )
+
+            if result.returncode != 0:
+                print("[WARNING] PKG notarization failed:")
+                print(f"[WARNING] Return code: {result.returncode}")
+                print(f"[WARNING] STDERR: {result.stderr}")
+                return False
+
+            print("[SUCCESS] PKG notarized successfully")
+
+            # Staple notarization to PKG
+            staple_cmd = ["xcrun", "stapler", "staple", str(pkg_file)]
+            staple_result = subprocess.run(
+                staple_cmd,
                 capture_output=True,
                 text=True,
                 timeout=300
             )
-            
-            if result.returncode == 0:
-                print("[TOOL] create-dmg installed successfully")
-                return True
+            if staple_result.returncode == 0:
+                print("[SUCCESS] Notarization stapled to PKG")
             else:
-                print(f"[TOOL] Homebrew installation failed: {result.stderr}")
-                return False
-                
-        except Exception as e:
-            print(f"[TOOL] Error during Homebrew installation: {e}")
-            return False
-
-    def _check_create_dmg(self) -> bool:
-        """Check if create-dmg tool is available"""
-        try:
-            result = subprocess.run(["which", "create-dmg"], capture_output=True, text=True)
-            return result.returncode == 0
-        except Exception:
-            return False
-
-    def _create_dmg_with_create_dmg(self, dmg_root: Path, app_name: str, app_version: str, volume_name: str, dmg_file: Path) -> bool:
-        """Create DMG using create-dmg tool for enhanced UI"""
-        try:
-            # Create a script for create-dmg
-            script_content = f"""#!/bin/bash
-create-dmg \\
-    --volname "{volume_name}" \\
-    --volicon "{dmg_root / f'{app_name}.app' / 'Contents' / 'Resources' / 'eCan.icns'}" \\
-    --background "{dmg_root / '.background' / 'background.png'}" \\
-    --window-pos 200 120 \\
-    --window-size 600 400 \\
-    --icon-size 100 \\
-    --icon "{app_name}.app" 175 120 \\
-    --hide-extension "{app_name}.app" \\
-    --app-drop-link 425 120 \\
-    --no-internet-enable \\
-    "{dmg_file}" \\
-    "{dmg_root}"
-"""
-            
-            script_path = dmg_root / "create_dmg.sh"
-            with open(script_path, 'w') as f:
-                f.write(script_content)
-            
-            # Make script executable
-            os.chmod(script_path, 0o755)
-            
-            # Run create-dmg
-            cmd = ["bash", str(script_path)]
-            print(f"[INSTALLER] Running create-dmg script...")
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=600
-            )
-
-            if result.returncode != 0:
-                print("[ERROR] create-dmg failed:")
-                print(f"[ERROR] STDOUT: {result.stdout}")
-                print(f"[ERROR] STDERR: {result.stderr}")
-                return False
-
-            return True
-            
-        except Exception as e:
-            print(f"[ERROR] create-dmg creation failed: {e}")
-            return False
-            
-    def _create_dmg_with_hdiutil(self, dmg_root: Path, volume_name: str, dmg_file: Path) -> bool:
-        """Create DMG using hdiutil (fallback method)"""
-        try:
-            cmd = [
-                "hdiutil", "create",
-                "-volname", str(volume_name),
-                "-srcfolder", str(dmg_root),
-                "-ov",
-                "-format", "UDZO",
-                str(dmg_file)
-            ]
-
-            print(f"[INSTALLER] Creating DMG with hdiutil: {dmg_file}")
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=600
-            )
-
-            if result.returncode != 0:
-                print("[ERROR] hdiutil DMG creation failed:")
-                print(f"[ERROR] Return code: {result.returncode}")
-                print(f"[ERROR] STDOUT: {result.stdout}")
-                print(f"[ERROR] STDERR: {result.stderr}")
-                return False
-
+                print("[WARNING] Failed to staple notarization to PKG")
             return True
 
         except Exception as e:
-            print(f"[ERROR] hdiutil DMG creation failed: {e}")
+            print(f"[WARNING] PKG notarization failed: {e}")
             return False
 
     def _codesign_pkg(self, pkg_file: Path, macos_config: Dict[str, Any]) -> bool:
@@ -905,59 +851,7 @@ create-dmg \\
             print(f"[WARNING] Code signing failed: {e}")
             return True  # Continue even if signing fails
 
-    def _notarize_dmg(self, dmg_file: Path, macos_config: Dict[str, Any]) -> bool:
-        """Notarize DMG file with Apple"""
-        try:
-            notarization_config = macos_config.get("notarization", {})
-            apple_id = notarization_config.get("apple_id", "")
-            team_id = notarization_config.get("team_id", "")
-            app_password = notarization_config.get("app_password", "")
 
-            if not all([apple_id, team_id, app_password]):
-                print("[WARNING] Incomplete notarization configuration for DMG")
-                return False
-
-            print(f"[INSTALLER] Starting DMG notarization for: {dmg_file}")
-            cmd = [
-                "xcrun", "notarytool", "submit",
-                str(dmg_file),
-                "--apple-id", apple_id,
-                "--team-id", team_id,
-                "--password", app_password,
-                "--wait"
-            ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=1800
-            )
-
-            if result.returncode != 0:
-                print("[WARNING] DMG notarization failed:")
-                print(f"[WARNING] Return code: {result.returncode}")
-                print(f"[WARNING] STDERR: {result.stderr}")
-                return False
-
-            print("[SUCCESS] DMG notarized successfully")
-
-            # Staple notarization to DMG
-            staple_cmd = ["xcrun", "stapler", "staple", str(dmg_file)]
-            staple_result = subprocess.run(
-                staple_cmd,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
-            if staple_result.returncode == 0:
-                print("[SUCCESS] Notarization stapled to DMG")
-            else:
-                print("[WARNING] Failed to staple notarization to DMG")
-            return True
-
-        except Exception as e:
-            print(f"[WARNING] DMG notarization failed: {e}")
-            return False
 
     def _create_entitlements_file(self, macos_config: Dict[str, Any]) -> Optional[Path]:
         """Create entitlements file for macOS permissions"""
