@@ -28,7 +28,7 @@ class DependencyBundler:
     def __init__(self, project_root: Path = None):
         self.project_root = project_root or Path(__file__).parent.parent.parent
         self.ota_dir = self.project_root / "ota"
-        self.deps_dir = self.ota_dir / "dependencies"
+        self.deps_dir = self.project_root / "third_party"
         self.deps_dir.mkdir(exist_ok=True)
         
         # 依赖库配置

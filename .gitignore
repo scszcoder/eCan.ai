@@ -30,8 +30,8 @@ gui_v2/coverage/
 /build_system/*.log
 .vscode/
 .DS_Store
-/ota/dependencies/
-/third_party/
 /third_party/ms-playwright/
+/third_party/sparkle/
+/third_party/winsparkle/
 .build_cache
 /webdrivers/

@@ -370,6 +370,13 @@ class InstallerBuilder:
                 files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
                 run_target = "{app}\\eCan.exe"
 
+            # Create standardized installer filename with platform and architecture
+            arch = os.environ.get('BUILD_ARCH', 'amd64')
+            if arch == 'x86_64':
+                arch = 'amd64'
+            app_version = installer_config.get('app_version', app_info.get('version', '1.0.0'))
+            installer_filename = f"eCan-{app_version}-windows-{arch}-Setup"
+
             iss_content = f"""
 ; eCan Installer Script
 [Setup]
@@ -380,7 +387,7 @@ AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
 DefaultDirName={{autopf}}\eCan
 DefaultGroupName=eCan
 OutputDir=..\dist
-OutputBaseFilename=eCan-Setup
+OutputBaseFilename={installer_filename}
 Compression={compression}
 SolidCompression={solid_compression}
 UsePreviousAppDir=yes
@@ -465,11 +472,58 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 return False
 
             print("[SUCCESS] Windows installer created")
+
+            # Create standardized EXE filename for the main executable
+            self._create_standardized_windows_artifacts()
+
             return True
 
         except Exception as e:
             print(f"[ERROR] Failed to run Inno Setup: {e}")
             return False
+
+    def _create_standardized_windows_artifacts(self) -> None:
+        """Create standardized Windows artifact filenames"""
+        try:
+            app_info = self.config.get_app_info()
+            app_version = app_info.get('version', '1.0.0')
+            arch = os.environ.get('BUILD_ARCH', 'amd64')
+            if arch == 'x86_64':
+                arch = 'amd64'
+
+            # Create standardized EXE filename
+            onedir_exe = self.dist_dir / 'eCan' / 'eCan.exe'
+            onefile_exe = self.dist_dir / 'eCan.exe'
+
+            source_exe = None
+            if onedir_exe.exists():
+                source_exe = onedir_exe
+            elif onefile_exe.exists():
+                source_exe = onefile_exe
+
+            if source_exe:
+                std_exe = self.dist_dir / f"eCan-{app_version}-windows-{arch}.exe"
+                if not std_exe.exists():
+                    try:
+                        shutil.copy2(source_exe, std_exe)
+                        print(f"[INFO] Created standardized EXE: {std_exe.name}")
+                    except Exception as e:
+                        print(f"[WARNING] Failed to create standardized EXE: {e}")
+
+            # Create standardized installer filename and legacy compatibility
+            installer_std = self.dist_dir / f"eCan-{app_version}-windows-{arch}-Setup.exe"
+            installer_legacy = self.dist_dir / "eCan-Setup.exe"
+
+            # If standardized installer exists, create legacy name for compatibility
+            if installer_std.exists() and not installer_legacy.exists():
+                try:
+                    shutil.copy2(installer_std, installer_legacy)
+                    print(f"[INFO] Created legacy installer name: {installer_legacy.name}")
+                except Exception as e:
+                    print(f"[WARNING] Failed to create legacy installer name: {e}")
+
+        except Exception as e:
+            print(f"[WARNING] Failed to create standardized Windows artifacts: {e}")
 
     def _build_macos_installer(self) -> bool:
         """Build macOS DMG installer with proper UI and shortcuts"""
@@ -524,8 +578,14 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 print(f"[ERROR] Failed to prepare DMG root: {e}")
                 return False
 
-            # Try to use create-dmg for better DMG creation
-            dmg_file = self.dist_dir / f"{app_name}-{app_version}.dmg"
+            # Create standardized DMG filename with platform and architecture
+            arch = os.environ.get('BUILD_ARCH', 'amd64')
+            if arch == 'x86_64':
+                arch = 'amd64'
+            elif arch == 'arm64':
+                arch = 'aarch64'
+
+            dmg_file = self.dist_dir / f"{app_name}-{app_version}-macos-{arch}.dmg"
             if dmg_file.exists():
                 try:
                     dmg_file.unlink()
@@ -548,6 +608,15 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 return False
 
             print(f"[SUCCESS] macOS DMG created: {dmg_file} ({dmg_file.stat().st_size / (1024*1024):.1f} MB)")
+
+            # Create legacy filename for backward compatibility (if needed)
+            legacy_dmg = self.dist_dir / f"{app_name}-{app_version}.dmg"
+            if not legacy_dmg.exists():
+                try:
+                    shutil.copy2(dmg_file, legacy_dmg)
+                    print(f"[INFO] Created legacy DMG name: {legacy_dmg.name}")
+                except Exception as e:
+                    print(f"[WARNING] Failed to create legacy DMG name: {e}")
 
             # Cleanup staging directory
             try:
@@ -1006,6 +1075,10 @@ class ECanBuild:
             if not self.pyinstaller_builder.build(self.mode, force):
                 return False
 
+            # Post-build framework fixes (macOS only)
+            if self.env.is_macos:
+                self._post_build_fixes()
+
             # Build installer (if needed)
             if not skip_installer:
                 print(f"[INFO] Creating installer for {self.mode} mode...")
@@ -1025,16 +1098,46 @@ class ECanBuild:
             print(f"[ERROR] Build failed: {e}")
             return False
 
+    def _post_build_fixes(self):
+        """Apply post-build fixes"""
+        try:
+            print("[POST-BUILD] Applying post-build fixes...")
+
+            from build_system.symlink_manager import SymlinkManager
+            symlink_manager = SymlinkManager(verbose=True)
+
+            if symlink_manager.fix_frameworks_in_dist("dist"):
+                print("[POST-BUILD] Post-build fixes completed successfully")
+            else:
+                print("[POST-BUILD] Some post-build fixes may have failed")
+
+        except Exception as e:
+            print(f"[POST-BUILD] Post-build fixes failed: {e}")
+            print("[POST-BUILD] Build will continue, but some features may not work properly")
+
     def _check_ota_dependencies(self):
-        """Check if OTA dependencies are installed (installed by CI)"""
-        ota_dir = self.project_root / "ota" / "dependencies"
-        install_info_file = ota_dir / "install_info.json"
-        
-        if not ota_dir.exists():
-            print("[OTA] OTA dependencies directory not found")
+        """Check if OTA dependencies are available in third_party directory"""
+        third_party_dir = self.project_root / "third_party"
+        sparkle_dir = third_party_dir / "sparkle"
+        winsparkle_dir = third_party_dir / "winsparkle"
+
+        if not third_party_dir.exists():
+            print("[OTA] Third-party dependencies directory not found")
             print("[OTA] OTA functionality will use fallback HTTP updates")
             return
-        
+
+        # Check for platform-specific dependencies
+        platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
+
+        if platform == "darwin" and sparkle_dir.exists():
+            install_info_file = sparkle_dir / "install_info.json"
+        elif platform == "windows" and winsparkle_dir.exists():
+            install_info_file = winsparkle_dir / "install_info.json"
+        else:
+            print(f"[OTA] No OTA dependencies found for platform: {platform}")
+            print("[OTA] OTA functionality will use fallback HTTP updates")
+            return
+
         if not install_info_file.exists():
             print("[OTA] OTA install info not found")
             print("[OTA] Dependencies may not be properly installed")
@@ -1057,7 +1160,7 @@ class ECanBuild:
                     print(f"[OTA] {name} not properly installed")
             
             # Sparkle specific verification
-            self._verify_sparkle_installation(ota_dir, platform)
+            self._verify_sparkle_installation(sparkle_dir if platform == "darwin" else winsparkle_dir, platform)
             
             if not installed_deps:
                 print("[OTA] No dependencies found for current platform")
@@ -1065,86 +1168,73 @@ class ECanBuild:
         except Exception as e:
             print(f"[OTA] Failed to read install info: {e}")
     
-    def _verify_sparkle_installation(self, ota_dir: Path, platform: str):
+    def _verify_sparkle_installation(self, deps_dir: Path, platform: str):
         """Verify Sparkle/winSparkle installation"""
         if platform == "darwin":
             # Check Sparkle.framework
-            sparkle_framework = ota_dir / "Sparkle.framework"
+            sparkle_framework = deps_dir / "Sparkle.framework"
             if sparkle_framework.exists():
                 print("[OTA] [OK] Sparkle.framework found")
-                
+
                 # Check key files
                 sparkle_binary = sparkle_framework / "Versions" / "Current" / "Sparkle"
-                sparkle_cli = sparkle_framework / "Versions" / "Current" / "Resources" / "sparkle-cli"
-                
+                sparkle_cli = deps_dir / "sparkle-cli"  # CLI is now in the sparkle directory root
+
                 if sparkle_binary.exists():
                     print("[OTA] [OK] Sparkle binary verified")
                 else:
                     print("[OTA] [WARN] Sparkle binary not found")
-                
+
                 if sparkle_cli.exists():
                     print("[OTA] [OK] Sparkle CLI verified")
                 else:
                     print("[OTA] [WARN] Sparkle CLI not found")
             else:
                 print("[OTA] [ERROR] Sparkle.framework not found")
-                
+
         elif platform == "windows":
             # Check winSparkle
-            winsparkle_dir = ota_dir / "winsparkle"
-            if winsparkle_dir.exists():
-                print("[OTA] [OK] winSparkle directory found")
-                
-                # Check key files
-                winsparkle_dll = winsparkle_dir / "winsparkle.dll"
-                winsparkle_lib = winsparkle_dir / "winsparkle.lib"
-                
-                if winsparkle_dll.exists():
-                    print("[OTA] [OK] winSparkle DLL verified")
-                else:
-                    print("[OTA] [ERROR] winSparkle DLL not found")
-                
-                if winsparkle_lib.exists():
-                    print("[OTA] [OK] winSparkle LIB verified")
-                else:
-                    print("[OTA] [WARN] winSparkle LIB not found")
+            winsparkle_dll = deps_dir / "winsparkle.dll"
+            if winsparkle_dll.exists():
+                print("[OTA] [OK] winSparkle DLL verified")
             else:
-                print("[OTA] [ERROR] winSparkle directory not found")
+                print("[OTA] [ERROR] winSparkle DLL not found")
     
     def _verify_sparkle_environment(self) -> bool:
         """Verify if Sparkle environment is complete"""
-        ota_dir = self.project_root / "ota" / "dependencies"
-        
-        if not ota_dir.exists():
-            print("[SPARKLE] [ERROR] OTA dependencies directory not found")
+        third_party_dir = self.project_root / "third_party"
+
+        if not third_party_dir.exists():
+            print("[SPARKLE] [ERROR] Third-party dependencies directory not found")
             return False
         
         platform = "darwin" if self.env.is_macos else "windows" if self.env.is_windows else "unknown"
         
         if platform == "darwin":
             # Verify Sparkle.framework
-            sparkle_framework = ota_dir / "Sparkle.framework"
+            sparkle_dir = third_party_dir / "sparkle"
+            sparkle_framework = sparkle_dir / "Sparkle.framework"
             if not sparkle_framework.exists():
                 print("[SPARKLE] [ERROR] Sparkle.framework not found")
                 return False
-            
+
             # Check key components
             required_files = [
                 sparkle_framework / "Versions" / "Current" / "Sparkle",
                 sparkle_framework / "Versions" / "Current" / "Resources" / "Info.plist",
             ]
-            
+
             for file_path in required_files:
                 if not file_path.exists():
                     print(f"[SPARKLE] [ERROR] Required file missing: {file_path.name}")
                     return False
-            
+
             print("[SPARKLE] [OK] Sparkle.framework verification passed")
             return True
-            
+
         elif platform == "windows":
             # Verify winSparkle
-            winsparkle_dir = ota_dir / "winsparkle"
+            winsparkle_dir = third_party_dir / "winsparkle"
             if not winsparkle_dir.exists():
                 print("[SPARKLE] [ERROR] winSparkle directory not found")
                 return False

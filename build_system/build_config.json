@@ -194,6 +194,8 @@
         "pytesseract",
         "imutils",
         "pyautogui",
+        "pyscreeze",
+        "pyscreenshot",
         "pynput",
         "pyperclip",
         "win32api",
@@ -476,9 +478,9 @@
   },
   "ota": {
     "enabled": true,
-    "dependencies_managed_by_ci": true,
-    "dependencies_path": "ota/dependencies",
+    "dependencies_managed_by_build": true,
+    "dependencies_path": "third_party",
     "fallback_to_http": true,
-    "note": "OTA dependencies are installed by CI/CD pipeline, not by build script"
+    "note": "OTA dependencies are now managed by build system in third_party directory"
   }
 }

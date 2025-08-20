@@ -1,255 +1,268 @@
 #!/usr/bin/env python3
 """
-Optimized Symlink Manager
-Simplified and optimized version for handling macOS framework symlinks
+Framework Symlink Manager
+Simple framework symlink handling for macOS builds
 """
 
 import os
-import shutil
 import platform
+import shutil
 from pathlib import Path
-from typing import Set, List
-import tempfile
+from typing import List, Optional
 
 
-class SymlinkManager:
-    """Simplified and optimized symlink manager for macOS builds"""
+class FrameworkManager:
+    """Simple framework symlink manager for macOS"""
+
+    # Common framework symlink names
+    COMMON_SYMLINKS = ["Resources", "Headers", "Modules", "Helpers", "Current"]
+
+    # Default search paths
+    DEFAULT_SEARCH_PATHS = ["third_party", "venv/lib"]
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
         self.is_macos = platform.system() == "Darwin"
-        self.processed_frameworks: Set[str] = set()
 
     def log(self, message: str, level: str = "INFO") -> None:
-        """Log message if verbose mode is enabled"""
+        """Log message if verbose"""
         if self.verbose:
-            print(f"[SYMLINK-{level}] {message}")
+            print(f"[{level}] {message}")
 
-    def cleanup_build_artifacts(self, build_paths: List[Path]) -> None:
-        """Clean up build artifacts with simple removal"""
-        for path in build_paths:
+    def fix_prebuild_frameworks(self, search_paths: Optional[List[str]] = None) -> bool:
+        """Fix framework symlinks before build"""
+        if not self.is_macos:
+            return True
+
+        paths = search_paths or self.DEFAULT_SEARCH_PATHS
+        self.log("Fixing pre-build frameworks...")
+
+        try:
+            for path_str in paths:
+                self._process_path(Path(path_str))
+            return True
+        except Exception as e:
+            self.log(f"Pre-build fix failed: {e}", "ERROR")
+            return False
+
+    def fix_postbuild_frameworks(self, dist_path: str = "dist") -> bool:
+        """Fix frameworks after build"""
+        if not self.is_macos:
+            return True
+
+        dist_dir = Path(dist_path)
+        if not dist_dir.exists():
+            return True
+
+        self.log("Optimizing post-build frameworks...")
+
+        try:
+            self._process_path(dist_dir)
+            # Auto-repair any damaged symlinks in the build
+            self._auto_repair_symlinks(dist_dir)
+            self.log("Post-build optimization completed successfully")
+            return True
+        except Exception as e:
+            self.log(f"Post-build optimization failed: {e}", "ERROR")
+            return False
+
+    def _process_path(self, path: Path) -> None:
+        """Process all frameworks in a path"""
+        if not path.exists():
+            return
+
+        frameworks = list(path.rglob("*.framework"))
+        for framework in frameworks:
+            self._fix_framework(framework)
+
+    def _fix_framework(self, framework_path: Path) -> None:
+        """Fix a single framework (skip Qt frameworks)"""
+        if not framework_path.exists():
+            return
+
+        name = framework_path.name
+
+        # Skip Qt/PySide6 frameworks - let PyInstaller handle them
+        qt_frameworks = ["Qt", "PySide6"]
+        if any(qt_name in name for qt_name in qt_frameworks):
+            self.log(f"Skipping Qt framework: {name}")
+            return
+
+        # Skip frameworks in system locations
+        path_str = str(framework_path)
+        if any(pattern in path_str for pattern in ["site-packages", "venv/lib", "_internal"]):
+            self.log(f"Skipping system framework: {name}")
+            return
+
+        self.log(f"Processing custom framework: {name}")
+
+        # Special handling for Sparkle (our own framework)
+        if "sparkle" in name.lower():
+            self._fix_sparkle_framework(framework_path)
+
+        # Fix common symlinks only for our own frameworks
+        for symlink_name in self.COMMON_SYMLINKS:
+            symlink_path = framework_path / symlink_name
+            if symlink_path.is_symlink():
+                self._resolve_symlink(symlink_path)
+
+    def _fix_sparkle_framework(self, framework_path: Path) -> None:
+        """Fix Sparkle-specific issues"""
+        versions_dir = framework_path / "Versions"
+        if versions_dir.exists():
+            shutil.rmtree(versions_dir, ignore_errors=True)
+            self.log("Removed Sparkle Versions directory")
+
+    def _resolve_symlink(self, symlink_path: Path) -> None:
+        """Replace symlink with actual content"""
+        try:
+            target = symlink_path.readlink()
+            if not target.is_absolute():
+                target = (symlink_path.parent / target).resolve()
+
+            symlink_path.unlink()
+
+            if target.exists():
+                if target.is_dir():
+                    shutil.copytree(target, symlink_path, symlinks=False, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(target, symlink_path)
+            else:
+                # Create empty directory for common symlinks
+                if symlink_path.name in self.COMMON_SYMLINKS:
+                    symlink_path.mkdir(exist_ok=True)
+
+        except Exception as e:
+            self.log(f"Failed to resolve {symlink_path.name}: {e}", "WARNING")
+
+    def _auto_repair_symlinks(self, dist_dir: Path) -> None:
+        """Auto-repair damaged symlinks in the build output"""
+        self.log("Checking for damaged symlinks...")
+
+        # Find all broken symlinks that need repair
+        damaged_links = []
+        for item in dist_dir.rglob("*"):
+            if item.is_symlink() and not item.exists():
+                # Focus on framework-related symlinks that are critical
+                if ".framework" in str(item):
+                    damaged_links.append(item)
+
+        if not damaged_links:
+            self.log("No damaged symlinks found")
+            return
+
+        self.log(f"Found {len(damaged_links)} damaged symlinks, attempting repair")
+
+        for damaged_link in damaged_links:
+            self._repair_single_symlink(damaged_link)
+
+    def _repair_single_symlink(self, symlink_path: Path) -> None:
+        """Repair a single damaged symlink by finding the correct target"""
+        try:
+            # Get the symlink target
+            target = symlink_path.readlink()
+            self.log(f"Repairing symlink: {symlink_path.name} -> {target}")
+
+            # If it's a relative path, resolve it
+            if not target.is_absolute():
+                target = (symlink_path.parent / target).resolve()
+
+            # Try to find alternative sources for the target
+            if not target.exists():
+                alternative_target = self._find_alternative_target(symlink_path, target)
+                if alternative_target:
+                    self.log(f"Found alternative target: {alternative_target}")
+                    # Remove damaged symlink and create new one
+                    symlink_path.unlink()
+                    symlink_path.symlink_to(alternative_target.relative_to(symlink_path.parent))
+                    self.log(f"Successfully repaired: {symlink_path.name}")
+                    return
+
+            self.log(f"Could not repair symlink: {symlink_path.name}", "WARNING")
+
+        except Exception as e:
+            self.log(f"Error repairing symlink {symlink_path.name}: {e}", "WARNING")
+
+    def _find_alternative_target(self, symlink_path: Path, original_target: Path) -> Path:
+        """Find alternative target for damaged symlinks"""
+        framework_root = None
+
+        # Find the framework root directory
+        for parent in symlink_path.parents:
+            if parent.name.endswith('.framework'):
+                framework_root = parent
+                break
+
+        if not framework_root:
+            return None
+
+        # Look for alternative versions in the framework
+        versions_dir = framework_root / "Versions"
+        if not versions_dir.exists():
+            return None
+
+        target_name = original_target.name
+
+        # Search in all version directories for the target
+        for version_dir in versions_dir.iterdir():
+            if version_dir.is_dir() and version_dir.name not in ["Current"]:
+                potential_target = version_dir / target_name
+                if potential_target.exists():
+                    return potential_target
+
+                # For directories, also check if we can find the content elsewhere
+                if target_name in ["Helpers", "Resources"]:
+                    for subdir in version_dir.iterdir():
+                        if subdir.is_dir() and subdir.name == target_name:
+                            return subdir
+
+        return None
+
+    def clean_build_artifacts(self, paths: List[str]) -> None:
+        """Clean build artifacts"""
+        for path_str in paths:
+            path = Path(path_str)
             if path.exists():
                 self.log(f"Cleaning: {path}")
                 shutil.rmtree(path, ignore_errors=True)
 
-    def fix_pyinstaller_conflicts(self) -> bool:
-        """Main entry point: fix macOS framework symlinks"""
-        if not self.is_macos:
-            return True
-
-        self.log("Starting framework symlink fixes...")
-
-        try:
-            # Step 1: Clean build directories
-            self._clean_build_dirs()
-            
-            # Step 2: Fix framework symlinks
-            self._fix_framework_symlinks()
-            
-            self.log("Framework symlink fixes completed")
-            return True
-
-        except Exception as e:
-            self.log(f"Framework fix failed: {e}", "ERROR")
-            return False
-
-    def _clean_build_dirs(self) -> None:
-        """Clean build directories and caches"""
-        dirs_to_clean = [
-            Path("dist"),
-            Path("build"),
-            Path(tempfile.gettempdir()) / "pyinstaller",
-            Path.home() / "Library" / "Application Support" / "pyinstaller"
-        ]
-
-        for dir_path in dirs_to_clean:
-            if dir_path.exists():
-                self.log(f"Cleaning: {dir_path}")
-                shutil.rmtree(dir_path, ignore_errors=True)
-
-    def _fix_framework_symlinks(self) -> None:
-        """Find and fix framework symlinks in common locations"""
-        search_paths = [
-            Path("venv") / "lib",  # Virtual environment frameworks
-            Path(".") / "third_party",  # Third-party frameworks
-            Path("ota") / "dependencies",  # OTA dependencies (Sparkle)
-            Path("dependencies")  # General dependencies
-        ]
-
-        for search_path in search_paths:
-            if search_path.exists():
-                self._process_frameworks_in_path(search_path)
-        
-        # Special handling for Sparkle frameworks
-        self._fix_sparkle_frameworks()
-
-    def _process_frameworks_in_path(self, search_path: Path) -> None:
-        """Process all frameworks in a given path"""
-        try:
-            # Find .framework directories
-            for framework_path in search_path.rglob("*.framework"):
-                if framework_path.is_dir():
-                    framework_key = str(framework_path.resolve())
-                    
-                    # Skip if already processed
-                    if framework_key in self.processed_frameworks:
-                        continue
-                        
-                    self._fix_framework(framework_path)
-                    self.processed_frameworks.add(framework_key)
-
-        except Exception as e:
-            self.log(f"Error processing path {search_path}: {e}", "WARNING")
-
-    def _fix_framework(self, framework_path: Path) -> bool:
-        """Fix symlinks in a single framework"""
-        try:
-            symlinks = []
-            
-            # Find all symlinks in framework
-            for item in framework_path.rglob("*"):
-                if item.is_symlink():
-                    symlinks.append(item)
-
-            if not symlinks:
-                return True
-
-            self.log(f"Fixing {len(symlinks)} symlinks in {framework_path.name}")
-
-            # Fix each symlink
-            fixed_count = 0
-            for symlink in symlinks:
-                if self._resolve_symlink(symlink):
-                    fixed_count += 1
-
-            self.log(f"Fixed {fixed_count}/{len(symlinks)} symlinks in {framework_path.name}")
-            return fixed_count > 0
-
-        except Exception as e:
-            self.log(f"Failed to fix framework {framework_path}: {e}", "WARNING")
-            return False
-
-    def _resolve_symlink(self, symlink_path: Path) -> bool:
-        """Resolve a single symlink by replacing it with actual content"""
-        try:
-            # Get target before removing symlink
-            try:
-                target = symlink_path.readlink()
-                if not target.is_absolute():
-                    target = (symlink_path.parent / target).resolve()
-            except Exception:
-                target = None
-
-            # Remove the symlink
-            symlink_path.unlink()
-
-            # Replace with actual content if target exists
-            if target and target.exists():
-                if target.is_dir():
-                    shutil.copytree(target, symlink_path, symlinks=False, dirs_exist_ok=True)
-                elif target.is_file():
-                    shutil.copy2(target, symlink_path)
-                return True
-            else:
-                # Create empty directory as fallback
-                symlink_path.mkdir(exist_ok=True)
-                return True
-
-        except Exception as e:
-            self.log(f"Failed to resolve symlink {symlink_path}: {e}", "WARNING")
-            return False
-
-    def _fix_sparkle_frameworks(self) -> None:
-        """Special handling for Sparkle.framework symlink issues"""
-        sparkle_paths = [
-            Path("ota") / "dependencies" / "Sparkle.framework",
-            Path("third_party") / "Sparkle.framework", 
-            Path("dependencies") / "Sparkle.framework"
-        ]
-        
-        for sparkle_path in sparkle_paths:
-            if sparkle_path.exists():
-                self.log(f"Found Sparkle framework: {sparkle_path}")
-                self._fix_sparkle_framework(sparkle_path)
-
-    def _fix_sparkle_framework(self, framework_path: Path) -> bool:
-        """Fix Sparkle.framework specific symlink issues"""
-        try:
-            self.log(f"Fixing Sparkle framework: {framework_path.name}")
-            
-            # Check for problematic root-level symlinks
-            problematic_symlinks = ["Resources", "Frameworks", "Headers", "Modules", "Sparkle"]
-            
-            for symlink_name in problematic_symlinks:
-                symlink_path = framework_path / symlink_name
-                if symlink_path.is_symlink():
-                    self.log(f"Fixing Sparkle symlink: {symlink_name}")
-                    
-                    # Get target before removing
-                    try:
-                        target = symlink_path.readlink()
-                        if not target.is_absolute():
-                            target = (symlink_path.parent / target).resolve()
-                    except Exception:
-                        target = None
-                    
-                    # Remove symlink
-                    symlink_path.unlink()
-                    
-                    # Replace with actual content
-                    if target and target.exists():
-                        if target.is_dir():
-                            shutil.copytree(target, symlink_path, symlinks=False, dirs_exist_ok=True)
-                        else:
-                            shutil.copy2(target, symlink_path)
-                    else:
-                        # Create empty directory for missing targets
-                        if symlink_name in ["Resources", "Frameworks", "Headers", "Modules"]:
-                            symlink_path.mkdir()
-            
-            # Remove Versions directory to prevent further conflicts
-            versions_dir = framework_path / "Versions"
-            if versions_dir.exists():
-                self.log("Removing Sparkle Versions directory")
-                shutil.rmtree(versions_dir, ignore_errors=True)
-            
-            return True
-            
-        except Exception as e:
-            self.log(f"Failed to fix Sparkle framework {framework_path}: {e}", "ERROR")
-            return False
-
-    def get_stats(self) -> dict:
-        """Get processing statistics"""
-        return {
-            "frameworks_processed": len(self.processed_frameworks),
-            "is_macos": self.is_macos
-        }
-
-    # Legacy compatibility methods
-    def safe_copytree(self, src: Path, dst: Path, component: str = "UNKNOWN") -> bool:
-        """Legacy compatibility method for safe copying"""
+    def safe_copy(self, src: Path, dst: Path) -> bool:
+        """Safe copy with symlink resolution"""
         try:
             if dst.exists():
                 shutil.rmtree(dst, ignore_errors=True)
-            
-            dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(src, dst, symlinks=False, dirs_exist_ok=True)
             return True
         except Exception as e:
-            self.log(f"Copy failed: {src} -> {dst}: {e}", "ERROR")
+            self.log(f"Copy failed: {e}", "ERROR")
             return False
 
-    def get_copy_summary(self) -> dict:
-        """Legacy compatibility method"""
-        return {"total_copies": len(self.processed_frameworks)}
+
+# Legacy compatibility
+class SymlinkManager(FrameworkManager):
+    """Legacy compatibility wrapper"""
+
+    def fix_pyinstaller_conflicts(self) -> bool:
+        """Legacy method name"""
+        return self.fix_prebuild_frameworks()
+
+    def fix_frameworks_in_dist(self, dist_path: str = "dist") -> bool:
+        """Legacy method name"""
+        return self.fix_postbuild_frameworks(dist_path)
+
+    def cleanup_build_artifacts(self, build_paths: List[Path]) -> None:
+        """Legacy method signature"""
+        paths = [str(p) for p in build_paths]
+        self.clean_build_artifacts(paths)
+
+    def safe_copytree(self, src: Path, dst: Path, component: str = "UNKNOWN") -> bool:
+        """Legacy method name"""
+        return self.safe_copy(src, dst)
+
+    def get_stats(self) -> dict:
+        """Legacy method"""
+        return {"platform": "macOS" if self.is_macos else "Other"}
 
 
 # Global instance for backward compatibility
-symlink_manager = SymlinkManager(verbose=False)
-
-
-def set_verbose(verbose: bool) -> None:
-    """Set verbose mode for the global symlink manager"""
-    global symlink_manager
-    symlink_manager.verbose = verbose
+symlink_manager = SymlinkManager(verbose=True)

@@ -61,13 +61,14 @@ class SimpleBuildOptimizer:
                 try:
                     mtime = path.stat().st_mtime
                     newest_time = max(newest_time, mtime)
+                    self.log(f"Checked file: {path} ({mtime})", "DEBUG")
                 except OSError:
                     continue
             elif path.is_dir():
-                # Check a few key file types in directory (limited for performance)
-                patterns = ["*.py", "*.js", "*.ts", "*.vue", "*.json"]
+                # Check key file types in directory
+                patterns = ["*.py", "*.js", "*.ts", "*.vue", "*.json", "*.txt"]
                 file_count = 0
-                max_files = 100  # Limit to avoid performance issues
+                max_files = 500  # Increased limit for better detection
 
                 for pattern in patterns:
                     for file_path in path.rglob(pattern):
@@ -75,18 +76,22 @@ class SimpleBuildOptimizer:
                             break
                         try:
                             mtime = file_path.stat().st_mtime
-                            newest_time = max(newest_time, mtime)
+                            if mtime > newest_time:
+                                newest_time = mtime
+                                self.log(f"Newer file found: {file_path} ({mtime})", "DEBUG")
                             file_count += 1
                         except OSError:
                             continue
                     if file_count >= max_files:
+                        self.log(f"Hit file limit ({max_files}) for {path}", "DEBUG")
                         break
 
         return newest_time
 
     def should_skip_build(self, force: bool = False, build_mode: str = "fast") -> bool:
-        """Check if entire build can be skipped (simplified logic)"""
+        """Check if entire build can be skipped"""
         if force:
+            self.log("Force rebuild requested")
             return False
 
         # Dev and prod modes should always rebuild for consistency
@@ -94,24 +99,44 @@ class SimpleBuildOptimizer:
             self.log(f"{build_mode.upper()} mode: forcing full rebuild")
             return False
 
-        # Simple check: if any core files are newer than last build
+        # Check if dist directory exists
+        dist_dir = Path("dist")
+        if not dist_dir.exists():
+            self.log("Dist directory missing, rebuild needed")
+            return False
+
+        # Comprehensive check: include more critical paths
         core_paths = [
             Path("main.py"),
             Path("bot"),
             Path("gui"),
+            Path("gui_v2"),  # Frontend
             Path("utils"),
             Path("common"),
-            Path("build_system/build_config.json")
+            Path("build_system"),  # All build system files
+            Path("requirements.txt"),  # Dependencies
+            Path("package.json"),  # Frontend dependencies
         ]
 
-        last_build = self.last_build_times.get("core", 0)
+        last_build = self.last_build_times.get("full_build", 0)
         newest_file = self._get_newest_file_time(core_paths)
 
         if newest_file > last_build:
-            self.log("Core files changed, rebuild needed")
+            self.log("Source files changed, rebuild needed")
             return False
 
-        self.log("No core changes detected")
+        # Check if main executable exists
+        main_exe_paths = [
+            dist_dir / "eCan" / "eCan.exe",  # Windows
+            dist_dir / "eCan" / "eCan",      # Linux
+            dist_dir / "eCan.app",           # macOS
+        ]
+
+        if not any(p.exists() for p in main_exe_paths):
+            self.log("Main executable missing, rebuild needed")
+            return False
+
+        self.log("No changes detected, build can be skipped")
         return True
 
     def should_rebuild_frontend(self, force: bool = False, build_mode: str = "fast") -> bool:
@@ -154,8 +179,18 @@ class SimpleBuildOptimizer:
 
     def mark_core_built(self):
         """Mark core application as built"""
-        self.last_build_times["core"] = time.time()
+        current_time = time.time()
+        self.last_build_times["core"] = current_time
+        self.last_build_times["full_build"] = current_time  # Also mark full build
         self._save_timestamps()
+        self.log(f"Marked core build complete at {current_time}")
+
+    def mark_full_build_complete(self):
+        """Mark full build as complete (including installer)"""
+        current_time = time.time()
+        self.last_build_times["full_build"] = current_time
+        self._save_timestamps()
+        self.log(f"Marked full build complete at {current_time}")
 
     def get_cache_stats(self) -> Dict[str, any]:
         """Get simple cache statistics"""

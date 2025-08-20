@@ -30,19 +30,19 @@ class CIOTAInstaller:
 
     def __init__(self, project_root: Path = None):
         self.project_root = project_root or Path.cwd()
-        self.ota_dir = self.project_root / "ota"
-        self.deps_dir = self.ota_dir / "dependencies"
-        self.deps_dir.mkdir(parents=True, exist_ok=True)
+        self.third_party_dir = self.project_root / "third_party"
+        self.third_party_dir.mkdir(parents=True, exist_ok=True)
 
         self.platform = self.get_current_platform()
 
-        # OTA依赖配置
+        # OTA依赖配置 - 使用新的third_party目录结构
         self.dependencies = {
             "sparkle": {
                 "version": "2.6.4",
                 "url": "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz",
                 "platform": "darwin",
                 "extract_path": "Sparkle.framework",
+                "target_dir": "sparkle",  # third_party/sparkle/
                 "target_path": "Sparkle.framework"
             },
             "winsparkle": {
@@ -50,6 +50,7 @@ class CIOTAInstaller:
                 "url": "https://github.com/vslavik/winsparkle/releases/download/v0.8.0/winsparkle-0.8.0.zip",
                 "platform": "windows",
                 "extract_files": ["winsparkle.dll", "winsparkle.lib", "winsparkle.h"],
+                "target_dir": "winsparkle",  # third_party/winsparkle/
                 "target_path": "winsparkle"
             }
         }
@@ -92,11 +93,17 @@ class CIOTAInstaller:
     def _install_single_dependency(self, name: str, config: dict, force: bool = False) -> bool:
         """安装单个依赖"""
         try:
+            # 使用新的third_party目录结构
+            target_dir = self.third_party_dir / config["target_dir"]
+            target_path = target_dir / config["target_path"]
+
             # 检查是否已存在
-            target_path = self.deps_dir / config["target_path"]
             if target_path.exists() and not force:
-                print(f"[CI-OTA] {name} already exists, skipping")
+                print(f"[CI-OTA] {name} already exists at {target_path}, skipping")
                 return True
+
+            # 确保目标目录存在
+            target_dir.mkdir(parents=True, exist_ok=True)
 
             # 下载
             archive_path = self._download_dependency(name, config)
@@ -105,9 +112,9 @@ class CIOTAInstaller:
 
             # 解压安装
             if name == "sparkle":
-                return self._install_sparkle(archive_path, config)
+                return self._install_sparkle(archive_path, config, target_path)
             elif name == "winsparkle":
-                return self._install_winsparkle(archive_path, config)
+                return self._install_winsparkle(archive_path, config, target_path)
             else:
                 print(f"[CI-OTA] Unknown dependency: {name}")
                 return False
@@ -120,7 +127,7 @@ class CIOTAInstaller:
         """下载依赖"""
         url = config["url"]
         filename = url.split("/")[-1]
-        download_path = self.deps_dir / filename
+        download_path = self.third_party_dir / filename
 
         if download_path.exists():
             print(f"[CI-OTA] {filename} already downloaded")
@@ -154,12 +161,12 @@ class CIOTAInstaller:
                 download_path.unlink()
             return None
 
-    def _install_sparkle(self, archive_path: Path, config: dict) -> bool:
+    def _install_sparkle(self, archive_path: Path, config: dict, target_path: Path) -> bool:
         """安装Sparkle框架"""
         try:
             print("[CI-OTA] Installing Sparkle framework...")
 
-            extract_dir = self.deps_dir / "sparkle_temp"
+            extract_dir = self.third_party_dir / "sparkle_temp"
             if extract_dir.exists():
                 shutil.rmtree(extract_dir)
             extract_dir.mkdir()
@@ -178,8 +185,7 @@ class CIOTAInstaller:
             if not framework_path:
                 raise FileNotFoundError("Sparkle.framework not found in archive")
 
-            # 安装到目标位置
-            target_path = self.deps_dir / config["target_path"]
+            # 安装到目标位置 (使用已经计算好的target_path)
             if target_path.exists():
                 shutil.rmtree(target_path)
 
@@ -202,12 +208,12 @@ class CIOTAInstaller:
             print(f"[CI-OTA] Failed to install Sparkle: {e}")
             return False
 
-    def _install_winsparkle(self, archive_path: Path, config: dict) -> bool:
+    def _install_winsparkle(self, archive_path: Path, config: dict, target_path: Path) -> bool:
         """安装winSparkle库"""
         try:
             print("[CI-OTA] Installing winSparkle library...")
 
-            extract_dir = self.deps_dir / "winsparkle_temp"
+            extract_dir = self.third_party_dir / "winsparkle_temp"
             if extract_dir.exists():
                 shutil.rmtree(extract_dir)
             extract_dir.mkdir()
@@ -216,15 +222,11 @@ class CIOTAInstaller:
             with zipfile.ZipFile(archive_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_dir)
 
-            # 创建目标目录
-            target_dir = self.deps_dir / config["target_path"]
+            # 使用传入的target_path (应该是 third_party/winsparkle/)
+            target_dir = target_path.parent  # third_party/winsparkle/
             if target_dir.exists():
                 shutil.rmtree(target_dir)
             target_dir.mkdir(parents=True, exist_ok=True)
-
-            # 额外的标准位置：lib 目录，便于后续打包统一引用
-            lib_dir = self.deps_dir / "lib"
-            lib_dir.mkdir(parents=True, exist_ok=True)
 
             # 查找并复制所需文件（大小写不敏感），并在 lib 目录下标准化文件名为小写
             desired_map = {
@@ -250,10 +252,10 @@ class CIOTAInstaller:
                             shutil.copy2(src_path, target_dir / file)
                         except Exception:
                             pass
-                        # 目标2：标准 lib 目录，使用统一小写命名，便于后续检查与打包
+                        # 目标2：统一小写命名到target_dir
                         norm_name = desired_map[key]
                         try:
-                            shutil.copy2(src_path, lib_dir / norm_name)
+                            shutil.copy2(src_path, target_dir / norm_name)
                         except Exception:
                             pass
                         files_found.append(file)
@@ -262,8 +264,8 @@ class CIOTAInstaller:
             if not files_found:
                 raise FileNotFoundError("winSparkle files not found in archive")
 
-            # 验证安装（以标准化路径为准）
-            dll_path = lib_dir / "winsparkle.dll"
+            # 验证安装
+            dll_path = target_dir / "winsparkle.dll"
             if dll_path.exists():
                 print(f"[CI-OTA] [OK] winSparkle DLL installation verified: {dll_path}")
             else:
@@ -272,7 +274,7 @@ class CIOTAInstaller:
             # 清理临时文件
             shutil.rmtree(extract_dir)
 
-            print(f"[CI-OTA] Installed winSparkle to: {target_dir} and {lib_dir}")
+            print(f"[CI-OTA] Installed winSparkle to: {target_dir}")
             return True
 
         except Exception as e:
@@ -288,7 +290,7 @@ class CIOTAInstaller:
 
     def _create_sparkle_cli(self):
         """创建Sparkle CLI包装器"""
-        cli_script = self.deps_dir / "sparkle-cli"
+        cli_script = self.third_party_dir / "sparkle" / "sparkle-cli"
 
         script_content = '''#!/bin/bash
 # Sparkle CLI wrapper for eCan OTA (CI-installed)
@@ -356,7 +358,7 @@ esac
 
     def _create_winsparkle_cli(self):
         """创建winSparkle CLI包装器"""
-        cli_script = self.deps_dir / "winsparkle-cli.bat"
+        cli_script = self.third_party_dir / "winsparkle" / "winsparkle-cli.bat"
 
         script_content = '''@echo off
 REM winSparkle CLI wrapper for eCan OTA (CI-installed)
@@ -404,7 +406,8 @@ exit /b 1
 
         for name, config in self.dependencies.items():
             if config.get("platform") == self.platform:
-                target_path = self.deps_dir / config["target_path"]
+                target_dir = self.third_party_dir / config["target_dir"]
+                target_path = target_dir / config["target_path"]
                 if target_path.exists():
                     info["installed_dependencies"][name] = {
                         "version": config["version"],
@@ -413,24 +416,40 @@ exit /b 1
                         "installed": True
                     }
 
-        info_file = self.deps_dir / "install_info.json"
-        with open(info_file, 'w') as f:
-            json.dump(info, f, indent=2)
-
-        print(f"[CI-OTA] Created install info: {info_file}")
+        # 为每个平台的依赖创建安装信息文件
+        for name, config in self.dependencies.items():
+            if config.get("platform") == self.platform:
+                target_dir = self.third_party_dir / config["target_dir"]
+                if target_dir.exists():
+                    info_file = target_dir / "install_info.json"
+                    with open(info_file, 'w') as f:
+                        json.dump(info, f, indent=2)
+                    print(f"[CI-OTA] Created install info: {info_file}")
 
     def clean_dependencies(self):
         """清理依赖文件"""
-        if self.deps_dir.exists():
-            shutil.rmtree(self.deps_dir)
-            print(f"[CI-OTA] Cleaned dependencies directory: {self.deps_dir}")
+        if self.third_party_dir.exists():
+            # 只清理OTA相关的目录
+            for name, config in self.dependencies.items():
+                target_dir = self.third_party_dir / config["target_dir"]
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                    print(f"[CI-OTA] Cleaned {name} directory: {target_dir}")
 
     def verify_installation(self) -> bool:
         """验证安装"""
         print(f"[CI-OTA] Verifying OTA dependencies installation...")
 
-        info_file = self.deps_dir / "install_info.json"
-        if not info_file.exists():
+        # 检查third_party结构
+        info_file = None
+        for name, config in self.dependencies.items():
+            if config.get("platform") == self.platform:
+                target_dir = self.third_party_dir / config["target_dir"]
+                info_file = target_dir / "install_info.json"
+                if info_file.exists():
+                    break
+
+        if not info_file or not info_file.exists():
             print("[CI-OTA] ❌ Install info file not found")
             return False
 
