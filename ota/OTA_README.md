@@ -13,7 +13,7 @@ ota/
 │   ├── package_manager.py    # 下载/校验/安装
 │   ├── platforms.py          # Sparkle/WinSparkle/Generic 实现
 │   └── updater.py            # OTAUpdater 调度器
-├── dependencies/             # 本地依赖（含 Sparkle.framework）
+├── dependencies/             # 已迁移到 third_party/ 目录
 ├── gui/                      # PySide6 GUI 对话框
 ├── server/                   # Flask 测试/演示更新服务
 │   ├── update_server.py      # /api/check, /appcast.xml 等

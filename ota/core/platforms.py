@@ -28,7 +28,7 @@ class SparkleUpdater:
         # 首先检查打包后的依赖位置
         if hasattr(sys, '_MEIPASS'):
             # PyInstaller打包环境
-            bundled_path = os.path.join(sys._MEIPASS, "ota", "dependencies", "Sparkle.framework")
+            bundled_path = os.path.join(sys._MEIPASS, "third_party", "sparkle", "Sparkle.framework")
             if os.path.exists(bundled_path):
                 logger.info(f"Found bundled Sparkle framework at: {bundled_path}")
                 return bundled_path
@@ -36,7 +36,7 @@ class SparkleUpdater:
         # 开发环境或手动安装的位置
         possible_paths = [
             # 项目内打包的依赖
-            os.path.join(self.ota_manager.app_home_path, "ota", "dependencies", "Sparkle.framework"),
+            os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "Sparkle.framework"),
             # 标准安装位置
             "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
             os.path.join(self.ota_manager.app_home_path, "Frameworks", "Sparkle.framework"),
@@ -70,7 +70,7 @@ class SparkleUpdater:
             # 首先尝试打包的CLI包装器
             cli_path = None
             if hasattr(sys, '_MEIPASS'):
-                bundled_cli = os.path.join(sys._MEIPASS, "ota", "dependencies", "sparkle-cli")
+                bundled_cli = os.path.join(sys._MEIPASS, "third_party", "sparkle", "sparkle-cli")
                 if os.path.exists(bundled_cli):
                     cli_path = bundled_cli
             
@@ -82,7 +82,7 @@ class SparkleUpdater:
             
             # 最后尝试项目内的CLI包装器
             if not cli_path:
-                project_cli = os.path.join(self.ota_manager.app_home_path, "ota", "dependencies", "sparkle-cli")
+                project_cli = os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "sparkle-cli")
                 if os.path.exists(project_cli):
                     cli_path = project_cli
             
@@ -93,8 +93,8 @@ class SparkleUpdater:
                     f"Sparkle CLI not found. Searched locations: framework, bundled, project",
                     {"framework_path": self.sparkle_framework_path, "searched_paths": [
                         os.path.join(self.sparkle_framework_path, "Versions", "Current", "Resources", "sparkle-cli"),
-                        os.path.join(sys._MEIPASS, "ota", "dependencies", "sparkle-cli") if hasattr(sys, '_MEIPASS') else None,
-                        os.path.join(self.ota_manager.app_home_path, "ota", "dependencies", "sparkle-cli")
+                        os.path.join(sys._MEIPASS, "third_party", "sparkle", "sparkle-cli") if hasattr(sys, '_MEIPASS') else None,
+                        os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "sparkle-cli")
                     ]}
                 )
             
@@ -169,7 +169,7 @@ class WinSparkleUpdater:
         # 首先检查打包后的依赖位置
         if hasattr(sys, '_MEIPASS'):
             # PyInstaller打包环境
-            bundled_path = os.path.join(sys._MEIPASS, "ota", "dependencies", "winsparkle", "winsparkle.dll")
+            bundled_path = os.path.join(sys._MEIPASS, "third_party", "winsparkle", "winsparkle.dll")
             if os.path.exists(bundled_path):
                 logger.info(f"Found bundled winSparkle DLL at: {bundled_path}")
                 return bundled_path
@@ -177,7 +177,7 @@ class WinSparkleUpdater:
         # 开发环境或手动安装的位置
         possible_paths = [
             # 项目内打包的依赖
-            os.path.join(self.ota_manager.app_home_path, "ota", "dependencies", "winsparkle", "winsparkle.dll"),
+            os.path.join(self.ota_manager.app_home_path, "third_party", "winsparkle", "winsparkle.dll"),
             # 标准位置
             os.path.join(self.ota_manager.app_home_path, "winsparkle.dll"),
             os.path.join(self.ota_manager.app_home_path, "lib", "winsparkle.dll"),
@@ -199,7 +199,7 @@ class WinSparkleUpdater:
         # 首先检查打包后的依赖位置
         if hasattr(sys, '_MEIPASS'):
             # PyInstaller打包环境
-            bundled_cli = os.path.join(sys._MEIPASS, "ota", "dependencies", "winsparkle-cli.bat")
+            bundled_cli = os.path.join(sys._MEIPASS, "third_party", "winsparkle", "winsparkle-cli.bat")
             if os.path.exists(bundled_cli):
                 logger.info(f"Found bundled winSparkle CLI at: {bundled_cli}")
                 return bundled_cli
@@ -207,7 +207,7 @@ class WinSparkleUpdater:
         possible_names = ["winsparkle-cli.bat", "winsparkle-cli.exe", "winsparkle_cli.exe"]
         possible_dirs = [
             # 项目内打包的依赖
-            os.path.join(self.ota_manager.app_home_path, "ota", "dependencies"),
+            os.path.join(self.ota_manager.app_home_path, "third_party", "winsparkle"),
             # 标准位置
             self.ota_manager.app_home_path,
             os.path.join(self.ota_manager.app_home_path, "bin"),

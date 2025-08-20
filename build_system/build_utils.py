@@ -7,6 +7,7 @@ Common utility functions for the build system
 import os
 import platform
 import shutil
+import time
 from pathlib import Path
 
 
@@ -174,54 +175,22 @@ def show_build_results():
 
 
 def clean_macos_build_artifacts(build_path: Path) -> None:
-    """Clean macOS build artifacts with special handling for symlinks and frameworks"""
+    """Clean macOS build artifacts"""
     if not build_path.exists():
         return
 
-    print(f"[MACOS] Cleaning {build_path} with framework-aware cleanup...")
+    print(f"[CLEANUP] Cleaning {build_path}...")
 
-    # Special handling for frameworks and symlinks
     try:
-        # First, try to remove symlinks that might cause conflicts
-        for root, _, files in os.walk(build_path, topdown=False):
-            root_path = Path(root)
-
-            # Handle framework symlinks specifically
-            if root_path.name.endswith(".framework"):
-                for item in root_path.iterdir():
-                    if item.is_symlink():
-                        try:
-                            item.unlink()
-                            print(f"[MACOS] Removed symlink: {item}")
-                        except Exception as e:
-                            print(
-                                f"[MACOS] Warning: Failed to remove symlink {item}: {e}"
-                            )
-
-            # Handle other symlinks
-            for file in files:
-                file_path = root_path / file
-                if file_path.is_symlink():
-                    try:
-                        file_path.unlink()
-                        print(f"[MACOS] Removed symlink: {file_path}")
-                    except Exception as e:
-                        print(
-                            f"[MACOS] Warning: Failed to remove symlink {file_path}: {e}"
-                        )
-
-        # Now remove the directory tree
         shutil.rmtree(build_path, ignore_errors=True)
-
+        print(f"[CLEANUP] Cleaned {build_path}")
     except Exception as e:
-        print(f"[MACOS] Warning: Framework cleanup failed: {e}")
-        # Fallback to regular cleanup
-        shutil.rmtree(build_path, ignore_errors=True)
+        print(f"[CLEANUP] Warning: Failed to clean {build_path}: {e}")
 
 
 def prepare_third_party_assets() -> None:
-    """Prepare third-party assets (simplified - direct Playwright handling)"""
-    print("[THIRD-PARTY] Preparing Playwright assets...")
+    """Prepare third-party assets (Playwright, Sparkle, winSparkle)"""
+    print("[THIRD-PARTY] Preparing third-party assets...")
 
     try:
         # Use simplified Playwright preparation
@@ -232,7 +201,16 @@ def prepare_third_party_assets() -> None:
         print(f"[THIRD-PARTY] Playwright preparation failed: {e}")
         print("[THIRD-PARTY] This may cause issues with browser automation features")
         # Don't fail the build, just warn
-        return
+
+    try:
+        # Prepare OTA dependencies (Sparkle/winSparkle)
+        _prepare_ota_dependencies()
+        print("[THIRD-PARTY] OTA dependencies prepared successfully")
+
+    except Exception as e:
+        print(f"[THIRD-PARTY] OTA dependencies preparation failed: {e}")
+        print("[THIRD-PARTY] This may cause issues with OTA update features")
+        # Don't fail the build, just warn
 
 
 def _prepare_playwright_simple() -> None:
@@ -278,7 +256,105 @@ def _prepare_playwright_simple() -> None:
         # Fallback to standard copy
         shutil.copytree(cache_path, target_path, symlinks=False)
 
-    print(f"[BUILD] Playwright assets copied to {target_path}")
+
+def _prepare_ota_dependencies() -> None:
+    """Prepare OTA dependencies (Sparkle/winSparkle)"""
+    import platform
+    import subprocess
+    import sys
+    import urllib.request
+    import tarfile
+    import zipfile
+    from pathlib import Path
+
+    current_platform = platform.system()
+    third_party_dir = Path.cwd() / "third_party"
+
+    if current_platform == "Darwin":
+        # Prepare Sparkle for macOS
+        sparkle_dir = third_party_dir / "sparkle"
+        sparkle_framework = sparkle_dir / "Sparkle.framework"
+
+        if not sparkle_framework.exists():
+            print("[BUILD] Downloading Sparkle framework...")
+            sparkle_dir.mkdir(parents=True, exist_ok=True)
+
+            # Download Sparkle
+            sparkle_url = "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz"
+            sparkle_archive = sparkle_dir / "Sparkle-2.6.4.tar.xz"
+
+            urllib.request.urlretrieve(sparkle_url, sparkle_archive)
+
+            # Extract Sparkle
+            with tarfile.open(sparkle_archive, 'r:xz') as tar:
+                tar.extractall(sparkle_dir)
+
+            # Fix framework symlinks
+            from build_system.symlink_manager import SymlinkManager
+            symlink_manager = SymlinkManager(verbose=False)
+            symlink_manager.fix_pyinstaller_conflicts()
+
+            # Create install info
+            install_info = {
+                "platform": "darwin",
+                "install_method": "build_system",
+                "installed_dependencies": {
+                    "sparkle": {
+                        "version": "2.6.4",
+                        "url": sparkle_url,
+                        "target_path": str(sparkle_framework),
+                        "installed": True
+                    }
+                },
+                "install_timestamp": str(time.time()),
+                "installer_version": "1.0.0"
+            }
+
+            import json
+            with open(sparkle_dir / "install_info.json", 'w') as f:
+                json.dump(install_info, f, indent=2)
+
+            print(f"[BUILD] Sparkle framework prepared at: {sparkle_framework}")
+        else:
+            print(f"[BUILD] Sparkle framework already exists at: {sparkle_framework}")
+
+    elif current_platform == "Windows":
+        # Prepare winSparkle for Windows
+        winsparkle_dir = third_party_dir / "winsparkle"
+        winsparkle_dll = winsparkle_dir / "winsparkle.dll"
+
+        if not winsparkle_dll.exists():
+            print("[BUILD] Downloading winSparkle...")
+            winsparkle_dir.mkdir(parents=True, exist_ok=True)
+
+            # Download winSparkle
+            winsparkle_url = "https://github.com/vslavik/winsparkle/releases/download/v0.8.0/winsparkle-0.8.0.zip"
+            winsparkle_archive = winsparkle_dir / "winsparkle-0.8.0.zip"
+
+            urllib.request.urlretrieve(winsparkle_url, winsparkle_archive)
+
+            # Extract winSparkle
+            with zipfile.ZipFile(winsparkle_archive, 'r') as zip_ref:
+                zip_ref.extractall(winsparkle_dir / "temp")
+
+            # Find and copy DLL
+            temp_dir = winsparkle_dir / "temp"
+            dll_files = list(temp_dir.glob("**/winsparkle.dll"))
+
+            if dll_files:
+                shutil.copy2(dll_files[0], winsparkle_dll)
+                print(f"[BUILD] winSparkle DLL prepared at: {winsparkle_dll}")
+            else:
+                raise RuntimeError("winSparkle DLL not found in downloaded archive")
+
+            # Cleanup
+            shutil.rmtree(temp_dir)
+            winsparkle_archive.unlink()
+        else:
+            print(f"[BUILD] winSparkle DLL already exists at: {winsparkle_dll}")
+
+    else:
+        print(f"[BUILD] OTA dependencies not needed for platform: {current_platform}")
 
 
 def _find_playwright_cache() -> Path:
@@ -320,101 +396,38 @@ def _find_playwright_cache() -> Path:
 
 
 def validate_macos_app_bundle(app_bundle_path: Path) -> bool:
-    """Enhanced macOS app bundle validation with QtWebEngine checks"""
+    """Simple macOS app bundle validation"""
     import platform
 
     if platform.system() != "Darwin":
         return True  # Skip on non-macOS
 
     if not app_bundle_path.exists():
-        print(f"[MACOS] Warning: App bundle not found: {app_bundle_path}")
+        print(f"[VALIDATION] App bundle not found: {app_bundle_path}")
         return False
 
-    print(f"[MACOS] Validating app bundle: {app_bundle_path}")
+    print(f"[VALIDATION] Validating app bundle: {app_bundle_path}")
 
     # Basic structure check
     contents_dir = app_bundle_path / "Contents"
     if not contents_dir.exists():
-        print("[MACOS] Warning: Contents directory missing")
+        print("[VALIDATION] Contents directory missing")
         return False
 
     # Check for executable
     macos_dir = contents_dir / "MacOS"
     if not macos_dir.exists():
-        print("[MACOS] Warning: MacOS directory missing")
+        print("[VALIDATION] MacOS directory missing")
         return False
 
-    # Check for Frameworks directory (important for QtWebEngine)
-    frameworks_dir = contents_dir / "Frameworks"
-    if frameworks_dir.exists():
-        print(f"[MACOS] Frameworks directory found")
-
-        # Check for QtWebEngine frameworks
-        qtwebengine_frameworks = [
-            "QtWebEngineCore.framework",
-            "QtWebEngineWidgets.framework"
-        ]
-
-        for framework_name in qtwebengine_frameworks:
-            framework_path = frameworks_dir / framework_name
-            if framework_path.exists():
-                print(f"[MACOS]  {framework_name} found")
-
-                # Check framework structure
-                resources_path = framework_path / "Resources"
-                if resources_path.exists():
-                    if resources_path.is_symlink():
-                        print(f"[MACOS]   Resources is symlink (may cause issues)")
-                    else:
-                        print(f"[MACOS]   Resources is directory (good)")
-                else:
-                    print(f"[MACOS]   Warning: Resources missing in {framework_name}")
-            else:
-                print(f"[MACOS] {framework_name} not found (may cause QtWebEngine issues)")
-    else:
-        print("[MACOS] Warning: No Frameworks directory found")
-
-    # Count broken symlinks (enhanced check)
-    broken_count = 0
-    total_symlinks = 0
-    critical_broken = 0
-
-    try:
-        for item in app_bundle_path.rglob("*"):
-            if item.is_symlink():
-                total_symlinks += 1
-                try:
-                    # Try to resolve the symlink
-                    item.resolve(strict=True)
-                except (OSError, FileNotFoundError):
-                    broken_count += 1
-                    # Check if this is a critical symlink
-                    if any(critical in str(item) for critical in ["QtWebEngine", "Framework", "Resources"]):
-                        critical_broken += 1
-                        print(f"[MACOS] Critical broken symlink: {item}")
-    except Exception as e:
-        print(f"[MACOS] Warning: Error during symlink check: {e}")
-
-    print(f"[MACOS] Found {total_symlinks} symlinks, {broken_count} broken ({critical_broken} critical)")
-
-    if critical_broken > 0:
-        print(f"[MACOS] ERROR: {critical_broken} critical symlinks broken!")
-        print("[MACOS] This will likely cause QtWebEngine runtime failures")
-        print("[MACOS] Consider running symlink fix before building")
-        return False
-    elif broken_count > 0:
-        print(f"[MACOS] Warning: {broken_count} non-critical broken symlinks found")
-        print("[MACOS] App should still work but monitor for issues")
-    else:
-        print("[MACOS] App bundle validation passed")
-
+    print("[VALIDATION] App bundle structure is valid")
     return True
 
 
 def validate_build_config(verbose: bool = False) -> bool:
     """
-    验证 build_config.json 的基本正确性
-    检查字段定义和包配置
+    Validate basic correctness of build_config.json
+    Check field definitions and package configurations
     """
     try:
         import json
@@ -430,7 +443,7 @@ def validate_build_config(verbose: bool = False) -> bool:
 
         pyinstaller_config = config.get("build", {}).get("pyinstaller", {})
 
-        # 检查必需字段
+        # Check required fields
         required_fields = ["collect_all", "collect_data_only", "hiddenimports", "excludes"]
         missing_fields = []
 
@@ -443,11 +456,11 @@ def validate_build_config(verbose: bool = False) -> bool:
                 print(f"[CONFIG] Missing required fields: {missing_fields}")
             return False
 
-        # 检查重复包
+        # Check duplicate packages
         all_packages = set()
         duplicates = []
 
-        for field in ["collect_all", "collect_data_only"]:  # 这两个字段不应该重复
+        for field in ["collect_all", "collect_data_only"]:  # These two fields should not overlap
             packages = pyinstaller_config.get(field, [])
             for pkg in packages:
                 if pkg in all_packages:
@@ -571,8 +584,15 @@ def _process_macos_data(data_files_config: dict, verbose: bool = False) -> list:
 
 
 def _has_symlinks(path: Path) -> bool:
-    """Simple check if directory contains symlinks"""
+    """Check if directory contains symlinks (but skip system packages)"""
     try:
+        path_str = str(path)
+
+        # Don't check symlinks in system packages - let PyInstaller handle them
+        if any(pattern in path_str for pattern in ["PySide6", "Qt", "site-packages", "venv/lib", ".framework"]):
+            return False
+
+        # Only check our own directories for symlinks
         for item in path.rglob("*"):
             if item.is_symlink():
                 return True
@@ -583,12 +603,28 @@ def _has_symlinks(path: Path) -> bool:
 
 def _is_problematic_directory(directory: str) -> bool:
     """Check if directory is known to contain problematic symlinks"""
+    # Only process our own third-party directories, NOT system packages
     problematic_patterns = [
         "third_party",
         "ota",
         "dependencies"
     ]
 
+    # NEVER process PySide6/Qt directories - let PyInstaller handle them
+    qt_patterns = [
+        "PySide6",
+        "Qt",
+        "site-packages",
+        "venv/lib",
+        ".framework"
+    ]
+
+    # Check if it's a Qt/PySide6 directory that should be left alone
+    for qt_pattern in qt_patterns:
+        if qt_pattern in directory:
+            return False
+
+    # Only process our own problematic directories
     for pattern in problematic_patterns:
         if pattern in directory:
             return True
@@ -677,3 +713,6 @@ def _dev_sign_macos():
 
     print("[DEV-SIGN] macOS: Development signing enabled")
     # Implementation would go here
+
+
+

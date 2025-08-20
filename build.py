@@ -262,48 +262,21 @@ def _show_build_results():
 
 
 def _clean_macos_build_artifacts(build_path: Path) -> None:
-    """Clean macOS build artifacts with special handling for symlinks and frameworks"""
+    """Clean macOS build artifacts - simple cleanup without touching Qt frameworks"""
     import shutil
-    import os
 
     if not build_path.exists():
         return
 
-    print(f"[MACOS] Cleaning {build_path} with framework-aware cleanup...")
+    print(f"[MACOS] Cleaning {build_path}...")
 
-    # Special handling for frameworks and symlinks
     try:
-        # First, try to remove symlinks that might cause conflicts
-        for root, _, files in os.walk(build_path, topdown=False):
-            root_path = Path(root)
-
-            # Handle framework symlinks specifically
-            if root_path.name.endswith('.framework'):
-                for item in root_path.iterdir():
-                    if item.is_symlink():
-                        try:
-                            item.unlink()
-                            print(f"[MACOS] Removed symlink: {item}")
-                        except Exception as e:
-                            print(f"[MACOS] Warning: Failed to remove symlink {item}: {e}")
-
-            # Handle other symlinks
-            for file in files:
-                file_path = root_path / file
-                if file_path.is_symlink():
-                    try:
-                        file_path.unlink()
-                        print(f"[MACOS] Removed symlink: {file_path}")
-                    except Exception as e:
-                        print(f"[MACOS] Warning: Failed to remove symlink {file_path}: {e}")
-
-        # Now remove the directory tree
+        # Simple cleanup - let PyInstaller handle Qt frameworks properly
         shutil.rmtree(build_path, ignore_errors=True)
+        print(f"[MACOS] Cleaned {build_path}")
 
     except Exception as e:
-        print(f"[MACOS] Warning: Framework cleanup failed: {e}")
-        # Fallback to regular cleanup
-        shutil.rmtree(build_path, ignore_errors=True)
+        print(f"[MACOS] Warning: Cleanup failed: {e}")
 
 
 
@@ -472,6 +445,12 @@ Usage examples:
         help="Clear build cache before building"
     )
 
+    parser.add_argument(
+        "--debug-cache",
+        action="store_true",
+        help="Show detailed cache debugging information"
+    )
+
     args = parser.parse_args()
 
     # Validate installer-only mode
@@ -516,7 +495,7 @@ Usage examples:
         pass
 
     # Initialize build optimizer
-    set_optimizer_verbose(args.verbose)
+    set_optimizer_verbose(args.verbose or args.debug_cache)
 
     # Validate build configuration
     from build_system.build_utils import validate_build_config
@@ -537,20 +516,7 @@ Usage examples:
     current_platform = platform.system()
 
     if current_platform == "Darwin":
-        print("[BUILD] macOS detected - Running symlink conflict fixes...")
-        try:
-            from build_system.symlink_manager import symlink_manager
-            if not symlink_manager.fix_pyinstaller_conflicts():
-                print("[ERROR] Failed to fix macOS symlink conflicts")
-                if not args.force:
-                    print("[ERROR] Use --force to continue despite symlink issues")
-                    return 1
-                else:
-                    print("[WARNING] Continuing build despite symlink issues (--force used)")
-        except Exception as e:
-            print(f"[ERROR] macOS symlink fix crashed: {e}")
-            if not args.force:
-                return 1
+        print("[BUILD] macOS detected - Skipping pre-build symlink fixes (PyInstaller handles this)")
     elif current_platform == "Windows":
         print("[BUILD] Windows detected - No pre-build fixes needed")
     elif current_platform == "Linux":
@@ -770,6 +736,10 @@ Usage examples:
                 print(f"[RENAME] Warning: Failed to standardize names: {e}")
             _t_rename_end = time.perf_counter()
             print(f"[TIME] Artifact renaming: {(_t_rename_end - _t_rename_start):.2f}s")
+
+        # Mark build as complete for caching
+        if not args.installer_only:
+            build_optimizer.mark_full_build_complete()
 
         print("\n" + "=" * 60)
         print("[SUCCESS] Build completed successfully!")

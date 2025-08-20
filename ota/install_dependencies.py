@@ -87,11 +87,11 @@ def install_sparkle_macos():
 def install_winsparkle_windows():
     """Install winSparkle on Windows"""
     print("Installing winSparkle...")
-    
+
     # Create directories
     app_dir = Path.cwd()
-    lib_dir = app_dir / "lib"
-    lib_dir.mkdir(exist_ok=True)
+    winsparkle_dir = app_dir / "third_party" / "winsparkle"
+    winsparkle_dir.mkdir(parents=True, exist_ok=True)
     
     # Download winSparkle
     winsparkle_url = "https://github.com/vslavik/winsparkle/releases/download/v0.8.0/winsparkle-0.8.0.zip"
@@ -110,8 +110,8 @@ def install_winsparkle_windows():
         dll_files = list(temp_dir.glob("**/winsparkle.dll"))
         
         if dll_files:
-            shutil.copy2(dll_files[0], lib_dir / "winsparkle.dll")
-            print(f"[OK] winSparkle DLL copied to {lib_dir / 'winsparkle.dll'}")
+            shutil.copy2(dll_files[0], winsparkle_dir / "winsparkle.dll")
+            print(f"[OK] winSparkle DLL copied to {winsparkle_dir / 'winsparkle.dll'}")
         else:
             print("[FAIL] winSparkle DLL not found in downloaded archive")
             return False

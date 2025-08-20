@@ -199,8 +199,7 @@ jobs:
 
         echo "=== Checking winSparkle Installation ==="
         $dllPaths = @(
-          "ota/dependencies/lib/winsparkle.dll",
-          "ota/dependencies/winsparkle/winsparkle.dll"
+          "third_party/winsparkle/winsparkle.dll"
         )
         $found = $false
         foreach ($p in $dllPaths) {
@@ -215,7 +214,7 @@ jobs:
         if (-not $found) {
           Write-Host "[WARN] winSparkle DLL not found in expected locations"
           Write-Host "Searching for winSparkle files..."
-          Get-ChildItem -Path "ota" -Recurse -Filter "*sparkle*" | ForEach-Object {
+          Get-ChildItem -Path "third_party" -Recurse -Filter "*sparkle*" -ErrorAction SilentlyContinue | ForEach-Object {
             Write-Host "   Found: $($_.FullName)"
           }
         }
@@ -302,8 +301,8 @@ jobs:
 
         echo "=== Verifying OTA artifacts in dist ==="
         $distWinSparkle = @(
-          "dist/eCan/ota/dependencies/lib/winsparkle.dll",
-          "dist/ota/dependencies/lib/winsparkle.dll"
+          "dist/eCan/third_party/winsparkle/winsparkle.dll",
+          "dist/third_party/winsparkle/winsparkle.dll"
         )
         $distFound = $false
         foreach ($p in $distWinSparkle) {
@@ -378,14 +377,24 @@ jobs:
             }
         }
 
-        if (Test-Path "dist/eCan-Setup.exe") {
-            $setup = Get-Item "dist/eCan-Setup.exe"
-            echo "Installer found: dist/eCan-Setup.exe"
+        # Check for standardized installer first, then legacy name
+        $stdSetup = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
+        $legacySetup = "dist/eCan-Setup.exe"
+
+        if (Test-Path $stdSetup) {
+            $setup = Get-Item $stdSetup
+            echo "Standardized installer found: $stdSetup"
+            echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
+            echo "   Created: $($setup.CreationTime)"
+            $setupFound = $true
+        } elseif (Test-Path $legacySetup) {
+            $setup = Get-Item $legacySetup
+            echo "Legacy installer found: $legacySetup"
             echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
             echo "   Created: $($setup.CreationTime)"
             $setupFound = $true
         } else {
-            echo "WARN: Installer not found"
+            echo "WARN: No installer found (checked both standardized and legacy names)"
         }
 
         if (-not $exeFound) {
@@ -401,6 +410,8 @@ jobs:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: |
           dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe
+          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe
+          dist/eCan-Setup.exe
           dist/*.msi
           build.log
         retention-days: 30
@@ -487,19 +498,19 @@ jobs:
         python scripts/install_ota_dependencies.py verify
 
         echo "=== Checking Sparkle Framework Installation ==="
-        if [ -d "ota/dependencies/Sparkle.framework" ]; then
+        if [ -d "third_party/sparkle/Sparkle.framework" ]; then
           echo "[OK] Sparkle.framework found"
-          framework_size=$(du -sh ota/dependencies/Sparkle.framework | cut -f1)
+          framework_size=$(du -sh third_party/sparkle/Sparkle.framework | cut -f1)
           echo "   Size: $framework_size"
 
           # Check framework structure
-          if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Sparkle" ]; then
+          if [ -f "third_party/sparkle/Sparkle.framework/Versions/Current/Sparkle" ]; then
             echo "[OK] Sparkle binary found in framework"
           else
             echo "[WARN] Sparkle binary not found in expected location"
           fi
 
-          if [ -f "ota/dependencies/Sparkle.framework/Versions/Current/Resources/sparkle-cli" ]; then
+          if [ -f "third_party/sparkle/sparkle-cli" ]; then
             echo "[OK] Sparkle CLI found"
           else
             echo "[WARN] Sparkle CLI not found"
@@ -507,7 +518,7 @@ jobs:
         else
           echo "[ERROR] Sparkle.framework not found"
           echo "Searching for Sparkle files..."
-          find ota -name "*parkle*" -type f 2>/dev/null || echo "No Sparkle files found"
+          find third_party -name "*parkle*" -type f 2>/dev/null || echo "No Sparkle files found in third_party"
         fi
 
     - name: Create build directories
