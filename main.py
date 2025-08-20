@@ -50,21 +50,25 @@ try:
     print(TimeUtil.formatted_now_with_ms() + " app start...")
 
     # Create QApplication and show themed splash as early as possible
-    from gui.splash import init_startup_splash
+    from gui.splash import init_startup_splash, create_startup_progress_manager
     startup_splash = init_startup_splash()
+    progress_manager = create_startup_progress_manager(startup_splash)
 
     print(TimeUtil.formatted_now_with_ms() + " importing modules...")
+    progress_manager.update_progress(5, "Loading core modules...")
 
     # Standard imports
     import asyncio
     import qasync
     from setproctitle import setproctitle
+    progress_manager.update_progress(10, "Importing standard libraries...")
 
     # Basic configuration imports
     from config.app_info import app_info
     from config.app_settings import app_settings
     from utils.logger_helper import set_top_web_gui, logger_helper as logger
     from app_context import AppContext
+    progress_manager.update_progress(15, "Loading configuration...")
 
     def fix_pyinstaller_environment():
         """Cross-platform PyInstaller environment fix"""
@@ -129,10 +133,13 @@ try:
             # Don't prevent program startup due to fix failure
 
     # Fix environment before all imports
+    progress_manager.update_progress(20, "Setting up environment...")
     fix_pyinstaller_environment()
 
     # Import other necessary modules
+    progress_manager.update_progress(25, "Loading utility modules...")
     import utils
+    progress_manager.update_progress(30, "Loading GUI components...")
     from gui.LoginoutGUI import Login
     from gui.WebGUI import WebGUI
 
@@ -147,10 +154,12 @@ try:
     def main():
         """Main function"""
         print("🚀 Entering main function...")
+        progress_manager.update_progress(35, "Initializing application...")
 
         # Start hot reload monitoring (development mode)
         if app_settings.is_dev_mode:
             try:
+                progress_manager.update_status("Setting up hot reload...")
                 from utils.hot_reload import start_watching
                 watch_paths = ['agent', 'bot', 'config', 'common', 'gui', 'skills', 'utils']
                 start_watching(watch_paths, None)
@@ -164,10 +173,12 @@ try:
             app = _QApp(sys.argv)
 
         # Set application info and icon (unified management)
+        progress_manager.update_progress(40, "Setting up application info...")
         from utils.app_setup_helper import setup_application_info, set_app_icon, set_app_icon_delayed
         setup_application_info(app, logger)
 
         # Initialize global AppContext
+        progress_manager.update_progress(45, "Initializing application context...")
         ctx = AppContext()
         ctx.set_app(app)
         ctx.set_logger(logger)
@@ -175,15 +186,18 @@ try:
         ctx.set_app_info(app_info)
 
         # Set application icon
+        progress_manager.update_progress(50, "Setting up application icons...")
         set_app_icon(app, logger)
         # Delay setting Windows taskbar icon (wait for main window creation)
         set_app_icon_delayed(app, logger)
 
         # Create event loop
+        progress_manager.update_progress(55, "Creating event loop...")
         loop = qasync.QEventLoop(app)
         asyncio.set_event_loop(loop)
 
         # Create login component
+        progress_manager.update_progress(60, "Initializing login system...")
         utils.logger_helper.login = Login()
         ctx.set_login(utils.logger_helper.login)
 
@@ -207,6 +221,7 @@ try:
         ctx.set_main_loop(loop)
 
         # Print current running mode
+        progress_manager.update_progress(65, "Configuring runtime mode...")
         if app_settings.is_dev_mode:
             logger.info("Running in development mode (Vite dev server)")
         else:
@@ -215,15 +230,26 @@ try:
         # Create Web GUI (do not show yet; wait until resources are loaded)
         print("🚀 Starting to create WebGUI instance...")
         logger.info("Creating WebGUI instance...")
-        web_gui = WebGUI(splash=startup_splash)
+        progress_manager.update_progress(70, "Creating main interface...")
+
+        # Create progress callback for WebGUI
+        def webgui_progress_callback(progress, status):
+            progress_manager.update_progress(progress, status)
+
+        web_gui = WebGUI(splash=startup_splash, progress_callback=webgui_progress_callback)
         print("✅ WebGUI instance created successfully")
         logger.info("WebGUI instance created successfully")
 
+        progress_manager.update_progress(85, "Finalizing setup...")
         ctx.set_web_gui(web_gui)
         set_top_web_gui(web_gui)
 
         utils.logger_helper.login.setTopGUI(web_gui)
         logger.info("WebGUI setup completed")
+
+        # Finish splash screen
+        progress_manager.update_progress(100, "Ready to launch!")
+        progress_manager.finish(web_gui)
 
         # Run main loop
         loop.run_forever()
