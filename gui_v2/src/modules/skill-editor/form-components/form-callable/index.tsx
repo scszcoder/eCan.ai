@@ -1,42 +1,35 @@
 import { Field, FieldRenderProps } from '@flowgram.ai/free-layout-editor';
-import { CallableFunction } from '../../typings/callable';
+import { CallableFunction, createDefaultCallableFunction } from '../../typings/callable';
 import { FormItem } from '../form-item';
 import { CallableSelector } from '../../components/callable/callable-selector';
 import { systemFunctions } from '../../components/callable/test-data';
+import { Feedback } from '../feedback';
+import { useNodeRenderContext } from '../../hooks';
 
 export function FormCallable() {
+  const { readonly } = useNodeRenderContext();
   return (
     <Field<CallableFunction> name="data.callable">
-      {({ field: { value, onChange } }: FieldRenderProps<CallableFunction>) => (
-        <FormItem name="tool" type="custom" required={false}>
+      {({ field, fieldState }: FieldRenderProps<CallableFunction>) => (
+        <FormItem
+          name="tool" type="object" required={false}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <CallableSelector
-              value={value}
+              readonly={readonly}
+              value={field.value}
               onChange={(func) => {
-                onChange(func);
+                field.onChange(func);
               }}
-              onEdit={onChange}
               onAdd={() => {
-                const newFunc: CallableFunction = {
-                  name: '',
-                  desc: '',
-                  params: {
-                    type: 'object',
-                    properties: {}
-                  },
-                  returns: {
-                    type: 'object',
-                    properties: {}
-                  },
-                  type: 'custom'
-                };
-                onChange(newFunc);
+                if (readonly) return;
+                field.onChange(createDefaultCallableFunction());
               }}
               systemFunctions={systemFunctions}
             />
           </div>
+          <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
         </FormItem>
       )}
     </Field>
   );
-} 
+}

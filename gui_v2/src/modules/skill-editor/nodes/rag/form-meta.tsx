@@ -1,9 +1,11 @@
 import { Select, Radio, InputNumber, TextArea } from "@douyinfe/semi-ui";
 import { Field, FieldRenderProps, FormMeta, FormRenderProps, ValidateTrigger } from "@flowgram.ai/free-layout-editor";
 import { FormContent, FormHeader, FormItem } from "../../form-components";
-import { FlowNodeJSON } from "../../typings";
 import { FormCallable } from "../../form-components/form-callable";
-import { DisplayOutputs } from "@flowgram.ai/form-materials";
+import { createInferInputsPlugin, DisplayOutputs } from "@flowgram.ai/form-materials";
+import { defaultFormMeta } from "../default-form-meta";
+import { FlowNodeJSON } from "../../typings";
+import type { IFlowConstantRefValue } from "@flowgram.ai/runtime-interface";
 
 const knowledgeBases = [
   { label: "Default Knowledge Base", value: "default" },
@@ -33,34 +35,32 @@ const embeddingModels = [
   { label: "moka-ai/m3e-large", value: "moka-ai/m3e-large" },
 ];
 
-interface FieldValue {
-  value: string | number;
-}
+type ConstantRef = IFlowConstantRefValue;
 
-export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
+export const FormRender = (_props: FormRenderProps<FlowNodeJSON>) => {
   return (
     <>
       <FormHeader />
       <FormContent>
         <div>
           <Field name="inputsValues.knowledgeBase">
-            {({ field }: FieldRenderProps<FieldValue>) => (
+            {({ field }: FieldRenderProps<ConstantRef>) => (
               <FormItem name="Knowledge Base" type="string">
-                <Select 
-                  value={field.value?.value || ''} 
-                  onChange={(value) => field.onChange({ value: String(value || '') })} 
-                  optionList={knowledgeBases} 
-                  placeholder="Select knowledge base" 
+                <Select
+                  value={String(field.value?.content ?? '')}
+                  onChange={(value) => field.onChange({ type: 'constant', content: String(value ?? '') })}
+                  optionList={knowledgeBases}
+                  placeholder="Select knowledge base"
                 />
               </FormItem>
             )}
           </Field>
           <Field name="inputsValues.retrievalMode">
-            {({ field }: FieldRenderProps<FieldValue>) => (
+            {({ field }: FieldRenderProps<ConstantRef>) => (
               <FormItem name="Retrieval Mode" type="string">
-                <Radio.Group 
-                  value={field.value?.value || ''} 
-                  onChange={(e) => field.onChange({ value: e.target.value })}
+                <Radio.Group
+                  value={String(field.value?.content ?? '')}
+                  onChange={(e) => field.onChange({ type: 'constant', content: e.target.value })}
                 >
                   {retrievalModes.map(mode => (
                     <Radio key={mode.value} value={mode.value}>{mode.label}</Radio>
@@ -70,81 +70,80 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
             )}
           </Field>
           <Field name="inputsValues.topK">
-            {({ field }: FieldRenderProps<FieldValue>) => (
+            {({ field }: FieldRenderProps<ConstantRef>) => (
               <FormItem name="Top-K" type="number">
-                <InputNumber 
-                  min={1} 
-                  max={20} 
-                  value={typeof field.value?.value === 'number' ? field.value.value : undefined} 
-                  onChange={(value) => field.onChange({ value: value || 0 })} 
+                <InputNumber
+                  min={1}
+                  max={20}
+                  value={typeof field.value?.content === 'number' ? field.value.content : undefined}
+                  onChange={(value) => field.onChange({ type: 'constant', content: typeof value === 'number' ? value : 0 })}
                 />
               </FormItem>
             )}
           </Field>
           <Field name="inputsValues.scoreThreshold">
-            {({ field }: FieldRenderProps<FieldValue>) => (
+            {({ field }: FieldRenderProps<ConstantRef>) => (
               <FormItem name="Score Threshold" type="number">
-                <InputNumber 
-                  min={0} 
-                  max={1} 
-                  step={0.1} 
-                  value={typeof field.value?.value === 'number' ? field.value.value : undefined} 
-                  onChange={(value) => field.onChange({ value: value || 0 })} 
+                <InputNumber
+                  min={0}
+                  max={1}
+                  step={0.1}
+                  value={typeof field.value?.content === 'number' ? field.value.content : undefined}
+                  onChange={(value) => field.onChange({ type: 'constant', content: typeof value === 'number' ? value : 0 })}
                 />
               </FormItem>
             )}
           </Field>
           <Field name="inputsValues.embeddingModel">
-            {({ field }: FieldRenderProps<FieldValue>) => (
+            {({ field }: FieldRenderProps<ConstantRef>) => (
               <FormItem name="Embedding Model" type="string">
-                <Select 
-                  value={field.value?.value || ''} 
-                  onChange={(value) => field.onChange({ value: String(value || '') })} 
-                  optionList={embeddingModels} 
-                  placeholder="Select embedding model" 
+                <Select
+                  value={String(field.value?.content ?? '')}
+                  onChange={(value) => field.onChange({ type: 'constant', content: String(value ?? '') })}
+                  optionList={embeddingModels}
+                  placeholder="Select embedding model"
                 />
               </FormItem>
             )}
           </Field>
           <Field name="inputsValues.query">
-            {({ field }: FieldRenderProps<FieldValue>) => (
+            {({ field }: FieldRenderProps<ConstantRef>) => (
               <FormItem name="Query" type="string">
-                <TextArea 
-                  value={String(field.value?.value || '')} 
-                  onChange={(value) => field.onChange({ value })} 
-                  placeholder="Enter your search query" 
-                  rows={4} 
+                <TextArea
+                  value={String(field.value?.content ?? '')}
+                  onChange={(value) => field.onChange({ type: 'constant', content: value })}
+                  placeholder="Enter your search query"
+                  rows={4}
                 />
               </FormItem>
             )}
           </Field>
           <Field name="inputsValues.filters">
-            {({ field }: FieldRenderProps<FieldValue>) => (
+            {({ field }: FieldRenderProps<ConstantRef>) => (
               <FormItem name="Filters" type="string">
-                <TextArea 
-                  value={String(field.value?.value || '')} 
-                  onChange={(value) => field.onChange({ value })} 
-                  placeholder="Enter filter conditions in JSON format" 
-                  rows={2} 
+                <TextArea
+                  value={String(field.value?.content ?? '')}
+                  onChange={(value) => field.onChange({ type: 'constant', content: value })}
+                  placeholder="Enter filter conditions in JSON format"
+                  rows={2}
                 />
               </FormItem>
             )}
           </Field>
           <FormCallable />
+          <DisplayOutputs displayFromScope />
         </div>
       </FormContent>
     </>
   );
 };
 
-export const formMeta: FormMeta<FlowNodeJSON> = {
-  render: renderForm,
+export const formMeta: FormMeta = {
+  render: (props) => <FormRender {...props} />,
   validateTrigger: ValidateTrigger.onChange,
-  validate: {
-    title: ({ value }) => (value ? undefined : 'Title is required'),
-    'inputsValues.*': ({ value }) => {
-      if (!value?.value) return 'Value is required';
-      return undefined;
-    },
-  },
-}; 
+  validate: defaultFormMeta.validate,
+  effect: defaultFormMeta.effect,
+  plugins: [
+    createInferInputsPlugin({ sourceKey: 'inputsValues', targetKey: 'inputs' }),
+  ],
+};

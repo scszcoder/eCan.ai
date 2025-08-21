@@ -4,9 +4,9 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Select, Button, Space, Tooltip, Dropdown, Modal } from '@douyinfe/semi-ui';
+import { Select, Button, Tooltip, Dropdown, Modal } from '@douyinfe/semi-ui';
 import { IconPlus, IconEdit, IconBox, IconSetting, IconMinusCircle } from '@douyinfe/semi-icons';
-import { CallableFunction } from '../../typings/callable';
+import { CallableFunction, createDefaultCallableFunction } from '../../typings/callable';
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
 import { CallableSelectorWrapper } from './styles';
@@ -18,17 +18,17 @@ const USE_REMOTE_SEARCH = true;
 interface CallableSelectorProps {
   value?: CallableFunction;
   onChange?: (value: CallableFunction) => void;
-  onEdit?: (value: CallableFunction) => void;
   onAdd?: () => void;
   systemFunctions?: CallableFunction[];
+  readonly?: boolean;
 }
 
 export const CallableSelector: React.FC<CallableSelectorProps> = ({
   value,
   onChange,
-  onEdit,
   onAdd,
-  systemFunctions: propSystemFunctions = systemFunctions
+  systemFunctions: propSystemFunctions = systemFunctions,
+  readonly = false,
 }) => {
   const [searchText, setSearchText] = useState('');
   const [editorVisible, setEditorVisible] = useState(false);
@@ -121,6 +121,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   };
 
   const handleEdit = () => {
+    if (readonly) return;
     if (value) {
       setEditingFunction(value);
       setEditorVisible(true);
@@ -128,19 +129,8 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   };
 
   const handleAdd = () => {
-    const newFunction: CallableFunction = {
-      name: '',
-      desc: '',
-      params: {
-        type: 'object',
-        properties: {}
-      },
-      returns: {
-        type: 'object',
-        properties: {}
-      },
-      type: 'custom'
-    };
+    if (readonly) return;
+    const newFunction = createDefaultCallableFunction();
     setEditingFunction(newFunction);
     setEditorVisible(true);
     if (onAdd) {
@@ -252,13 +242,14 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
       text: 'Edit',
       icon: <IconEdit />,
       onClick: handleEdit,
-      disabled: !selectedValue
+      disabled: !selectedValue || readonly,
     },
     {
       key: 'add',
       text: 'Add',
       icon: <IconPlus />,
-      onClick: handleAdd
+      onClick: handleAdd,
+      disabled: readonly,
     }
   ];
 
@@ -282,6 +273,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
             value: func.name,
             label: renderOption(func)
           }))}
+          disabled={readonly}
         />
         <Dropdown
           trigger="click"
@@ -306,6 +298,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
             theme="borderless"
             className="settings-button"
             icon={<IconSetting size="small" />}
+            disabled={readonly}
           />
         </Dropdown>
       </div>

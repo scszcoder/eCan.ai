@@ -27,6 +27,7 @@ import AppSider from './AppSider';
 import AppHeader from './AppHeader';
 import AppContent from './AppContent';
 import PageBackBreadcrumb from './PageBackBreadcrumb';
+import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { get_ipc_api } from '@/services/ipc_api';
 
 
@@ -103,6 +104,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     return (
         <StyledLayout>
+            <A11yFocusGuard />
             <AppSider
                 collapsed={collapsed}
                 onLogoClick={handleLogoClick}
