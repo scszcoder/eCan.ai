@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
+from bot.ebbot import EBBOT
 from bot.missions import EBMISSION
 from common.models import VehicleModel
 from knowledge.lightrag_server import LightragServer

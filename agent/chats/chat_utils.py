@@ -14,7 +14,7 @@ request['params'] = {
                             "id": "10",
                             "chat_id": "2",
                             "session_id": "1",
-                            "content": "please help analyze these files and provided a detailed description of each file.",
+                            "content": "Wasssuuuuupppppp!",
                             "attachments": [
                                 {
                                     "id": "0",
@@ -117,7 +117,7 @@ def a2a_send_chat(mainwin, req):
     req["params"]["recipient_ids"] = recipient_ids
     print("twin:", twin_agent.card.name, "recipients:", recipient_ids)
 
-    runner_method = twin_agent.runner.chat_wait_in_line
+    runner_method = twin_agent.runner.sync_chat_wait_in_line
     if asyncio.iscoroutinefunction(runner_method):
         logger.debug("Runner method is a coroutine, running with asyncio.run()")
 
@@ -142,7 +142,7 @@ def a2a_send_chat(mainwin, req):
         # result = loop.run_until_complete(runner_method(params["message"]))
     else:
         logger.debug("Runner method is synchronous, calling directly.")
-        result = runner_method(request)
+        result = runner_method(req)
 
     return result
 

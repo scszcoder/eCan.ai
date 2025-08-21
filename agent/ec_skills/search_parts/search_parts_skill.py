@@ -443,8 +443,7 @@ async def create_search_parts_skill(mainwin):
         searcher_skill = EC_Skill(name="ecan.ai search parts and components web site",
                              description="help search part/components.")
 
-
-
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         web_search_tools = []
         searcher_agent = create_react_agent(llm, web_search_tools)
         # Prompt Template
