@@ -377,6 +377,11 @@ class InstallerBuilder:
             app_version = installer_config.get('app_version', app_info.get('version', '1.0.0'))
             installer_filename = f"eCan-{app_version}-windows-{arch}-Setup"
 
+            # Get Windows-specific installer settings
+            default_dir = windows_config.get('default_dir', installer_config.get('default_dir', '{pf}\\eCan'))
+            default_group = windows_config.get('default_group', installer_config.get('default_group', 'eCan'))
+            privileges_required = windows_config.get('privileges_required', installer_config.get('privileges_required', 'admin'))
+
             iss_content = f"""
 ; eCan Installer Script
 [Setup]
@@ -384,14 +389,14 @@ AppId={{{{{app_id}}}}}
 AppName={installer_config.get('app_name', app_info.get('name', 'eCan'))}
 AppVersion={installer_config.get('app_version', app_info.get('version', '1.0.0'))}
 AppPublisher={installer_config.get('app_publisher', 'eCan Team')}
-DefaultDirName={{autopf}}\eCan
-DefaultGroupName=eCan
+DefaultDirName={default_dir}
+DefaultGroupName={default_group}
 OutputDir=..\dist
 OutputBaseFilename={installer_filename}
 Compression={compression}
 SolidCompression={solid_compression}
 UsePreviousAppDir=yes
-PrivilegesRequired=lowest
+PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
 UninstallDisplayIcon={{app}}\eCan.exe
@@ -414,6 +419,26 @@ Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: 
 [Icons]
 Name: "{{group}}\eCan"; Filename: "{run_target}"
 Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; Tasks: desktopicon
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{{localappdata}}\eCan"
+
+[Code]
+function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := True;
+  if MsgBox('Do you want to remove user data and settings?', mbConfirmation, MB_YESNO) = IDYES then
+  begin
+    // Remove user data directory
+    if DirExists(ExpandConstant('{{localappdata}}\eCan')) then
+    begin
+      if not DelTree(ExpandConstant('{{localappdata}}\eCan'), True, True, True) then
+        MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
+    end;
+  end;
+end;
 
 [Run]
 Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall skipifsilent
