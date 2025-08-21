@@ -1,5 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Button } from 'antd';
+import { PlusOutlined } from '@ant-design/icons';
 import { useAppDataStore } from '../../stores/appDataStore';
 import AgentAvatar from './components/AgentAvatar';
 import './DepartmentRoom.css';
@@ -29,23 +31,34 @@ const DepartmentRoom: React.FC = () => {
   }
 
   return (
-    <div className="department-room">
-      {departmentId && (
-        <div style={{ fontSize: 28, fontWeight: 700, color: '#fff', margin: '32px 0 0 0', textAlign: 'center', letterSpacing: 1, textShadow: '0 2px 8px #0008' }}>
-          {departmentName}
+    <div className="department-room" style={{ position: 'relative' }}>
+      {/* Header bar with title (if any) and global Add button on the right */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 8px 0' }}>
+        <div style={{ fontSize: 28, fontWeight: 700, color: '#fff', letterSpacing: 1, textShadow: '0 2px 8px #0008' }}>
+          {departmentId ? departmentName : ''}
         </div>
-      )}
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => navigate('/agents/details/new')}
+        >
+          {t('pages.agents.add') || 'Add'}
+        </Button>
+      </div>
       <div className="agents-list">
-        {deptAgents.map((agent: Agent) => (
-          <AgentAvatar
-            key={agent.card.id}
-            agent={agent}
-            onChat={() => navigate(`/chat?agentId=${agent.card.id}`)}
-          />
-        ))}
+        {deptAgents.map((agent: Agent, idx: number) => {
+          const cardId = (agent as any)?.card?.id ?? (agent as any)?.id ?? `agent-${idx}`;
+          return (
+            <AgentAvatar
+              key={cardId}
+              agent={agent}
+              onChat={() => navigate(`/chat?agentId=${cardId}`)}
+            />
+          );
+        })}
       </div>
     </div>
   );
 };
 
-export default DepartmentRoom; 
+export default DepartmentRoom;

@@ -88,34 +88,58 @@ const AgentDetails: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { id } = useParams();
+  const isNew = id === 'new';
   const username = useUserStore((s: any) => s.username);
   const { message } = App.useApp();
 
   const [form] = Form.useForm<AgentDetailsForm>();
-  const [editMode, setEditMode] = useState(false);
+  const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
 
-  // Simulated initial data. In real app, fetch by id via IPC getAgents or from store
+  // Initialize form: if new, set blank defaults; otherwise set sample/existing values
   useEffect(() => {
-    const init: AgentDetailsForm = {
-      id: id,
-      agent_id: id,
-      name: `Agent ${id}`,
-      gender: 'Male',
-      birthday: null,
-      owner: username || 'owner',
-      personality: ['Friendly'],
-      title: ['Engineer'],
-      organizations: ['R&D'],
-      supervisors: [],
-      subordinates: [],
-      tasks: [],
-      skills: [],
-      vehicle: null,
-      metadata: '{\n  "note": "sample"\n}'
-    };
-    form.setFieldsValue(init);
-  }, [id, username, form]);
+    if (isNew) {
+      const init: AgentDetailsForm = {
+        id: undefined,
+        agent_id: undefined,
+        name: '',
+        gender: 'Male',
+        birthday: null,
+        owner: username || 'owner',
+        personality: [],
+        title: [],
+        organizations: [],
+        supervisors: [],
+        subordinates: [],
+        tasks: [],
+        skills: [],
+        vehicle: null,
+        metadata: ''
+      };
+      form.setFieldsValue(init);
+      setEditMode(true);
+    } else {
+      const init: AgentDetailsForm = {
+        id: id,
+        agent_id: id,
+        name: `Agent ${id}`,
+        gender: 'Male',
+        birthday: null,
+        owner: username || 'owner',
+        personality: ['Friendly'],
+        title: ['Engineer'],
+        organizations: ['R&D'],
+        supervisors: [],
+        subordinates: [],
+        tasks: [],
+        skills: [],
+        vehicle: null,
+        metadata: '{\n  "note": "sample"\n}'
+      };
+      form.setFieldsValue(init);
+      setEditMode(false);
+    }
+  }, [id, isNew, username, form]);
 
   const disabled = !editMode;
 
@@ -130,11 +154,17 @@ const AgentDetails: React.FC = () => {
       };
       setLoading(true);
       const api = get_ipc_api();
-      const res = await api.saveAgents(username, [payload]);
+      const res = isNew
+        ? await api.newAgents(username, [payload])
+        : await api.saveAgents(username, [payload]);
       setLoading(false);
       if (res.success) {
         message.success(t('common.saved_successfully') || 'Saved');
         setEditMode(false);
+        if (isNew) {
+          // After creation, navigate back to agents list or to the new detail page
+          navigate('/agents');
+        }
       } else {
         message.error(res.error?.message || 'Save failed');
       }
