@@ -12,6 +12,7 @@ import { get_ipc_api } from '@/services/ipc_api';
 
 function getRandomGif(): string {
   // 这里假设 agentGifs 是一个字符串数组
+  if (!Array.isArray(agentGifs) || agentGifs.length === 0) return '';
   const idx = Math.floor(Math.random() * agentGifs.length);
   return agentGifs[idx] as string;
 }
@@ -32,8 +33,10 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   const username = useUserStore((s: any) => s.username);
   // 兼容Agent和AgentCard
   const id = (agent as any).id || (agent as any).card?.id;
-  const name = (agent as any).name || (agent as any).card?.name;
-  const desc = (agent as any).description || (agent as any).card?.description;
+  const rawName = (agent as any).name ?? (agent as any).card?.name;
+  const rawDesc = (agent as any).description ?? (agent as any).card?.description;
+  const safeName = typeof rawName === 'string' ? rawName : '';
+  const safeDesc = typeof rawDesc === 'string' ? rawDesc : '';
   const mediaUrl = useMemo<string>(() => getRandomGif(), []);
 
   // 只要 mediaUrl 存在且以 .webm 或 .mp4 结尾就用 video
@@ -92,7 +95,7 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   ];
 
   return (
-    <div className="agent-avatar" key={id}>
+    <div className="agent-avatar" key={id} style={{ position: 'relative' }}>
       {isVideo ? (
         <div
           className="agent-gif-video-wrapper"
@@ -121,7 +124,7 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
             <Button shape="circle" icon={<MoreOutlined />} size="middle" />
           </Dropdown>
         </span>
-        <div className="agent-name" style={{ flex: 1, textAlign: 'center' }}>{t(name)}</div>
+        <div className="agent-name" style={{ flex: 1, textAlign: 'center' }}>{safeName ? t(safeName) : ''}</div>
         <span style={{ display: 'inline-block' }}>
           <Button
             type="primary"
@@ -135,7 +138,7 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
         </span>
       </div>
 
-      {desc && <div className="agent-desc">{t(desc)}</div>}
+      {safeDesc && <div className="agent-desc">{t(safeDesc)}</div>}
     </div>
   );
 }

@@ -33,8 +33,11 @@ const getStatusColor = (status: Skill['status']): string => {
 
 interface SkillDetailsProps {
     skill: Skill | null;
+    isNew?: boolean;
     onLevelUp: (id: number) => void;
     onRefresh: () => void;
+    onSave?: () => void;
+    onCancel?: () => void;
 }
 
 type ExtendedSkill = Skill & {
@@ -53,13 +56,22 @@ type ExtendedSkill = Skill & {
     members?: string;
 };
 
-const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, onLevelUp, onRefresh }) => {
+const DEFAULT_SKILL: Partial<Skill> = {
+    id: '' as any,
+    name: '',
+    description: '',
+    category: 'general' as any,
+    status: 'planned' as any,
+    level: 0 as any,
+};
+
+const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onLevelUp, onRefresh, onSave, onCancel }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const username = useUserStore((s) => s.username) || '';
 
     const [form] = Form.useForm<ExtendedSkill>();
-    const [editMode, setEditMode] = React.useState(false);
+    const [editMode, setEditMode] = React.useState(isNew);
 
     React.useEffect(() => {
         if (skill) {
@@ -82,11 +94,29 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, onLevelUp, onRefresh
                 rentable: s.rentable,
                 members: s.members,
             } as any);
+        } else if (isNew) {
+            form.setFieldsValue({
+                id: '' as any,
+                name: '',
+                owner: username,
+                description: '',
+                latest_version: '1.0.0',
+                level: 0,
+                config: '',
+                apps: '',
+                limitations: '',
+                price: '' as any,
+                price_model: '',
+                public: false,
+                rentable: false,
+                members: '',
+            } as any);
+            setEditMode(true);
         } else {
             form.resetFields();
             setEditMode(false);
         }
-    }, [skill, form]);
+    }, [skill, isNew, form, username]);
 
     const handleEdit = () => {
         setEditMode(true);
@@ -99,12 +129,17 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, onLevelUp, onRefresh
             const payload = {
                 ...values,
                 id: (values as any).id,
+                owner: username,
             } as ExtendedSkill;
-            const resp = await get_ipc_api().saveSkill(username, payload);
+            const api = get_ipc_api();
+            const resp = isNew
+                ? await api.newSkill(username, payload as any)
+                : await api.saveSkill(username, payload as any);
             if (resp.success) {
                 message.success(t('common.saved', 'Saved'));
                 setEditMode(false);
-                onRefresh();
+                if (onSave) onSave();
+                else onRefresh();
             } else {
                 message.error(resp.error?.message || 'Save failed');
             }
@@ -121,42 +156,49 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, onLevelUp, onRefresh
         navigate('/skill_editor', { state: { skillId: (skill as any).id } });
     };
 
-    if (!skill) {
+    if (!skill && !isNew) {
         return <Text type="secondary">{t('pages.skills.selectSkill')}</Text>;
     }
+
+    // Derive safe display values to avoid accessing properties on null during new creation
+    const name = (isNew ? form.getFieldValue('name') : (skill as any)?.name) || '';
+    const description = (isNew ? form.getFieldValue('description') : (skill as any)?.description) || '';
+    const status = (isNew ? 'planned' : (skill as any)?.status) || 'planned';
+    const category = (isNew ? 'general' : (skill as any)?.category) || 'general';
+    const levelVal = (isNew ? (form.getFieldValue('level') ?? 0) : (skill as any)?.level) || 0;
 
     return (
         <div style={{ maxHeight: '100%', overflow: 'auto' }}>
             <Space direction="vertical" style={{ width: '100%' }}>
-                <Title level={4}  style={{ color: 'white' }}>{(skill as any).name}</Title>
-                <Text  style={{ color: 'white' }}>{(skill as any).description}</Text>
+                <Title level={4}  style={{ color: 'white' }}>{name || t('pages.skills.newSkill', 'New Skill')}</Title>
+                <Text  style={{ color: 'white' }}>{description}</Text>
                 <Space>
-                    <Tag color={getStatusColor(skill.status)}>
-                        <CheckCircleOutlined /> {t('pages.skills.statusLabel', '状态')}: {t(`pages.skills.status.${skill.status || 'unknown'}`, skill.status || t('common.unknown', '未知'))}
+                    <Tag color={getStatusColor(status as any)}>
+                        <CheckCircleOutlined /> {t('pages.skills.statusLabel', '状态')}: {t(`pages.skills.status.${status || 'unknown'}`, (status as any) || t('common.unknown', '未知'))}
                     </Tag>
                     <Tag color="blue">
-                        <ThunderboltOutlined /> {t('pages.skills.category')}: {t(`pages.skills.categories.${skill.category || 'unknown'}`, skill.category || t('common.unknown', '未知'))}
+                        <ThunderboltOutlined /> {t('pages.skills.category')}: {t(`pages.skills.categories.${category || 'unknown'}`, (category as any) || t('common.unknown', '未知'))}
                     </Tag>
                 </Space>
                 <Space>
                     <Tag style={{color: 'white'}}>
-                        <ClockCircleOutlined /> {t('pages.skills.lastUsed')}: {skill.lastUsed}
+                        <ClockCircleOutlined /> {t('pages.skills.lastUsed')}: {(skill as any)?.lastUsed || '-'}
                     </Tag>
                     <Tag style={{color: 'white'}}>
-                        <StarOutlined /> {t('pages.skills.usageCount')}: {skill.usageCount}
+                        <StarOutlined /> {t('pages.skills.usageCount')}: {(skill as any)?.usageCount ?? 0}
                     </Tag>
                 </Space>
                 <Card>
                     <Space direction="vertical" style={{ width: '100%' }}>
                         <Text strong style={{ color: 'white' }}>{t('pages.skills.skillLevel')}</Text>
                         <Progress
-                            percent={skill.level}
-                            status={skill.status === 'learning' ? 'active' : 'normal'}
+                            percent={levelVal}
+                            status={(status as any) === 'learning' ? 'active' : 'normal'}
                         />
                         <Text type="secondary"  style={{ color: 'white' }}>
-                            {skill.level === 100
+                            {levelVal === 100
                                 ? t('pages.skills.mastered')
-                                : t('pages.skills.entryPercent', { percent: skill.level })}
+                                : t('pages.skills.entryPercent', { percent: levelVal })}
                         </Text>
                     </Space>
                 </Card>
@@ -259,8 +301,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, onLevelUp, onRefresh
                     <Button
                         type="primary"
                         icon={<ThunderboltOutlined />}
-                        onClick={() => onLevelUp((skill as any).id)}
-                        disabled={skill.level === 100}
+                        onClick={() => skill && onLevelUp((skill as any).id)}
+                        disabled={!skill || (skill as any).level === 100}
                     >
                         {t('pages.skills.levelUp')}
                     </Button>
@@ -268,9 +310,18 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, onLevelUp, onRefresh
                         {t('pages.skills.editSkill')}
                     </Button>
                     {editMode && (
-                        <Button type="primary" onClick={handleSave}>
-                            {t('common.save', 'Save')}
-                        </Button>
+                        <>
+                            <Button type="primary" onClick={handleSave}>
+                                {isNew ? t('common.create', 'Create') : t('common.save', 'Save')}
+                            </Button>
+                            <Button onClick={() => {
+                                form.resetFields();
+                                setEditMode(false);
+                                if (isNew && onCancel) onCancel();
+                            }}>
+                                {t('common.cancel', 'Cancel')}
+                            </Button>
+                        </>
                     )}
                     <Button icon={<HistoryOutlined />}>
                         {t('pages.skills.viewHistory')}
