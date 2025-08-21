@@ -59,7 +59,7 @@ export const LoopNodeRegistry: FlowNodeRegistry = {
       // 鼠标开始时所在位置不包括当前节点时才可选中
       return !transform.bounds.contains(mousePos.x, mousePos.y);
     },
-    expandable: false, // disable expanded
+    // expandable: false, // disable expanded
     wrapperStyle: {
       minWidth: 'unset',
       width: '100%',

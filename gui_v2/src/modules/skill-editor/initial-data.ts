@@ -97,13 +97,9 @@ export const initialData: FlowDocumentJSON = {
       },
       data: {
         title: 'End',
-        inputs: {
-          type: 'object',
-          properties: {
-            result: {
-              type: 'string',
-            },
-          },
+        inputsValues: {
+          success: { type: 'constant', content: true, schema: { type: 'boolean' } },
+          query: { type: 'ref', content: ['start_0', 'query'] },
         },
       },
     },
@@ -176,6 +172,16 @@ export const initialData: FlowDocumentJSON = {
       },
       data: {
         title: 'Loop_1',
+        loopFor: {
+          type: 'ref',
+          content: ['start_0', 'array_obj'],
+        },
+        loopOutputs: {
+          acm: {
+            type: 'ref',
+            content: ['llm_6aSyo', 'result'],
+          },
+        },
       },
       blocks: [
         {
@@ -413,11 +419,11 @@ export const initialData: FlowDocumentJSON = {
             content: 0.5,
           },
           systemPrompt: {
-            type: 'constant',
+            type: 'template',
             content: '# Role\nYou are an AI assistant.\n',
           },
           prompt: {
-            type: 'constant',
+            type: 'template',
             content: '# User Input\nquery:{{start_0.query}}\nenable:{{start_0.enable}}',
           },
         },
@@ -490,11 +496,11 @@ export const initialData: FlowDocumentJSON = {
             content: 0.5,
           },
           systemPrompt: {
-            type: 'constant',
+            type: 'template',
             content: '# Role\nYou are an AI assistant.\n',
           },
           prompt: {
-            type: 'constant',
+            type: 'template',
             content: '# LLM Input\nresult:{{llm_8--A3.result}}',
           },
         },

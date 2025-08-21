@@ -10,6 +10,7 @@ export enum WorkflowNodeType {
   HTTP = 'http',
   Code = 'code',
   HttpApi = 'http-api',
+  Variable = 'variable',
   Condition = 'condition',
   Loop = 'loop',
   BlockStart = 'block-start',

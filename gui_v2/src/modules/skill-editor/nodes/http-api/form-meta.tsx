@@ -6,11 +6,10 @@
 import { Collapse, Input, JsonViewer, Select, Switch, Tag } from "@douyinfe/semi-ui";
 import React, { useCallback, useRef } from "react";
 
-import { IFlowValue, InputsValues } from "@flowgram.ai/form-materials";
+import { IFlowValue, InputsValues, DisplaySchemaTag } from "@flowgram.ai/form-materials";
 import { Field, FieldRenderProps, FormMeta, FormRenderProps, ValidateTrigger } from "@flowgram.ai/free-layout-editor";
-import { mapValues } from "lodash-es";
 
-import { FormContent, FormHeader, FormItem, FormOutputs, TypeTag } from "../../form-components";
+import { FormContent, FormHeader, FormItem } from "../../form-components";
 import { FormCallable } from "../../form-components/form-callable";
 import { useIsSidebar } from "../../hooks";
 import { FlowNodeJSON, JsonSchema } from "../../typings";
@@ -178,9 +177,14 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
                   if (properties) {
                     const content = Object.keys(properties).map((key) => {
                       const property = properties[key];
-                      return <TypeTag key={key} name={key} type={property.type as string} />;
+                      return (
+                        <div key={key} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: "12px", color: "#666" }}>{key}:</span>
+                          <DisplaySchemaTag value={{ type: property.type as string }} />
+                        </div>
+                      );
                     });
-                    return <div style={{ display: "flex", gap: 10 }}>{content}</div>;
+                    return <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{content}</div>;
                   }
                   return <></>;
                 }}
@@ -203,7 +207,6 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
           <Field name="http.apiUrl">{({ field }: any) => <div style={{ fontSize: "14px", color: "#333" }}>{field.value}</div>}</Field>
         </div>
         <FormCallable />
-        <FormOutputs />
       </FormContent>
     </>
   );

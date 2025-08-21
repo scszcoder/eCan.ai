@@ -1,8 +1,9 @@
 import { Select, Radio, InputNumber, TextArea } from "@douyinfe/semi-ui";
 import { Field, FieldRenderProps, FormMeta, FormRenderProps, ValidateTrigger } from "@flowgram.ai/free-layout-editor";
-import { FormContent, FormHeader, FormItem, FormOutputs } from "../../form-components";
+import { FormContent, FormHeader, FormItem } from "../../form-components";
 import { FlowNodeJSON } from "../../typings";
 import { FormCallable } from "../../form-components/form-callable";
+import { DisplayOutputs } from "@flowgram.ai/form-materials";
 
 const knowledgeBases = [
   { label: "Default Knowledge Base", value: "default" },
@@ -130,7 +131,6 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
             )}
           </Field>
           <FormCallable />
-          <FormOutputs />
         </div>
       </FormContent>
     </>

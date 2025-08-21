@@ -7,7 +7,7 @@ import { FormRenderProps, FormMeta, ValidateTrigger, Field, mapValues, FieldRend
 import { IFlowValue, InputsValues } from '@flowgram.ai/form-materials';
 
 import { FlowNodeJSON, JsonSchema } from '../../typings';
-import { FormHeader, FormContent, FormOutputs } from '../../form-components';
+import { FormHeader, FormContent } from '../../form-components';
 import { FormCallable } from '../../form-components/form-callable';
 
 export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
@@ -32,7 +32,6 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
           width: '100%' 
         }} />
         <FormCallable />
-        <FormOutputs />
       </FormContent>
     </>
   );

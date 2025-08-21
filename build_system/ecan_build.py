@@ -587,14 +587,14 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
 
             print(f"[SUCCESS] macOS PKG created: {pkg_file} ({pkg_file.stat().st_size / (1024*1024):.1f} MB)")
 
-            # Create legacy filename for backward compatibility (if needed)
+            # Remove any legacy PKG files to avoid duplicates
             legacy_pkg = self.dist_dir / f"{app_name}-{app_version}.pkg"
-            if not legacy_pkg.exists():
+            if legacy_pkg.exists() and legacy_pkg != pkg_file:
                 try:
-                    shutil.copy2(pkg_file, legacy_pkg)
-                    print(f"[INFO] Created legacy PKG name: {legacy_pkg.name}")
+                    legacy_pkg.unlink()
+                    print(f"[INFO] Removed duplicate legacy PKG: {legacy_pkg.name}")
                 except Exception as e:
-                    print(f"[WARNING] Failed to create legacy PKG name: {e}")
+                    print(f"[WARNING] Failed to remove legacy PKG: {e}")
 
             # Optional: Code signing for PKG
             if macos_config.get("codesign", {}).get("enabled", False):
@@ -623,16 +623,64 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 shutil.rmtree(temp_dir)
             temp_dir.mkdir(parents=True, exist_ok=True)
 
+            print(f"[PKG] Using temporary directory: {temp_dir}")
+
             # Create component PKG first
             component_pkg = temp_dir / f"{app_name}-component.pkg"
 
-            # Use pkgbuild to create component package (only include the .app bundle)
+            # Create a staging directory and copy the app bundle
+            staging_dir = temp_dir / "staging"
+            staging_dir.mkdir(exist_ok=True)
+            staging_app_dir = staging_dir / f"{app_name}.app"
+
+            # Remove existing staging app if it exists
+            if staging_app_dir.exists():
+                shutil.rmtree(staging_app_dir)
+
+            print(f"[PKG] Copying app bundle to staging directory...")
+            print(f"[PKG] This may take a few minutes for large applications...")
+
+            try:
+                # Use rsync for faster copying if available, otherwise fall back to shutil
+                import subprocess
+                rsync_cmd = [
+                    "rsync", "-a", "--progress",
+                    f"{app_bundle_dir}/", f"{staging_app_dir}/"
+                ]
+
+                try:
+                    result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=600)
+                    if result.returncode == 0:
+                        print(f"[PKG] App bundle copied using rsync (faster)")
+                    else:
+                        raise Exception("rsync failed")
+                except:
+                    # Fall back to shutil.copytree
+                    print(f"[PKG] Using standard copy method...")
+                    shutil.copytree(app_bundle_dir, staging_app_dir)
+                    print(f"[PKG] App bundle copied to staging directory")
+
+            except Exception as e:
+                print(f"[ERROR] Failed to copy app bundle: {e}")
+                return False
+
+            # Get install location from config
+            install_location = macos_config.get("install_location", "/Applications")
+
+            # Create scripts for post-installation tasks
+            scripts_dir = temp_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            self._create_postinstall_script(scripts_dir, app_name, macos_config)
+
+            # Use pkgbuild with root to avoid relocate issues
             pkgbuild_cmd = [
                 "pkgbuild",
-                "--component", str(app_bundle_dir),  # Only the .app bundle
+                "--root", str(staging_dir),
                 "--identifier", f"com.ecan.{app_name.lower()}",
                 "--version", app_version,
-                "--install-location", "/Applications",
+                "--install-location", install_location,
+                "--ownership", "preserve",
+                "--scripts", str(scripts_dir),
                 str(component_pkg)
             ]
 
@@ -641,7 +689,7 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 pkgbuild_cmd,
                 capture_output=True,
                 text=True,
-                timeout=600  # Increased timeout for large app bundles
+                timeout=1200  # 20 minutes timeout for very large app bundles
             )
 
             if result.returncode != 0:
@@ -650,8 +698,18 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 print(f"[ERROR] STDERR: {result.stderr}")
                 return False
 
+            print(f"[PKG] Component package created successfully")
+
+            # Post-process the component package to remove relocate tags
+            # This is necessary even with --root method due to bundle detection
+            # Set SKIP_RELOCATE_FIX=1 to skip this step for faster testing
+            if not os.getenv('SKIP_RELOCATE_FIX'):
+                self._remove_pkg_relocate_tags(component_pkg, temp_dir)
+            else:
+                print(f"[PKG] Skipping relocate fix (SKIP_RELOCATE_FIX=1)")
+
             # Create distribution XML for productbuild
-            distribution_xml = self._create_distribution_xml(app_name, app_version, macos_config)
+            distribution_xml = self._create_distribution_xml(app_name, app_version, macos_config, temp_dir)
             distribution_file = temp_dir / "distribution.xml"
 
             with open(distribution_file, 'w', encoding='utf-8') as f:
@@ -692,7 +750,203 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             print(f"[ERROR] PKG creation failed: {e}")
             return False
 
-    def _create_distribution_xml(self, app_name: str, app_version: str, macos_config: Dict[str, Any]) -> str:
+    def _remove_pkg_relocate_tags(self, component_pkg: Path, temp_dir: Path) -> None:
+        """Remove relocate tags from PKG component PackageInfo to prevent installation issues"""
+        try:
+            print(f"[PKG] Fixing relocate issue in component package...")
+
+            # Extract the component package
+            extract_dir = temp_dir / "pkg_extract"
+            extract_dir.mkdir(exist_ok=True)
+
+            # Use xar to extract the package
+            extract_cmd = ["xar", "-xf", str(component_pkg), "-C", str(extract_dir)]
+            result = subprocess.run(extract_cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                print(f"[WARNING] Failed to extract component package: {result.stderr}")
+                return
+
+            # Find PackageInfo file - it might be in different locations
+            possible_locations = [
+                extract_dir / f"{component_pkg.stem}.pkg" / "PackageInfo",
+                extract_dir / "PackageInfo",
+                extract_dir / f"{component_pkg.name}" / "PackageInfo"
+            ]
+
+            package_info_file = None
+            for location in possible_locations:
+                if location.exists():
+                    package_info_file = location
+                    break
+
+            if not package_info_file:
+                print(f"[WARNING] PackageInfo not found in any of: {[str(loc) for loc in possible_locations]}")
+                # List actual contents to debug
+                try:
+                    contents = list(extract_dir.rglob("*"))
+                    print(f"[DEBUG] Extract directory contents: {[str(p) for p in contents[:10]]}")
+                except:
+                    pass
+                return
+
+            # Read and modify PackageInfo
+            with open(package_info_file, 'r') as f:
+                content = f.read()
+
+            # Remove relocate tags comprehensively
+            import re
+            original_content = content
+
+            # First, ensure relocatable is set to false
+            content = re.sub(r'relocatable="true"', 'relocatable="false"', content)
+
+            # Remove all relocate sections - handle both single line and multi-line
+            # Remove complete relocate blocks with content
+            content = re.sub(r'<relocate>.*?</relocate>', '', content, flags=re.DOTALL | re.MULTILINE)
+
+            # Remove any remaining relocate opening/closing tags
+            content = re.sub(r'<relocate[^>]*>', '', content)
+            content = re.sub(r'</relocate>', '', content)
+
+            # Clean up any extra whitespace left behind
+            content = re.sub(r'\n\s*\n\s*\n', '\n\n', content)
+
+            if content != original_content:
+                print(f"[PKG] Successfully removed relocate tags from PackageInfo")
+                # Show what was removed for debugging
+                removed_lines = len(original_content.splitlines()) - len(content.splitlines())
+                print(f"[PKG] Removed {removed_lines} lines containing relocate information")
+            else:
+                print(f"[PKG] No relocate tags found to remove")
+
+            # Write back the modified content
+            with open(package_info_file, 'w') as f:
+                f.write(content)
+
+            # Repackage the component with optimizations
+            print(f"[PKG] Repackaging component (this may take a few minutes)...")
+
+            # Use optimized xar command with compression and parallel processing
+            repackage_cmd = [
+                "xar", "-cf", str(component_pkg),
+                "-C", str(extract_dir),
+                "--compression", "gzip",  # Use gzip compression for speed
+                "."
+            ]
+
+            # Set up environment for faster I/O
+            import os
+            env = os.environ.copy()
+            env['TMPDIR'] = str(temp_dir)  # Use our temp directory
+
+            result = subprocess.run(
+                repackage_cmd,
+                capture_output=True,
+                text=True,
+                timeout=900,  # 15 minutes timeout
+                env=env
+            )
+
+            if result.returncode != 0:
+                print(f"[WARNING] Failed to repackage component: {result.stderr}")
+            else:
+                print(f"[PKG] Successfully fixed relocate issue")
+
+        except Exception as e:
+            print(f"[WARNING] Failed to fix relocate issue: {e}")
+
+    def _create_postinstall_script(self, scripts_dir: Path, app_name: str, macos_config: Dict[str, Any]) -> None:
+        """Create postinstall script for desktop shortcuts and other post-installation tasks"""
+        try:
+            install_location = macos_config.get("install_location", "/Applications")
+            create_desktop_shortcut = macos_config.get("create_desktop_shortcut", False)
+            create_launchpad_shortcut = macos_config.get("create_launchpad_shortcut", False)
+
+            postinstall_script = scripts_dir / "postinstall"
+
+            script_content = f"""#!/bin/bash
+# eCan Post-Installation Script
+# This script runs after the application is installed
+
+APP_NAME="{app_name}"
+APP_PATH="{install_location}/$APP_NAME.app"
+DESKTOP_PATH="$HOME/Desktop"
+
+echo "Running post-installation tasks for $APP_NAME..."
+
+# Ensure the application has proper permissions
+if [ -d "$APP_PATH" ]; then
+    echo "Setting permissions for $APP_PATH"
+    chmod -R 755 "$APP_PATH"
+
+    # Fix executable permissions
+    if [ -f "$APP_PATH/Contents/MacOS/$APP_NAME" ]; then
+        chmod +x "$APP_PATH/Contents/MacOS/$APP_NAME"
+    fi
+fi
+
+"""
+
+            # Add desktop shortcut creation if enabled
+            if create_desktop_shortcut:
+                script_content += f"""
+# Create desktop shortcut
+if [ -d "$APP_PATH" ] && [ -d "$DESKTOP_PATH" ]; then
+    echo "Creating desktop shortcut..."
+    SHORTCUT_PATH="$DESKTOP_PATH/$APP_NAME.app"
+
+    # Remove existing shortcut if it exists
+    if [ -L "$SHORTCUT_PATH" ] || [ -e "$SHORTCUT_PATH" ]; then
+        rm -rf "$SHORTCUT_PATH"
+    fi
+
+    # Create symbolic link to the application
+    ln -sf "$APP_PATH" "$SHORTCUT_PATH"
+    echo "Desktop shortcut created at $SHORTCUT_PATH"
+else
+    echo "Warning: Could not create desktop shortcut - app or desktop not found"
+fi
+"""
+
+            # Add Launchpad registration if enabled
+            if create_launchpad_shortcut:
+                script_content += f"""
+# Register with Launchpad (this happens automatically on macOS)
+if [ -d "$APP_PATH" ]; then
+    echo "Registering with Launchpad..."
+    # Touch the Applications directory to refresh Launchpad
+    touch "{install_location}"
+
+    # Optionally trigger Launchpad database refresh
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH" 2>/dev/null || true
+    echo "Application registered with Launchpad"
+fi
+"""
+
+            script_content += """
+echo "Post-installation tasks completed successfully"
+exit 0
+"""
+
+            # Write the script
+            with open(postinstall_script, 'w', encoding='utf-8') as f:
+                f.write(script_content)
+
+            # Make script executable
+            postinstall_script.chmod(0o755)
+
+            print(f"[PKG] Created postinstall script with features:")
+            if create_desktop_shortcut:
+                print(f"[PKG]   - Desktop shortcut creation")
+            if create_launchpad_shortcut:
+                print(f"[PKG]   - Launchpad registration")
+            print(f"[PKG]   - Install location: {install_location}")
+
+        except Exception as e:
+            print(f"[WARNING] Failed to create postinstall script: {e}")
+
+    def _create_distribution_xml(self, app_name: str, app_version: str, macos_config: Dict[str, Any], temp_dir: Path = None) -> str:
         """Create distribution XML for productbuild"""
         pkg_config = macos_config.get("pkg", {})
 
@@ -723,13 +977,97 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
         if conclusion_file and Path(conclusion_file).exists():
             conclusion_section = f'<conclusion file="{conclusion_file}"/>'
 
+        # Check for icon file from configuration
+        icon_section = ""
+        if temp_dir:
+            # Get icon from build configuration
+            icon_name = None
+            mime_type = None
+
+            # Try to get macOS icon from app.icons.macos
+            if hasattr(self, 'config') and self.config:
+                # Access the config dictionary through the BuildConfig object
+                config_dict = self.config.config if hasattr(self.config, 'config') else self.config
+                app_config = config_dict.get('app', {})
+                icons_config = app_config.get('icons', {})
+                macos_icon = icons_config.get('macos')
+
+                if macos_icon:
+                    icon_name = macos_icon
+                    if icon_name.endswith('.icns'):
+                        mime_type = "image/x-icns"
+                    elif icon_name.endswith('.ico'):
+                        mime_type = "image/x-icon"
+                    else:
+                        mime_type = "image/x-icns"  # Default for macOS
+
+            # Fallback to default icon names if not configured
+            if not icon_name:
+                icon_candidates = [
+                    ("eCan.icns", "image/x-icns"),
+                    ("eCan.ico", "image/x-icon"),
+                    ("icon.icns", "image/x-icns")
+                ]
+
+                for candidate_name, candidate_mime in icon_candidates:
+                    if (self.project_root / candidate_name).exists():
+                        icon_name = candidate_name
+                        mime_type = candidate_mime
+                        break
+
+            # Copy icon if found
+            if icon_name:
+                icon_file = self.project_root / icon_name
+                if icon_file.exists():
+                    temp_icon = temp_dir / icon_name
+                    try:
+                        shutil.copy2(icon_file, temp_icon)
+                        icon_section = f'<background file="{icon_name}" mime-type="{mime_type}" scaling="proportional" alignment="center"/>'
+                        print(f"[PKG] Added icon to installer: {icon_file}")
+                    except Exception as e:
+                        print(f"[WARNING] Failed to copy icon {icon_name} for PKG: {e}")
+                else:
+                    print(f"[WARNING] Configured icon file not found: {icon_file}")
+            else:
+                print(f"[INFO] No icon configured or found for PKG installer")
+
+        # Get additional configuration
+        install_location = macos_config.get("install_location", "/Applications")
+        create_desktop_shortcut = macos_config.get("create_desktop_shortcut", False)
+        create_launchpad_shortcut = macos_config.get("create_launchpad_shortcut", False)
+        min_os_version = macos_config.get("min_os_version", "11.0")
+
+        # Create installation summary
+        install_summary = f"This will install {app_name} to {install_location}."
+        if create_desktop_shortcut:
+            install_summary += " A desktop shortcut will be created."
+        if create_launchpad_shortcut:
+            install_summary += " The application will be registered with Launchpad."
+
         distribution_xml = f"""<?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
     <title>{title}</title>
     <organization>com.ecan</organization>
     <domains enable_localSystem="true"/>
-    <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
 
+    <!-- System requirements -->
+    <installation-check script="pm_install_check();"/>
+    <script>
+    <![CDATA[
+        function pm_install_check() {{
+            if(!(system.compareVersions(system.version.ProductVersion, '{min_os_version}') >= 0)) {{
+                my.result.title = 'Unable to install';
+                my.result.message = 'This application requires macOS {min_os_version} or later.';
+                my.result.type = 'Fatal';
+                return false;
+            }}
+            return true;
+        }}
+    ]]>
+    </script>
+
+    {icon_section}
     {welcome_section}
     {readme_section}
     {license_section}
@@ -743,7 +1081,7 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
         </line>
     </choices-outline>
 
-    <choice id="default"/>
+    <choice id="default" title="{app_name} Installation" description="{install_summary}"/>
     <choice id="com.ecan.{app_name.lower()}" visible="false">
         <pkg-ref id="com.ecan.{app_name.lower()}"/>
     </choice>

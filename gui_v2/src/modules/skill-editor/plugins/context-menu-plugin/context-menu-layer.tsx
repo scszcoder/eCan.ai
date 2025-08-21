@@ -35,6 +35,7 @@ export class ContextMenuLayer extends Layer {
 
   onReady() {
     this.listenPlaygroundEvent('contextmenu', (e) => {
+      if (this.config.readonlyOrDisabled) return;
       this.openNodePanel(e);
       e.preventDefault();
       e.stopPropagation();

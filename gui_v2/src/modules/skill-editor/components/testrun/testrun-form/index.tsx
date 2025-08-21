@@ -6,13 +6,12 @@
 import { FC } from 'react';
 
 import classNames from 'classnames';
-import { CodeEditor } from '@flowgram.ai/form-materials';
+import { CodeEditor, DisplaySchemaTag } from '@flowgram.ai/form-materials';
 import { Input, Switch, InputNumber } from '@douyinfe/semi-ui';
 
 import { useFormMeta } from '../hooks/use-form-meta';
 import { useFields } from '../hooks/use-fields';
 import { useSyncDefault } from '../hooks';
-import { TypeTag } from '../../../form-components';
 
 import styles from './index.module.less';
 
@@ -118,7 +117,16 @@ export const TestRunForm: FC<TestRunFormProps> = ({ values, setValues }) => {
             {field.name}
             {field.required && <span className={styles.requiredIndicator}>*</span>}
             <span className={styles.fieldTypeIndicator}>
-              <TypeTag type={field.itemsType ?? field.type} isArray={field.type === 'array'} />
+              <DisplaySchemaTag
+                value={{
+                  type: field.type,
+                  items: field.itemsType
+                    ? {
+                        type: field.itemsType,
+                      }
+                    : undefined,
+                }}
+              />
             </span>
           </label>
           {renderField(field)}
