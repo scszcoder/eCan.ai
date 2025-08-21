@@ -292,10 +292,11 @@ class WorkFlowContext(TypedDict, total=False):
     app_context: dict
     this_node: dict
 
-def node_wrapper(fn, node_name):
+
+def node_wrapper(fn, node_name, skill_name, owner):
     def wrapped(state, *, runtime: Runtime[WorkFlowContext], store: BaseStore, **kwargs):
         # Inject node name into context or config
-        runtime.context["this_node"] = {"name": node_name}
+        runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
         return fn(state, runtime=runtime, store=store, **kwargs)
     return wrapped
 

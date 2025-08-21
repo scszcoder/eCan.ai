@@ -15,6 +15,7 @@ def prep_my_twin_chatter_skill(agent, msg):
         human = False
         params = msg.params
     else:
+        print("prep response message", msg)
         msg_txt = msg['params']['content']
         print("prep task with message text:", msg_txt)
         atts = []
