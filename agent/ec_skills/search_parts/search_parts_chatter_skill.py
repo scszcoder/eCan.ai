@@ -34,11 +34,12 @@ from utils.logger_helper import logger_helper as logger
 from agent.mcp.local_client import mcp_call_tool
 from agent.chats.tests.test_notifications import sample_metrics_0
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
-from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, llm_node_with_raw_files, get_standard_prompt
+from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, get_standard_prompt
+from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
 
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
-OWNER = "pubic"
+OWNER = "public"
 def _ensure_context(ctx: WorkFlowContext) -> WorkFlowContext:
     """Get params that configure the search algorithm."""
     if ctx.this_node:
@@ -84,7 +85,7 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
     print("run time:", runtime)
     current_node_name = runtime.context["this_node"].get("name")
 
-    print("pend_for_human_input_node:", state)
+    print(f"pend_for_human_input_node: {current_node_name}", state)
     if state.get("tool_result", None):
         qa_form = state.get("tool_result").get("qa_form", None)
         notification = state.get("tool_result").get("notification", None)
@@ -213,14 +214,14 @@ def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: B
 
 def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
     print("chat_or_work input:", state)
-    if isinstance(state['result'], dict):
-        state_output = state['result']
-        if state_output.get("job_related", False):
+    if isinstance(state['attributes'], dict):
+        state_attributes = state['attributes']
+        if state_attributes.get("work_related", False):
             return "more_analysis_app"
         else:
-            return "casually_respond_and_pend_for_next_human_msg"
+            return "pend_for_next_human_msg"
     else:
-        return "casually_respond_and_pend_for_next_human_msg"
+        return "pend_for_next_human_msg"
 
 
 def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -> str:
@@ -228,7 +229,7 @@ def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -
     if state['condition']:
         return "query_component_specs"
     else:
-        return "respond_and_pend_for_next_human_msg"
+        return "pend_for_next_human_msg0"
 
 def all_requirement_filled(state: NodeState) -> str:
     print("all_requirement_filled:", state)
@@ -239,42 +240,42 @@ def all_requirement_filled(state: NodeState) -> str:
 
 # for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
 # .wav (.mp3) and .mp4
-def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    try:
-        print("in llm_node_with_raw_files....")
-        user_input = state.get("input", "")
-        agent_id = state["messages"][0]
-        agent = get_agent_by_id(agent_id)
-        mainwin = agent.mainwin
-        print("run time:", runtime)
-        current_node_name = runtime.context["this_node"].get("name")
-        # print("current node:", current_node)
-        full_node_name = f"{OWNER}:{THIS_SKILL_NAME}:{current_node_name}"
-        run_pre_llm_hook(full_node_name, agent, state)
-
-        print("networked prompts:", state["prompts"])
-        node_prompt = state["prompts"]
-
-        mm_content = prep_multi_modal_content(state, runtime)
-
-        if state["formatted_prompts"]:
-            formatted_prompt = state["formatted_prompts"][-1]
-        else:
-            formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
-
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
-
-
-        print("chat node: llm prompt ready:", formatted_prompt)
-        response = llm.invoke(formatted_prompt)
-        print("chat node: LLM response:", response)
-        # Parse the response
-        run_post_llm_hook(full_node_name, agent, state, response)
-
-    except Exception as e:
-        # Get the traceback information
-        err_trace = get_traceback(e, "ErrorLLMNodeWithRawFiles")
-        logger.debug(err_trace)
+# def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+#     try:
+#         print("in llm_node_with_raw_files....")
+#         user_input = state.get("input", "")
+#         agent_id = state["messages"][0]
+#         agent = get_agent_by_id(agent_id)
+#         mainwin = agent.mainwin
+#         print("run time:", runtime)
+#         current_node_name = runtime.context["this_node"].get("name")
+#         # print("current node:", current_node)
+#         full_node_name = f"{OWNER}:{THIS_SKILL_NAME}:{current_node_name}"
+#         run_pre_llm_hook(full_node_name, agent, state)
+#
+#         print("networked prompts:", state["prompts"])
+#         node_prompt = state["prompts"]
+#
+#         mm_content = prep_multi_modal_content(state, runtime)
+#
+#         if state["formatted_prompts"]:
+#             formatted_prompt = state["formatted_prompts"][-1]
+#         else:
+#             formatted_prompt = get_standard_prompt(state)            #STARDARD_PROMPT
+#
+#         llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+#
+#
+#         print("chat node: llm prompt ready:", formatted_prompt)
+#         response = llm.invoke(formatted_prompt)
+#         print("chat node: LLM response:", response)
+#         # Parse the response
+#         run_post_llm_hook(full_node_name, agent, state, response)
+#
+#     except Exception as e:
+#         # Get the traceback information
+#         err_trace = get_traceback(e, "ErrorLLMNodeWithRawFiles")
+#         logger.debug(err_trace)
 
 def send_data_back(dtype, data, state) -> NodeState:
     try:
@@ -363,6 +364,8 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
 
                 # if parametric_search_filters are returned, pass them to human twin
                 #     state["parametric_search_filters"] = parametric_search_filters
+                parametric_filters = state.tool_result
+                send_data_back("form", parametric_filters, state)
             else:
                 state["error"] = tool_result.content[0].text
 
@@ -432,8 +435,9 @@ def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) ->
     print("run_search_node:", state)
 
     # send self a message to trigger the real component search work-flow
-    result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
-    state.result = result
+    fom_form = state.attributes
+    send_data_back("form", fom_form, state)
+
     return state
 
 
@@ -454,7 +458,7 @@ def are_component_specs_filled(state):
     if state['condition']:
         return "send_FOM_request"
     else:
-        return "respond_and_pend_for_next_human_msg1"
+        return "pend_for_next_human_msg1"
 
 
 def is_FOM_filled(state):
@@ -485,9 +489,8 @@ def show_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -
     print("show_results_node:", state)
 
     # send self a message to trigger the real component search work-flow
-    result = self_agent.a2a_send_chat_message(twin_agent,
-                                              {"message": "search_parts_results", "search_results": state.tool_result})
-    state.result = result
+    final_search_results = state.tool_result
+    send_data_back("notification", final_search_results, state)
     return state
 
 
@@ -506,16 +509,16 @@ async def create_search_parts_chatter_skill(mainwin):
         # Graph construction
         # graph = StateGraph(State, config_schema=ConfigSchema)
         workflow = StateGraph(NodeState, WorkFlowContext)
-        workflow.add_node("chat", node_wrapper(llm_node_with_raw_files, "chat"))
+        workflow.add_node("chat", node_wrapper(llm_node_with_raw_files, "chat", THIS_SKILL_NAME, OWNER))
         workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)
-        workflow.add_node("pend_for_next_human_msg", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg"))
-        workflow.add_node("more_analysis_app", node_wrapper(llm_node_with_raw_files, "more_analysis_app"))
+        workflow.add_node("pend_for_next_human_msg", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg", THIS_SKILL_NAME, OWNER))
+        workflow.add_node("more_analysis_app", node_wrapper(llm_node_with_raw_files, "more_analysis_app", THIS_SKILL_NAME, OWNER))
         workflow.add_conditional_edges("chat", chat_or_work, ["pend_for_next_human_msg", "more_analysis_app"])
         workflow.add_edge("pend_for_next_human_msg", "chat")
 
 
-        workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0"))
+        workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0", THIS_SKILL_NAME, OWNER))
         workflow.add_node("query_component_specs", query_component_specs_node)
 
         workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "pend_for_next_human_msg0"])
@@ -527,7 +530,8 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_edge("query_component_specs", "pend_for_human_input_fill_specs")
         workflow.add_node("examine_filled_specs", examine_filled_specs_node)
 
-        workflow.add_node("pend_for_next_human_msg1", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg1"))
+        workflow.add_node("pend_for_next_human_msg1", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg1", THIS_SKILL_NAME, OWNER))
+        workflow.add_edge("pend_for_human_input_fill_specs", "examine_filled_specs")
 
         workflow.add_conditional_edges("examine_filled_specs", are_component_specs_filled, ["request_FOM", "pend_for_next_human_msg1"])
         workflow.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
@@ -537,14 +541,14 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("pend_for_human_input_fill_FOM", pend_for_human_fill_FOM_node)
         workflow.add_node("confirm_FOM", confirm_FOM_node)
 
-        workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2"))
+        workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2", THIS_SKILL_NAME, OWNER))
 
         workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["run_search", "pend_for_next_human_msg2"])
         workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")
 
 
         workflow.add_node("run_search", run_search_node)
-        workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result"))
+        workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
 
         workflow.add_node("show_results", show_results_node)
         workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])

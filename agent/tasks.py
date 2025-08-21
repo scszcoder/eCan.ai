@@ -10,6 +10,7 @@ import json
 import os
 from fastapi.responses import JSONResponse
 import time
+import queue
 
 from datetime import datetime, timedelta
 import inspect
@@ -199,7 +200,7 @@ class ManagedTask(Task):
             step = {}
 
             for step in agen:
-                print("Step output:", step)
+                print("synced Step output:", step)
                 # self.pause_event.wait()
                 self.status.message = Message(
                     role="agent",
@@ -219,7 +220,7 @@ class ManagedTask(Task):
                 print("task completed...")
 
             run_result = {"success": success, "step": step}
-            print("astream_run result:", run_result)
+            print("synced stream_run result:", run_result)
             return run_result
 
         except Exception as e:
@@ -282,7 +283,7 @@ class ManagedTask(Task):
             step = {}
 
             async for step in agen:
-                print("Step output:", step)
+                print("async Step output:", step)
                 await self.pause_event.wait()
                 self.status.message = Message(
                     role="agent",
@@ -536,8 +537,10 @@ class TaskRunner(Generic[Context]):
         self.running_tasks = []
         self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
         os.makedirs(self.save_dir, exist_ok=True)
-        self.a2a_msg_queue = asyncio.Queue()
-        self.chat_msg_queue = asyncio.Queue()
+        # self.a2a_msg_queue = asyncio.Queue()
+        # self.chat_msg_queue = asyncio.Queue()
+        self.a2a_msg_queue = queue.Queue()
+        self.chat_msg_queue = queue.Queue()
         self._stop_event = asyncio.Event()
 
 
@@ -749,19 +752,42 @@ class TaskRunner(Generic[Context]):
             found = [task for task in self.agent.tasks if "chatter task" in task.name.lower()]
         return found
 
-    async def task_wait_in_line(self, request):
+    async def async_task_wait_in_line(self, request):
         try:
             print("task waiting in line.....")
             await self.a2a_msg_queue.put(request)
+            # self.a2a_msg_queue.put_nowait(request)
             print("task now in line....")
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
 
-    async def chat_wait_in_line(self, request):
+    def sync_task_wait_in_line(self, request):
+        try:
+            print("task waiting in line.....")
+            # await self.a2a_msg_queue.put(request)
+            self.a2a_msg_queue.put_nowait(request)
+
+            print("task now in line....")
+        except Exception as e:
+            ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
+    async def async_chat_wait_in_line(self, request):
         try:
             print("chat message waiting in line.....")
             await self.chat_msg_queue.put(request)
+            # self.chat_msg_queue.put_nowait(request)
+            print("chat now in line....")
+        except Exception as e:
+            ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
+            print(f"{ex_stat}")
+
+    def sync_chat_wait_in_line(self, request):
+        try:
+            print("chat message waiting in line.....")
+            # await self.chat_msg_queue.put(request)
+            self.chat_msg_queue.put_nowait(request)
             print("chat now in line....")
         except Exception as e:
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
@@ -791,7 +817,7 @@ class TaskRunner(Generic[Context]):
                         self.agent.a2a_server.task_manager.set_exception(task2run.id, RuntimeError("Task failed"))
                 else:
                     logger.trace("schedule task not reached scheduled time yet....")
-                    logger.debug("nothing 2 run")
+                    logger.debug("nothing 2 run according to schedule....")
 
             except Exception as e:
                 ex_stat = "ErrorLaunchScheduledRun:" + traceback.format_exc() + " " + str(e)

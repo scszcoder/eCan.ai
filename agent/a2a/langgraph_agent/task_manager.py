@@ -132,7 +132,7 @@ class AgentTaskManager(InMemoryTaskManager):
 
     async def on_send_task(self, request: SendTaskRequest) -> SendTaskResponse:
         """Handles the 'send task' request."""
-        print("INCOMING REQUEST:", request, "to:", self._agent.card.name)
+        print("RECEIVING INCOMING A2A REQUEST:", request, "to:", self._agent.card.name)
         # INCOMING
         # REQUEST: jsonrpc = '2.0'
         # id = 'f4c7470def10498d9963b2b85bd16c62'
@@ -167,17 +167,19 @@ class AgentTaskManager(InMemoryTaskManager):
             print("meta type:", msg_js.metadata["type"])
             if msg_js.metadata["type"] == "send_task":
                 logger.info("task wait in line")
-                agent_wait_response = await self._agent.runner.task_wait_in_line(request)
+                # agent_wait_response = await self._agent.runner.task_wait_in_line(request)
+                agent_wait_response = self._agent.runner.sync_task_wait_in_line(request)
             elif msg_js.metadata["type"] == "send_chat":
                 logger.info("chat wait in line")
-                agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
+                # agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
+                agent_wait_response = self._agent.runner.sync_chat_wait_in_line(request)
             else:
                 agent_wait_response = {}
 
             print("waiting for runner response......", agent_wait_response)
             try:
                 # 2. Wait with timeout
-                result = await asyncio.wait_for(waiter, timeout=10)
+                result = await asyncio.wait_for(waiter, timeout=3)
                 print("waiter run result......", result, type(result))
                 task_stat = TaskStatus(
                     state=TaskState.COMPLETED,
@@ -196,10 +198,10 @@ class AgentTaskManager(InMemoryTaskManager):
                 return server_response
 
             except asyncio.TimeoutError:
-                return JSONResponse({"error": "Timeout waiting for task result"}, status_code=504)
-            except Exception as e:
-                return SendTaskResponse(id=request.params.id, error=InternalError(message=str(e)))
-
+                return SendTaskResponse(
+                    id=request.params.id,
+                    error=InternalError(message="Timeout waiting for task result")
+                )
 
 
             # Notify
@@ -210,7 +212,10 @@ class AgentTaskManager(InMemoryTaskManager):
             # agent_response = self._agent.invoke(query, task_send_params.sessionId)
         except Exception as e:
             logger.error(f"Error invoking agent: {e}")
-            raise ValueError(f"Error invoking agent: {e}")
+            return SendTaskResponse(
+                id=request.params.id,
+                error=InternalError(message=str(e))
+            )
 
         # notify the task requester
         return await self._process_agent_response(
