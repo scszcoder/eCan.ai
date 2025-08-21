@@ -4,9 +4,9 @@ from selenium.webdriver.support.expected_conditions import element_selection_sta
 
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
+from agent.ec_skill import *
 import json
 import base64
-from agent.ec_skills.llm_hooks.llm_hooks import *
 
 def rough_token_count(text: str) -> int:
     # Split on whitespace and common punctuations (roughly approximates token count)
@@ -149,7 +149,8 @@ def pick_llm(settings):
                 cn_llm = ChatDeepSeek(model="deepseek-chat", temperature=0)
             return cn_llm
         except Exception:
-            return ChatQwQ(model="qwq-plus", temperature=0)
+            cn_llm = None
+            return cn_llm
     elif country == "US":
         try:
             if settings.get("us_llm_provider", False):
@@ -168,7 +169,8 @@ def pick_llm(settings):
 
             return us_llm
         except Exception:
-            us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
+            # us_llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
+            us_llm = None
             return us_llm
     else:
         return ChatOpenAI(model="gpt-4o", temperature=0)
@@ -189,35 +191,50 @@ def get_standard_prompt(state:NodeState) -> NodeState:
     return formatted_prompt
 
 
-def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore, skill_name) -> NodeState:
-    print("in llm_node_with_raw_files....")
-    user_input = state.get("input", "")
-    agent_id = state["messages"][0]
-    agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
-    print("run time:", runtime)
-    current_node_name = runtime.context["this_node"].get("name")
-    # print("current node:", current_node)
-    nodes = [{"askid": "skid0", "name": current_node_name}]
-    full_node_name = f"{skill_name}:{current_node_name}"
-    nodes_prompts = run_pre_llm_hook(current_node_name, agent, state)
 
-    print("networked prompts:", nodes_prompts)
-    node_prompt = nodes_prompts[0]
+def send_response_back(state: NodeState) -> NodeState:
+    try:
+        agent_id = state["messages"][0]
+        # _ensure_context(runtime.context)
+        self_agent = get_agent_by_id(agent_id)
+        mainwin = self_agent.mainwin
+        twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
-    mm_content = prep_multi_modal_content(state, runtime)
-    langchain_prompt = ChatPromptTemplate.from_messages(node_prompt)
-    formatted_prompt = langchain_prompt.format_messages(component_info=state["input"], categories=state["attributes"]["categories"])
-
-
-    llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
-
-
-    print("chat node: llm prompt ready:", formatted_prompt)
-    response = llm.invoke(formatted_prompt)
-    print("chat node: LLM response:", response)
-    # Parse the response
-    run_post_llm_hook(current_node_name, agent, state, response)
-
-
-
+        print("standard_post_llm_hook send_response_back:", state)
+        chat_id = state["messages"][1]
+        msg_id = str(uuid.uuid4()),
+        # send self a message to trigger the real component search work-flow
+        agent_response_message = {
+            "id": str(uuid.uuid4()),
+            "chat": {
+                "input": state["result"]["llm_result"],
+                "attachments": [],
+                "messages": [self_agent.card.id, chat_id, msg_id, "", state["result"]["llm_result"]],
+            },
+            "params": {
+                "content": state["result"]["llm_result"],
+                "attachments": state["attachments"],
+                "metadata": {
+                    "type": "text", # "text", "code", "form", "notification", "card
+                    "card": {},
+                    "code": {},
+                    "form": {},
+                    "notification": {},
+                },
+                "role": "",
+                "senderId": f"{agent_id}",
+                "createAt": int(time.time() * 1000),
+                "senderName": f"{self_agent.card.name}",
+                "status": "success",
+                "ext": "",
+                "human": False
+            }
+        }
+        print("sending response msg back to twin:", agent_response_message)
+        send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
+        # state.result = result
+        return send_result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorSendResponseBack")
+        logger.debug(err_trace)
+        return err_trace
