@@ -1,34 +1,43 @@
-# ECBot OTA 更新包
+# ECBot OTA (Over-The-Air) Update System
 
-ECBot的OTA（Over-The-Air）更新功能包，提供跨平台的自动更新支持。
+ECBot的OTA更新系统提供安全、自动的软件更新功能，支持Windows和macOS平台。
 
-## 包结构
+## 🚀 快速开始
+
+### 1. 设置签名密钥（必需）
+在GitHub仓库的 **Settings → Secrets and variables → Actions** 中添加：
+
+```
+名称: ED25519_PRIVATE_KEY
+值: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1DNENBUUF3QlFZREsyVndCQ0lFSVAxRUtZVnhvY0p5M1JTSVZlSFVMTm11UGFNcGtFa3o5ckNvQWpta0RaUSsKLS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo=
+```
+
+**🎉 设置后OTA功能即可正常工作！**
+
+## 📁 目录结构
 
 ```
 ota/
-├── __init__.py              # 包初始化，导出主要接口
-├── README.md               # 本文件
-├── OTA_README.md          # 详细使用文档
-├── core/                  # 核心功能模块
-│   ├── __init__.py
-│   ├── updater.py         # OTA更新管理器
-│   └── platforms.py       # 平台特定更新器
-├── gui/                   # GUI组件
-│   ├── __init__.py
-│   └── dialog.py          # 更新对话框
-├── platforms/             # 平台特定集成
-│   ├── __init__.py
-│   ├── sparkle_integration.swift    # macOS Sparkle
-│   └── winsparkle_integration.cpp   # Windows winSparkle
-├── build/                 # 构建工具（示例/占位）
-│   ├── __init__.py
-│   ├── sparkle_build.py   # Sparkle构建脚本（示例）
-│   └── build_with_ota.py  # OTA构建脚本（示例）
-└── server/                # 更新服务器
-    ├── __init__.py
-    ├── update_server.py    # 测试服务器
-    └── appcast.xml        # 更新配置
+├── core/                   # 核心OTA功能
+├── gui/                    # 用户界面组件
+├── server/                 # 更新服务器
+├── platforms/              # 平台特定集成
+├── build/                  # 构建工具
+├── SIGNING_SETUP.md        # 签名配置指南
+└── test_ota.py            # 测试脚本
 ```
+
+## 🔐 签名配置
+
+ECBot使用Ed25519数字签名确保更新安全性：
+
+| 签名类型 | 状态 | 作用 | 必需性 |
+|---------|------|------|--------|
+| **Ed25519签名** | ✅ 已配置 | OTA更新安全验证 | **必需** |
+| **Windows代码签名** | ⏳ 可选 | 避免Windows安全警告 | 可选 |
+| **macOS代码签名** | ⏳ 可选 | 避免macOS安全警告 | 可选 |
+
+详细配置请参考：[SIGNING_SETUP.md](SIGNING_SETUP.md)
 
 ## 快速使用
 
