@@ -3,14 +3,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FormRenderProps, FormMeta, ValidateTrigger, Field, mapValues, FieldRenderProps } from '@flowgram.ai/free-layout-editor';
-import { IFlowValue, InputsValues } from '@flowgram.ai/form-materials';
+import { FormRenderProps, FormMeta, ValidateTrigger, Field } from '@flowgram.ai/free-layout-editor';
+import { IFlowValue, InputsValues, createInferInputsPlugin, DisplayOutputs } from '@flowgram.ai/form-materials';
 
-import { FlowNodeJSON, JsonSchema } from '../../typings';
+import { FlowNodeJSON } from '../../typings';
+import { defaultFormMeta } from '../default-form-meta';
 import { FormHeader, FormContent } from '../../form-components';
 import { FormCallable } from '../../form-components/form-callable';
 
-export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
+export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
 
   return (
     <>
@@ -32,6 +33,7 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
           width: '100%' 
         }} />
         <FormCallable />
+        <DisplayOutputs displayFromScope />
       </FormContent>
     </>
   );
@@ -40,7 +42,9 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => {
 export const formMeta: FormMeta<FlowNodeJSON> = {
   render: renderForm,
   validateTrigger: ValidateTrigger.onChange,
-  validate: {
-    title: ({ value }) => (value ? undefined : 'Title is required'),
-  },
-}; 
+  validate: defaultFormMeta.validate,
+  effect: defaultFormMeta.effect,
+  plugins: [
+    createInferInputsPlugin({ sourceKey: 'inputsValues', targetKey: 'inputs' }),
+  ],
+};

@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { JsonSchema } from './json-schema';
 
 /**
  * Interface for defining a callable function
@@ -97,9 +96,9 @@ export interface CallableEditorProps {
 export interface CallableSelectorProps {
   value?: CallableFunction;
   onChange?: (value: CallableFunction) => void;
-  onEdit?: (value: CallableFunction) => void;
   onAdd?: () => void;
   systemFunctions?: CallableFunction[];
+  readonly?: boolean;
 }
 
 /**
@@ -121,3 +120,23 @@ export interface CallableFilter {
   /** Type filter: system or custom */
   type?: 'system' | 'custom';
 } 
+
+/**
+ * Create a default callable function object.
+ * 统一的新建函数默认值
+ */
+export function createDefaultCallableFunction(): CallableFunction {
+  return {
+    name: '',
+    desc: '',
+    params: {
+      type: 'object',
+      properties: {},
+    },
+    returns: {
+      type: 'object',
+      properties: {},
+    },
+    type: 'custom',
+  };
+}

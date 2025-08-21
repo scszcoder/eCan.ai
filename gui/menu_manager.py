@@ -70,14 +70,11 @@ class MenuManager:
                 logger.error(f"Fallback menu setup also failed: {e2}")
                 return
         
-        # Set up other standard menus
-        self._setup_common_menus(menubar)
-        
-        # macOS-specific Window menu
-        window_menu = menubar.addMenu('Window')
-        self._setup_window_menu(window_menu)
-        
-        logger.info("macOS menu bar setup complete")
+        # Only keep Help menu in addition to application menu
+        help_menu = menubar.addMenu('Help')
+        self._setup_help_menu(help_menu)
+
+        logger.info("macOS menu bar setup complete (eCan + Help only)")
     
     def _setup_windows_menus(self, menubar):
         """Set up complete Windows menu"""
@@ -93,16 +90,13 @@ class MenuManager:
         except Exception as e:
             logger.warning(f"Windows menu setup failed: {e}")
 
-        # Show complete application menu on Windows
+        # Application menu
         app_menu = menubar.addMenu('eCan')
         self._setup_app_menu(app_menu)
 
-        # Set up other standard menus
-        self._setup_common_menus(menubar)
-
-        # Windows-specific Tools menu
-        tools_menu = menubar.addMenu('Tools')
-        self._setup_tools_menu(tools_menu)
+        # Only keep Help menu
+        help_menu = menubar.addMenu('Help')
+        self._setup_help_menu(help_menu)
     
     def _setup_linux_menus(self, menubar):
         """Set up complete Linux menu"""
@@ -118,16 +112,12 @@ class MenuManager:
         except Exception as e:
             logger.warning(f"Linux menu setup failed: {e}")
 
-        # Standard menu layout on Linux
+        # Standard menu layout on Linux - keep only eCan and Help
         app_menu = menubar.addMenu('eCan')
         self._setup_app_menu(app_menu)
 
-        # Set up other standard menus
-        self._setup_common_menus(menubar)
-
-        # Optional Tools menu on Linux
-        tools_menu = menubar.addMenu('Tools')
-        self._setup_tools_menu(tools_menu)
+        help_menu = menubar.addMenu('Help')
+        self._setup_help_menu(help_menu)
 
     def _setup_titlebar_menu_style(self, menubar):
         """Set menu bar style to integrate with title bar"""
@@ -411,11 +401,11 @@ class MenuManager:
         
         view_menu.addSeparator()
         
-        # Full screen
-        fullscreen_action = QAction('Enter Full Screen', self.main_window)
-        fullscreen_action.setShortcut('Ctrl+Ctrl+F')
-        fullscreen_action.triggered.connect(self.toggle_fullscreen)
-        view_menu.addAction(fullscreen_action)
+        # # Full screen
+        # fullscreen_action = QAction('Enter Full Screen', self.main_window)
+        # fullscreen_action.setShortcut('Ctrl+Ctrl+F')
+        # fullscreen_action.triggered.connect(self.toggle_fullscreen)
+        # view_menu.addAction(fullscreen_action)
     
     def _setup_help_menu(self, help_menu):
         """Set up Help menu"""
