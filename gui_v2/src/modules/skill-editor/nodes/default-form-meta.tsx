@@ -3,35 +3,28 @@
  * SPDX-License-Identifier: MIT
  */
 
-import {
-  FormRenderProps,
-  FormMeta,
-  ValidateTrigger,
-  FeedbackLevel,
-} from '@flowgram.ai/free-layout-editor';
+import { FormRenderProps, FormMeta, ValidateTrigger } from '@flowgram.ai/free-layout-editor';
 import {
   autoRenameRefEffect,
   provideJsonSchemaOutputs,
   syncVariableTitle,
+  DisplayOutputs,
+  validateFlowValue,
+  validateWhenVariableSync,
+  listenRefSchemaChange,
 } from '@flowgram.ai/form-materials';
+import { Divider } from '@douyinfe/semi-ui';
 
 import { FlowNodeJSON } from '../typings';
-import { FormHeader, FormContent, FormInputs, FormOutputs } from '../form-components';
-import { FormCallable } from '../form-components/form-callable';
+import { FormHeader, FormContent, FormInputs } from '../form-components';
 
 export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => (
   <>
     <FormHeader />
     <FormContent>
       <FormInputs />
-      <div style={{ 
-        height: '1px', 
-        background: '#e8e8e8', 
-        margin: '12px 0',
-        width: '100%' 
-      }} />
-      <FormCallable />
-      <FormOutputs />
+      <Divider />
+      <DisplayOutputs displayFromScope />
     </FormContent>
   </>
 );
@@ -39,30 +32,24 @@ export const renderForm = ({ form }: FormRenderProps<FlowNodeJSON>) => (
 export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
   render: renderForm,
   validateTrigger: ValidateTrigger.onChange,
+  /**
+   * Supported writing as:
+   * 1: validate as options: { title: () => {} , ... }
+   * 2: validate as dynamic function: (values,  ctx) => ({ title: () => {}, ... })
+   */
   validate: {
     title: ({ value }) => (value ? undefined : 'Title is required'),
     'inputsValues.*': ({ value, context, formValues, name }) => {
-      const valuePropetyKey = name.replace(/^inputsValues\./, '');
+      const valuePropertyKey = name.replace(/^inputsValues\./, '');
       const required = formValues.inputs?.required || [];
-      if (
-        required.includes(valuePropetyKey) &&
-        (value === '' || value === undefined || value?.content === '')
-      ) {
-        return {
-          message: `${valuePropetyKey} is required`,
-          level: FeedbackLevel.Error, // Error || Warning
-        };
-      }
-      return undefined;
-    },
-    'data.callable': ({ value }) => {
-      if (value?.type === 'system' && !value.sysId) {
-        return 'System function ID is required';
-      }
-      if (value?.type === 'custom' && !value.code) {
-        return 'Custom function code is required';
-      }
-      return undefined;
+
+      return validateFlowValue(value, {
+        node: context.node,
+        required: required.includes(valuePropertyKey),
+        errorMessages: {
+          required: `${valuePropertyKey} is required`,
+        },
+      });
     },
   },
   /**
@@ -82,6 +69,9 @@ export const defaultFormMeta: FormMeta<FlowNodeJSON> = {
   effect: {
     title: syncVariableTitle,
     outputs: provideJsonSchemaOutputs,
-    inputsValues: autoRenameRefEffect,
+    inputsValues: [...autoRenameRefEffect, ...validateWhenVariableSync({ scope: 'public' })],
+    'inputsValues.*': listenRefSchemaChange((params) => {
+      console.log(`[${params.context.node.id}][${params.name}] Schema Of Ref Updated`);
+    }),
   },
 };

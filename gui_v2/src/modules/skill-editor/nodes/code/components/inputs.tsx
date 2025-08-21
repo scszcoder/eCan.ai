@@ -4,13 +4,23 @@
  */
 
 import { Field } from '@flowgram.ai/free-layout-editor';
-import { IFlowValue, InputsValues } from '@flowgram.ai/form-materials';
+import { DisplayInputsValues, IFlowValue, InputsValues } from '@flowgram.ai/form-materials';
 
-import { useNodeRenderContext } from '../../../hooks';
+import { useIsSidebar, useNodeRenderContext } from '../../../hooks';
 import { FormItem } from '../../../form-components';
 
 export function Inputs() {
+  const isSidebar = useIsSidebar();
+
   const { readonly } = useNodeRenderContext();
+
+  if (!isSidebar) {
+    return (
+      <Field<Record<string, IFlowValue | undefined> | undefined> name="inputsValues">
+        {({ field }) => <DisplayInputsValues value={field.value} />}
+      </Field>
+    );
+  }
 
   return (
     <FormItem name="inputs" type="object" vertical>

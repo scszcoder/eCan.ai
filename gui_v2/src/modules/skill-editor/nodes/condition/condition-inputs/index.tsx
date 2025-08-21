@@ -3,17 +3,17 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { useLayoutEffect } from 'react';
+import { useCallback, useLayoutEffect } from 'react';
 
 import { nanoid } from 'nanoid';
 import { Field, FieldArray, WorkflowNodePortsData } from '@flowgram.ai/free-layout-editor';
 import { ConditionRow, ConditionRowValueType } from '@flowgram.ai/form-materials';
 import { Button } from '@douyinfe/semi-ui';
 import { IconPlus, IconCrossCircleStroked } from '@douyinfe/semi-icons';
-import { useCallback } from 'react';
 
 import { useNodeRenderContext } from '../../../hooks';
-import { FormItem, Feedback } from '../../../form-components';
+import { FormItem } from '../../../form-components';
+import { Feedback } from '../../../form-components';
 import { ConditionPort } from './styles';
 
 interface ConditionValue {
@@ -93,17 +93,19 @@ export function ConditionInputs() {
                         value={value.value}
                         onChange={(v) => handleValueChange(field, value, v)}
                       />
-                      <Button
-                        theme="borderless"
-                        icon={<IconCrossCircleStroked />}
-                        onClick={() => {
-                          if (field.value) {
-                            const newValue = field.value.filter(v => v.key !== value.key);
-                            field.onChange(sortConditions(newValue));
-                          }
-                        }}
-                        disabled={isIf || isElse}
-                      />
+                      {!readonly && (
+                        <Button
+                          theme="borderless"
+                          disabled={readonly}
+                          icon={<IconCrossCircleStroked />}
+                          onClick={() => {
+                            if (field.value) {
+                              const newValue = field.value.filter(v => v.key !== value.key);
+                              field.onChange(sortConditions(newValue));
+                            }
+                          }}
+                        />
+                      )}
                     </div>
                     <ConditionPort data-port-id={value.key} data-port-type="output" />
                   </FormItem>
