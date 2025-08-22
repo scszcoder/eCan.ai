@@ -46,7 +46,7 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
   // render 次数日志
   const renderCount = useRef(0);
   renderCount.current++;
-  // console.log('AgentAvatar render', id, 'count:', renderCount.current, agent);
+  // console.log(t('common.agent_avatar_render') || 'AgentAvatar render', id, t('common.count') || 'count:', renderCount.current, agent);
 
   // 在第一次渲染时检测视频支持
   useEffect(() => {
@@ -56,8 +56,8 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
     }
   }, []);
 
-  console.log('is video', isVideo, ' gif url:', mediaUrl);
-  // console.log('agentGifs:', agentGifs);
+  console.log(t('common.is_video') || 'is video', isVideo, t('common.gif_url') || 'gif url:', mediaUrl);
+  // console.log(t('common.agent_gifs') || 'agentGifs:', agentGifs);
 
   const handleEdit = () => {
     if (!id) return;
@@ -82,7 +82,7 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
             message.error(res.error?.message || (t('common.delete_failed') as string) || 'Delete failed');
           }
         } catch (e: any) {
-          message.error(e?.message || 'Delete failed');
+          message.error(e?.message || t('common.delete_failed') || 'Delete failed');
         }
       }
     });
@@ -112,11 +112,11 @@ function AgentAvatar({ agent, onChat }: AgentAvatarProps) {
             height={300 * 9 / 16}
             style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 28, background: 'transparent' }}
             poster="./assets/default-agent-poster.png"
-            // onError={e => { console.error('video load error', mediaUrl, e); setError(true); }}
+            // onError={e => { console.error(t('common.video_load_error') || 'video load error', mediaUrl, e); setError(true); }}
           />
         </div>
       ) : (
-        <img src={mediaUrl} alt="agent working" className="agent-gif" style={{ width: 300, height: 300 * 9 / 16, objectFit: 'contain', borderRadius: 28, marginBottom: 26, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)' }} onError={e => { console.error('img load error', mediaUrl, e); setError(true); }} />
+        <img src={mediaUrl} alt={t('common.agent_working') || 'agent working'} className="agent-gif" style={{ width: 300, height: 300 * 9 / 16, objectFit: 'contain', borderRadius: 28, marginBottom: 26, background: '#222c', border: '4px solid var(--primary-color, #3b82f6)', boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)' }} onError={e => { console.error(t('common.img_load_error') || 'img load error', mediaUrl, e); setError(true); }} />
       )}
       <div className="agent-info-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center' }}>

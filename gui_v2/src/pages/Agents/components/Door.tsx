@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import doorClosedImg from '@/assets/icons1_door_256.png';
 import doorOpenImg from '@/assets/icons3_door_256.png';
 import './Door.css';
+import { useTranslation } from 'react-i18next';
 
 interface DoorProps {
   name: string;
@@ -9,6 +10,7 @@ interface DoorProps {
 
 const Door: React.FC<DoorProps> = ({ name }) => {
   const [hovered, setHovered] = useState(false);
+  const { t } = useTranslation();
 
   return (
     <div
@@ -21,7 +23,7 @@ const Door: React.FC<DoorProps> = ({ name }) => {
         {/* 只显示门图片，不播放动画视频 */}
         <img
           src={hovered ? doorOpenImg : doorClosedImg}
-          alt="door"
+          alt={t('common.door') || 'door'}
           className="door-img-png"
         />
       </div>

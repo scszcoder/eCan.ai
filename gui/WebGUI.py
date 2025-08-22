@@ -457,8 +457,9 @@ class WebGUI(QMainWindow):
 
                 # Platform-specific icon candidates
                 if sys.platform == 'darwin':
-                    # macOS prefers larger, high-quality icons
+                    # macOS prefers larger, high-quality icons, prioritize logoWhite22.png
                     icon_candidates = [
+                        os.path.join(resource_path, "images", "logos", "logoWhite22.png"),
                         os.path.join(resource_path, "images", "logos", "rounded", "dock_256x256.png"),
                         os.path.join(resource_path, "images", "logos", "rounded", "dock_128x128.png"),
                         os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
@@ -482,12 +483,20 @@ class WebGUI(QMainWindow):
                             scaled_pixmap = pixmap.scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             msg_box.setIconPixmap(scaled_pixmap)
                             icon_set = True
-                            logger.debug(f"MessageBox icon set from: {candidate} (size: {icon_size}x{icon_size})")
+                            logger.info(f"✅ MessageBox custom icon set from: {candidate} (size: {icon_size}x{icon_size})")
+
+                            # Additional logging for development debugging
+                            if sys.platform == 'darwin':
+                                logger.info("ℹ️  macOS: Custom icon set, but system may override in development environment")
+                                logger.info("ℹ️  macOS: Icon should display correctly in packaged application")
                             break
+                        else:
+                            logger.warning(f"Failed to load icon from: {candidate}")
 
                 if not icon_set:
                     msg_box.setIcon(QMessageBox.Question)
-                    logger.debug("Using default question icon for message box")
+                    logger.warning("⚠️  Using default question icon - custom icon loading failed")
+                    logger.info("💡 If running in development, try building and running as packaged application")
             except Exception as e:
                 logger.warning(f"Failed to set message box icon: {e}")
                 msg_box.setIcon(QMessageBox.Question)
@@ -658,28 +667,7 @@ class WebGUI(QMainWindow):
         response = self._ipc_api.push_chat_notification(chatId, content, isRead, timestamp, uid)
         print("receive_new_chat_message response::", response)
 
-    def _adjust_layout_for_titlebar_menu(self):
-        """Adjust window layout on Windows/Linux to fit the title bar menu"""
-        try:
-            # Get menu bar
-            menubar = self.menuBar()
 
-            # Ensure the menu bar is positioned correctly
-            # In Qt, the menu bar is below the title bar by default; styling makes it appear in the title bar
-            menubar.setCornerWidget(None)  # Clear any corner widgets
-
-            # Adjust main window margins to leave space for the menu bar
-            central_widget = self.centralWidget()
-            if central_widget:
-                layout = central_widget.layout()
-                if layout:
-                    # Reduce top margin as the menu bar is more compact now
-                    layout.setContentsMargins(0, 0, 0, 0)
-
-            logger.info("Windows layout adjusted to title bar menu mode")
-
-        except Exception as e:
-            logger.error(f"Failed to adjust window layout: {e}")
 
     def _setup_custom_titlebar_with_menu(self):
         """Set a custom title bar and integrate the menu bar into it"""
@@ -836,8 +824,9 @@ class WebGUI(QMainWindow):
                 }
             """)
 
-            # Manually set menu items
-            self._setup_custom_menus()
+            # Use MenuManager to set up menu items
+            self.menu_manager = MenuManager(self)
+            self.menu_manager.setup_custom_menu(self.custom_menubar)
 
             titlebar_layout.addWidget(self.custom_menubar)
 
@@ -861,8 +850,6 @@ class WebGUI(QMainWindow):
             # Add stretch to keep title centered
             titlebar_layout.addStretch()
 
-            # Initialize menu manager (if other features are needed)
-            self.menu_manager = MenuManager(self)
             # Override menuBar to return our custom menu bar
             self.menuBar = lambda: self.custom_menubar
 
@@ -885,98 +872,7 @@ class WebGUI(QMainWindow):
             self.menu_manager = MenuManager(self)
             self.menu_manager.setup_menu()
 
-    def _setup_custom_menus(self):
-        """Set up simplified custom menu bar items (eCan + Help only)"""
-        try:
-            # Only add eCan and Help menus (simplified)
-            app_menu = self.custom_menubar.addMenu('eCan')
-            self._add_app_menu_items(app_menu)
 
-            help_menu = self.custom_menubar.addMenu('Help')
-            self._add_help_menu_items(help_menu)
-
-            logger.info("Custom title bar menu setup complete (eCan + Help only)")
-
-        except Exception as e:
-            logger.error(f"Failed to set custom menu: {e}")
-
-    def _add_app_menu_items(self, menu):
-        """Add application menu items"""
-        try:
-            # About
-            about_action = QAction('About eCan.ai', self)
-            about_action.setStatusTip('Show information about eCan.ai')
-            about_action.triggered.connect(self._show_about)
-            menu.addAction(about_action)
-
-            menu.addSeparator()
-
-            # Preferences
-            preferences_action = QAction('Preferences...', self)
-            preferences_action.setShortcut('Ctrl+,')
-            preferences_action.setStatusTip('Open application preferences')
-            menu.addAction(preferences_action)
-
-            # Check for updates
-            update_action = QAction('Check for Updates...', self)
-            update_action.setStatusTip('Check for application updates')
-            menu.addAction(update_action)
-
-            menu.addSeparator()
-
-            # Quit
-            quit_action = QAction('Quit eCan.ai', self)
-            quit_action.setShortcut('Ctrl+Q')
-            quit_action.setStatusTip('Quit the application')
-            quit_action.triggered.connect(self.close)
-            menu.addAction(quit_action)
-
-        except Exception as e:
-            logger.error(f"Failed to setup app menu items: {e}")
-
-
-
-
-
-
-
-
-
-
-
-    def _add_help_menu_items(self, menu):
-        """Add Help menu items (consistent with MenuManager)"""
-        try:
-            # User manual
-            user_manual_action = QAction('eCan Help', self)
-            user_manual_action.setShortcut('F1')
-            user_manual_action.setStatusTip('Open eCan help documentation')
-            menu.addAction(user_manual_action)
-
-            # Quick start guide
-            quick_start_action = QAction('Quick Start Guide', self)
-            quick_start_action.setStatusTip('View quick start guide')
-            menu.addAction(quick_start_action)
-
-            # Keyboard shortcuts
-            shortcuts_action = QAction('Keyboard Shortcuts', self)
-            shortcuts_action.setStatusTip('View keyboard shortcuts')
-            menu.addAction(shortcuts_action)
-
-            menu.addSeparator()
-
-            # Report issue
-            feedback_action = QAction('Report Issue...', self)
-            feedback_action.setStatusTip('Report a bug or issue')
-            menu.addAction(feedback_action)
-
-            # Send feedback
-            send_feedback_action = QAction('Send Feedback...', self)
-            send_feedback_action.setStatusTip('Send feedback to developers')
-            menu.addAction(send_feedback_action)
-
-        except Exception as e:
-            logger.error(f"Failed to setup help menu items: {e}")
 
     def _set_window_icon(self):
         """Set window icon using the same logic as application icon"""
@@ -1171,10 +1067,7 @@ class WebGUI(QMainWindow):
         if hasattr(self, 'dev_tools_manager'):
             self.dev_tools_manager.toggle_dev_tools()
 
-    def _show_about(self):
-        """Show About dialog"""
-        QMessageBox.about(self, "About eCan.AI",
-                         "eCan.AI\nVersion 1.0.0\n\nAn AI-powered e-commerce automation platform.")
+
 
     def _center_on_screen(self):
         """Center the window on the screen"""
