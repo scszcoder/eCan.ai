@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { Chat as SemiChat } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { Chat } from '../types/chat';
@@ -51,6 +51,29 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     const prevScrollTopRef = useRef(0);
     const isLoadingMoreRef = useRef(false);
 
+    // 懒加载可见内容：仅在可见时渲染消息内容，减少首屏渲染压力
+    const LazyVisible: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+        const [visible, setVisible] = useState(false);
+        const itemRef = useRef<HTMLDivElement | null>(null);
+        useEffect(() => {
+            const rootEl = chatBoxRef.current || undefined;
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    entries.forEach((entry) => {
+                        if (entry.isIntersecting) {
+                            setVisible(true);
+                            if (itemRef.current) observer.unobserve(itemRef.current);
+                        }
+                    });
+                },
+                { root: rootEl, rootMargin: '100px 0px', threshold: 0.01 }
+            );
+            if (itemRef.current) observer.observe(itemRef.current);
+            return () => observer.disconnect();
+        }, []);
+        return <div ref={itemRef}>{visible ? children : null}</div>;
+    };
+
     // 初始化协议处理器
     useEffect(() => {
         protocolHandler.init();
@@ -73,7 +96,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     }, [currentChat]);
 
     // 聚焦输入框的函数
-    const focusInputArea = () => {
+    const focusInputArea = useCallback(() => {
         try {
             // 尝试多种选择器找到输入框
             let inputArea: HTMLTextAreaElement | null = null;
@@ -104,7 +127,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         } catch (error) {
             // 忽略错误
         }
-    };
+    }, []);
 
     // 检测消息列表变化，如果有新消息，尝试聚焦输入框
     useEffect(() => {
@@ -113,10 +136,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             setTimeout(focusInputArea, 100);
         }
         lastMessageLengthRef.current = messages.length;
-    }, [messages.length]);
+    }, [messages.length, focusInputArea]);
 
     // 自定义消息发送处理函数
-    const handleMessageSend = (content: string, attachments: any[]) => {
+    const handleMessageSend = useCallback((content: string, attachments: any[]) => {
         justSentMessageRef.current = true;
         // 构造新消息对象
         const tempId = `user_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -151,7 +174,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         setTimeout(() => {
             justSentMessageRef.current = false;
         }, Math.max(...attempts) + 100);
-    };
+    }, [chatId, onSend, focusInputArea]);
 
     // 添加事件监听，防止输入框失去焦点
     useEffect(() => {
@@ -175,29 +198,29 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             // 移除事件监听
             chatContainer.removeEventListener('click', preventFocusLoss, true);
         };
-    }, []);
+    }, [focusInputArea]);
 
     // 聊天标题
     const chatTitle = currentChat ? currentChat.name : t('pages.chat.defaultTitle');
 
     // 为 Semi UI Chat 生成稳定的 key
     const chatKey = useMemo(() => {
-        return `chat_${chatId}_${messages.length}`;
-    }, [chatId, messages.length]);
+        // 保持 key 随 chatId 稳定，避免每条消息都导致整个 Chat 组件重挂载
+        return `chat_${chatId}`;
+    }, [chatId]);
 
     // 处理表单提交
-    const handleFormSubmit = async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
+    const handleFormSubmit = useCallback(async (formId: string, values: any, chatId: string, messageId: string, processedForm: any) => {
         const response = await get_ipc_api().chatApi.chatFormSubmit(chatId, messageId, formId, processedForm)
-        console.log(JSON.stringify(response))
         if (response.success) {
             Toast.success(t('pages.chat.formSubmitSuccess'));
         } else {
             Toast.error(t('pages.chat.formSubmitFail'));
         }
-    };
+    }, [t]);
 
     // 处理卡片动作
-    const handleCardAction = (action: string) => {
+    const handleCardAction = useCallback((action: string) => {
         if (onSend) {
             // 创建卡片动作消息
             const actionContent = JSON.stringify({
@@ -206,10 +229,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             });
             onSend(actionContent, []);
         }
-    };
+    }, [onSend]);
 
     // 删除消息处理函数
-    const handleMessageDelete = async (message?: any) => {
+    const handleMessageDelete = useCallback(async (message?: any) => {
         const messageId = message?.id;
         const chatId: string = message?.chatId ?? '';
         if (!messageId || !chatId) return;
@@ -219,7 +242,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
         // 默认行为：调用 ipc_api 删除消息
         const response = await get_ipc_api().chatApi.deleteMessage(chatId, messageId);
-        console.log(JSON.stringify(response))
         if (response.success) {
             Toast.success(t('pages.chat.deleteMessageSuccess'));
             // 本地移除消息
@@ -227,13 +249,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         } else {
             Toast.error(t('pages.chat.deleteMessageFail'));
         }
-    };
+    }, [onMessageDelete, t, updateMessages, messages]);
 
     // 加载更多消息
     const handleLoadMore = async () => {
-        console.log('handleLoadMore called', { loadingMore, isInitialLoading, hasMore, chatId });
         if (loadingMore || isInitialLoading || !hasMore || !chatId) {
-            console.log('handleLoadMore exit due to', { loadingMore, isInitialLoading, hasMore, chatId });
             return;
         }
         // Record current scrollHeight and scrollTop
@@ -244,13 +264,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
         isLoadingMoreRef.current = true;
         setLoadingMore(true);
-        console.log('Pagination request params', { chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
         const res = await get_ipc_api().chatApi.getChatMessages({ chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
         let newMsgs: any[] = [];
         if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
             newMsgs = (res.data as any).data;
         }
-        console.log('Pagination response message count', newMsgs.length, newMsgs);
         setPageMessages(prev => mergeAndSortMessages(newMsgs, prev));
         setOffset(offset + newMsgs.length);
         setHasMore(newMsgs.length === PAGE_SIZE);
@@ -272,10 +290,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
 
     // 监听消息区滚动事件
     useEffect(() => {
-        if (!wrapperRef.current) {
-            console.log('wrapperRef.current is null');
-            return;
-        }
+        if (!wrapperRef.current) return;
         const chatBox = wrapperRef.current.querySelector('.semi-chat-container');
         if (chatBox) chatBoxRef.current = chatBox as HTMLDivElement;
         if (!chatBox) return;
@@ -289,7 +304,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         };
         chatBox.addEventListener('scroll', onScroll);
         return () => chatBox.removeEventListener('scroll', onScroll);
-    }, [pageMessages]);
+    }, [pageMessages, handleLoadMore]);
 
     // 初始化加载第一页
     useEffect(() => {
@@ -319,7 +334,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     }, [allMessages, chatId]);
 
     // 自定义渲染配置
-    const chatBoxRenderConfig = {
+    const chatBoxRenderConfig = useMemo(() => ({
         renderChatBoxContent: (props: any) => {
             const { message } = props;
             const content = message?.content || '';
@@ -333,29 +348,31 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 }
             }
             return (
-                <div>
-                    <ContentTypeRenderer 
-                        content={parsedContent} 
-                        chatId={message?.chatId}
-                        messageId={message?.id}
-                        onFormSubmit={(
-                            formId: string, 
-                            values: any, 
-                            chatId?: string, 
-                            messageId?: string, 
-                            processedForm?: any) => handleFormSubmit(
-                                formId, 
-                                values, 
-                                chatId || '', 
-                                messageId || '', 
-                                processedForm)}
-                        onCardAction={handleCardAction}
-                    />
-                    <AttachmentList attachments={message.attachments} />
-                </div>
+                <LazyVisible>
+                    <div>
+                        <ContentTypeRenderer 
+                            content={parsedContent} 
+                            chatId={message?.chatId}
+                            messageId={message?.id}
+                            onFormSubmit={(
+                                formId: string, 
+                                values: any, 
+                                chatId?: string, 
+                                messageId?: string, 
+                                processedForm?: any) => handleFormSubmit(
+                                    formId, 
+                                    values, 
+                                    chatId || '', 
+                                    messageId || '', 
+                                    processedForm)}
+                            onCardAction={handleCardAction}
+                        />
+                        <AttachmentList attachments={message.attachments} />
+                    </div>
+                </LazyVisible>
             );
         }
-    };
+    }), [handleFormSubmit, handleCardAction]);
 
     // 上传组件的配置
     const uploadProps = getUploadProps();
@@ -365,12 +382,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         // 延迟聚焦，确保组件已经完全渲染
         const timer = setTimeout(focusInputArea, 200);
         return () => clearTimeout(timer);
-    }, [chatId]); // 当聊天ID变化时重新聚焦
+    }, [chatId, focusInputArea]); // 当聊天ID变化时重新聚焦
 
     return (
         <ChatDetailWrapper ref={wrapperRef}>
-            {loadingMore && <div style={{textAlign: 'center'}}>加载中...</div>}
-            {!hasMore && <div style={{textAlign: 'center'}}>没有更多消息了</div>}
+            {loadingMore && <div style={{textAlign: 'center'}}>{t('common.loading')}</div>}
+            {!hasMore && <div style={{textAlign: 'center'}}>{t('pages.chat.noMore') || ''}</div>}
             <SemiChat
                 key={chatKey}
                 chats={pageMessages}

@@ -1,9 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Typography, Banner, Table, Button } from '@douyinfe/semi-ui';
 import { IconCode, IconInfoCircle, IconTick, IconAlertTriangle } from '@douyinfe/semi-icons';
-import ReactMarkdown from 'react-markdown';
-import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { docco } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 import { Content } from '../types/chat';
 import DynamicForm from './FormField';
 import { processStringContent } from '../utils/contentUtils';
@@ -25,6 +22,8 @@ const TextContent: React.FC<{ text?: string }> = ({ text }) => {
 const CodeContent: React.FC<{ code?: { lang: string; value: string } }> = ({ code }) => {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [Highlighter, setHighlighter] = useState<any>(null);
+  const [style, setStyle] = useState<any>(null);
   
   if (!code?.value) return null;
   
@@ -33,6 +32,19 @@ const CodeContent: React.FC<{ code?: { lang: string; value: string } }> = ({ cod
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+  
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([
+      import('react-syntax-highlighter').then(m => m.Light),
+      import('react-syntax-highlighter/dist/esm/styles/hljs').then(m => m.docco)
+    ]).then(([HighlighterComp, styleObj]) => {
+      if (!mounted) return;
+      setHighlighter(() => HighlighterComp);
+      setStyle(styleObj);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
   
   return (
     <div className="code-block" style={{ position: 'relative', marginBottom: 16 }}>
@@ -59,13 +71,19 @@ const CodeContent: React.FC<{ code?: { lang: string; value: string } }> = ({ cod
           {copied ? t('pages.chat.copied') : t('pages.chat.copy')}
         </Button>
       </div>
-      <SyntaxHighlighter 
-        language={code.lang || 'text'} 
-        style={docco}
-        customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
-      >
-        {code.value}
-      </SyntaxHighlighter>
+      {Highlighter && style ? (
+        <Highlighter 
+          language={code.lang || 'text'} 
+          style={style}
+          customStyle={{ margin: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+        >
+          {code.value}
+        </Highlighter>
+      ) : (
+        <pre style={{ margin: 0, padding: 12, background: '#0b1020', color: '#f8f8f2', borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
+          {code.value}
+        </pre>
+      )}
     </div>
   );
 };
@@ -154,11 +172,19 @@ const CardContent: React.FC<{
 // Markdown内容渲染
 const MarkdownContent: React.FC<{ markdown?: string }> = ({ markdown }) => {
   const { t } = useTranslation();
+  const [MD, setMD] = useState<any>(null);
   if (!markdown) return null;
+  useEffect(() => {
+    let mounted = true;
+    import('react-markdown').then(m => {
+      if (mounted) setMD(() => m.default);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
   
   return (
     <div className="markdown-container" style={{ marginBottom: 16 }}>
-      <ReactMarkdown>{markdown}</ReactMarkdown>
+      {MD ? <MD>{markdown}</MD> : <pre style={{ whiteSpace: 'pre-wrap' }}>{markdown}</pre>}
     </div>
   );
 };
@@ -259,10 +285,10 @@ interface ContentTypeRendererProps {
 const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chatId, messageId, onFormSubmit, onCardAction }) => {
   const { t } = useTranslation();
   // 1. 预处理字符串内容，支持富内容解析
-  let parsedContent = content;
-  if (typeof content === 'string') {
-    parsedContent = processStringContent(content);
-  }
+  const parsedContent = useMemo(() => {
+    if (typeof content === 'string') return processStringContent(content);
+    return content;
+  }, [content]);
 
   // 2. 根据结构化内容类型分支渲染
   if (typeof parsedContent === 'string') {
@@ -351,4 +377,4 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chat
   return <TextContent text={JSON.stringify(content)} />;
 };
 
-export default ContentTypeRenderer; 
+export default React.memo(ContentTypeRenderer); 

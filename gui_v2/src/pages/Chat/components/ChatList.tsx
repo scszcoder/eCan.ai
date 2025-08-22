@@ -267,9 +267,9 @@ const ChatList: React.FC<ChatListProps> = ({
             />
             <ChatListArea>
                 <List
+                    rowKey={(chat) => (chat as any).id}
                     dataSource={safeChats}
                     renderItem={chat => {
-                        console.log('[ChatList] render chat:', chat.id, chat.lastMsg, chat.lastMsgTime, chat);
                         return (
                             <ChatItem
                                 key={chat.id}
@@ -354,4 +354,4 @@ const ChatList: React.FC<ChatListProps> = ({
     );
 };
 
-export default ChatList; 
+export default React.memo(ChatList); 

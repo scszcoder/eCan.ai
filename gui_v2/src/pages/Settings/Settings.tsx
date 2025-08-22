@@ -236,13 +236,11 @@ const Settings: React.FC = () => {
               <Col span={12}><Form.Item label={getLabel('localUserDB_port')} name="localUserDB_port"><Input size="small" placeholder={getLabel('localUserDB_port')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('localAgentDB_host')} name="localAgentDB_host"><Input size="small" placeholder={getLabel('localAgentDB_host')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('localAgentDB_port')} name="localAgentDB_port"><Input size="small" placeholder={getLabel('localAgentDB_port')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('localAgent_ports')} name="localAgent_ports">
+              <Col span={12}><Form.Item label={getLabel('localAgent_ports')} name="localAgent_ports" getValueFromEvent={(vals: any[]) => (vals || []).map((v: any) => Number(v))}>
                 <Select
                   mode="tags"
                   style={{ width: '100%' }}
                   tokenSeparators={[',']}
-                  value={(form.getFieldValue('localAgent_ports') as any)?.map((v: any) => String(v))}
-                  onChange={(vals: any[]) => form.setFieldValue('localAgent_ports', vals.map((v: any) => Number(v)))}
                   placeholder={getLabel('localAgent_ports')}
                   size="small"
                 />
@@ -280,8 +278,6 @@ const Settings: React.FC = () => {
                   mode="tags"
                   style={{ width: '100%' }}
                   tokenSeparators={[',']}
-                  value={(form.getFieldValue('mids_forced_to_run') as any)?.map((v: any) => String(v))}
-                  onChange={(vals: any[]) => form.setFieldValue('mids_forced_to_run', vals)}
                   placeholder={getLabel('mids_forced_to_run')}
                   size="small"
                 />
