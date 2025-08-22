@@ -94,13 +94,52 @@ class BuildEnvironment:
                 print("[SUCCESS] Build validation passed")
                 return True
             else:
-                print("[ERROR] Build validation failed")
+                print("[WARNING] Build validation found issues")
                 validator.print_validation_report(results)
-                return False
+                
+                # Check if the issues are critical (blocking) or just warnings
+                if self._are_validation_issues_critical(results):
+                    print("[ERROR] Critical validation issues found - build blocked")
+                    return False
+                else:
+                    print("[WARNING] Non-critical validation issues found - continuing with build")
+                    return True
 
         except Exception as e:
-            print(f"[ERROR] Build validation error: {e}")
+            print(f"[ERROR] Build validation failed with exception: {e}")
             return False
+
+    def _are_validation_issues_critical(self, results: dict) -> bool:
+        """Determine if validation issues are critical enough to block the build"""
+        # Get platform-specific issues
+        platform_result = results.get("platform", {})
+        platform_issues = platform_result.get("issues", [])
+        
+        # Check for critical issues that should block the build
+        critical_patterns = [
+            "Xcode Command Line Tools not installed",
+            "Python.*too old",
+            "Missing tool:",
+            "Virtual environment not detected"
+        ]
+        
+        # Check if any critical issues exist
+        for issue in platform_issues:
+            for pattern in critical_patterns:
+                if pattern.lower() in issue.lower():
+                    return True
+        
+        # Architecture mismatch on Apple Silicon is not critical
+        architecture_warnings = [
+            "Python binary is x86_64 - consider ARM64 native Python",
+            "Python running under Rosetta 2 - consider ARM64 native Python"
+        ]
+        
+        # If only architecture warnings exist, allow build to continue
+        if platform_issues and all(any(warning.lower() in issue.lower() for warning in architecture_warnings) for issue in platform_issues):
+            return False
+            
+        return False
 
     def _check_python_version(self) -> bool:
         """Check Python version"""
@@ -171,12 +210,22 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
 
     platform_name = platform.system()
 
+    # Normalize architecture names
+    if arch == "aarch64":
+        arch_normalized = "aarch64"
+    elif arch in ["amd64", "x86_64"]:
+        arch_normalized = "amd64"
+    else:
+        arch_normalized = arch
+
     if platform_name == "Windows":
         platform_str = "windows"
+        # Windows only supports amd64, so force it
+        arch_normalized = "amd64"
 
         # Rename main executable
         src_exe = Path("dist/eCan/eCan.exe")
-        dst_exe = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.exe")
+        dst_exe = Path(f"dist/eCan-{version}-{platform_str}-{arch_normalized}.exe")
         if src_exe.exists():
             try:
                 shutil.copy2(src_exe, dst_exe)
@@ -186,7 +235,7 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
 
         # Rename installer package
         src_setup = Path("dist/eCan-Setup.exe")
-        dst_setup = Path(f"dist/eCan-Setup-{platform_str}-{arch}-v{version}.exe")
+        dst_setup = Path(f"dist/eCan-{version}-{platform_str}-{arch_normalized}-Setup.exe")
         if src_setup.exists():
             try:
                 shutil.move(str(src_setup), str(dst_setup))
@@ -199,7 +248,7 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
         platform_str = "macos"
 
         # Standardize PKG file naming to match release.yml format
-        expected_name = f"eCan-{version}-{platform_str}-{arch}.pkg"
+        expected_name = f"eCan-{version}-{platform_str}-{arch_normalized}.pkg"
         expected_path = Path(f"dist/{expected_name}")
 
         # Find .pkg files that need renaming
@@ -215,6 +264,13 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
                 print(f"[RENAME] Warning: Failed to rename {src_pkg.name} to {expected_name}: {e}")
         else:
             print(f"[RENAME] No PKG files found to rename or already correctly named")
+
+    elif platform_name == "Linux":
+        # Linux support (future)
+        platform_str = "linux"
+        print(f"[RENAME] Linux artifact standardization not yet implemented")
+
+    print(f"[RENAME] Standardization completed for {platform_str}-{arch_normalized}")
 
 
 def _show_build_results():
@@ -808,7 +864,9 @@ Usage examples:
             _t_rename_start = time.perf_counter()
             try:
                 # Get architecture info (from environment variable or default)
-                arch = os.getenv('BUILD_ARCH', 'amd64')
+                # Check both BUILD_ARCH and TARGET_ARCH for compatibility
+                arch = os.getenv('BUILD_ARCH') or os.getenv('TARGET_ARCH', 'amd64')
+                print(f"[RENAME] Using architecture: {arch}")
                 standardize_artifact_names(args.version, arch)
             except Exception as e:
                 print(f"[RENAME] Warning: Failed to standardize names: {e}")

@@ -50,6 +50,17 @@ class MiniSpecBuilder:
         # Use virtual environment Python if available, fallback to sys.executable
         python_executable = self._get_python_executable()
         cmd = [python_executable, "-m", "PyInstaller", str(self._last_spec_path), "--noconfirm", "--clean"]
+        
+        # Add architecture-specific arguments if TARGET_ARCH is set
+        target_arch = os.getenv('TARGET_ARCH')
+        if target_arch and platform_handler.is_macos:
+            if target_arch == 'aarch64':
+                cmd.extend(['--target-architecture', 'arm64'])
+                print(f"[MINIBUILD] Targeting ARM64 architecture")
+            elif target_arch == 'amd64':
+                cmd.extend(['--target-architecture', 'x86_64'])
+                print(f"[MINIBUILD] Targeting x86_64 architecture")
+        
         print(f"[MINIBUILD] Running: {' '.join(cmd)}")
         env = os.environ.copy()
         py_path = str(self.gen_hooks_dir)

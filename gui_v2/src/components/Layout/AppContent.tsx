@@ -15,4 +15,4 @@ const AppContent: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <StyledContent>{children}</StyledContent>
 );
 
-export default AppContent; 
+export default React.memo(AppContent); 

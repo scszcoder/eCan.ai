@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Agent } from '@/pages/Agents/types';
 import { Task } from '@/pages/Tasks/types';
-import { Knowledge } from '@/pages/Knowledge/types';
+import { KnowledgeEntry as Knowledge } from '@/pages/Knowledge/types';
 import { Skill } from '@/pages/Skills/types';
 import { Tool } from '@/pages/Tools/types';
 import { Vehicle } from '@/pages/Vehicles/types';
@@ -22,6 +22,7 @@ export interface AppData {
   isLoading: boolean;
   error: string | null;
   initialized: boolean;
+  agentsLastFetched: number | null; // 记录最后获取agents数据的时间戳
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setAgents: (agents: Agent[]) => void;
@@ -36,6 +37,7 @@ export interface AppData {
   myTwinAgent: () => Agent | null;
   setInitialized: (v: boolean) => void;
   getAgentById: (id: string) => Agent | null;
+  shouldFetchAgents: () => boolean; // 判断是否需要重新获取agents数据
 }
 
 const useAppDataStore = create<AppData>()(
@@ -52,9 +54,10 @@ const useAppDataStore = create<AppData>()(
       isLoading: false,
       error: null,
       initialized: false,
+      agentsLastFetched: null, // Initialize agentsLastFetched
       setLoading: (loading) => set({ isLoading: loading }),
       setError: (error) => set({ error }),
-      setAgents: (agents) => set({ agents }),
+      setAgents: (agents) => set({ agents, agentsLastFetched: Date.now() }),
       setTasks: (tasks) => set({ tasks }),
       setSkills: (skills) => set({ skills }),
       setKnowledges: (knowledges) => set({ knowledges }),
@@ -72,6 +75,14 @@ const useAppDataStore = create<AppData>()(
       getAgentById: (id) => {
         const agents = get().agents;
         return agents.find(a => a.card?.id === id) || null;
+      },
+      shouldFetchAgents: () => {
+        const lastFetched = get().agentsLastFetched;
+        if (!lastFetched) return true; // No data fetched yet
+        const now = Date.now();
+        const diff = now - lastFetched;
+        // Re-fetch agents every 5 minutes
+        return diff > 5 * 60 * 1000;
       },
     }),
     {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { App, Button, Card, Col, DatePicker, Divider, Form, Input, Radio, Row, Select, Space, Tag, Tooltip } from 'antd';
 import { ArrowLeftOutlined, CloseOutlined, EditOutlined, SaveOutlined, PlusOutlined, ToolOutlined, FileTextOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -49,6 +49,17 @@ const AgentDetails: React.FC = () => {
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
   const [selectValues, setSelectValues] = useState<Record<string, string | undefined>>({});
+  const [isNavigating, setIsNavigating] = useState(false);
+  
+  const goBack = useCallback(async () => {
+    if (isNavigating) return; // Prevent multiple rapid clicks
+    setIsNavigating(true);
+    try {
+      await navigate('/agents', { replace: true }); // Navigate to parent route
+    } finally {
+      setIsNavigating(false);
+    }
+  }, [navigate, isNavigating]);
 
   // 使用 useMemo 来初始化表单值，确保 Form 实例正确连接
   const initialValues: AgentDetailsForm = useMemo(() => {
@@ -183,14 +194,19 @@ const AgentDetails: React.FC = () => {
     }
   };
 
-  const goBack = () => navigate('/agents');
-
   return (
     <div style={{ padding: 16, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      <Space align="center" size={12} style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={goBack} title={t('common.back') || 'Back'} aria-label={t('common.back') || 'Back'} />
+        <Space align="center" size={12} style={{ marginBottom: 16 }}>
+        <Button 
+          icon={<ArrowLeftOutlined />} 
+          onClick={goBack} 
+          title={t('common.back') || 'Back'} 
+          aria-label={t('common.back') || 'Back'}
+          loading={isNavigating}
+          disabled={isNavigating}
+        />
         <span style={{ fontSize: 18, fontWeight: 600 }}>{t('pages.agents.agent_details') || 'Agent Details'}</span>
-      </Space>
+        </Space>
 
       <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
         <div style={{ height: '100%', overflowY: 'auto' }}>
@@ -246,7 +262,7 @@ const AgentDetails: React.FC = () => {
                         onEdit={(id) => navigate(`/personalities/details/${id}`)}
                       />
                     )}
-                  </Form.Item>
+                </Form.Item>
                 </div>
               </Col>
 
@@ -264,7 +280,7 @@ const AgentDetails: React.FC = () => {
                         onEdit={(id) => navigate(`/titles/details/${id}`)}
                       />
                     )}
-                  </Form.Item>
+                </Form.Item>
                 </div>
               </Col>
 
@@ -282,7 +298,7 @@ const AgentDetails: React.FC = () => {
                         onEdit={(id) => navigate(`/organizations/details/${id}`)}
                       />
                     )}
-                  </Form.Item>
+                </Form.Item>
                 </div>
               </Col>
 
@@ -300,7 +316,7 @@ const AgentDetails: React.FC = () => {
                         onEdit={(id) => navigate(`/supervisors/details/${id}`)}
                       />
                     )}
-                  </Form.Item>
+                </Form.Item>
                 </div>
               </Col>
 
@@ -318,7 +334,7 @@ const AgentDetails: React.FC = () => {
                         onEdit={(id) => navigate(`/subordinates/details/${id}`)}
                       />
                     )}
-                  </Form.Item>
+                </Form.Item>
                 </div>
               </Col>
 
@@ -336,7 +352,7 @@ const AgentDetails: React.FC = () => {
                         onEdit={(id) => navigate(`/tasks/details/${id}`)}
                       />
                     )}
-                  </Form.Item>
+                </Form.Item>
                 </div>
               </Col>
 
@@ -354,7 +370,7 @@ const AgentDetails: React.FC = () => {
                         onEdit={(id) => navigate(`/skills/details/${id}`)}
                       />
                     )}
-                  </Form.Item>
+                </Form.Item>
                 </div>
               </Col>
 
@@ -373,19 +389,19 @@ const AgentDetails: React.FC = () => {
           </Form>
         </div>
 
-        <Divider />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-          <Button icon={<EditOutlined />} type="default" disabled={editMode} onClick={() => setEditMode(true)}>
-            {t('common.edit') || 'Edit'}
-          </Button>
-          {editMode && (
-            <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
-              {t('common.save') || 'Save'}
+          <Divider />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+            <Button icon={<EditOutlined />} type="default" disabled={editMode} onClick={() => setEditMode(true)}>
+              {t('common.edit') || 'Edit'}
             </Button>
-          )}
-        </div>
-      </Card>
-    </div>
+            {editMode && (
+              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
+                {t('common.save') || 'Save'}
+              </Button>
+            )}
+          </div>
+        </Card>
+      </div>
   );
 };
 

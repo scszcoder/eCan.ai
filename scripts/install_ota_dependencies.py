@@ -51,7 +51,7 @@ class CIOTAInstaller:
                 "platform": "windows",
                 "extract_files": ["winsparkle.dll", "winsparkle.lib", "winsparkle.h"],
                 "target_dir": "winsparkle",  # third_party/winsparkle/
-                "target_path": "winsparkle"
+                "target_path": "winsparkle/winsparkle.dll"  # 指向实际的 DLL 文件
             }
         }
 

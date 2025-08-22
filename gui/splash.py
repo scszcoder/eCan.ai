@@ -256,15 +256,30 @@ class ThemedSplashScreen(QWidget):
                 "VERSION",  # Current directory
             ]
 
-        for p in try_paths:
-            try:
-                if os.path.exists(p) and os.path.isfile(p):
-                    with open(p, 'r', encoding='utf-8') as f:
-                        v = f.read().strip()
-                        if v:
-                            return v
-            except Exception:
-                pass
+        # 使用统一的版本读取函数
+        try:
+            from utils.app_setup_helper import read_version_file
+            return read_version_file(try_paths)
+        except ImportError:
+            # 如果导入失败，使用原来的逻辑作为备用
+            for p in try_paths:
+                try:
+                    # Check if it's a file
+                    if os.path.exists(p) and os.path.isfile(p):
+                        with open(p, 'r', encoding='utf-8') as f:
+                            v = f.read().strip()
+                            if v:
+                                return v
+                    # Check if it's a directory containing VERSION file (PyInstaller packaging case)
+                    elif os.path.exists(p) and os.path.isdir(p):
+                        nested_version_path = os.path.join(p, "VERSION")
+                        if os.path.exists(nested_version_path) and os.path.isfile(nested_version_path):
+                            with open(nested_version_path, 'r', encoding='utf-8') as f:
+                                v = f.read().strip()
+                                if v:
+                                    return v
+                except Exception:
+                    pass
 
         # Return default version if not found
         return "1.0.0"

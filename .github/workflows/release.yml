@@ -100,13 +100,16 @@ jobs:
       (github.event.inputs.platform == 'windows' ||
        github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null) &&
-      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == null) &&
-      github.event.inputs.arch != 'aarch64'
+      (github.event.inputs.arch == 'amd64' ||
+       github.event.inputs.arch == null ||
+       (github.event.inputs.platform == 'all' && github.event.inputs.arch == 'aarch64'))
     runs-on: windows-latest
     env:
       # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
       WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
+      # Set build architecture for the build process (Windows only supports amd64)
+      BUILD_ARCH: amd64
     timeout-minutes: 45
 
     steps:
@@ -234,6 +237,12 @@ jobs:
         echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
         echo "Note: Windows only supports amd64 architecture"
 
+        # Check if we're building for aarch64 on Windows (should not happen due to job conditions)
+        if ("${{ github.event.inputs.arch }}" -eq "aarch64" -and "${{ github.event.inputs.platform }}" -ne "all") {
+          echo "WARNING: aarch64 architecture requested for Windows, but Windows only supports amd64"
+          echo "This build should not have been triggered - check workflow conditions"
+        }
+
         echo "=== Checking Windows Environment Variables ==="
         if ("$env:WIN_CERT_PFX" -ne "NOT_SET") {
           echo "WIN_CERT_PFX: Set"
@@ -256,7 +265,7 @@ jobs:
         $env:PYTHONUNBUFFERED = "1"
 
         # Set environment variable for build architecture
-        $env:BUILD_ARCH = "amd64"
+        $env:BUILD_ARCH = "$env:BUILD_ARCH"
 
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
@@ -270,7 +279,7 @@ jobs:
         }
 
         # Check for standardized artifacts (created by build.py)
-        $stdExe = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe"
+        $stdExe = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-$env:BUILD_ARCH.exe"
 
         if ($buildSuccess) {
             if (Test-Path $stdExe) {
@@ -293,7 +302,7 @@ jobs:
         echo "[OK] Build completed successfully"
 
         echo "=== Validating Build Artifacts ==="
-        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch amd64
+        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $env:BUILD_ARCH
         if ($LASTEXITCODE -ne 0) {
             echo "[ERROR] Build artifact validation failed"
             exit 1
@@ -378,7 +387,7 @@ jobs:
         }
 
         # Check for standardized installer
-        $stdSetup = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe"
+        $stdSetup = "dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-$env:BUILD_ARCH-Setup.exe"
 
         if (Test-Path $stdSetup) {
             $setup = Get-Item $stdSetup
@@ -402,14 +411,13 @@ jobs:
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe
+          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-${{ env.BUILD_ARCH }}.exe
+          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-${{ env.BUILD_ARCH }}-Setup.exe
           dist/*.msi
           build.log
         retention-days: 30
 
-  # macOS build
-  # Note: macOS supports both amd64 and aarch64 architectures
+  # macOS build - Matrix strategy for multiple architectures
   build-macos:
     needs: validate-tag
     if: |
@@ -418,6 +426,14 @@ jobs:
        github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null)
     runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            target_arch: amd64
+          - arch: aarch64
+            target_arch: aarch64
+      fail-fast: false
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
@@ -426,23 +442,60 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID || 'NOT_SET' }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
       TEAM_ID: ${{ secrets.TEAM_ID || 'NOT_SET' }}
+      # Set build architecture for the build process
+      BUILD_ARCH: ${{ matrix.arch }}
+      TARGET_ARCH: ${{ matrix.target_arch }}
     timeout-minutes: 45
 
     steps:
+    - name: Check if this architecture should be built
+      id: should_build
+      run: |
+        ARCH="${{ matrix.arch }}"
+        INPUT_ARCH="${{ github.event.inputs.arch }}"
+        INPUT_PLATFORM="${{ github.event.inputs.platform }}"
+
+        echo "Matrix arch: $ARCH"
+        echo "Input arch: $INPUT_ARCH"
+        echo "Input platform: $INPUT_PLATFORM"
+
+        # Determine if this matrix job should run
+        SHOULD_BUILD="false"
+
+        if [ "$INPUT_PLATFORM" = "all" ]; then
+          # Build all architectures when platform is 'all'
+          SHOULD_BUILD="true"
+        elif [ -z "$INPUT_ARCH" ] || [ "$INPUT_ARCH" = "null" ]; then
+          # Default to amd64 when no arch specified
+          if [ "$ARCH" = "amd64" ]; then
+            SHOULD_BUILD="true"
+          fi
+        elif [ "$INPUT_ARCH" = "$ARCH" ]; then
+          # Build only the specified architecture
+          SHOULD_BUILD="true"
+        fi
+
+        echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+        echo "Should build $ARCH: $SHOULD_BUILD"
+
     - name: Checkout code
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/checkout@v4
 
     - name: Set up Python 3.11
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
 
     - name: Set up Node.js
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/setup-node@v4
       with:
         node-version: '18'
 
     - name: Cache pip dependencies
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
@@ -451,6 +504,7 @@ jobs:
           macos-pip-3.11-
 
     - name: Create and activate venv (macOS)
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Creating Virtual Environment ==="
         python -m venv .venv
@@ -458,6 +512,7 @@ jobs:
         echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
     - name: Install Python dependencies
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Python/Pip Info (macOS venv) ==="
         python -c "import sys; print(sys.version); print(sys.executable)"
@@ -472,16 +527,19 @@ jobs:
         python -c "import PyInstaller; print('PyInstaller installed successfully')"
 
     - name: Uninstall pathlib if present (macOS)
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         python -m pip uninstall -y pathlib || true
 
     - name: Install frontend dependencies
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Installing Frontend Dependencies ==="
         cd gui_v2
         npm install --legacy-peer-deps
 
     - name: Install OTA dependencies (including Sparkle)
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Installing OTA Dependencies ==="
         python scripts/install_ota_dependencies.py install --platform darwin
@@ -514,20 +572,23 @@ jobs:
         fi
 
     - name: Create build directories
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Creating Build Directories ==="
         mkdir -p build dist
 
     - name: Check build environment
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Checking Build Environment ==="
         python scripts/check_build_env.py
-        
+
         echo "=== Checking Architecture Selection ==="
         echo "Selected architecture: ${{ github.event.inputs.arch || 'amd64 (default)' }}"
         echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
+        echo "Current matrix architecture: ${{ matrix.arch }}"
         echo "Note: macOS supports both amd64 and aarch64 architectures"
-        
+
         echo "=== Checking macOS Environment Variables ==="
         if [ "${MAC_CERT_P12}" != "NOT_SET" ]; then
           echo "MAC_CERT_P12: Set"
@@ -546,6 +607,7 @@ jobs:
         fi
 
     - name: Build macOS App
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Starting macOS Build ==="
         echo "Command: python build.py prod"
@@ -553,7 +615,11 @@ jobs:
         # Set environment variables
         export PYTHONPATH="$PWD"
         export PYTHONUNBUFFERED=1
-        export BUILD_ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        # Use matrix architecture instead of input arch
+        export BUILD_ARCH="${{ matrix.arch }}"
+        export TARGET_ARCH="${{ matrix.target_arch }}"
+
+        echo "Building for architecture: $BUILD_ARCH (target: $TARGET_ARCH)"
 
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
@@ -567,7 +633,7 @@ jobs:
         fi
 
         # Check for standardized PKG (created by build.py)
-        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        ARCH="$BUILD_ARCH"
         VERSION="${{ needs.validate-tag.outputs.version }}"
         STD_PKG="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
 
@@ -588,19 +654,20 @@ jobs:
         echo "[OK] Build completed successfully"
 
     - name: Validate build artifacts
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Validating Build Artifacts ==="
-        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch ${{ github.event.inputs.arch || 'amd64' }}
+        python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $BUILD_ARCH
         if [ $? -ne 0 ]; then
             echo "[ERROR] Build artifact validation failed"
             exit 1
         fi
 
     - name: Verify PKG installer
-      if: ${{ always() }}
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Verifying PKG installer ==="
-        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        ARCH="$BUILD_ARCH"
         VERSION="${{ needs.validate-tag.outputs.version }}"
         APP_PATH="dist/eCan.app"
         PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
@@ -717,7 +784,7 @@ jobs:
         fi
 
     - name: Code sign macOS app (optional)
-      if: ${{ env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' }}
+      if: ${{ steps.should_build.outputs.should_build == 'true' && env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' }}
       env:
         MAC_CERT_P12: ${{ env.MAC_CERT_P12 }}
         MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD }}
@@ -749,7 +816,7 @@ jobs:
         fi
 
     - name: Notarize macOS PKG (optional)
-      if: ${{ env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' }}
+      if: ${{ steps.should_build.outputs.should_build == 'true' && env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' }}
       env:
         APPLE_ID: ${{ env.APPLE_ID }}
         APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -760,7 +827,7 @@ jobs:
           echo "No Apple notarization credentials; skip notarization"
           exit 0
         fi
-        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        ARCH="$BUILD_ARCH"
         VERSION="${{ needs.validate-tag.outputs.version }}"
         PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
         if [ -f "$PKG_PATH" ]; then
@@ -778,6 +845,7 @@ jobs:
         fi
 
     - name: Check build result
+      if: steps.should_build.outputs.should_build == 'true'
       run: |
         echo "=== Build Result Check ==="
         echo "=== Environment Variables Summary ==="
@@ -796,7 +864,7 @@ jobs:
         echo "Dist directory contents:"
         ls -la dist/
 
-        ARCH="${{ github.event.inputs.arch || 'amd64' }}"
+        ARCH="$BUILD_ARCH"
         VERSION="${{ needs.validate-tag.outputs.version }}"
         PKG_PATH="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
         if [ -f "$PKG_PATH" ]; then
@@ -820,13 +888,19 @@ jobs:
         echo "[OK] Build validation passed"
 
     - name: Upload macOS artifacts
+      if: steps.should_build.outputs.should_build == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
+        name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
         path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg
+          dist/eCan-${{ needs.validate-tag.outputs.version }}-macos-${{ matrix.arch }}.pkg
           build.log
         retention-days: 30
+
+
+
+
+
 
   # Create Release
   create-release:
@@ -853,15 +927,32 @@ jobs:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
         path: windows-artifacts
 
-    - name: Download macOS artifacts
+    - name: Download macOS amd64 artifacts
       if: |
-        github.event.inputs.platform == 'macos' ||
-        github.event.inputs.platform == 'all' ||
-        github.event.inputs.platform == null
+        (github.event.inputs.platform == 'macos' ||
+         github.event.inputs.platform == 'all' ||
+         github.event.inputs.platform == null) &&
+        (github.event.inputs.arch == 'amd64' ||
+         github.event.inputs.arch == null ||
+         github.event.inputs.platform == 'all')
       uses: actions/download-artifact@v4
       with:
-        name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
+        name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
         path: macos-artifacts
+      continue-on-error: true
+
+    - name: Download macOS aarch64 artifacts
+      if: |
+        (github.event.inputs.platform == 'macos' ||
+         github.event.inputs.platform == 'all' ||
+         github.event.inputs.platform == null) &&
+        (github.event.inputs.arch == 'aarch64' ||
+         github.event.inputs.platform == 'all')
+      uses: actions/download-artifact@v4
+      with:
+        name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
+        path: macos-artifacts
+      continue-on-error: true
 
     - name: Prepare release files list
       id: prep_files
@@ -937,6 +1028,7 @@ jobs:
           pip install requests cryptography
 
       - name: Generate macOS appcast (amd64)
+        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}

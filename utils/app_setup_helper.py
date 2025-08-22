@@ -3,7 +3,69 @@ import sys
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 import setproctitle
-from config.app_info import app_info
+
+try:
+    from config.app_info import app_info
+except ImportError:
+    app_info = None
+
+
+def read_version_file(version_paths, logger=None):
+    """
+    统一的版本文件读取函数，支持开发环境和打包环境
+
+    Args:
+        version_paths: 要尝试的版本文件路径列表
+        logger: 可选的日志记录器
+
+    Returns:
+        str: 读取到的版本号，如果失败返回 "1.0.0"
+    """
+    for version_path in version_paths:
+        if logger:
+            logger.debug(f"Trying VERSION file path: {version_path}")
+
+        # 检查是否是文件
+        if os.path.exists(version_path) and os.path.isfile(version_path):
+            try:
+                with open(version_path, "r", encoding="utf-8") as f:
+                    version_content = f.read().strip()
+                    if version_content:  # 确保不为空
+                        if logger:
+                            logger.info(f"VERSION file found at: {version_path}, version: {version_content}")
+                        return version_content
+            except Exception as read_error:
+                if logger:
+                    logger.warning(f"Failed to read VERSION file at {version_path}: {read_error}")
+                continue
+        # 检查是否是包含 VERSION 文件的目录（PyInstaller 打包情况）
+        elif os.path.exists(version_path) and os.path.isdir(version_path):
+            nested_version_path = os.path.join(version_path, "VERSION")
+            if logger:
+                logger.debug(f"Found VERSION directory, trying nested path: {nested_version_path}")
+            if os.path.exists(nested_version_path) and os.path.isfile(nested_version_path):
+                try:
+                    with open(nested_version_path, "r", encoding="utf-8") as f:
+                        version_content = f.read().strip()
+                        if version_content:  # 确保不为空
+                            if logger:
+                                logger.info(f"VERSION file found in directory at: {nested_version_path}, version: {version_content}")
+                            return version_content
+                except Exception as read_error:
+                    if logger:
+                        logger.warning(f"Failed to read nested VERSION file at {nested_version_path}: {read_error}")
+                    continue
+            else:
+                if logger:
+                    logger.debug(f"No VERSION file found in directory: {version_path}")
+        else:
+            if logger:
+                logger.debug(f"VERSION file not found at: {version_path}")
+
+    # 如果所有路径都失败，返回默认版本
+    if logger:
+        logger.warning(f"VERSION file not found in any of the attempted paths: {version_paths}")
+    return "1.0.0"
 
 # Windows-specific imports
 if sys.platform == 'win32':
@@ -76,30 +138,8 @@ def setup_application_info(app, logger=None):
                     "VERSION",  # Current directory
                 ]
 
-            version_found = False
-            for version_path in version_paths:
-                if logger:
-                    logger.debug(f"Trying VERSION file path: {version_path}")
-                if os.path.exists(version_path) and os.path.isfile(version_path):
-                    try:
-                        with open(version_path, "r", encoding="utf-8") as f:
-                            version_content = f.read().strip()
-                            if version_content:  # Make sure it's not empty
-                                version = version_content
-                                version_found = True
-                                if logger:
-                                    logger.info(f"VERSION file found at: {version_path}, version: {version}")
-                                break
-                    except Exception as read_error:
-                        if logger:
-                            logger.warning(f"Failed to read VERSION file at {version_path}: {read_error}")
-                        continue
-                else:
-                    if logger:
-                        logger.debug(f"VERSION file not found at: {version_path}")
-
-            if not version_found and logger:
-                logger.warning(f"VERSION file not found in any of the attempted paths: {version_paths}")
+            # 使用统一的版本读取函数
+            version = read_version_file(version_paths, logger)
 
         except Exception as e:
             if logger:
@@ -439,12 +479,15 @@ def set_app_icon(app, logger=None):
                 logger.info("- Try restarting the application")
                 logger.info("- Or manually clear icon cache")
 
+        return True
+
     else:
         if logger:
             logger.warning("No icon found! Checked paths:")
             for candidate in icon_candidates:
                 logger.debug(f"  - {candidate}")
             logger.warning(f"No application icon found in: {icon_candidates}")
+        return False
 
 def set_app_icon_early(app, logger=None):
     """
@@ -466,6 +509,11 @@ def set_app_icon_early(app, logger=None):
             print(f"[EARLY_ICON] {msg}")
 
     try:
+        # Check if app_info is available
+        if app_info is None:
+            log_msg("app_info not available during early icon setting", 'warning')
+            return False
+
         resource_path = app_info.app_resources_path
         log_msg(f"Early icon setting started, resource_path: {resource_path}")
 
