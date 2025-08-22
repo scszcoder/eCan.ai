@@ -48,25 +48,59 @@ def setup_application_info(app, logger=None):
         try:
             # Get correct resource path (supports PyInstaller packaging environment)
             if hasattr(sys, '_MEIPASS'):
-                # PyInstaller packaging environment
+                # PyInstaller packaging environment - VERSION file is in the root of _MEIPASS
                 base_path = sys._MEIPASS
+                if logger:
+                    logger.debug(f"PyInstaller environment detected, base_path: {base_path}")
             else:
                 # Development environment - from utils/app_setup_helper.py to project root
                 base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                if logger:
+                    logger.debug(f"Development environment detected, base_path: {base_path}")
 
             # Try multiple possible VERSION file locations
-            version_paths = [
-                os.path.join(base_path, "VERSION"),  # PyInstaller resource directory or project root
-                "VERSION",  # Current directory
-                os.path.join(os.path.dirname(__file__), "..", "VERSION"),  # Project root directory
-                os.path.join(os.getcwd(), "VERSION"),  # Working directory
-            ]
+            if hasattr(sys, '_MEIPASS'):
+                # PyInstaller environment - VERSION is in _internal directory
+                version_paths = [
+                    os.path.join(base_path, "VERSION"),  # PyInstaller _MEIPASS root
+                    os.path.join(base_path, "_internal", "VERSION"),  # PyInstaller _internal directory
+                    os.path.join(os.path.dirname(sys.executable), "VERSION"),  # Executable directory
+                    os.path.join(os.path.dirname(sys.executable), "_internal", "VERSION"),  # Executable _internal
+                ]
+            else:
+                # Development environment
+                version_paths = [
+                    os.path.join(base_path, "VERSION"),  # Project root
+                    os.path.join(os.path.dirname(__file__), "..", "VERSION"),  # Project root directory
+                    os.path.join(os.getcwd(), "VERSION"),  # Working directory
+                    "VERSION",  # Current directory
+                ]
 
+            version_found = False
             for version_path in version_paths:
-                if os.path.exists(version_path):
-                    with open(version_path, "r", encoding="utf-8") as f:
-                        version = f.read().strip()
-                    break
+                if logger:
+                    logger.debug(f"Trying VERSION file path: {version_path}")
+                if os.path.exists(version_path) and os.path.isfile(version_path):
+                    try:
+                        with open(version_path, "r", encoding="utf-8") as f:
+                            version_content = f.read().strip()
+                            if version_content:  # Make sure it's not empty
+                                version = version_content
+                                version_found = True
+                                if logger:
+                                    logger.info(f"VERSION file found at: {version_path}, version: {version}")
+                                break
+                    except Exception as read_error:
+                        if logger:
+                            logger.warning(f"Failed to read VERSION file at {version_path}: {read_error}")
+                        continue
+                else:
+                    if logger:
+                        logger.debug(f"VERSION file not found at: {version_path}")
+
+            if not version_found and logger:
+                logger.warning(f"VERSION file not found in any of the attempted paths: {version_paths}")
+
         except Exception as e:
             if logger:
                 logger.warning(f"Failed to read VERSION file: {e}")
@@ -154,13 +188,48 @@ def _setup_windows_app_info(app, logger=None):
     """Set up Windows-specific application information"""
     try:
         if sys.platform == 'win32' and ctypes:
-            # Set application user model ID
+            # Set application user model ID (must be done very early)
             app_id = "eCan.AI.App"
             shell32 = ctypes.windll.shell32
-            shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+            result = shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+
+            # Set process title early for better Windows integration
+            try:
+                import setproctitle
+                setproctitle.setproctitle("eCan")
+                if logger:
+                    logger.debug("Process title set to: eCan")
+            except ImportError:
+                if logger:
+                    logger.debug("setproctitle not available, skipping process title setting")
+
+            # Set additional Windows-specific properties
+            try:
+                # Set window class name for better Windows integration
+                app.setApplicationName("eCan")
+                app.setApplicationDisplayName("eCan")
+                app.setApplicationVersion("1.0.0")
+                app.setOrganizationName("eCan")
+                app.setOrganizationDomain("ecan.ai")
+
+                if logger:
+                    logger.debug("Windows application properties set")
+            except Exception as e:
+                if logger:
+                    logger.warning(f"Failed to set Windows application properties: {e}")
+
+            # Try to set the console window title as well
+            try:
+                kernel32 = ctypes.windll.kernel32
+                kernel32.SetConsoleTitleW("eCan")
+                if logger:
+                    logger.debug("Console title set to: eCan")
+            except Exception as e:
+                if logger:
+                    logger.debug(f"Failed to set console title: {e}")
 
             if logger:
-                logger.info(f"Windows application ID set to: {app_id}")
+                logger.info(f"Windows application ID set to: {app_id} (result: {result})")
 
     except Exception as e:
         if logger:
@@ -409,6 +478,23 @@ def set_app_icon_early(app, logger=None):
                 app_id = "eCan.AI.App"
                 result = shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
                 log_msg(f"Early AppUserModelID set: {app_id} (result: {result})", 'debug')
+
+                # Set process title early for better Windows integration
+                try:
+                    import setproctitle
+                    setproctitle.setproctitle("eCan")
+                    log_msg("Early process title set to: eCan", 'debug')
+                except ImportError:
+                    log_msg("setproctitle not available for early process title setting", 'debug')
+
+                # Set console title early
+                try:
+                    kernel32 = ctypes.windll.kernel32
+                    kernel32.SetConsoleTitleW("eCan")
+                    log_msg("Early console title set to: eCan", 'debug')
+                except Exception as e:
+                    log_msg(f"Failed to set early console title: {e}", 'debug')
+
             except Exception as e:
                 log_msg(f"Failed to set early AppUserModelID: {e}", 'warning')
 
