@@ -25,15 +25,14 @@ except ImportError:
 # Import build utilities
 from build_system.build_utils import (
     print_banner, print_mode_info, standardize_artifact_names,
-    show_build_results, clean_macos_build_artifacts,
-    prepare_third_party_assets, dev_sign_artifacts
+    show_build_results, prepare_third_party_assets, dev_sign_artifacts
 )
 
 # Import symlink manager for macOS fixes
 from build_system.symlink_manager import symlink_manager
 
-# Import build optimizer for performance improvements
-from build_system.build_optimizer import build_optimizer, set_optimizer_verbose
+# Build optimizer removed - always force rebuild for reliability
+from build_system.build_cleaner import BuildCleaner
 
 
 class BuildEnvironment:
@@ -196,84 +195,26 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
                 print(f"[RENAME] Warning: Failed to rename {src_setup} to {dst_setup}: {e}")
 
     elif platform_name == "Darwin":
+        # macOS PKG file standardization
         platform_str = "macos"
 
-        # Create PKG installer file
-        app_path = Path("dist/eCan.app")
-        pkg_path = Path(f"dist/eCan-{platform_str}-{arch}-v{version}.pkg")
+        # Standardize PKG file naming to match release.yml format
+        expected_name = f"eCan-{version}-{platform_str}-{arch}.pkg"
+        expected_path = Path(f"dist/{expected_name}")
 
-        # Check if PKG already exists (created by installer builder)
-        if pkg_path.exists():
-            print(f"[RENAME] PKG already exists: {pkg_path.name}")
-        elif app_path.exists():
-            # Create PKG as default installer format
+        # Find .pkg files that need renaming
+        pkg_files = [f for f in Path("dist").glob("*.pkg") if f.name != expected_name]
+
+        if pkg_files:
+            # Rename the first PKG file found
+            src_pkg = pkg_files[0]
             try:
-                print(f"[RENAME] Creating PKG installer: {pkg_path.name}")
-
-                # Create temporary directory for PKG creation
-                pkg_temp = Path("build/pkg")
-                pkg_temp.mkdir(parents=True, exist_ok=True)
-
-                # Create component PKG (only include the .app bundle)
-                component_pkg = pkg_temp / "eCan-component.pkg"
-                pkgbuild_cmd = [
-                    "pkgbuild",
-                    "--component", str(app_path),
-                    "--identifier", "com.ecan.ecan",
-                    "--version", version,
-                    "--install-location", "/Applications",
-                    str(component_pkg)
-                ]
-
-                subprocess.run(pkgbuild_cmd, check=True, capture_output=True, timeout=600)
-
-                # Create simple distribution XML
-                distribution_xml = f"""<?xml version="1.0" encoding="utf-8"?>
-<installer-gui-script minSpecVersion="1">
-    <title>eCan {version}</title>
-    <organization>com.ecan</organization>
-    <domains enable_localSystem="true"/>
-    <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
-
-    <pkg-ref id="com.ecan.ecan"/>
-
-    <choices-outline>
-        <line choice="default">
-            <line choice="com.ecan.ecan"/>
-        </line>
-    </choices-outline>
-
-    <choice id="default"/>
-    <choice id="com.ecan.ecan" visible="false">
-        <pkg-ref id="com.ecan.ecan"/>
-    </choice>
-
-    <pkg-ref id="com.ecan.ecan" version="{version}" onConclusion="none">
-        eCan-component.pkg
-    </pkg-ref>
-</installer-gui-script>"""
-
-                distribution_file = pkg_temp / "distribution.xml"
-                with open(distribution_file, 'w', encoding='utf-8') as f:
-                    f.write(distribution_xml)
-
-                # Create final PKG
-                productbuild_cmd = [
-                    "productbuild",
-                    "--distribution", str(distribution_file),
-                    "--package-path", str(pkg_temp),
-                    str(pkg_path)
-                ]
-
-                subprocess.run(productbuild_cmd, check=True, capture_output=True, timeout=600)
-                print(f"[RENAME] Created: {pkg_path.name}")
-
-                # Cleanup
-                shutil.rmtree(pkg_temp, ignore_errors=True)
-
+                shutil.move(str(src_pkg), str(expected_path))
+                print(f"[RENAME] Renamed PKG: {src_pkg.name} -> {expected_name}")
             except Exception as e:
-                print(f"[RENAME] Error: Failed to create PKG: {e}")
-                print(f"[RENAME] PKG creation failed, no installer will be created")
+                print(f"[RENAME] Warning: Failed to rename {src_pkg.name} to {expected_name}: {e}")
+        else:
+            print(f"[RENAME] No PKG files found to rename or already correctly named")
 
 
 def _show_build_results():
@@ -311,22 +252,7 @@ def _show_build_results():
 
 
 
-def _clean_macos_build_artifacts(build_path: Path) -> None:
-    """Clean macOS build artifacts - simple cleanup without touching Qt frameworks"""
-    import shutil
-
-    if not build_path.exists():
-        return
-
-    print(f"[MACOS] Cleaning {build_path}...")
-
-    try:
-        # Simple cleanup - let PyInstaller handle Qt frameworks properly
-        shutil.rmtree(build_path, ignore_errors=True)
-        print(f"[MACOS] Cleaned {build_path}")
-
-    except Exception as e:
-        print(f"[MACOS] Warning: Cleanup failed: {e}")
+# macOS build artifacts cleanup is now handled by build_utils.clean_macos_build_artifacts
 
 
 
@@ -336,6 +262,47 @@ def _clean_macos_build_artifacts(build_path: Path) -> None:
 
 
 
+
+
+def _validate_macos_build_tools() -> bool:
+    """Validate macOS build tools for PKG creation"""
+    try:
+        import shutil
+        import subprocess
+
+        # Check required tools
+        required_tools = ['pkgbuild', 'productbuild']
+        missing_tools = []
+
+        for tool in required_tools:
+            if not shutil.which(tool):
+                missing_tools.append(tool)
+
+        if missing_tools:
+            print(f"[ERROR] Missing required macOS build tools: {', '.join(missing_tools)}")
+            print("[ERROR] Please install Xcode Command Line Tools:")
+            print("[ERROR]   xcode-select --install")
+            return False
+
+        # Check Xcode Command Line Tools installation
+        try:
+            result = subprocess.run(['xcode-select', '-p'],
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                print(f"[BUILD] Xcode Command Line Tools found: {result.stdout.strip()}")
+            else:
+                print("[WARNING] Xcode Command Line Tools may not be properly installed")
+                return False
+        except:
+            print("[WARNING] Could not verify Xcode Command Line Tools installation")
+            return False
+
+        print("[BUILD] macOS build tools validation passed")
+        return True
+
+    except Exception as e:
+        print(f"[WARNING] macOS build tools validation failed: {e}")
+        return False
 
 
 def _dev_sign_artifacts(enable: bool) -> None:
@@ -403,12 +370,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Build mode description:
-  fast     Fast build (parallel+cache, 2-5 minutes) - Uses intelligent caching
-  dev      Development build (parallel+console, 5-10 minutes) - Always rebuilds, clears cache
-  prod     Production build (parallel+best compression, 15-25 minutes) - Always rebuilds, clears cache
+  fast     Fast build (parallel processing, 2-5 minutes) - Quick development builds
+  dev      Development build (parallel+console, 5-10 minutes) - Debug-enabled builds
+  prod     Production build (parallel+best compression, 15-25 minutes) - Optimized release builds
+
+Cleanup options:
+  --skip-cleanup      Skip automatic build environment cleanup
+  --cleanup-only      Only perform cleanup, don't build
 
 Usage examples:
-  python build.py fast              # Fast build
+  python build.py fast              # Fast build (with auto-cleanup)
   python build.py dev               # Development build
   python build.py prod              # Production build
   python build.py prod --version 2.1.0  # Build with specified version
@@ -416,6 +387,8 @@ Usage examples:
   python build.py prod --skip-installer # Skip installer creation
   python build.py dev --dev-sign        # Dev build with local signing (if DEV_* env provided)
   python build.py --installer-only  # Create installer only (skip build steps)
+  python build.py --cleanup-only    # Only clean build environment
+  python build.py fast --skip-cleanup   # Build without auto-cleanup
 """,
     )
 
@@ -423,6 +396,7 @@ Usage examples:
     parser.add_argument(
         "mode",
         choices=["fast", "dev", "prod"],
+        nargs="?",  # Make mode optional for cleanup-only
         default="fast",
         help="Build mode (default: fast)"
     )
@@ -483,25 +457,29 @@ Usage examples:
         help="Enable development signing (requires DEV_* environment variables)"
     )
 
+# Cache-related arguments removed - always force rebuild for reliability
+
     parser.add_argument(
-        "--force",
+        "--skip-cleanup",
         action="store_true",
-        help="Force rebuild even if no changes detected"
+        help="Skip automatic build environment cleanup"
     )
 
     parser.add_argument(
-        "--clear-cache",
+        "--cleanup-only",
         action="store_true",
-        help="Clear build cache before building"
-    )
-
-    parser.add_argument(
-        "--debug-cache",
-        action="store_true",
-        help="Show detailed cache debugging information"
+        help="Only perform cleanup, don't build"
     )
 
     args = parser.parse_args()
+
+    # Validate cleanup-only mode
+    if args.cleanup_only and args.mode is None:
+        # For cleanup-only mode, we don't need a build mode
+        pass
+    elif args.mode is None:
+        print("[ERROR] Build mode is required unless using --cleanup-only")
+        return 1
 
     # Validate installer-only mode
     if args.installer_only:
@@ -544,22 +522,46 @@ Usage examples:
     except Exception:
         pass
 
-    # Initialize build optimizer
-    set_optimizer_verbose(args.verbose or args.debug_cache)
-
     # Validate build configuration
     from build_system.build_utils import validate_build_config
     if not validate_build_config(verbose=args.verbose):
         print("[ERROR] Build configuration validation failed")
         return 1
 
-    # Clear cache if requested or for dev/prod modes
-    if args.clear_cache or args.mode in ["dev", "prod"]:
-        if args.mode in ["dev", "prod"]:
-            print(f"[OPTIMIZER] {args.mode.upper()} mode: automatically clearing cache for clean build")
+    # Always force rebuild for reliability (cache removed)
+    print(f"[BUILD] {args.mode.upper()} mode: force rebuild enabled for reliability")
+
+    # Handle cleanup-only mode
+    if args.cleanup_only:
+        print("[CLEAN] Cleanup-only mode: performing build environment cleanup...")
+        cleaner = BuildCleaner(verbose=args.verbose)
+        cleanup_results = cleaner.clean_all()
+        print(f"[CLEAN] Cleanup completed: {cleaner.get_cleanup_summary()}")
+        print(f"[CLEAN] Time taken: {cleanup_results['cleanup_time']}s")
+        return 0
+
+    # Auto-clean build environment before starting (unless skipped)
+    if not args.skip_cleanup:
+        print("[CLEAN] Performing automatic build environment cleanup...")
+        cleaner = BuildCleaner(verbose=args.verbose)
+        cleanup_results = cleaner.clean_all()
+
+        if args.verbose:
+            print(f"[CLEAN] Cleanup summary: {cleaner.get_cleanup_summary()}")
         else:
-            print("[OPTIMIZER] Clearing build cache...")
-        build_optimizer.clear_cache()
+            print(f"[CLEAN] Cleanup completed: freed {cleanup_results['total_size_mb']:.1f}MB, "
+                  f"removed {cleanup_results['broken_symlinks']} broken symlinks")
+
+        # Re-validate build environment after cleanup
+        print("[CLEAN] Re-validating build environment after cleanup...")
+        if not validate_build_config(verbose=args.verbose):
+            print("[ERROR] Build environment validation failed after cleanup")
+            print("[ERROR] Please check the validation output and fix any remaining issues")
+            return 1
+
+        print("[CLEAN] Build environment validation passed - ready for clean build")
+    else:
+        print("[CLEAN] Skipping automatic cleanup (--skip-cleanup specified)")
 
     # Platform-specific pre-build fixes
     import platform
@@ -567,6 +569,10 @@ Usage examples:
 
     if current_platform == "Darwin":
         print("[BUILD] macOS detected - Skipping pre-build symlink fixes (PyInstaller handles this)")
+        # Validate macOS build tools for PKG creation
+        if not _validate_macos_build_tools():
+            print("[WARNING] macOS PKG build tools validation failed")
+            print("[WARNING] PKG installer creation may fail")
     elif current_platform == "Windows":
         print("[BUILD] Windows detected - No pre-build fixes needed")
     elif current_platform == "Linux":
@@ -574,13 +580,8 @@ Usage examples:
     else:
         print(f"[BUILD] Unknown platform: {current_platform} - Proceeding with default behavior")
 
-    # Quick optimization check (only for fast mode)
-    if not args.installer_only and not args.force and build_optimizer.should_skip_build(force=False, build_mode=args.mode):
-        print("[OPTIMIZER] No changes detected, skipping build")
-        print("[OPTIMIZER] Use --force or modify source files to trigger rebuild")
-        cache_stats = build_optimizer.get_cache_stats()
-        print(f"[OPTIMIZER] Cache: {cache_stats['file_count']} files, {cache_stats['cache_size_mb']:.1f}MB")
-        return 0
+    # Always rebuild for reliability (cache optimization removed)
+    print("[BUILD] Force rebuild mode: ensuring fresh build for reliability")
 
     # Validate environment
     _t_env_start = time.perf_counter()
@@ -619,7 +620,8 @@ Usage examples:
                 for p in build_paths:
                     if p.exists():
                         if platform.system() == "Darwin":
-                            _clean_macos_build_artifacts(p)
+                            from build_system.build_utils import clean_macos_build_artifacts
+                            clean_macos_build_artifacts(p)
                         else:
                             shutil.rmtree(p, ignore_errors=True)
                         print(f"[PREP] Cleaned: {p}")
@@ -673,27 +675,19 @@ Usage examples:
             print("[FRONTEND] Installer-only mode: skipping frontend build")
             print("[TIME] Frontend build: skipped")
         elif not args.skip_frontend:
-            # Check if frontend rebuild is needed
-            if args.force or build_optimizer.should_rebuild_frontend(force=args.force, build_mode=args.mode):
-                if args.mode in ["dev", "prod"]:
-                    print(f"[FRONTEND] {args.mode.upper()} mode: rebuilding frontend for consistency...")
-                else:
-                    print("[FRONTEND] Changes detected, rebuilding frontend...")
-                _t_front_start = time.perf_counter()
-                ok_front = frontend.build()
-                _t_front_end = time.perf_counter()
-                print(f"[TIME] Frontend build: {(_t_front_end - _t_front_start):.2f}s")
-                if not ok_front:
-                    print("[ERROR] Frontend build failed")
-                    return 1
-                build_optimizer.mark_frontend_built()
-            else:
-                print("[FRONTEND] No changes detected, skipping frontend build")
-                print("[TIME] Frontend build: skipped (cached)")
-                ok_front = True
+            # Always rebuild frontend for reliability
+            print(f"[FRONTEND] Building frontend...")
+            _t_front_start = time.perf_counter()
+            ok_front = frontend.build()
+            _t_front_end = time.perf_counter()
+            print(f"[TIME] Frontend build: {(_t_front_end - _t_front_start):.2f}s")
+            if not ok_front:
+                print("[ERROR] Frontend build failed")
+                return 1
         else:
             print("[FRONTEND] Skipped")
             print("[TIME] Frontend build: skipped")
+            ok_front = True
 
         # 2) Core app build
         if args.installer_only:
@@ -702,22 +696,12 @@ Usage examples:
             success = True
             print("[TIME] Core app build: skipped")
         else:
-            # Check if core rebuild is needed
-            if args.force or build_optimizer.should_rebuild_core(force=args.force, build_mode=args.mode):
-                if args.mode in ["dev", "prod"]:
-                    print(f"[CORE] {args.mode.upper()} mode: rebuilding core application for consistency...")
-                else:
-                    print("[CORE] Changes detected, rebuilding core application...")
-                _t_core_start = time.perf_counter()
-                success = minispec.build(build_mode)
-                _t_core_end = time.perf_counter()
-                print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
-                if success:
-                    build_optimizer.mark_core_built()
-            else:
-                print("[CORE] No changes detected, skipping core build")
-                print("[TIME] Core app build: skipped (cached)")
-                success = True
+            # Always rebuild core application for reliability
+            print(f"[CORE] Building core application...")
+            _t_core_start = time.perf_counter()
+            success = minispec.build(build_mode)
+            _t_core_end = time.perf_counter()
+            print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
 
         # 3) Installer
         if args.installer_only or (success and not args.skip_installer):
@@ -831,10 +815,6 @@ Usage examples:
             _t_rename_end = time.perf_counter()
             print(f"[TIME] Artifact renaming: {(_t_rename_end - _t_rename_start):.2f}s")
 
-        # Mark build as complete for caching
-        if not args.installer_only:
-            build_optimizer.mark_full_build_complete()
-
         print("\n" + "=" * 60)
         print("[SUCCESS] Build completed successfully!")
         print("=" * 60)
@@ -844,13 +824,6 @@ Usage examples:
         show_build_results()
         _t_results_end = time.perf_counter()
         print(f"[TIME] Results reporting: {(_t_results_end - _t_results_start):.2f}s")
-
-        # Show optimization statistics
-        cache_stats = build_optimizer.get_cache_stats()
-        print(f"\n[OPTIMIZER] Cache statistics:")
-        print(f"[OPTIMIZER]   Files cached: {cache_stats['file_count']}")
-        print(f"[OPTIMIZER]   Cache size: {cache_stats['cache_size_mb']:.1f}MB")
-        print(f"[OPTIMIZER]   Components: {cache_stats['components_cached']}")
 
         _t_total_end = time.perf_counter()
         print(f"[TIME] Total build time: {(_t_total_end - overall_start):.2f}s")
