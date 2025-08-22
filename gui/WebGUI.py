@@ -38,9 +38,8 @@ class WebGUI(QMainWindow):
         if self._progress_callback:
             self._progress_callback(72, "Setting up main window...")
 
-        # Set window icon
-        icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
-        self.setWindowIcon(QIcon(icon_path))
+        # Set window icon for taskbar display (required for taskbar icon)
+        self._set_window_icon()
         # Set window size first, then center it
         self.resize(1200, 800)
         self._center_on_screen()
@@ -148,9 +147,13 @@ class WebGUI(QMainWindow):
                 self._splash = None
             # Show main window when ready
             self.show()
+            # Ensure window icon is set after showing for taskbar display
+            self._set_window_icon()
         except Exception:
             try:
                 self.show()
+                # Try to set icon even if show failed
+                self._set_window_icon()
             except Exception:
                 pass
 
@@ -447,14 +450,29 @@ class WebGUI(QMainWindow):
             if sys.platform == 'win32':
                 self._apply_dark_titlebar_to_messagebox(msg_box)
 
-            # Try to set icon; fall back to default icon on failure
+            # Try to set eCan icon; fall back to default icon on failure
             try:
-                logo_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
-                pixmap = QPixmap(logo_path)
-                if not pixmap.isNull():
-                    scaled_pixmap = pixmap.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    msg_box.setIconPixmap(scaled_pixmap)
-                else:
+                from config.app_info import app_info
+                resource_path = app_info.app_resources_path
+
+                # Use eCan icon for message box
+                icon_candidates = [
+                    os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                    os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
+                    os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+                ]
+
+                icon_set = False
+                for candidate in icon_candidates:
+                    if os.path.exists(candidate):
+                        pixmap = QPixmap(candidate)
+                        if not pixmap.isNull():
+                            scaled_pixmap = pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                            msg_box.setIconPixmap(scaled_pixmap)
+                            icon_set = True
+                            break
+
+                if not icon_set:
                     msg_box.setIcon(QMessageBox.Question)
             except:
                 msg_box.setIcon(QMessageBox.Question)
@@ -666,23 +684,16 @@ class WebGUI(QMainWindow):
 
             # Create title bar layout
             titlebar_layout = QHBoxLayout(self.custom_titlebar)
-            titlebar_layout.setContentsMargins(8, 0, 0, 0)  # Right margin 0 to align control buttons to the edge
+            titlebar_layout.setContentsMargins(32, 0, 0, 0)  # Left margin to avoid system icon overlap
             titlebar_layout.setSpacing(0)
 
             # Add application icon
             self.app_icon = QLabel()
-            self.app_icon.setFixedSize(24, 24)
-            icon_path = os.path.join(os.path.dirname(__file__), '../resource/images/logos/logoWhite22.png')
-            if os.path.exists(icon_path):
-                pixmap = QPixmap(icon_path)
-                if not pixmap.isNull():
-                    # Scale image to fit 24x24 while preserving aspect ratio
-                    scaled_pixmap = pixmap.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.app_icon.setPixmap(scaled_pixmap)
-                    self.app_icon.setAlignment(Qt.AlignCenter)
+            self.app_icon.setFixedSize(32, 24)  # Wider container for better icon display
+            self._set_titlebar_icon()
             self.app_icon.setStyleSheet("""
                 QLabel {
-                    padding: 2px 8px;
+                    padding: 2px 4px;  # Reduced padding to give more space for icon
                     background-color: transparent;
                 }
             """)
@@ -951,6 +962,83 @@ class WebGUI(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to setup help menu items: {e}")
+
+    def _set_window_icon(self):
+        """Set window icon using the same logic as application icon"""
+        try:
+            from config.app_info import app_info
+            resource_path = app_info.app_resources_path
+
+            # Use the same icon candidates as the application
+            icon_candidates = [
+                os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+                os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
+                os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
+                os.path.join(resource_path, "images", "logos", "taskbar_16x16.png"),
+            ]
+
+            # Find first existing icon
+            icon_path = None
+            for candidate in icon_candidates:
+                if os.path.exists(candidate):
+                    icon_path = candidate
+                    break
+
+            if icon_path:
+                window_icon = QIcon(icon_path)
+                self.setWindowIcon(window_icon)
+                logger.debug(f"WebGUI window icon set: {icon_path}")
+            else:
+                logger.warning("No icon found for WebGUI window")
+
+        except Exception as e:
+            logger.error(f"Failed to set WebGUI window icon: {e}")
+
+    def _set_titlebar_icon(self):
+        """Set titlebar icon using eCan icon"""
+        try:
+            from config.app_info import app_info
+            resource_path = app_info.app_resources_path
+
+            # Use inverted PNG icons for titlebar (better visibility on dark background)
+            icon_candidates = [
+                os.path.join(resource_path, "images", "logos", "taskbar_32x32_inverted.png"),
+                os.path.join(resource_path, "images", "logos", "taskbar_16x16_inverted.png"),
+                os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
+                os.path.join(resource_path, "images", "logos", "taskbar_16x16.png"),
+                os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+            ]
+
+            # Find first existing icon
+            icon_path = None
+            for candidate in icon_candidates:
+                if os.path.exists(candidate):
+                    icon_path = candidate
+                    break
+
+            if icon_path and hasattr(self, 'app_icon'):
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    # Container is 32x24, with padding 2px top/bottom, 4px left/right
+                    # Use a conservative size to ensure the icon displays properly without distortion
+                    # Choose 18x18 to leave some margin and ensure square aspect ratio
+                    target_size = 18
+
+                    # Scale image while preserving aspect ratio
+                    scaled_pixmap = pixmap.scaled(target_size, target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+                    self.app_icon.setPixmap(scaled_pixmap)
+                    self.app_icon.setAlignment(Qt.AlignCenter)
+                    logger.debug(f"Titlebar icon set: {icon_path} (scaled to {scaled_pixmap.size().width()}x{scaled_pixmap.size().height()}, target: {target_size}x{target_size})")
+                else:
+                    logger.warning(f"Failed to load titlebar icon: {icon_path}")
+            else:
+                logger.warning("No icon found for titlebar or app_icon not available")
+
+        except Exception as e:
+            logger.error(f"Failed to set titlebar icon: {e}")
 
     def _add_window_controls(self, layout):
         """Add window control buttons (minimize, maximize, close)"""

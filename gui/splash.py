@@ -516,7 +516,7 @@ class StartupProgressManager:
 
 def init_startup_splash():
     """
-    Ensure QApplication exists, create and show ThemedSplashScreen immediately,
+    Ensure QApplication exists, set early icon, create and show ThemedSplashScreen immediately,
     and process initial events. Returns the splash instance (or None on failure).
     """
     try:
@@ -524,6 +524,16 @@ def init_startup_splash():
         app = QApplication.instance()
         if not app:
             app = QApplication(sys.argv)
+
+        # Set application icon as early as possible (before splash)
+        try:
+            from utils.app_setup_helper import set_app_icon_early
+            success = set_app_icon_early(app)
+            print(f"Early icon setting: {'success' if success else 'failed'}")
+        except Exception as e:
+            # Don't let icon setting failure prevent splash from showing
+            print(f"Early icon setting failed: {e}")
+
         splash = ThemedSplashScreen()
         splash.show()
         app.processEvents()

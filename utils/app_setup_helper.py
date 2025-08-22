@@ -377,6 +377,82 @@ def set_app_icon(app, logger=None):
                 logger.debug(f"  - {candidate}")
             logger.warning(f"No application icon found in: {icon_candidates}")
 
+def set_app_icon_early(app, logger=None):
+    """
+    Set application icon as early as possible, before splash screen
+    This ensures the taskbar shows the correct icon from the start
+    """
+    def log_msg(msg, level='info'):
+        """Helper to log message or print if logger not available"""
+        if logger:
+            if level == 'debug':
+                logger.debug(msg)
+            elif level == 'warning':
+                logger.warning(msg)
+            elif level == 'error':
+                logger.error(msg)
+            else:
+                logger.info(msg)
+        else:
+            print(f"[EARLY_ICON] {msg}")
+
+    try:
+        resource_path = app_info.app_resources_path
+        log_msg(f"Early icon setting started, resource_path: {resource_path}")
+
+        # Windows-specific early icon setting
+        if sys.platform == 'win32':
+            # Set AppUserModelID first (must be done early)
+            try:
+                import ctypes
+                shell32 = ctypes.windll.shell32
+                app_id = "eCan.AI.App"
+                result = shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+                log_msg(f"Early AppUserModelID set: {app_id} (result: {result})", 'debug')
+            except Exception as e:
+                log_msg(f"Failed to set early AppUserModelID: {e}", 'warning')
+
+            # Find and set icon immediately
+            icon_candidates = [
+                os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+                os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
+                os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+            ]
+
+            icon_path = None
+            for i, candidate in enumerate(icon_candidates):
+                if os.path.exists(candidate):
+                    icon_path = candidate
+                    log_msg(f"Found icon candidate {i+1}: {candidate}")
+                    break
+                else:
+                    log_msg(f"Icon candidate {i+1} not found: {candidate}", 'debug')
+
+            if icon_path:
+                # Set Qt application icon immediately
+                from PySide6.QtGui import QIcon
+                app_icon = QIcon(icon_path)
+                app.setWindowIcon(app_icon)
+                log_msg(f"Set Qt application icon: {icon_path}")
+
+                # Set Windows taskbar icon immediately
+                success = set_windows_taskbar_icon(app, icon_path, logger)
+                log_msg(f"Windows taskbar icon setting: {'success' if success else 'failed'}")
+
+                log_msg(f"Early icon set successfully: {icon_path}")
+                return True
+            else:
+                log_msg("No icon found for early setting", 'warning')
+                return False
+        else:
+            # For other platforms, use standard icon setting
+            log_msg("Non-Windows platform, using standard icon setting")
+            return set_app_icon(app, logger)
+
+    except Exception as e:
+        log_msg(f"Early icon setting failed: {e}", 'error')
+        return False
+
 def set_app_icon_delayed(app, logger=None):
     """
     Set application icon with delay to ensure main window is created
