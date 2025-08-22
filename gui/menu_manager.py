@@ -3,12 +3,10 @@ eCan Menu Manager
 Responsible for managing all menu functionality of the application
 """
 
-import os
 import sys
-from PySide6.QtWidgets import (QMessageBox, QDialog, QInputDialog, QFileDialog, 
-                               QLabel, QCheckBox, QPushButton, QHBoxLayout, 
-                               QVBoxLayout, QComboBox, QTextEdit, QLineEdit, 
-                               QApplication)
+from PySide6.QtWidgets import (QMessageBox, QDialog, QLabel, QCheckBox,
+                               QPushButton, QHBoxLayout, QVBoxLayout,
+                               QComboBox, QTextEdit, QApplication)
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
 from utils.logger_helper import logger_helper as logger
@@ -41,25 +39,25 @@ class MenuManager:
             self._setup_linux_menus(menubar)
     
     def _setup_macos_menus(self, menubar):
-        """Set up complete macOS menu"""
+        """Set up simplified macOS menu (eCan + Help only)"""
         try:
             # Enable native macOS menu bar
             menubar.setNativeMenuBar(True)
             logger.info("Enabled native macOS menu bar")
-            
+
             # Check if menus already exist to avoid duplicate setup
             existing_menus = menubar.actions()
             if existing_menus:
                 logger.info(f"Found {len(existing_menus)} existing menus, skipping duplicate setup")
                 return
-            
+
             # On macOS, the first menu automatically becomes the application menu
             # Use empty string to let system auto-set application menu name
             app_menu = menubar.addMenu('')  # Empty string lets system auto-set application menu
             self._setup_macos_app_menu(app_menu)  # Use specialized macOS app menu setup
-            
+
             logger.info("macOS application menu setup complete")
-            
+
         except Exception as e:
             logger.warning(f"macOS menu setup failed, using default method: {e}")
             # If failed, try to add basic menu
@@ -69,7 +67,7 @@ class MenuManager:
             except Exception as e2:
                 logger.error(f"Fallback menu setup also failed: {e2}")
                 return
-        
+
         # Only keep Help menu in addition to application menu
         help_menu = menubar.addMenu('Help')
         self._setup_help_menu(help_menu)
@@ -77,7 +75,7 @@ class MenuManager:
         logger.info("macOS menu bar setup complete (eCan + Help only)")
     
     def _setup_windows_menus(self, menubar):
-        """Set up complete Windows menu"""
+        """Set up simplified Windows menu (eCan + Help only)"""
         try:
             # Windows uses non-native menu bar for better control
             menubar.setNativeMenuBar(False)
@@ -99,7 +97,7 @@ class MenuManager:
         self._setup_help_menu(help_menu)
     
     def _setup_linux_menus(self, menubar):
-        """Set up complete Linux menu"""
+        """Set up simplified Linux menu (eCan + Help only)"""
         try:
             # Linux typically uses Qt menu bar
             menubar.setNativeMenuBar(False)
@@ -218,23 +216,7 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to set menu bar style: {e}")
     
-    def _setup_common_menus(self, menubar):
-        """Set up menus common to all platforms"""
-        # File menu
-        file_menu = menubar.addMenu('File')
-        self._setup_file_menu(file_menu)
-        
-        # Edit menu
-        edit_menu = menubar.addMenu('Edit')
-        self._setup_edit_menu(edit_menu)
-        
-        # View menu
-        view_menu = menubar.addMenu('View')
-        self._setup_view_menu(view_menu)
-        
-        # Help menu
-        help_menu = menubar.addMenu('Help')
-        self._setup_help_menu(help_menu)
+
     
     def _setup_app_menu(self, app_menu):
         """Set up application menu"""
@@ -289,123 +271,11 @@ class MenuManager:
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
     
-    def _setup_file_menu(self, file_menu):
-        """Set up File menu"""
-        # New project
-        new_project_action = QAction('New Project...', self.main_window)
-        new_project_action.setShortcut('Ctrl+N')
-        new_project_action.triggered.connect(self.new_project)
-        file_menu.addAction(new_project_action)
-        
-        # Open project
-        open_project_action = QAction('Open Project...', self.main_window)
-        open_project_action.setShortcut('Ctrl+O')
-        open_project_action.triggered.connect(self.open_project)
-        file_menu.addAction(open_project_action)
-        
-        # Recently opened projects
-        recent_menu = file_menu.addMenu('Open Recent')
-        recent_menu.addAction('Clear Menu').triggered.connect(self.clear_recent)
-        
-        file_menu.addSeparator()
-        
-        # Save project
-        save_project_action = QAction('Save Project', self.main_window)
-        save_project_action.setShortcut('Ctrl+S')
-        save_project_action.triggered.connect(self.save_project)
-        file_menu.addAction(save_project_action)
-        
-        # Save as
-        save_as_action = QAction('Save Project As...', self.main_window)
-        save_as_action.setShortcut('Ctrl+Shift+S')
-        save_as_action.triggered.connect(self.save_project_as)
-        file_menu.addAction(save_as_action)
-        
-        file_menu.addSeparator()
-        
-        # Import data
-        import_data_action = QAction('Import Data...', self.main_window)
-        import_data_action.setShortcut('Ctrl+I')
-        import_data_action.triggered.connect(self.import_data)
-        file_menu.addAction(import_data_action)
-        
-        # Export data
-        export_data_action = QAction('Export Data...', self.main_window)
-        export_data_action.setShortcut('Ctrl+E')
-        export_data_action.triggered.connect(self.export_data)
-        file_menu.addAction(export_data_action)
+
     
-    def _setup_edit_menu(self, edit_menu):
-        """Set up Edit menu"""
-        # Undo
-        undo_action = QAction('Undo', self.main_window)
-        undo_action.setShortcut('Ctrl+Z')
-        undo_action.triggered.connect(self.undo)
-        edit_menu.addAction(undo_action)
-        
-        # Redo
-        redo_action = QAction('Redo', self.main_window)
-        redo_action.setShortcut('Ctrl+Shift+Z')
-        redo_action.triggered.connect(self.redo)
-        edit_menu.addAction(redo_action)
-        
-        edit_menu.addSeparator()
-        
-        # Cut
-        cut_action = QAction('Cut', self.main_window)
-        cut_action.setShortcut('Ctrl+X')
-        cut_action.triggered.connect(self.cut)
-        edit_menu.addAction(cut_action)
-        
-        # Copy
-        copy_action = QAction('Copy', self.main_window)
-        copy_action.setShortcut('Ctrl+C')
-        copy_action.triggered.connect(self.copy)
-        edit_menu.addAction(copy_action)
-        
-        # Paste
-        paste_action = QAction('Paste', self.main_window)
-        paste_action.setShortcut('Ctrl+V')
-        paste_action.triggered.connect(self.paste)
-        edit_menu.addAction(paste_action)
-        
-        # Select all
-        select_all_action = QAction('Select All', self.main_window)
-        select_all_action.setShortcut('Ctrl+A')
-        select_all_action.triggered.connect(self.select_all)
-        edit_menu.addAction(select_all_action)
-        
-        edit_menu.addSeparator()
-        
-        # Find
-        find_action = QAction('Find...', self.main_window)
-        find_action.setShortcut('Ctrl+F')
-        find_action.triggered.connect(self.find)
-        edit_menu.addAction(find_action)
+
     
-    def _setup_view_menu(self, view_menu):
-        """Set up View menu"""
-        # Toolbar
-        toolbar_action = QAction('Show Toolbar', self.main_window)
-        toolbar_action.setCheckable(True)
-        toolbar_action.setChecked(True)
-        toolbar_action.triggered.connect(self.toggle_toolbar)
-        view_menu.addAction(toolbar_action)
-        
-        # Status bar
-        statusbar_action = QAction('Show Status Bar', self.main_window)
-        statusbar_action.setCheckable(True)
-        statusbar_action.setChecked(True)
-        statusbar_action.triggered.connect(self.toggle_statusbar)
-        view_menu.addAction(statusbar_action)
-        
-        view_menu.addSeparator()
-        
-        # # Full screen
-        # fullscreen_action = QAction('Enter Full Screen', self.main_window)
-        # fullscreen_action.setShortcut('Ctrl+Ctrl+F')
-        # fullscreen_action.triggered.connect(self.toggle_fullscreen)
-        # view_menu.addAction(fullscreen_action)
+
     
     def _setup_help_menu(self, help_menu):
         """Set up Help menu"""
@@ -494,56 +364,9 @@ class MenuManager:
         
         logger.info("macOS application menu setup complete, includes OTA check functionality")
     
-    def _setup_window_menu(self, window_menu):
-        """Set up Window menu (macOS standard)"""
-        # Minimize
-        minimize_action = QAction('Minimize', self.main_window)
-        if sys.platform == 'darwin':
-            minimize_action.setShortcut('Cmd+M')  # macOS uses Cmd
-        else:
-            minimize_action.setShortcut('Ctrl+M')
-        minimize_action.triggered.connect(self.minimize_window)
-        window_menu.addAction(minimize_action)
-        
-        # Zoom
-        zoom_action = QAction('Zoom', self.main_window)
-        zoom_action.triggered.connect(self.zoom_window)
-        window_menu.addAction(zoom_action)
-        
-        window_menu.addSeparator()
-        
-        # Bring all windows to front
-        bring_all_to_front_action = QAction('Bring All to Front', self.main_window)
-        bring_all_to_front_action.triggered.connect(self.bring_all_to_front)
-        window_menu.addAction(bring_all_to_front_action)
+
     
-    def _setup_tools_menu(self, tools_menu):
-        """Set up Tools menu (Windows/Linux)"""
-        # Options/Preferences
-        options_action = QAction('Options...', self.main_window)
-        options_action.setShortcut('Ctrl+,')
-        options_action.triggered.connect(self.show_settings)
-        tools_menu.addAction(options_action)
-        
-        tools_menu.addSeparator()
-        
-        # Plugin management
-        plugins_action = QAction('Manage Plugins...', self.main_window)
-        plugins_action.triggered.connect(self.manage_plugins)
-        tools_menu.addAction(plugins_action)
-        
-        # Extensions
-        extensions_action = QAction('Extensions...', self.main_window)
-        extensions_action.triggered.connect(self.manage_extensions)
-        tools_menu.addAction(extensions_action)
-        
-        tools_menu.addSeparator()
-        
-        # Developer tools
-        dev_tools_action = QAction('Developer Tools', self.main_window)
-        dev_tools_action.setShortcut('F12')
-        dev_tools_action.triggered.connect(self.show_developer_tools)
-        tools_menu.addAction(dev_tools_action)
+
     
     # ==================== Application Menu Function Implementation ====================
     
@@ -660,263 +483,11 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to show all: {e}")
     
-    # ==================== File Menu Function Implementation ====================
+
     
-    def new_project(self):
-        """Create new project"""
-        try:
-            project_name, ok = QInputDialog.getText(self.main_window, 'New Project', 'Enter project name:')
-            if ok and project_name:
-                # Here you can call project management related APIs
-                QMessageBox.information(self.main_window, "Success", f"Project '{project_name}' created successfully!")
-                logger.info(f"New project created: {project_name}")
-        except Exception as e:
-            logger.error(f"Failed to create new project: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to create new project")
+
     
-    def open_project(self):
-        """Open project"""
-        try:
-            file_dialog = QFileDialog(self.main_window)
-            file_dialog.setFileMode(QFileDialog.ExistingFile)
-            file_dialog.setNameFilter("eCan Project Files (*.ecan);;All Files (*)")
-            
-            if file_dialog.exec():
-                selected_files = file_dialog.selectedFiles()
-                if selected_files:
-                    project_file = selected_files[0]
-                    QMessageBox.information(self.main_window, "Success", f"Project opened: {os.path.basename(project_file)}")
-                    logger.info(f"Project opened: {project_file}")
-        except Exception as e:
-            logger.error(f"Failed to open project: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open project")
-    
-    def save_project(self):
-        """Save project"""
-        try:
-            # Here you can call project save related APIs
-            QMessageBox.information(self.main_window, "Success", "Project saved successfully!")
-            logger.info("Project saved")
-        except Exception as e:
-            logger.error(f"Failed to save project: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to save project")
-    
-    def save_project_as(self):
-        """Save project as"""
-        try:
-            file_dialog = QFileDialog(self.main_window)
-            file_dialog.setFileMode(QFileDialog.AnyFile)
-            file_dialog.setAcceptMode(QFileDialog.AcceptSave)
-            file_dialog.setNameFilter("eCan Project Files (*.ecan);;All Files (*)")
-            file_dialog.setDefaultSuffix("ecan")
-            
-            if file_dialog.exec():
-                selected_files = file_dialog.selectedFiles()
-                if selected_files:
-                    save_file = selected_files[0]
-                    QMessageBox.information(self.main_window, "Success", f"Project saved as: {os.path.basename(save_file)}")
-                    logger.info(f"Project saved as: {save_file}")
-        except Exception as e:
-            logger.error(f"Failed to save project as: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to save project as")
-    
-    def clear_recent(self):
-        """Clear recently opened projects list"""
-        try:
-            reply = QMessageBox.question(self.main_window, "Clear Recent", 
-                                       "Are you sure you want to clear the recent projects list?",
-                                       QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                # Here you can clear recent project records
-                QMessageBox.information(self.main_window, "Success", "Recent projects list cleared")
-                logger.info("Recent projects list cleared")
-        except Exception as e:
-            logger.error(f"Failed to clear recent: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to clear recent projects")
-    
-    def import_data(self):
-        """Import data"""
-        try:
-            file_dialog = QFileDialog(self.main_window)
-            file_dialog.setFileMode(QFileDialog.ExistingFile)
-            file_dialog.setNameFilter("CSV Files (*.csv);;JSON Files (*.json);;Excel Files (*.xlsx);;All Files (*)")
-            
-            if file_dialog.exec():
-                selected_files = file_dialog.selectedFiles()
-                if selected_files:
-                    data_file = selected_files[0]
-                    QMessageBox.information(self.main_window, "Success", f"Data imported from: {os.path.basename(data_file)}")
-                    logger.info(f"Data imported from: {data_file}")
-        except Exception as e:
-            logger.error(f"Failed to import data: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to import data")
-    
-    def export_data(self):
-        """Export data"""
-        try:
-            file_dialog = QFileDialog(self.main_window)
-            file_dialog.setFileMode(QFileDialog.AnyFile)
-            file_dialog.setAcceptMode(QFileDialog.AcceptSave)
-            file_dialog.setNameFilter("CSV Files (*.csv);;JSON Files (*.json);;Excel Files (*.xlsx)")
-            file_dialog.setDefaultSuffix("csv")
-            
-            if file_dialog.exec():
-                selected_files = file_dialog.selectedFiles()
-                if selected_files:
-                    export_file = selected_files[0]
-                    QMessageBox.information(self.main_window, "Success", f"Data exported to: {os.path.basename(export_file)}")
-                    logger.info(f"Data exported to: {export_file}")
-        except Exception as e:
-            logger.error(f"Failed to export data: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to export data")
-    
-    # ==================== Edit Menu Function Implementation ====================
-    
-    def undo(self):
-        """Undo operation"""
-        try:
-            # Here you can implement undo logic
-            QMessageBox.information(self.main_window, "Undo", "Undo operation performed")
-            logger.info("Undo action triggered")
-        except Exception as e:
-            logger.error(f"Failed to undo: {e}")
-    
-    def redo(self):
-        """Redo operation"""
-        try:
-            # Here you can implement redo logic
-            QMessageBox.information(self.main_window, "Redo", "Redo operation performed")
-            logger.info("Redo action triggered")
-        except Exception as e:
-            logger.error(f"Failed to redo: {e}")
-    
-    def cut(self):
-        """Cut operation"""
-        try:
-            # Get current focused widget and execute cut
-            focused_widget = QApplication.focusWidget()
-            if focused_widget and hasattr(focused_widget, 'cut'):
-                focused_widget.cut()
-            logger.info("Cut action triggered")
-        except Exception as e:
-            logger.error(f"Failed to cut: {e}")
-    
-    def copy(self):
-        """Copy operation"""
-        try:
-            # Get current focused widget and execute copy
-            focused_widget = QApplication.focusWidget()
-            if focused_widget and hasattr(focused_widget, 'copy'):
-                focused_widget.copy()
-            logger.info("Copy action triggered")
-        except Exception as e:
-            logger.error(f"Failed to copy: {e}")
-    
-    def paste(self):
-        """Paste operation"""
-        try:
-            # Get current focused widget and execute paste
-            focused_widget = QApplication.focusWidget()
-            if focused_widget and hasattr(focused_widget, 'paste'):
-                focused_widget.paste()
-            logger.info("Paste action triggered")
-        except Exception as e:
-            logger.error(f"Failed to paste: {e}")
-    
-    def select_all(self):
-        """Select all operation"""
-        try:
-            # Get current focused widget and execute select all
-            focused_widget = QApplication.focusWidget()
-            if focused_widget and hasattr(focused_widget, 'selectAll'):
-                focused_widget.selectAll()
-            logger.info("Select all action triggered")
-        except Exception as e:
-            logger.error(f"Failed to select all: {e}")
-    
-    def find(self):
-        """Find functionality"""
-        try:
-            find_dialog = QDialog(self.main_window)
-            find_dialog.setWindowTitle("Find")
-            find_dialog.setModal(True)
-            find_dialog.setFixedSize(400, 150)
-            
-            layout = QVBoxLayout()
-            
-            # Find input field
-            find_label = QLabel("Find:")
-            layout.addWidget(find_label)
-            
-            find_input = QLineEdit()
-            find_input.setPlaceholderText("Enter text to find...")
-            layout.addWidget(find_input)
-            
-            # Buttons
-            button_layout = QHBoxLayout()
-            find_button = QPushButton("Find")
-            cancel_button = QPushButton("Cancel")
-            
-            def perform_find():
-                search_text = find_input.text()
-                if search_text:
-                    QMessageBox.information(self.main_window, "Find", f"Searching for: {search_text}")
-                    logger.info(f"Find action: {search_text}")
-                    find_dialog.accept()
-                else:
-                    QMessageBox.warning(self.main_window, "Warning", "Please enter text to find")
-            
-            find_button.clicked.connect(perform_find)
-            cancel_button.clicked.connect(find_dialog.reject)
-            
-            button_layout.addWidget(find_button)
-            button_layout.addWidget(cancel_button)
-            layout.addLayout(button_layout)
-            
-            find_dialog.setLayout(layout)
-            find_dialog.exec()
-            
-        except Exception as e:
-            logger.error(f"Failed to show find dialog: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open find dialog")
-    
-    # ==================== View Menu Function Implementation ====================
-    
-    def toggle_toolbar(self, checked):
-        """Toggle toolbar display"""
-        try:
-            # Here you can implement toolbar show/hide
-            if checked:
-                logger.info("Toolbar shown")
-            else:
-                logger.info("Toolbar hidden")
-        except Exception as e:
-            logger.error(f"Failed to toggle toolbar: {e}")
-    
-    def toggle_statusbar(self, checked):
-        """Toggle status bar display"""
-        try:
-            # Here you can implement status bar show/hide
-            if hasattr(self.main_window, 'statusBar'):
-                if checked:
-                    self.main_window.statusBar().show()
-                else:
-                    self.main_window.statusBar().hide()
-            logger.info(f"Status bar {'shown' if checked else 'hidden'}")
-        except Exception as e:
-            logger.error(f"Failed to toggle status bar: {e}")
-    
-    def toggle_fullscreen(self):
-        """Toggle fullscreen mode"""
-        try:
-            if self.main_window.isFullScreen():
-                self.main_window.showNormal()
-                logger.info("Exited full screen mode")
-            else:
-                self.main_window.showFullScreen()
-                logger.info("Entered full screen mode")
-        except Exception as e:
-            logger.error(f"Failed to toggle fullscreen: {e}")
+
     
     # ==================== Help Menu Function Implementation ====================
     
@@ -1165,62 +736,6 @@ class MenuManager:
         except Exception as e:
             logger.error(f"Failed to apply messagebox style: {e}")
     
-    # ==================== Window Menu Function Implementation ====================
+
     
-    def minimize_window(self):
-        """Minimize window"""
-        try:
-            self.main_window.showMinimized()
-            logger.info("Window minimized")
-        except Exception as e:
-            logger.error(f"Failed to minimize window: {e}")
-    
-    def zoom_window(self):
-        """Zoom window"""
-        try:
-            if self.main_window.isMaximized():
-                self.main_window.showNormal()
-                logger.info("Window restored to normal size")
-            else:
-                self.main_window.showMaximized()
-                logger.info("Window maximized")
-        except Exception as e:
-            logger.error(f"Failed to zoom window: {e}")
-    
-    def bring_all_to_front(self):
-        """Bring all windows to front"""
-        try:
-            self.main_window.raise_()
-            self.main_window.activateWindow()
-            logger.info("Brought all windows to front")
-        except Exception as e:
-            logger.error(f"Failed to bring windows to front: {e}")
-    
-    # ==================== Tools Menu Function Implementation ====================
-    
-    def manage_plugins(self):
-        """Manage plugins"""
-        try:
-            QMessageBox.information(self.main_window, "Plugins", 
-                                  "Plugin management feature coming soon!")
-            logger.info("Plugin management requested")
-        except Exception as e:
-            logger.error(f"Failed to show plugin management: {e}")
-    
-    def manage_extensions(self):
-        """Manage extensions"""
-        try:
-            QMessageBox.information(self.main_window, "Extensions", 
-                                  "Extension management feature coming soon!")
-            logger.info("Extension management requested")
-        except Exception as e:
-            logger.error(f"Failed to show extension management: {e}")
-    
-    def show_developer_tools(self):
-        """Show developer tools"""
-        try:
-            QMessageBox.information(self.main_window, "Developer Tools", 
-                                  "Developer tools feature coming soon!")
-            logger.info("Developer tools requested")
-        except Exception as e:
-            logger.error(f"Failed to show developer tools: {e}")
+

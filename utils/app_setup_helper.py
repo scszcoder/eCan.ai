@@ -2,6 +2,7 @@ import os
 import sys
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
+import setproctitle
 from config.app_info import app_info
 
 # Windows-specific imports
@@ -97,8 +98,16 @@ def _setup_macos_app_info(app, logger=None):
             setproctitle("eCan")
             if logger:
                 logger.info("macOS process name set to: eCan")
-        
+
         # Set macOS native application information
+        # Import Foundation and AppKit if available
+        if sys.platform  == 'darwin':
+            import Foundation
+            import AppKit
+        else:
+            Foundation = None
+            AppKit = None
+
         if Foundation and AppKit:
             try:
                 # Get current application
@@ -165,14 +174,15 @@ def set_windows_taskbar_icon(app, icon_path, logger=None):
         return False
 
     try:
-        print(f"[DEBUG] Setting Windows taskbar icon: {icon_path}")
+        if logger:
+            logger.debug(f"Setting Windows taskbar icon: {icon_path}")
 
         # Method 1: Set application user model ID (AppUserModelID)
         app_id = "eCan.AI.App"
         shell32 = ctypes.windll.shell32
         shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
 
-        # Method 2: Clear icon cache and force refresh
+        # Method 2: Set window icon using Windows API
         try:
             # Get main window handle
             main_window = app.activeWindow()
@@ -180,35 +190,74 @@ def set_windows_taskbar_icon(app, icon_path, logger=None):
                 hwnd = int(main_window.winId())
                 user32 = ctypes.windll.user32
 
-                # If it's an .ico file, try to set it directly
-                if icon_path.endswith('.ico') and os.path.exists(icon_path):
-                    # Load icon
-                    hicon_large = user32.LoadImageW(
-                        None, icon_path, 1,  # IMAGE_ICON
-                        32, 32,  # 32x32 for large icon
-                        0x00000010  # LR_LOADFROMFILE
-                    )
-                    hicon_small = user32.LoadImageW(
-                        None, icon_path, 1,  # IMAGE_ICON
-                        16, 16,  # 16x16 for small icon
-                        0x00000010  # LR_LOADFROMFILE
-                    )
+                # Try to set icon based on file type
+                if os.path.exists(icon_path):
+                    if icon_path.endswith('.ico'):
+                        # Load ICO file directly
+                        hicon_large = user32.LoadImageW(
+                            None, icon_path, 1,  # IMAGE_ICON
+                            32, 32,  # 32x32 for large icon
+                            0x00000010  # LR_LOADFROMFILE
+                        )
+                        hicon_small = user32.LoadImageW(
+                            None, icon_path, 1,  # IMAGE_ICON
+                            16, 16,  # 16x16 for small icon
+                            0x00000010  # LR_LOADFROMFILE
+                        )
+                    else:
+                        # For PNG files, try to find corresponding ICO file or use Qt conversion
+                        ico_path = None
+
+                        # First, try to find icon_multi.ico in the same directory
+                        icon_dir = os.path.dirname(icon_path)
+                        ico_candidates = [
+                            os.path.join(icon_dir, "icon_multi.ico"),
+                            os.path.join(icon_dir, "taskbar_32x32.ico"),
+                            os.path.join(icon_dir, "taskbar_16x16.ico")
+                        ]
+
+                        for ico_candidate in ico_candidates:
+                            if os.path.exists(ico_candidate):
+                                ico_path = ico_candidate
+                                break
+
+                        if ico_path:
+                            # Use found ICO file
+                            hicon_large = user32.LoadImageW(
+                                None, ico_path, 1,  # IMAGE_ICON
+                                32, 32,  # 32x32 for large icon
+                                0x00000010  # LR_LOADFROMFILE
+                            )
+                            hicon_small = user32.LoadImageW(
+                                None, ico_path, 1,  # IMAGE_ICON
+                                16, 16,  # 16x16 for small icon
+                                0x00000010  # LR_LOADFROMFILE
+                            )
+                            if logger:
+                                logger.debug(f"Using ICO file for Windows API: {ico_path}")
+                        else:
+                            # Fallback: let Qt handle the icon, skip Windows API
+                            if logger:
+                                logger.debug(f"No ICO file found, using Qt icon handling for: {icon_path}")
+                            hicon_large = None
+                            hicon_small = None
 
                     if hicon_large:
                         # Set large icon (taskbar)
                         user32.SendMessageW(hwnd, 0x0080, 1, hicon_large)  # WM_SETICON, ICON_LARGE
-                        print(f"[DEBUG] Set large icon (32x32) for taskbar")
+                        if logger:
+                            logger.debug("Set large icon (32x32) for taskbar")
 
                     if hicon_small:
                         # Set small icon (title bar)
                         user32.SendMessageW(hwnd, 0x0080, 0, hicon_small)  # WM_SETICON, ICON_SMALL
-                        print(f"[DEBUG] Set small icon (16x16) for title bar")
+                        if logger:
+                            logger.debug("Set small icon (16x16) for title bar")
 
                     # Force refresh taskbar
                     user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0001)  # SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE
 
         except Exception as e:
-            print(f"[DEBUG] Failed to set window icon via API: {e}")
             if logger:
                 logger.warning(f"Failed to set window icon via API: {e}")
 
@@ -217,9 +266,8 @@ def set_windows_taskbar_icon(app, icon_path, logger=None):
         return True
 
     except Exception as e:
-        print(f"[DEBUG] Windows taskbar icon setup failed: {e}")
         if logger:
-            logger.warning(f"Failed to set Windows taskbar icon: {e}")
+            logger.warning(f"Windows taskbar icon setup failed: {e}")
         return False
 
 def clear_windows_icon_cache(logger=None):
@@ -232,16 +280,14 @@ def clear_windows_icon_cache(logger=None):
     try:
         import subprocess
 
-        print("[DEBUG] Note: Icon cache clearing requires Explorer restart")
-        print("[DEBUG] This is optional and may cause temporary desktop disruption")
-
         if logger:
+            logger.info("Note: Icon cache clearing requires Explorer restart")
+            logger.info("This is optional and may cause temporary desktop disruption")
             logger.info("Windows icon cache clearing is available but not automatically executed")
 
         return True
 
     except Exception as e:
-        print(f"[DEBUG] Icon cache clearing not available: {e}")
         if logger:
             logger.warning(f"Icon cache clearing not available: {e}")
         return False
@@ -252,9 +298,9 @@ def set_app_icon(app, logger=None):
     """
     resource_path = app_info.app_resources_path
 
-    # Debug info: print actual resource path used
-    print(f"[DEBUG] Resource path: {resource_path}")
+    # Debug info: log actual resource path used
     if logger:
+        logger.debug(f"Resource path: {resource_path}")
         logger.info(f"Using resource path: {resource_path}")
 
     # Select icon candidates based on platform
@@ -268,7 +314,11 @@ def set_app_icon(app, logger=None):
         ]
     elif sys.platform == 'win32':
         icon_candidates = [
+            # Prefer high-quality root directory ICO file first
+            os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+            # Then try resource directory ICO files
             os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
+            # Fallback to PNG files
             os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
             os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
             os.path.join(resource_path, "images", "logos", "taskbar_16x16.png"),
@@ -281,17 +331,19 @@ def set_app_icon(app, logger=None):
 
     # Find first existing icon file
     icon_path = None
-    print(f"[DEBUG] Checking {len(icon_candidates)} icon candidates:")
+    if logger:
+        logger.debug(f"Checking {len(icon_candidates)} icon candidates:")
     for i, candidate in enumerate(icon_candidates):
         exists = os.path.exists(candidate)
-        print(f"[DEBUG] {i+1}. {candidate} - {'EXISTS' if exists else 'NOT FOUND'}")
         if logger:
+            logger.debug(f"{i+1}. {candidate} - {'EXISTS' if exists else 'NOT FOUND'}")
             logger.info(f"Icon candidate {i+1}: {candidate} - {'found' if exists else 'not found'}")
         if exists and icon_path is None:
             icon_path = candidate
 
     if icon_path:
-        print(f"[DEBUG] Selected icon: {icon_path}")
+        if logger:
+            logger.debug(f"Selected icon: {icon_path}")
         # Set application icon
         app_icon = QIcon(icon_path)
         app.setWindowIcon(app_icon)
@@ -300,27 +352,29 @@ def set_app_icon(app, logger=None):
         if sys.platform == 'win32':
             success = set_windows_taskbar_icon(app, icon_path, logger)
             if not success:
-                print("[DEBUG] Windows taskbar icon setting failed")
-                print("[DEBUG] If taskbar shows wrong icon, try:")
-                print("[DEBUG] 1. Restart the application")
-                print("[DEBUG] 2. Clear Windows icon cache manually")
-                print("[DEBUG] 3. Check if .ico file is valid")
+                if logger:
+                    logger.warning("Windows taskbar icon setting failed")
+                    logger.info("If taskbar shows wrong icon, try:")
+                    logger.info("1. Restart the application")
+                    logger.info("2. Clear Windows icon cache manually")
+                    logger.info("3. Check if .ico file is valid")
 
         if logger:
             logger.info(f"Successfully loaded application icon from: {icon_path}")
 
         # Provide icon cache clearing instructions
         if sys.platform == 'win32':
-            print("[DEBUG] If taskbar icon doesn't update:")
-            print("[DEBUG] - Windows may be using cached icon")
-            print("[DEBUG] - Try restarting the application")
-            print("[DEBUG] - Or manually clear icon cache")
+            if logger:
+                logger.info("If taskbar icon doesn't update:")
+                logger.info("- Windows may be using cached icon")
+                logger.info("- Try restarting the application")
+                logger.info("- Or manually clear icon cache")
 
     else:
-        print(f"[DEBUG] No icon found! Checked paths:")
-        for candidate in icon_candidates:
-            print(f"[DEBUG]   - {candidate}")
         if logger:
+            logger.warning("No icon found! Checked paths:")
+            for candidate in icon_candidates:
+                logger.debug(f"  - {candidate}")
             logger.warning(f"No application icon found in: {icon_candidates}")
 
 def set_app_icon_delayed(app, logger=None):
