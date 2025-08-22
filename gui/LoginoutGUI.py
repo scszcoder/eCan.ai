@@ -35,8 +35,13 @@ from bot.network import commanderIP, commanderServer, commanderXport
 from utils.fernet import encrypt_password, decrypt_password
 from jwt.algorithms import RSAAlgorithm
 import requests
+
 from urllib.parse import urlencode
-from flask import redirect
+from flask import Flask, request, session, redirect, abort
+import jwt
+import secrets
+from utils.logger_helper import get_traceback
+
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
 
@@ -48,6 +53,16 @@ ecb_data_homepath = getECBotDataHome()
 ACCT_FILE = ecb_data_homepath + "/uli.json"
 ROLE_FILE = ecb_data_homepath + "/role.json"
 MAX_RETRIES = 5
+
+REGION = "us-east-1"
+# USER_POOL_ID = "us-east-1_uUmKJUfB3"
+# CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")  # app client enabled for Google
+DOMAIN = "https://maipps.auth.us-east-1.amazoncognito.com"
+REDIRECT_URI = "http://localhost:5000/auth/callback"  # must match app client
+AUTH_URL = f"{DOMAIN}/oauth2/authorize"
+TOKEN_URL = f"{DOMAIN}/oauth2/token"
+JWKS_URL = f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}/.well-known/jwks.json"
+
 
 class Login(QDialog):
     def __init__(self, parent=None):
@@ -1048,79 +1063,113 @@ class Login(QDialog):
     def b64u(self,b: bytes) -> str:
         return base64.urlsafe_b64encode(b).decode().rstrip("=")
 
-    REGION = "us-east-2"
-    USER_POOL_ID = "us-east-1_uUmKJUfB3"
-    CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")  # app client enabled for Google
-    DOMAIN = "https://your-domain.auth.us-east-1.amazoncognito.com"
-    REDIRECT_URI = "https://yourapp.com/auth/callback"  # must match app client
-    AUTH_URL = f"{DOMAIN}/oauth2/authorize"
 
+    # User           React + TSX (GUI)         Python Backend (Flask/FastAPI)         Cognito Hosted UI         Google
+    #  |                     |                              |                              |                      |
+    #  |--- Click "Login" -->|                              |                              |                      |
+    #  |                     |--- Call /login/google -----> |                              |                      |
+    #  |                     |                              |-- login_google() ------------|                      |
+    #  |                     |                              |   builds PKCE, state         |                      |
+    #  |                     |                              |   redirect → /authorize      |                      |
+    #  |                     |<-- Redirect response --------|                              |                      |
+    #  |                     |--- Browser navigates -------------------------------------->|                      |
+    #  |                     |   https://<DOMAIN>/oauth2/authorize?client_id=...           |                      |
+    #  |                     |                              |                              |                      |
+    #  |                     |                              |                              |-- Redirect to ------>|
+    #  |                     |                              |                              |   Google login page  |
+    #  |                     |                              |                              |                      |
+    #  |                     |                              |                              |<-- User enters creds |
+    #  |                     |                              |                              |                      |
+    #  |                     |                              |                              |<-- Redirect back ----|
+    #  |                     |                              |                              |   to Cognito w/ code |
+    #  |                     |                              |                              |                      |
+    #  |                     |<-- Redirect to REDIRECT_URI -|                              |                      |
+    #  |                     |   (e.g. /auth/callback?code=...)                             |                      |
+    #  |                     |--- Call /auth/callback ----->|                              |                      |
+    #  |                     |                              |-- auth_callback() -----------|                      |
+    #  |                     |                              |   validate state, exchange   |                      |
+    #  |                     |                              |   /oauth2/token ------------>|                      |
+    #  |                     |                              |                              |                      |
+    #  |                     |                              |<-- JSON tokens (id/access) --|                      |
+    #  |                     |                              | verify ID token (JWKS)       |                      |
+    #  |                     |                              | store session, set cookie    |                      |
+    #  |                     |<-- Redirect /app ------------|                              |                      |
+    #  |--- Logged in ------>|                              |                              |                      |
     def login_google(self):
+        try:
+            # Generate PKCE + state, store server-side (e.g., session or DB)
+            verifier = self.b64u(os.urandom(32))
+            challenge = self.b64u(hashlib.sha256(verifier.encode()).digest())
+            state = secrets.token_urlsafe(24)
+            session["pkce_verifier"] = verifier
+            session["oauth_state"] = state
 
-        # Generate PKCE + state, store server-side (e.g., session or DB)
-        verifier = self.b64u(os.urandom(32))
-        challenge = self.b64u(hashlib.sha256(verifier.encode()).digest())
-        state = secrets.token_urlsafe(24)
-        session["pkce_verifier"] = verifier
-        session["oauth_state"] = state
+            params = {
+                "client_id": CLIENT_ID,
+                "response_type": "code",
+                "redirect_uri": REDIRECT_URI,
+                "scope": "openid email profile",
+                "identity_provider": "Google",      # deep-link straight to Google
+                "code_challenge_method": "S256",
+                "code_challenge": challenge,
+                "state": state,
+            }
+            return redirect(f"{AUTH_URL}?{urlencode(params)}")
 
-        params = {
-            "client_id": CLIENT_ID,
-            "response_type": "code",
-            "redirect_uri": REDIRECT_URI,
-            "scope": "openid email profile",
-            "identity_provider": "Google",  # deep-link straight to Google
-            "code_challenge_method": "S256",
-            "code_challenge": challenge,
-            "state": state,
-        }
-        return redirect(f"{AUTH_URL}?{urlencode(params)}")
+        except Exception as e:
+            err_trace = get_traceback(e, "ErrorLoginGoogle")
+            logger.debug(err_trace)
+            return err_trace
 
 
-    TOKEN_URL = f"{DOMAIN}/oauth2/token"
-    JWKS_URL  = f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}/.well-known/jwks.json"
     def auth_callback(self):
-        if request.args.get("state") != session.get("oauth_state"):
-            return abort(400, "bad state")
+        try:
+            if request.args.get("state") != session.get("oauth_state"):
+                return abort(400, "bad state")
 
-        code = request.args.get("code")
-        if not code: return abort(400, "missing code")
+            code = request.args.get("code")
+            if not code: return abort(400, "missing code")
 
-        data = {
-            "grant_type": "authorization_code",
-            "client_id": CLIENT_ID,          # public client (no secret) for browser flows
-            "redirect_uri": REDIRECT_URI,
-            "code": code,
-            "code_verifier": session.pop("pkce_verifier", ""),
-        }
-        tok = requests.post(
-            TOKEN_URL,
-            data=data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=10,
-        ).json()
+            data = {
+                "grant_type": "authorization_code",
+                "client_id": CLIENT_ID,          # public client (no secret) for browser flows
+                "redirect_uri": REDIRECT_URI,
+                "code": code,
+                "code_verifier": session.pop("pkce_verifier", ""),
+            }
+            tok = requests.post(
+                TOKEN_URL,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            ).json()
 
-        id_token = tok["id_token"]
-        # Verify ID token
-        jwks = requests.get(JWKS_URL, timeout=10).json()
-        keys = {k["kid"]: RSAAlgorithm.from_jwk(json.dumps(k)) for k in jwks["keys"]}
-        header = jwt.get_unverified_header(id_token)
-        claims = jwt.decode(
-            id_token, key=keys[header["kid"]], algorithms=["RS256"],
-            audience=CLIENT_ID,
-            issuer=f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}",
-        )
+            id_token = tok["id_token"]
+            # Verify ID token
+            jwks = requests.get(JWKS_URL, timeout=10).json()
+            keys = {k["kid"]: RSAAlgorithm.from_jwk(json.dumps(k)) for k in jwks["keys"]}
+            header = jwt.get_unverified_header(id_token)
+            claims = jwt.decode(
+                id_token, key=keys[header["kid"]], algorithms=["RS256"],
+                audience=CLIENT_ID,
+                issuer=f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}",
+            )
 
-        # Create your own session (httpOnly, Secure, SameSite=Lax/None)
-        # e.g., set a signed session cookie that references a server-side session
-        session["user"] = {
-            "sub": claims["sub"],
-            "email": claims.get("email"),
-            "name": claims.get("name"),
-            "id_token": id_token,
-            "expires_at": int(time.time()) + tok.get("expires_in", 3600),
-            "refresh_token": tok.get("refresh_token")  # store server-side only
-        }
+            # Create your own session (httpOnly, Secure, SameSite=Lax/None)
+            # e.g., set a signed session cookie that references a server-side session
+            session["user"] = {
+                "sub": claims["sub"],
+                "email": claims.get("email"),
+                "name": claims.get("name"),
+                "id_token": id_token,
+                "expires_at": int(time.time()) + tok.get("expires_in", 3600),
+                "refresh_token": tok.get("refresh_token")  # store server-side only
+            }
 
-        # Redirect back to the SPA (now authenticated by your cookie)
-        return redirect("/app")
+            # Redirect back to the SPA (now authenticated by your cookie)
+            return redirect("/app")
+
+        except Exception as e:
+            err_trace = get_traceback(e, "ErrorLoginGoogleAuthCallback")
+            logger.debug(err_trace)
+            return err_trace

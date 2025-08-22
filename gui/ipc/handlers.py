@@ -462,6 +462,9 @@ def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCR
     """
     try:
         logger.debug(f"Login with google handler called with request: {request}")
+        ctx = AppContext()
+        login: Login = ctx.login
+        result = login.login_google()
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
