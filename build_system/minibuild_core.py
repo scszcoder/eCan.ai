@@ -51,15 +51,13 @@ class MiniSpecBuilder:
         python_executable = self._get_python_executable()
         cmd = [python_executable, "-m", "PyInstaller", str(self._last_spec_path), "--noconfirm", "--clean"]
         
-        # Add architecture-specific arguments if TARGET_ARCH is set
+        # Note: target architecture is now set in the spec file, not as command line argument
         target_arch = os.getenv('TARGET_ARCH')
         if target_arch and platform_handler.is_macos:
             if target_arch == 'aarch64':
-                cmd.extend(['--target-architecture', 'arm64'])
-                print(f"[MINIBUILD] Targeting ARM64 architecture")
+                print(f"[MINIBUILD] Targeting ARM64 architecture (set in spec)")
             elif target_arch == 'amd64':
-                cmd.extend(['--target-architecture', 'x86_64'])
-                print(f"[MINIBUILD] Targeting x86_64 architecture")
+                print(f"[MINIBUILD] Targeting x86_64 architecture (set in spec)")
         
         print(f"[MINIBUILD] Running: {' '.join(cmd)}")
         env = os.environ.copy()
@@ -233,6 +231,15 @@ class MiniSpecBuilder:
         # Platform-specific settings
         platform_config = self._get_platform_config()
 
+        # Target architecture configuration for macOS
+        target_arch_config = ""
+        target_arch = os.getenv('TARGET_ARCH')
+        if target_arch and platform_handler.is_macos:
+            if target_arch == 'aarch64':
+                target_arch_config = "target_arch='arm64',"
+            elif target_arch == 'amd64':
+                target_arch_config = "target_arch='x86_64',"
+
         template = f'''# -*- mode: python ; coding: utf-8 -*-
 """
 Generated PyInstaller spec for {app_name} - {mode} mode
@@ -302,6 +309,7 @@ a = Analysis(
     cipher=None,
     noarchive=False,
     copy_metadata=True,
+    {target_arch_config}
 )
 
 # Simple deduplication
