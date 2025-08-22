@@ -1,5 +1,9 @@
-import React from 'react';
-import { Editor } from '../../modules/skill-editor';
+import React, { Suspense, lazy } from 'react';
+import { useTranslation } from 'react-i18next';
+const LazyEditor = lazy(async () => {
+  const mod = await import('../../modules/skill-editor');
+  return { default: mod.Editor } as any;
+});
 import styled from '@emotion/styled';
 
 const EditorContainer = styled.div`
@@ -21,6 +25,7 @@ const EditorContainer = styled.div`
 `;
 
 const SkillEditor: React.FC = () => {
+    const { t } = useTranslation();
     return (
         <EditorContainer>
             <style>
@@ -31,7 +36,19 @@ const SkillEditor: React.FC = () => {
                     }
                 `}
             </style>
-            <Editor />
+            <Suspense fallback={
+                <div style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-secondary)'
+                }}>
+                    {t('pages.skills.loadingEditor') || 'Loading editor...'}
+                </div>
+            }>
+                <LazyEditor />
+            </Suspense>
         </EditorContainer>
     );
 };

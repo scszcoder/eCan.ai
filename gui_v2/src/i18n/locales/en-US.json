@@ -390,7 +390,8 @@
       "skillSettings": "Skill Settings",
       "time": {
         "justNow": "Just now"
-      }
+      },
+      "loadingEditor": "Loading editor..."
     },
     "analytics": {
       "today": "Today",
