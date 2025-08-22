@@ -23,6 +23,11 @@ const VirtualPlatform = React.lazy(() => import('../pages/Agents/VirtualPlatform
 const DepartmentRoom = React.lazy(() => import('../pages/Agents/DepartmentRoom'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
 
+// Agents 路由包装器，用于防止不必要的重新渲染
+const AgentsRouteWrapper: React.FC = () => {
+    return React.useMemo(() => <LazyWrapper><Agents /></LazyWrapper>, []);
+};
+
 // 加载组件包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <Suspense fallback={
@@ -105,19 +110,21 @@ export const protectedRoutes: RouteConfig[] = [
             },
             {
                 path: 'agents',
-                element: <LazyWrapper><Agents /></LazyWrapper>,
-            },
-            {
-                path: 'agents/details/:id',
-                element: <LazyWrapper><AgentDetails /></LazyWrapper>,
-            },
-            {
-                path: 'agents/virtual',
-                element: <LazyWrapper><VirtualPlatform /></LazyWrapper>,
-            },
-            {
-                path: 'agents/room/:departmentId',
-                element: <LazyWrapper><DepartmentRoom /></LazyWrapper>,
+                element: <AgentsRouteWrapper />,
+                children: [
+                    {
+                        path: '',
+                        element: <LazyWrapper><VirtualPlatform /></LazyWrapper>,
+                    },
+                    {
+                        path: 'details/:id',
+                        element: <LazyWrapper><AgentDetails /></LazyWrapper>,
+                    },
+                    {
+                        path: 'room/:departmentId',
+                        element: <LazyWrapper><DepartmentRoom /></LazyWrapper>,
+                    },
+                ],
             },
             {
                 path: 'analytics',

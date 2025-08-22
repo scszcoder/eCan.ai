@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import departments from './data/departments';
 import Door from './components/Door';
@@ -22,9 +22,24 @@ const satelliteDots = [
 
 const VirtualPlatform: React.FC = () => {
   const deptCount = departments.length;
-  const gridTemplate = getGridTemplate(deptCount);
+  // 使用 useMemo 缓存计算结果，避免每次渲染重新计算
+  const gridTemplate = useMemo(() => getGridTemplate(deptCount), [deptCount]);
   const navigate = useNavigate();
   const { t } = useTranslation();
+
+  // 使用 useCallback 缓存导航函数，避免每次渲染创建新函数
+  const handleDoorClick = useCallback((deptId: string) => {
+    navigate(`/agents/room/${deptId}`); // Navigate to nested route
+  }, [navigate]);
+
+  // 使用 useMemo 缓存门组件的渲染，避免每次重新创建
+  const doorComponents = useMemo(() => {
+    return departments.map((dept) => (
+      <div key={dept.id} onClick={() => handleDoorClick(dept.id)} style={{cursor: 'pointer'}}>
+        <Door name={t(dept.name)} />
+      </div>
+    ));
+  }, [departments, handleDoorClick, t]);
 
   return (
     <div className="virtual-platform">
@@ -70,14 +85,10 @@ const VirtualPlatform: React.FC = () => {
       <div className="virtual-bg-blur virtual-bg-blur2" />
       {/* 门规则网格分布 */}
       <div className="doors-grid" style={{gridTemplateColumns: gridTemplate}}>
-        {departments.map((dept) => (
-          <div key={dept.id} onClick={() => navigate(`/agents/room/${dept.id}`)} style={{cursor: 'pointer'}}>
-            <Door name={t(dept.name)} />
-          </div>
-        ))}
+        {doorComponents}
       </div>
     </div>
   );
 };
 
-export default VirtualPlatform; 
+export default React.memo(VirtualPlatform); 

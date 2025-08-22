@@ -425,16 +425,9 @@ class MenuManager:
                         "VERSION",  # Current directory
                     ]
 
-                for version_path in version_paths:
-                    if os.path.exists(version_path) and os.path.isfile(version_path):
-                        try:
-                            with open(version_path, "r", encoding="utf-8") as f:
-                                version_content = f.read().strip()
-                                if version_content:  # Make sure it's not empty
-                                    version = version_content
-                                    break
-                        except Exception:
-                            continue
+                # 使用统一的版本读取函数
+                from utils.app_setup_helper import read_version_file
+                version = read_version_file(version_paths)
             except Exception:
                 pass
             
