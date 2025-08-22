@@ -38,7 +38,7 @@ import requests
 
 from urllib.parse import urlencode
 from flask import Flask, request, session, redirect, abort
-from jose import jwt
+import jwt
 import secrets
 from utils.logger_helper import get_traceback
 
@@ -55,8 +55,8 @@ ROLE_FILE = ecb_data_homepath + "/role.json"
 MAX_RETRIES = 5
 
 REGION = "us-east-1"
-USER_POOL_ID = "us-east-1_uUmKJUfB3"
-CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")  # app client enabled for Google
+# USER_POOL_ID = "us-east-1_uUmKJUfB3"
+# CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")  # app client enabled for Google
 DOMAIN = "https://maipps.auth.us-east-1.amazoncognito.com"
 REDIRECT_URI = "http://localhost:5000/auth/callback"  # must match app client
 AUTH_URL = f"{DOMAIN}/oauth2/authorize"
