@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ChatList from './components/ChatList';
-import ChatDetail from './components/ChatDetail';
+const ChatDetail = lazy(() => import('./components/ChatDetail'));
 import { Chat, Message, Attachment } from './types/chat';
 import { logger } from '@/utils/logger';
 import ChatLayout from './components/ChatLayout';
-import ChatNotification from './components/ChatNotification';
+const ChatNotification = lazy(() => import('./components/ChatNotification'));
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
@@ -384,12 +384,12 @@ const ChatPage: React.FC = () => {
         if (initialized) setHasFetched(false);
     }, [initialized]);
 
-    const handleFilterChange = (filters: Record<string, any>) => {
+    const handleFilterChange = useCallback((filters: Record<string, any>) => {
         logger.debug('Filter changed:', filters);
-    };
+    }, []);
 
     // 新增：设置activeChatId并获取消息的函数，避免重复调用handleChatSelect
-    const setActiveChatIdAndFetchMessages = (chatId: string) => {
+    const setActiveChatIdAndFetchMessages = useCallback((chatId: string) => {
         // 如果已经是当前活动聊天，不需要重复获取
         if (chatId === activeChatId) {
             logger.debug(`[setActiveChatIdAndFetchMessages] Chat ${chatId} already active, skipping`);
@@ -402,20 +402,20 @@ const ChatPage: React.FC = () => {
         setActiveChatId(chatId);
         // 获取消息
         handleChatSelect(chatId);
-    };
+    }, [activeChatId]);
 
     // 设置活动聊天ID
-    const setActiveChat = (chatId: string) => {
+    const setActiveChat = useCallback((chatId: string) => {
         // 如果是通过setActiveChatIdAndFetchMessages调用的，不需要再次设置activeChatId
         if (activeChatId !== chatId) {
             setActiveChatId(chatId);
         }
-    };
+    }, [activeChatId]);
 
     // 标记消息为已读
-    const markChatAsRead = (chatId: string) => {
+    const markChatAsRead = useCallback((chatId: string) => {
         markMessageAsRead(chatId);
-    };
+    }, [markMessageAsRead]);
 
     // 假设 PAGE_SIZE 已定义（如 20），否则加上 const PAGE_SIZE = 20;
     const PAGE_SIZE = 20;
@@ -557,7 +557,7 @@ const ChatPage: React.FC = () => {
     };
 
     // handleMessageSend 发送消息时加 log
-    const handleMessageSend = async (content: string, attachments: Attachment[]) => {
+    const handleMessageSend = useCallback(async (content: string, attachments: Attachment[]) => {
         console.log('[handleMessageSend] called, content:', content, 'attachments:', attachments);
         if (!activeChatId) {
             logger.error('No activeChatId!!!');
@@ -657,7 +657,7 @@ const ChatPage: React.FC = () => {
             // 更新消息状态为错误
             updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
         }
-    };
+    }, [activeChatId, chats, myTwinAgentId, addMessageToChat, allMessages, updateMessage]);
     
     const currentChat = (!activeChatId || !chats || chats.length === 0)
         ? null
@@ -680,19 +680,25 @@ const ChatPage: React.FC = () => {
     };
 
     const renderDetailsContent = () => (
-        <ChatDetail 
-            chatId={activeChatId} 
-            chats={chats}
-            onSend={handleMessageSend}
-            setIsInitialLoading={setIsInitialLoading}
-        />
+        <Suspense fallback={<div className="loading-container">{t('common.loading')}</div>}>
+            <ChatDetail 
+                chatId={activeChatId} 
+                chats={chats}
+                onSend={handleMessageSend}
+                setIsInitialLoading={setIsInitialLoading}
+            />
+        </Suspense>
     );
 
     const renderRightPanel = () => {
-        return <ChatNotification 
-            chatId={activeChatId || ''} 
-            isInitialLoading={isInitialLoadingNotifications}
-        />;
+        return (
+            <Suspense fallback={<div className="loading-container">{t('common.loading')}</div>}>
+                <ChatNotification 
+                    chatId={activeChatId || ''} 
+                    isInitialLoading={isInitialLoadingNotifications}
+                />
+            </Suspense>
+        );
     };
 
     // 显示加载状态或错误信息

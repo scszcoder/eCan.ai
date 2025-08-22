@@ -186,14 +186,14 @@ const AgentDetails: React.FC = () => {
   const goBack = () => navigate('/agents');
 
   return (
-    <App>
-      <div style={{ padding: 16 }}>
-        <Space align="center" size={12} style={{ marginBottom: 16 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={goBack} title={t('common.back') || 'Back'} aria-label={t('common.back') || 'Back'} />
-          <span style={{ fontSize: 18, fontWeight: 600 }}>{t('pages.agents.agent_details') || 'Agent Details'}</span>
-        </Space>
+    <div style={{ padding: 16, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Space align="center" size={12} style={{ marginBottom: 16 }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={goBack} title={t('common.back') || 'Back'} aria-label={t('common.back') || 'Back'} />
+        <span style={{ fontSize: 18, fontWeight: 600 }}>{t('pages.agents.agent_details') || 'Agent Details'}</span>
+      </Space>
 
-        <Card>
+      <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
+        <div style={{ height: '100%', overflowY: 'auto' }}>
           <Form form={form} layout="vertical" disabled={!editMode}>
             <Row gutter={[16, 16]}>
               <Col span={12}>
@@ -371,21 +371,21 @@ const AgentDetails: React.FC = () => {
               </Col>
             </Row>
           </Form>
+        </div>
 
-          <Divider />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-            <Button icon={<EditOutlined />} type="default" disabled={editMode} onClick={() => setEditMode(true)}>
-              {t('common.edit') || 'Edit'}
+        <Divider />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+          <Button icon={<EditOutlined />} type="default" disabled={editMode} onClick={() => setEditMode(true)}>
+            {t('common.edit') || 'Edit'}
+          </Button>
+          {editMode && (
+            <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
+              {t('common.save') || 'Save'}
             </Button>
-            {editMode && (
-              <Button icon={<SaveOutlined />} type="primary" loading={loading} onClick={handleSave}>
-                {t('common.save') || 'Save'}
-              </Button>
-            )}
-          </div>
-        </Card>
-      </div>
-    </App>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 };
 
