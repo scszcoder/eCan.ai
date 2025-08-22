@@ -455,26 +455,41 @@ class WebGUI(QMainWindow):
                 from config.app_info import app_info
                 resource_path = app_info.app_resources_path
 
-                # Use eCan icon for message box
-                icon_candidates = [
-                    os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
-                    os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
-                    os.path.join(os.path.dirname(resource_path), "eCan.ico"),
-                ]
+                # Platform-specific icon candidates
+                if sys.platform == 'darwin':
+                    # macOS prefers larger, high-quality icons
+                    icon_candidates = [
+                        os.path.join(resource_path, "images", "logos", "rounded", "dock_256x256.png"),
+                        os.path.join(resource_path, "images", "logos", "rounded", "dock_128x128.png"),
+                        os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                        os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
+                    ]
+                else:
+                    # Windows/Linux icon candidates
+                    icon_candidates = [
+                        os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                        os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
+                        os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+                    ]
 
                 icon_set = False
                 for candidate in icon_candidates:
                     if os.path.exists(candidate):
                         pixmap = QPixmap(candidate)
                         if not pixmap.isNull():
-                            scaled_pixmap = pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                            # Use larger icon size for macOS
+                            icon_size = 128 if sys.platform == 'darwin' else 64
+                            scaled_pixmap = pixmap.scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                             msg_box.setIconPixmap(scaled_pixmap)
                             icon_set = True
+                            logger.debug(f"MessageBox icon set from: {candidate} (size: {icon_size}x{icon_size})")
                             break
 
                 if not icon_set:
                     msg_box.setIcon(QMessageBox.Question)
-            except:
+                    logger.debug("Using default question icon for message box")
+            except Exception as e:
+                logger.warning(f"Failed to set message box icon: {e}")
                 msg_box.setIcon(QMessageBox.Question)
 
             logger.info("🔔 [DEBUG] Show dialog")
