@@ -4,6 +4,8 @@ import {
   PlayCircleOutlined,
   SettingOutlined,
   StopOutlined,
+  EditOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import { Avatar, Button, Card, Space, Typography, Form, Input, Row, Col, Select, DatePicker, message } from 'antd';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +16,24 @@ import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 
 const { Title, Text } = Typography;
+
+const DEFAULT_TASK = {
+  id: '',
+  name: '',
+  description: '',
+  priority: 'medium',
+  trigger: 'schedule',
+  schedule: {
+    repeat_type: 'none',
+    repeat_number: 1,
+    repeat_unit: 'by hours',
+    start_date_time: dayjs(),
+    end_date_time: undefined as any,
+    time_out: 3600,
+  },
+  objectives: '',
+  metadata: {},
+};
 
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
 const TRIGGER_OPTIONS = ['schedule', 'human chat', 'agent message'];
@@ -29,7 +49,10 @@ const REPEAT_OPTIONS = [
 ];
 
 interface TaskDetailProps {
-  task: Task | null;
+  task: Task | null | object;
+  isNew?: boolean;
+  onSave?: () => void;
+  onCancel?: () => void;
 }
 
 type ExtendedTask = Task & {
@@ -42,11 +65,12 @@ type ExtendedTask = Task & {
   metadata_text?: string; // stringified metadata for editing
 };
 
-export const TaskDetail: React.FC<TaskDetailProps> = ({ task }) => {
+export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew = false, onSave, onCancel }) => {
   const { t } = useTranslation();
   const username = useUserStore((s) => s.username) || '';
   const [form] = Form.useForm<ExtendedTask>();
-  const [editMode, setEditMode] = React.useState(false);
+  const [editMode, setEditMode] = React.useState(isNew);
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (task) {
@@ -77,6 +101,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task }) => {
     }
   }, [task, form]);
 
+  const handleCancel = () => {
+    form.resetFields();
+    setEditMode(false);
+    if (isNew && onCancel) {
+      onCancel();
+    }
+  };
+
   const handleEdit = () => setEditMode(true);
 
   const handleSave = async () => {
@@ -84,171 +116,221 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task }) => {
       const values = await form.validateFields();
       const payload: any = {
         id: (values as any).id,
-        ataskid: (values as any).ataskid,
-        name: (values as any).name,
-        owner: (values as any).owner,
-        description: (values as any).description,
-        latest_version: (values as any).latest_version,
-        priority: (values as any).priority,
-        trigger: (values as any).trigger,
+        ataskid: (values as any).ataskid || undefined,
+        name: (values as any).name || 'New Task',
+        owner: username,
+        description: (values as any).description || '',
+        latest_version: (values as any).latest_version || '1.0.0',
+        priority: (values as any).priority || 'medium',
+        trigger: (values as any).trigger || 'manual',
         schedule: {
-          repeat_type: (values as any).schedule?.repeat_type,
-          repeat_number: (values as any).schedule?.repeat_number,
-          repeat_unit: (values as any).schedule?.repeat_unit,
-          start_date_time: (values as any).schedule?.start_date_time ? (values as any).schedule.start_date_time.toISOString() : null,
-          end_date_time: (values as any).schedule?.end_date_time ? (values as any).schedule.end_date_time.toISOString() : null,
-          time_out: (values as any).schedule?.time_out,
+          repeat_type: (values as any).schedule?.repeat_type || 'none',
+          repeat_number: (values as any).schedule?.repeat_number || 1,
+          repeat_unit: (values as any).schedule?.repeat_unit || 'hours',
+          start_date_time: (values as any).schedule?.start_date_time ? 
+            (values as any).schedule.start_date_time.toISOString() : 
+            new Date().toISOString(),
+          end_date_time: (values as any).schedule?.end_date_time ? 
+            (values as any).schedule.end_date_time.toISOString() : 
+            null,
+          time_out: (values as any).schedule?.time_out || 3600,
         },
-        objectives: (values as any).objectives,
+        objectives: (values as any).objectives || '',
+        metadata: (values as any).metadata_text ? 
+          JSON.parse((values as any).metadata_text) : {},
       };
-      // metadata as JSON if valid
-      const metaText = (values as any).metadata_text;
-      if (metaText) {
-        try {
-          payload.metadata = JSON.parse(metaText);
-        } catch {
-          payload.metadata = metaText; // keep as string if not JSON
-        }
-      }
 
-      const resp = await get_ipc_api().saveTasks(username, [payload]);
-      if (resp.success) {
-        message.success(t('common.saved', 'Saved'));
+      setSaving(true);
+      const api = get_ipc_api();
+      const response = isNew
+        ? await api.newTasks(username, [payload])
+        : await api.saveTasks(username, [payload]);
+      
+      if (response.success) {
+        message.success(t(isNew ? 'common.createSuccess' : 'common.saveSuccess'));
         setEditMode(false);
+        if (onSave) onSave();
       } else {
-        message.error(resp.error?.message || 'Save failed');
+        message.error(response.error?.message || 
+          t(isNew ? 'common.createFailed' : 'common.saveFailed'));
       }
-    } catch (e) {
-      if (e instanceof Error) message.error(e.message);
+    } catch (error) {
+      console.error(`Error ${isNew ? 'creating' : 'saving'} task:`, error);
+      message.error(t(isNew ? 'common.createFailed' : 'common.saveFailed'));
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (!task) {
-    return <Text type="secondary">{t('pages.tasks.selectTask')}</Text>;
-  }
+  // Always show the form, even for new/empty tasks
+  const displayTask = isNew ? DEFAULT_TASK : (task || {});
 
   return (
-    <div style={{ maxHeight: '100%', overflow: 'auto' }}>
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
-        <Space align="start">
-          <Avatar size={64} icon={<OrderedListOutlined />} />
-          <div>
-            <Title level={4} style={{ margin: 0 }}>{(task as any).name || task.skill}</Title>
-            <Text type="secondary">ID: {(task as any).id}</Text>
+    <div style={{ maxHeight: '100%', overflow: 'auto', padding: '16px' }}>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={displayTask}
+        onFinish={handleSave}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Card>
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Space align="start">
+                <Avatar size={64} icon={<OrderedListOutlined />} />
+                <div style={{ flex: 1 }}>
+                  <Form.Item name="name" label={t('pages.tasks.name')} rules={[{ required: true }]}>
+                    <Input placeholder={t('pages.tasks.namePlaceholder')} />
+                  </Form.Item>
+                  {!isNew && <Text type="secondary">ID: {(task as any).id}</Text>}
+                </div>
+              </Space>
+
+              <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+                <Col span={12}>
+                  <Form.Item label="ID" name="id">
+                    <Input readOnly />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label="ATask ID" name="ataskid">
+                    <Input readOnly />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label={t('common.owner', 'Owner')} name="owner">
+                    <Input readOnly />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label={t('pages.tasks.latestVersion', 'Latest Version')} name="latest_version">
+                    <Input readOnly />
+                  </Form.Item>
+                </Col>
+                <Col span={24}>
+                  <Form.Item label={t('common.description', 'Description')} name="description">
+                    <Input.TextArea rows={3} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label={t('pages.tasks.priorityLabel', 'Priority')} name="priority">
+                    <Select options={PRIORITY_OPTIONS.map(v => ({ value: v, label: v }))} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger">
+                    <Select options={TRIGGER_OPTIONS.map(v => ({ value: v, label: v }))} />
+                  </Form.Item>
+                </Col>
+
+                <Col span={24}>
+                  <Card size="small" title={t('pages.tasks.scheduleDetails', 'Schedule')}>
+                    <Row gutter={[16, 8]}>
+                      <Col span={8}>
+                        <Form.Item label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]}>
+                          <Select options={REPEAT_OPTIONS.map(v => ({ value: v, label: v }))} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')} name={["schedule", "repeat_number"]}>
+                          <Input type="number" min={1} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]}>
+                          <Select options={REPEAT_OPTIONS.filter(v => v !== 'none').map(v => ({ value: v, label: v }))} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')} name={["schedule", "start_date_time"]}>
+                          <DatePicker showTime style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time (Optional)')} name={["schedule", "end_date_time"]}>
+                          <DatePicker showTime style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout (seconds)')} name={["schedule", "time_out"]}>
+                          <Input type="number" min={60} step={60} />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Card>
+                </Col>
+
+                <Col span={24}>
+                  <Form.Item label={t('pages.tasks.objectives', 'Objectives')} name="objectives">
+                    <Input.TextArea rows={4} placeholder={t('pages.tasks.objectivesPlaceholder', 'Describe the task objectives in detail')} />
+                  </Form.Item>
+                </Col>
+                <Col span={24}>
+                  <Form.Item 
+                    label={t('pages.tasks.metadata', 'Metadata (JSON)')} 
+                    name="metadata_text"
+                    rules={[{
+                      validator: (_, value) => {
+                        if (!value) return Promise.resolve();
+                        try {
+                          JSON.parse(value);
+                          return Promise.resolve();
+                        } catch (e) {
+                          return Promise.reject(new Error('Invalid JSON'));
+                        }
+                      }
+                    }]}
+                  >
+                    <Input.TextArea 
+                      rows={4} 
+                      style={{ fontFamily: 'monospace' }}
+                      placeholder={JSON.stringify({ key: 'value' }, null, 2)}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Space>
+          </Card>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button type="primary" icon={<PlayCircleOutlined />} disabled={isNew || editMode}>
+              {t('common.run')}
+            </Button>
+            <Button danger icon={<StopOutlined />} disabled={isNew || editMode}>
+              {t('common.stop')}
+            </Button>
+            {!editMode && !isNew && (
+              <Button 
+                type="primary" 
+                onClick={handleEdit} 
+                icon={<EditOutlined />}
+              >
+                {t('common.edit')}
+              </Button>
+            )}
+            {editMode && (
+              <>
+                <Button 
+                  type="primary" 
+                  htmlType="submit" 
+                  icon={<SaveOutlined />} 
+                  loading={saving}
+                  disabled={saving}
+                >
+                  {isNew ? t('common.create') : t('common.save')}
+                </Button>
+                <Button 
+                  onClick={handleCancel} 
+                  style={{ marginLeft: 8 }} 
+                  disabled={saving}
+                >
+                  {t('common.cancel')}
+                </Button>
+              </>
+            )}
           </div>
         </Space>
-
-        <Card>
-          <Form form={form} layout="vertical" disabled={!editMode}>
-            <Row gutter={[16, 8]}>
-              <Col span={12}>
-                <Form.Item label="ID" name="id">
-                  <Input readOnly />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label="ATask ID" name="ataskid">
-                  <Input readOnly />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label={t('common.name', 'Name')} name="name">
-                  <Input />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label={t('common.owner', 'Owner')} name="owner">
-                  <Input readOnly />
-                </Form.Item>
-              </Col>
-              <Col span={24}>
-                <Form.Item label={t('common.description', 'Description')} name="description">
-                  <Input.TextArea rows={6} style={{ overflowX: 'auto', overflowY: 'auto', whiteSpace: 'pre' }} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label={t('pages.tasks.latestVersion', 'Latest Version')} name="latest_version">
-                  <Input readOnly />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Row gutter={16}>
-                  <Col span={12}>
-                    <Form.Item label={t('pages.tasks.priorityLabel', 'Priority')} name="priority">
-                      <Select options={PRIORITY_OPTIONS.map(v => ({ value: v, label: v }))} />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item label={t('pages.tasks.triggerLabel', 'Trigger')} name="trigger">
-                      <Select options={TRIGGER_OPTIONS.map(v => ({ value: v, label: v }))} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </Col>
-
-              <Col span={24}>
-                <Card size="small" title={t('pages.tasks.scheduleDetails', 'Schedule')}>
-                  <Row gutter={[16, 8]}>
-                    <Col span={8}>
-                      <Form.Item label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]}>
-                        <Select options={REPEAT_OPTIONS.map(v => ({ value: v, label: v }))} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label={t('pages.tasks.scheduleRepeatNumberLabel', 'Repeat Number')} name={["schedule", "repeat_number"]}>
-                        <Input />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label={t('pages.tasks.scheduleRepeatUnitLabel', 'Repeat Unit')} name={["schedule", "repeat_unit"]}>
-                        <Select options={REPEAT_OPTIONS.map(v => ({ value: v, label: v }))} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item label={t('pages.tasks.scheduleStartTimeLabel', 'Start Date Time')} name={["schedule", "start_date_time"]}>
-                        <DatePicker showTime style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item label={t('pages.tasks.scheduleEndTimeLabel', 'End Date Time')} name={["schedule", "end_date_time"]}>
-                        <DatePicker showTime style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                    <Col span={12}>
-                      <Form.Item label={t('pages.tasks.scheduleTimeoutLabel', 'Timeout')} name={["schedule", "time_out"]}>
-                        <Input addonAfter={t('pages.tasks.secondsLabel', 'seconds')} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </Card>
-              </Col>
-
-              <Col span={24}>
-                <Form.Item label={t('pages.tasks.objectives', 'Objectives')} name="objectives">
-                  <Input.TextArea rows={6} style={{ overflowX: 'auto', overflowY: 'auto', whiteSpace: 'pre' }} />
-                </Form.Item>
-              </Col>
-              <Col span={24}>
-                <Form.Item label={t('pages.tasks.metadata', 'Metadata')} name="metadata_text">
-                  <Input.TextArea rows={6} style={{ overflowX: 'auto', overflowY: 'auto', whiteSpace: 'pre' }} />
-                </Form.Item>
-              </Col>
-            </Row>
-          </Form>
-        </Card>
-
-        {/* Buttons at bottom */}
-        <Space>
-          <Button type="primary" icon={<PlayCircleOutlined />}>{t('common.run')}</Button>
-          <Button danger icon={<StopOutlined />}>{t('common.stop')}</Button>
-          <Button onClick={handleEdit} disabled={editMode}>{t('common.edit', 'Edit')}</Button>
-          {editMode && (
-            <Button type="primary" onClick={handleSave}>{t('common.save', 'Save')}</Button>
-          )}
-          <Button icon={<SettingOutlined />}>{t('common.settings')}</Button>
-          <Button danger icon={<DeleteOutlined />}>{t('common.delete')}</Button>
-        </Space>
-      </Space>
+      </Form>
     </div>
   );
 };

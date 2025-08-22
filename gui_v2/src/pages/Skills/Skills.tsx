@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect } from 'react';
-import { Button } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Button, Space } from 'antd';
+import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,7 @@ const Skills: React.FC = () => {
     const setSkills = useAppDataStore((state) => state.setSkills);
     
     const username = useUserStore((state) => state.username);
+    const [isAddingNew, setIsAddingNew] = React.useState(false);
 
     const {
         selectedItem: selectedSkill,
@@ -82,17 +83,33 @@ const Skills: React.FC = () => {
     };
 
     const listTitle = (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>{t('pages.skills.title')}</span>
-            <Button
-                type="text"
-                icon={<ReloadOutlined style={{ color: 'white' }} />}
-                onClick={handleRefresh}
-                loading={isLoading}
-                title={t('pages.skills.refresh')}
-            />
+            <Space>
+                <Button
+                    type="text"
+                    icon={<ReloadOutlined style={{ color: 'white' }} />}
+                    onClick={handleRefresh}
+                    loading={isLoading}
+                    title={t('pages.skills.refresh')}
+                />
+                <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => {
+                        setIsAddingNew(true);
+                        // do not select an empty item; details will render a clean form
+                    }}
+                    title={t('pages.skills.addSkill')}
+                />
+            </Space>
         </div>
     );
+
+    const handleSkillSave = () => {
+        setIsAddingNew(false);
+        handleRefresh();
+    };
 
     return (
         <DetailLayout
@@ -106,11 +123,16 @@ const Skills: React.FC = () => {
                 />
             }
             detailsContent={
-                <SkillDetails 
-                    skill={selectedSkill} 
-                    onLevelUp={handleLevelUp}
-                    onRefresh={handleRefresh}
-                />
+                (selectedSkill || isAddingNew) ? (
+                    <SkillDetails
+                        skill={isAddingNew ? null : selectedSkill}
+                        isNew={isAddingNew}
+                        onLevelUp={handleLevelUp}
+                        onRefresh={handleRefresh}
+                        onSave={handleSkillSave}
+                        onCancel={() => setIsAddingNew(false)}
+                    />
+                ) : undefined
             }
         />
     );
