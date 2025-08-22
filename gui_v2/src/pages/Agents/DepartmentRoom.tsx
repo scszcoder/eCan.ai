@@ -1,7 +1,8 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Space } from 'antd';
+import { PlusOutlined, MoreOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 import { useAppDataStore } from '../../stores/appDataStore';
 import AgentAvatar from './components/AgentAvatar';
 import './DepartmentRoom.css';
@@ -30,20 +31,44 @@ const DepartmentRoom: React.FC = () => {
     departmentName = dept ? t(dept.name) : departmentId;
   }
 
-  return (
-    <div className="department-room" style={{ position: 'relative' }}>
-      {/* Header bar with title (if any) and global Add button on the right */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '24px 0 8px 0' }}>
-        <div style={{ fontSize: 28, fontWeight: 700, color: '#fff', letterSpacing: 1, textShadow: '0 2px 8px #0008' }}>
-          {departmentId ? departmentName : ''}
-        </div>
+  // 定义下拉菜单项
+  const menuItems: MenuProps['items'] = [
+    {
+      key: 'add',
+      label: (
         <Button
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => navigate('/agents/details/new')}
+          className="dropdown-menu-button"
+          style={{ width: '100%', textAlign: 'left' }}
         >
           {t('pages.agents.add') || 'Add'}
         </Button>
+      ),
+    },
+  ];
+
+  return (
+    <div className="department-room" style={{ position: 'relative' }}>
+      {/* Header bar with title (if any) and global Add button on the right */}
+      <div className="header-section">
+        <h1 className="department-title">
+          {departmentId ? departmentName : ''}
+        </h1>
+        <Dropdown
+          menu={{ items: menuItems }}
+          trigger={['click']}
+          placement="bottomRight"
+          overlayStyle={{ minWidth: '120px' }}
+        >
+          <Button
+            type="default"
+            icon={<MoreOutlined />}
+            className="dropdown-trigger"
+            title={t('common.actions') || 'Actions'}
+          />
+        </Dropdown>
       </div>
       <div className="agents-list">
         {deptAgents.map((agent: Agent, idx: number) => {

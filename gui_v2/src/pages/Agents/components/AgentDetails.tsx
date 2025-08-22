@@ -37,54 +37,6 @@ const knownTasks = ['task_001', 'task_002', 'task_003'];
 const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
 const knownVehicles = ['HostA (10.0.0.1)', 'HostB (10.0.0.2)', 'HostC (10.0.0.3)'];
 
-const listEditor = (
-  label: string,
-  items: string[] | undefined,
-  setItems: (arr: string[]) => void,
-  options: string[],
-  editable: boolean,
-  onEdit?: (id: string) => void
-) => {
-  const [selectValue, setSelectValue] = useState<string | undefined>();
-  const { t } = useTranslation();
-  return (
-    <div>
-      <Space wrap size={[8, 8]}>
-        {(items || []).map((v) => (
-          <Tag key={`${label}-${v}`} closable={editable} onClose={() => setItems((items || []).filter(i => i !== v))}>
-            <Space size={4}>
-              <span>{t(v) || v}</span>
-              {onEdit && (
-                <Tooltip title={t('common.edit_item', { item: label }) || `Edit ${label}`}> 
-                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => onEdit(v)} />
-                </Tooltip>
-              )}
-            </Space>
-          </Tag>
-        ))}
-      </Space>
-      <div style={{ marginTop: 8 }}>
-        <Space>
-          <Button icon={<PlusOutlined />} disabled={!editable} onClick={() => {
-            if (selectValue && !(items || []).includes(selectValue)) {
-              setItems([...(items || []), selectValue]);
-              setSelectValue(undefined);
-            }
-          }}>{t('common.add') || 'Add'}</Button>
-          <Select
-            style={{ minWidth: 220 }}
-            value={selectValue}
-            onChange={setSelectValue}
-            disabled={!editable}
-            options={options.map(o => ({ value: o, label: t(o) || o }))}
-            placeholder={t('common.select_item', { item: label }) || `Select ${label}`}
-          />
-        </Space>
-      </div>
-    </div>
-  );
-};
-
 const AgentDetails: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -96,15 +48,16 @@ const AgentDetails: React.FC = () => {
   const [form] = Form.useForm<AgentDetailsForm>();
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
+  const [selectValues, setSelectValues] = useState<Record<string, string | undefined>>({});
 
-  // Initialize form: if new, set blank defaults; otherwise set sample/existing values
-  useEffect(() => {
+  // 使用 useMemo 来初始化表单值，确保 Form 实例正确连接
+  const initialValues: AgentDetailsForm = useMemo(() => {
     if (isNew) {
-      const init: AgentDetailsForm = {
-        id: undefined,
-        agent_id: undefined,
+      return {
+        id: '',
+        agent_id: '',
         name: '',
-        gender: 'gender_options.male',
+        gender: 'gender_options.male' as Gender,
         birthday: null,
         owner: username || t('common.owner') || 'owner',
         personality: [],
@@ -117,14 +70,12 @@ const AgentDetails: React.FC = () => {
         vehicle: null,
         metadata: ''
       };
-      form.setFieldsValue(init);
-      setEditMode(true);
     } else {
-      const init: AgentDetailsForm = {
+      return {
         id: id,
         agent_id: id,
         name: `${t('common.agent') || 'Agent'} ${id}`,
-        gender: 'gender_options.male',
+        gender: 'gender_options.male' as Gender,
         birthday: null,
         owner: username || t('common.owner') || 'owner',
         personality: ['personality.friendly'],
@@ -137,10 +88,66 @@ const AgentDetails: React.FC = () => {
         vehicle: null,
         metadata: `{\n  "${t('common.note') || 'note'}": "${t('common.sample') || 'sample'}"\n}`
       };
-      form.setFieldsValue(init);
-      setEditMode(false);
     }
-  }, [id, isNew, username, form, t]);
+  }, [id, isNew, username, t]);
+
+  // 使用 useEffect 来设置表单值，但只在组件挂载后执行一次
+  useEffect(() => {
+    form.setFieldsValue(initialValues);
+    setEditMode(isNew);
+  }, [form, initialValues, isNew]);
+
+  // 将ListEditor改为受控组件
+  const ListEditor: React.FC<{
+    label: string;
+    items: string[] | undefined;
+    setItems: (arr: string[]) => void;
+    options: string[];
+    editable: boolean;
+    onEdit?: (id: string) => void;
+  }> = ({ label, items, setItems, options, editable, onEdit }) => {
+    const selectValue = selectValues[label] || undefined;
+    const setSelectValue = (value: string | undefined) => {
+      setSelectValues(prev => ({ ...prev, [label]: value }));
+    };
+    
+    return (
+      <div>
+        <Space wrap size={[8, 8]}>
+          {(items || []).map((v) => (
+            <Tag key={`${label}-${v}`} closable={editable} onClose={() => setItems((items || []).filter(i => i !== v))}>
+              <Space size={4}>
+                <span>{t(v) || v}</span>
+                {onEdit && (
+                  <Tooltip title={t('common.edit_item', { item: label }) || `Edit ${label}`}> 
+                    <Button size="small" type="text" icon={<EditOutlined />} onClick={() => onEdit(v)} />
+                  </Tooltip>
+                )}
+              </Space>
+            </Tag>
+          ))}
+        </Space>
+        <div style={{ marginTop: 8 }}>
+          <Space>
+            <Button icon={<PlusOutlined />} disabled={!editable} onClick={() => {
+              if (selectValue && !(items || []).includes(selectValue)) {
+                setItems([...(items || []), selectValue]);
+                setSelectValue(undefined);
+              }
+            }}>{t('common.add') || 'Add'}</Button>
+            <Select
+              style={{ minWidth: 220 }}
+              value={selectValue}
+              onChange={setSelectValue}
+              disabled={!editable}
+              options={options.map(o => ({ value: o, label: t(o) || o }))}
+              placeholder={t('common.select_item', { item: label }) || `Select ${label}`}
+            />
+          </Space>
+        </div>
+      </div>
+    );
+  };
 
   const disabled = !editMode;
 
@@ -182,7 +189,7 @@ const AgentDetails: React.FC = () => {
     <App>
       <div style={{ padding: 16 }}>
         <Space align="center" size={12} style={{ marginBottom: 16 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={goBack} />
+          <Button icon={<ArrowLeftOutlined />} onClick={goBack} title={t('common.back') || 'Back'} aria-label={t('common.back') || 'Back'} />
           <span style={{ fontSize: 18, fontWeight: 600 }}>{t('pages.agents.agent_details') || 'Agent Details'}</span>
         </Space>
 
@@ -226,45 +233,129 @@ const AgentDetails: React.FC = () => {
               </Col>
 
               <Col span={24}>
-                <Form.Item label={t('pages.agents.personality') || 'Personality'} name="personality" valuePropName="value">
-                  {listEditor(t('pages.agents.personality') || 'Personality', form.getFieldValue('personality'), (arr) => form.setFieldsValue({ personality: arr }), knownPersonalities, editMode)}
-                </Form.Item>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('pages.agents.personality') || 'Personality'}</div>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.personality !== cur.personality}>
+                    {() => (
+                      <ListEditor
+                        label={t('pages.agents.personality') || 'Personality'}
+                        items={form.getFieldValue('personality')}
+                        setItems={(arr) => form.setFieldsValue({ personality: arr })}
+                        options={knownPersonalities}
+                        editable={editMode}
+                        onEdit={(id) => navigate(`/personalities/details/${id}`)}
+                      />
+                    )}
+                  </Form.Item>
+                </div>
               </Col>
 
               <Col span={24}>
-                <Form.Item label={t('pages.agents.title') || 'Title'} name="title" valuePropName="value">
-                  {listEditor(t('pages.agents.title') || 'Title', form.getFieldValue('title'), (arr) => form.setFieldsValue({ title: arr }), knownTitles, editMode)}
-                </Form.Item>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('pages.agents.title') || 'Title'}</div>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.title !== cur.title}>
+                    {() => (
+                      <ListEditor
+                        label={t('pages.agents.title') || 'Title'}
+                        items={form.getFieldValue('title')}
+                        setItems={(arr) => form.setFieldsValue({ title: arr })}
+                        options={knownTitles}
+                        editable={editMode}
+                        onEdit={(id) => navigate(`/titles/details/${id}`)}
+                      />
+                    )}
+                  </Form.Item>
+                </div>
               </Col>
 
               <Col span={24}>
-                <Form.Item label={t('pages.agents.organizations') || 'Organizations'} name="organizations" valuePropName="value">
-                  {listEditor(t('pages.agents.organization') || 'Organization', form.getFieldValue('organizations'), (arr) => form.setFieldsValue({ organizations: arr }), knownOrganizations, editMode)}
-                </Form.Item>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('pages.agents.organizations') || 'Organizations'}</div>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.organizations !== cur.organizations}>
+                    {() => (
+                      <ListEditor
+                        label={t('pages.agents.organization') || 'Organization'}
+                        items={form.getFieldValue('organizations')}
+                        setItems={(arr) => form.setFieldsValue({ organizations: arr })}
+                        options={knownOrganizations}
+                        editable={editMode}
+                        onEdit={(id) => navigate(`/organizations/details/${id}`)}
+                      />
+                    )}
+                  </Form.Item>
+                </div>
               </Col>
 
               <Col span={24}>
-                <Form.Item label={t('pages.agents.supervisors') || 'Supervisors'} name="supervisors" valuePropName="value">
-                  {listEditor(t('pages.agents.supervisor') || 'Supervisor', form.getFieldValue('supervisors'), (arr) => form.setFieldsValue({ supervisors: arr }), knownSupervisors, editMode)}
-                </Form.Item>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('pages.agents.supervisors') || 'Supervisors'}</div>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.supervisors !== cur.supervisors}>
+                    {() => (
+                      <ListEditor
+                        label={t('pages.agents.supervisor') || 'Supervisor'}
+                        items={form.getFieldValue('supervisors')}
+                        setItems={(arr) => form.setFieldsValue({ supervisors: arr })}
+                        options={knownSupervisors}
+                        editable={editMode}
+                        onEdit={(id) => navigate(`/supervisors/details/${id}`)}
+                      />
+                    )}
+                  </Form.Item>
+                </div>
               </Col>
 
               <Col span={24}>
-                <Form.Item label={t('pages.agents.subordinates') || 'Subordinates'} name="subordinates" valuePropName="value">
-                  {listEditor(t('pages.agents.subordinate') || 'Subordinate', form.getFieldValue('subordinates'), (arr) => form.setFieldsValue({ subordinates: arr }), knownSubordinates, editMode)}
-                </Form.Item>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('pages.agents.subordinates') || 'Subordinates'}</div>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.subordinates !== cur.subordinates}>
+                    {() => (
+                      <ListEditor
+                        label={t('pages.agents.subordinate') || 'Subordinate'}
+                        items={form.getFieldValue('subordinates')}
+                        setItems={(arr) => form.setFieldsValue({ subordinates: arr })}
+                        options={knownSubordinates}
+                        editable={editMode}
+                        onEdit={(id) => navigate(`/subordinates/details/${id}`)}
+                      />
+                    )}
+                  </Form.Item>
+                </div>
               </Col>
 
               <Col span={24}>
-                <Form.Item label={t('pages.agents.tasks') || 'Tasks'} name="tasks" valuePropName="value">
-                  {listEditor(t('pages.agents.task') || 'Task', form.getFieldValue('tasks'), (arr) => form.setFieldsValue({ tasks: arr }), knownTasks, editMode, (taskId) => navigate(`/tasks/details/${taskId}`))}
-                </Form.Item>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('pages.agents.tasks') || 'Tasks'}</div>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.tasks !== cur.tasks}>
+                    {() => (
+                      <ListEditor
+                        label={t('pages.agents.task') || 'Task'}
+                        items={form.getFieldValue('tasks')}
+                        setItems={(arr) => form.setFieldsValue({ tasks: arr })}
+                        options={knownTasks}
+                        editable={editMode}
+                        onEdit={(id) => navigate(`/tasks/details/${id}`)}
+                      />
+                    )}
+                  </Form.Item>
+                </div>
               </Col>
 
               <Col span={24}>
-                <Form.Item label={t('pages.agents.skills') || 'Skills'} name="skills" valuePropName="value">
-                  {listEditor(t('pages.agents.skill') || 'Skill', form.getFieldValue('skills'), (arr) => form.setFieldsValue({ skills: arr }), knownSkills, editMode, (skillId) => navigate(`/skills/details/${skillId}`))}
-                </Form.Item>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('pages.agents.skills') || 'Skills'}</div>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.skills !== cur.skills}>
+                    {() => (
+                      <ListEditor
+                        label={t('pages.agents.skill') || 'Skill'}
+                        items={form.getFieldValue('skills')}
+                        setItems={(arr) => form.setFieldsValue({ skills: arr })}
+                        options={knownSkills}
+                        editable={editMode}
+                        onEdit={(id) => navigate(`/skills/details/${id}`)}
+                      />
+                    )}
+                  </Form.Item>
+                </div>
               </Col>
 
               <Col span={24}>
