@@ -587,12 +587,7 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
                 return False
 
             # Create standardized PKG filename with platform and architecture
-            arch = os.environ.get('BUILD_ARCH', 'amd64')
-            if arch == 'x86_64':
-                arch = 'amd64'
-            elif arch == 'arm64':
-                arch = 'aarch64'
-
+            arch = self._get_normalized_arch()
             pkg_file = self.dist_dir / f"{app_name}-{app_version}-macos-{arch}.pkg"
             if pkg_file.exists():
                 try:
@@ -623,157 +618,183 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
 
             # Optional: Code signing for PKG
             if macos_config.get("codesign", {}).get("enabled", False):
-                if not self._codesign_pkg(pkg_file, macos_config):
-                    print("[WARNING] PKG code signing failed, but continuing...")
+                try:
+                    if not self._codesign_pkg(pkg_file, macos_config):
+                        print("[WARNING] PKG code signing failed, but continuing...")
+                except Exception as e:
+                    print(f"[WARNING] PKG code signing error: {e}")
 
             # Optional: Notarization for PKG
             if macos_config.get("notarization", {}).get("enabled", False):
-                if not self._notarize_pkg(pkg_file, macos_config):
-                    print("[WARNING] PKG notarization failed, but continuing...")
+                try:
+                    if not self._notarize_pkg(pkg_file, macos_config):
+                        print("[WARNING] PKG notarization failed, but continuing...")
+                except Exception as e:
+                    print(f"[WARNING] PKG notarization error: {e}")
 
             return True
 
+        except subprocess.TimeoutExpired:
+            print(f"[ERROR] macOS PKG installer creation timed out")
+            return False
+        except FileNotFoundError as e:
+            print(f"[ERROR] Required file not found during PKG creation: {e}")
+            return False
+        except PermissionError as e:
+            print(f"[ERROR] Permission denied during PKG creation: {e}")
+            return False
         except Exception as e:
             print(f"[ERROR] macOS PKG installer creation failed: {e}")
+            import traceback
+            print(f"[DEBUG] Traceback: {traceback.format_exc()}")
             return False
 
 
 
     def _create_pkg_installer(self, app_bundle_dir: Path, app_name: str, app_version: str, pkg_file: Path, macos_config: Dict[str, Any]) -> bool:
-        """Create PKG installer using pkgbuild and productbuild"""
+        """Create PKG installer using simplified component-based approach.
+
+        Simplified method focusing on reliability:
+        - Use only component-based packaging (most reliable)
+        - Better error handling and validation
+        - Reduced timeout and complexity
+        """
         try:
-            # Create temporary directories for PKG creation
-            temp_dir = self.dist_dir / "pkg_temp"
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-            temp_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[PKG] Creating PKG installer: {pkg_file.name}")
 
-            print(f"[PKG] Using temporary directory: {temp_dir}")
-
-            # Create component PKG first
-            component_pkg = temp_dir / f"{app_name}-component.pkg"
-
-            # Create a staging directory and copy the app bundle
-            staging_dir = temp_dir / "staging"
-            staging_dir.mkdir(exist_ok=True)
-            staging_app_dir = staging_dir / f"{app_name}.app"
-
-            # Remove existing staging app if it exists
-            if staging_app_dir.exists():
-                shutil.rmtree(staging_app_dir)
-
-            print(f"[PKG] Copying app bundle to staging directory...")
-            print(f"[PKG] This may take a few minutes for large applications...")
-
-            try:
-                # Use rsync for faster copying if available, otherwise fall back to shutil
-                import subprocess
-                rsync_cmd = [
-                    "rsync", "-a", "--progress",
-                    f"{app_bundle_dir}/", f"{staging_app_dir}/"
-                ]
-
-                try:
-                    result = subprocess.run(rsync_cmd, capture_output=True, text=True, timeout=600)
-                    if result.returncode == 0:
-                        print(f"[PKG] App bundle copied using rsync (faster)")
-                    else:
-                        raise Exception("rsync failed")
-                except:
-                    # Fall back to shutil.copytree
-                    print(f"[PKG] Using standard copy method...")
-                    shutil.copytree(app_bundle_dir, staging_app_dir)
-                    print(f"[PKG] App bundle copied to staging directory")
-
-            except Exception as e:
-                print(f"[ERROR] Failed to copy app bundle: {e}")
+            # Validate build environment first
+            if not self._validate_macos_build_environment():
                 return False
 
-            # Get install location from config
+            # Validate app bundle exists and has proper structure
+            if not self._validate_app_bundle(app_bundle_dir, app_name):
+                return False
+
+            # Get configuration values
             install_location = macos_config.get("install_location", "/Applications")
+            bundle_identifier = macos_config.get("bundle_identifier", f"com.ecan.{app_name.lower()}")
 
-            # Create scripts for post-installation tasks
-            scripts_dir = temp_dir / "scripts"
-            scripts_dir.mkdir(exist_ok=True)
-            self._create_postinstall_script(scripts_dir, app_name, macos_config)
-
-            # Use pkgbuild with root to avoid relocate issues
-            pkgbuild_cmd = [
+            # Use component-based packaging (most reliable method)
+            print(f"[PKG] Creating component-based package...")
+            component_cmd = [
                 "pkgbuild",
-                "--root", str(staging_dir),
-                "--identifier", f"com.ecan.{app_name.lower()}",
+                "--component", str(app_bundle_dir),
+                "--identifier", bundle_identifier,
                 "--version", app_version,
                 "--install-location", install_location,
-                "--ownership", "preserve",
-                "--scripts", str(scripts_dir),
-                str(component_pkg)
+                str(pkg_file)
             ]
 
-            print(f"[PKG] Creating component package...")
             result = subprocess.run(
-                pkgbuild_cmd,
+                component_cmd,
                 capture_output=True,
                 text=True,
-                timeout=1200  # 20 minutes timeout for very large app bundles
+                timeout=300  # Reduced timeout to 5 minutes
             )
 
             if result.returncode != 0:
                 print(f"[ERROR] pkgbuild failed:")
+                print(f"[ERROR] Command: {' '.join(component_cmd)}")
                 print(f"[ERROR] STDOUT: {result.stdout}")
                 print(f"[ERROR] STDERR: {result.stderr}")
                 return False
 
-            print(f"[PKG] Component package created successfully")
-
-            # Post-process the component package to remove relocate tags
-            # This is necessary even with --root method due to bundle detection
-            # Set SKIP_RELOCATE_FIX=1 to skip this step for faster testing
-            if not os.getenv('SKIP_RELOCATE_FIX'):
-                self._remove_pkg_relocate_tags(component_pkg, temp_dir)
-            else:
-                print(f"[PKG] Skipping relocate fix (SKIP_RELOCATE_FIX=1)")
-
-            # Create distribution XML for productbuild
-            distribution_xml = self._create_distribution_xml(app_name, app_version, macos_config, temp_dir)
-            distribution_file = temp_dir / "distribution.xml"
-
-            with open(distribution_file, 'w', encoding='utf-8') as f:
-                f.write(distribution_xml)
-
-            # Use productbuild to create final installer
-            productbuild_cmd = [
-                "productbuild",
-                "--distribution", str(distribution_file),
-                "--package-path", str(temp_dir),
-                str(pkg_file)
-            ]
-
-            print(f"[PKG] Creating final installer package...")
-            result = subprocess.run(
-                productbuild_cmd,
-                capture_output=True,
-                text=True,
-                timeout=600  # Increased timeout for large packages
-            )
-
-            if result.returncode != 0:
-                print(f"[ERROR] productbuild failed:")
-                print(f"[ERROR] STDOUT: {result.stdout}")
-                print(f"[ERROR] STDERR: {result.stderr}")
+            # Verify the PKG was created and has reasonable size
+            if not pkg_file.exists():
+                print(f"[ERROR] PKG file was not created: {pkg_file}")
                 return False
 
-            # Cleanup temporary directory
+            file_size = pkg_file.stat().st_size
+            if file_size < 1024:  # Less than 1KB is definitely wrong
+                print(f"[ERROR] PKG file too small ({file_size} bytes), likely corrupted")
+                pkg_file.unlink()  # Remove invalid file
+                return False
+
+            print(f"[SUCCESS] PKG created successfully: {file_size / (1024*1024):.1f} MB")
+            return True
+
+        except subprocess.TimeoutExpired:
+            print(f"[ERROR] PKG creation timed out after 5 minutes")
+            return False
+        except Exception as e:
+            print(f"[ERROR] PKG creation failed: {e}")
+            return False
+
+    def _validate_macos_build_environment(self) -> bool:
+        """Validate macOS build environment and required tools"""
+        try:
+            import platform
+            if platform.system() != "Darwin":
+                print("[ERROR] PKG creation requires macOS")
+                return False
+
+            # Check required tools
+            required_tools = ['pkgbuild', 'productbuild']
+            for tool in required_tools:
+                if not shutil.which(tool):
+                    print(f"[ERROR] Required tool not found: {tool}")
+                    print(f"[ERROR] Please install Xcode Command Line Tools: xcode-select --install")
+                    return False
+
+            # Check macOS version (optional warning)
             try:
-                shutil.rmtree(temp_dir)
-                print(f"[CLEANUP] Removed pkg_temp: {temp_dir}")
-            except Exception as e:
-                print(f"[WARNING] Failed to cleanup pkg_temp: {e}")
+                version_output = subprocess.check_output(['sw_vers', '-productVersion'], text=True).strip()
+                major_version = float('.'.join(version_output.split('.')[:2]))
+                if major_version < 11.0:
+                    print(f"[WARNING] macOS {version_output} may have limited PKG support")
+            except:
+                pass  # Version check is optional
 
             return True
 
         except Exception as e:
-            print(f"[ERROR] PKG creation failed: {e}")
+            print(f"[ERROR] Environment validation failed: {e}")
             return False
+
+    def _validate_app_bundle(self, app_bundle_dir: Path, app_name: str) -> bool:
+        """Validate app bundle structure"""
+        if not app_bundle_dir.exists():
+            print(f"[ERROR] App bundle not found: {app_bundle_dir}")
+            return False
+
+        # Check for essential app bundle components
+        info_plist = app_bundle_dir / "Contents" / "Info.plist"
+        executable_dir = app_bundle_dir / "Contents" / "MacOS"
+        executable_file = executable_dir / app_name
+
+        if not info_plist.exists():
+            print(f"[ERROR] Invalid app bundle: Info.plist missing")
+            return False
+        if not executable_dir.exists():
+            print(f"[ERROR] Invalid app bundle: MacOS directory missing")
+            return False
+        if not executable_file.exists():
+            print(f"[ERROR] Invalid app bundle: Executable missing ({executable_file})")
+            return False
+
+        print(f"[PKG] App bundle validation passed")
+        return True
+
+    def _get_normalized_arch(self) -> str:
+        """Get normalized architecture name for consistent naming across the build system"""
+        import platform
+
+        # Get architecture from environment or system
+        arch = os.environ.get('BUILD_ARCH', platform.machine())
+
+        # Normalize architecture names
+        arch_map = {
+            'x86_64': 'amd64',
+            'amd64': 'amd64',
+            'i386': 'amd64',  # Fallback for older systems
+            'arm64': 'aarch64',
+            'aarch64': 'aarch64',
+            'arm': 'aarch64'  # Fallback for ARM variants
+        }
+
+        normalized = arch_map.get(arch.lower(), 'amd64')  # Default to amd64
+        print(f"[ARCH] Normalized architecture: {arch} -> {normalized}")
+        return normalized
 
     def _remove_pkg_relocate_tags(self, component_pkg: Path, temp_dir: Path) -> None:
         """Remove relocate tags from PKG component PackageInfo to prevent installation issues"""
@@ -882,75 +903,108 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             print(f"[WARNING] Failed to fix relocate issue: {e}")
 
     def _create_postinstall_script(self, scripts_dir: Path, app_name: str, macos_config: Dict[str, Any]) -> None:
-        """Create postinstall script for desktop shortcuts and other post-installation tasks"""
+        """Create simplified postinstall script for macOS PKG installer"""
         try:
             install_location = macos_config.get("install_location", "/Applications")
-            create_desktop_shortcut = macos_config.get("create_desktop_shortcut", False)
-            create_launchpad_shortcut = macos_config.get("create_launchpad_shortcut", False)
+            create_launchpad_shortcut = macos_config.get("create_launchpad_shortcut", True)
 
             postinstall_script = scripts_dir / "postinstall"
 
+            # Create simplified postinstall script focusing on essential tasks only
             script_content = f"""#!/bin/bash
-# eCan Post-Installation Script
-# This script runs after the application is installed
+# eCan Post-Installation Script - Simplified Version
+# Handles essential post-installation tasks only
+
+set -e  # Exit on any error
 
 APP_NAME="{app_name}"
 APP_PATH="{install_location}/$APP_NAME.app"
-DESKTOP_PATH="$HOME/Desktop"
 
-echo "Running post-installation tasks for $APP_NAME..."
+echo "eCan Post-Install: Starting essential tasks"
 
-# Ensure the application has proper permissions
-if [ -d "$APP_PATH" ]; then
-    echo "Setting permissions for $APP_PATH"
-    chmod -R 755 "$APP_PATH"
-
-    # Fix executable permissions
-    if [ -f "$APP_PATH/Contents/MacOS/$APP_NAME" ]; then
-        chmod +x "$APP_PATH/Contents/MacOS/$APP_NAME"
-    fi
+# Verify application installation
+if [ ! -d "$APP_PATH" ]; then
+    echo "ERROR: Application not found at $APP_PATH"
+    exit 1
 fi
 
-"""
+echo "eCan Post-Install: Application found at $APP_PATH"
 
-            # Add desktop shortcut creation if enabled
-            if create_desktop_shortcut:
-                script_content += f"""
-# Create desktop shortcut
-if [ -d "$APP_PATH" ] && [ -d "$DESKTOP_PATH" ]; then
-    echo "Creating desktop shortcut..."
-    SHORTCUT_PATH="$DESKTOP_PATH/$APP_NAME.app"
+# Set proper permissions for the application
+echo "eCan Post-Install: Setting application permissions"
+chmod -R 755 "$APP_PATH" 2>/dev/null || true
 
-    # Remove existing shortcut if it exists
-    if [ -L "$SHORTCUT_PATH" ] || [ -e "$SHORTCUT_PATH" ]; then
-        rm -rf "$SHORTCUT_PATH"
-    fi
-
-    # Create symbolic link to the application
-    ln -sf "$APP_PATH" "$SHORTCUT_PATH"
-    echo "Desktop shortcut created at $SHORTCUT_PATH"
+# Ensure executable is executable
+EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$APP_NAME"
+if [ -f "$EXECUTABLE_PATH" ]; then
+    chmod +x "$EXECUTABLE_PATH" 2>/dev/null || true
+    echo "eCan Post-Install: Set executable permissions"
 else
-    echo "Warning: Could not create desktop shortcut - app or desktop not found"
+    echo "WARNING: Executable not found at $EXECUTABLE_PATH"
 fi
-"""
 
-            # Add Launchpad registration if enabled
+# Register application with Launch Services (if enabled)"""
+
             if create_launchpad_shortcut:
                 script_content += f"""
-# Register with Launchpad (this happens automatically on macOS)
-if [ -d "$APP_PATH" ]; then
-    echo "Registering with Launchpad..."
-    # Touch the Applications directory to refresh Launchpad
-    touch "{install_location}"
+echo "eCan Post-Install: Registering with Launch Services and Launchpad"
 
-    # Optionally trigger Launchpad database refresh
-    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH" 2>/dev/null || true
-    echo "Application registered with Launchpad"
+# Method 1: Register with lsregister (standard way)
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+    echo "eCan Post-Install: Using lsregister to register application"
+    "$LSREGISTER" -f "$APP_PATH" 2>/dev/null || true
+
+    # Force rebuild of Launch Services database
+    "$LSREGISTER" -kill -r -domain local -domain system -domain user 2>/dev/null || true
+    echo "eCan Post-Install: Launch Services database rebuilt"
+else
+    echo "WARNING: lsregister not found"
 fi
-"""
 
-            script_content += """
-echo "Post-installation tasks completed successfully"
+# Method 2: Touch the Applications folder to trigger Finder refresh
+echo "eCan Post-Install: Refreshing Applications folder"
+touch "{install_location}" 2>/dev/null || true
+
+# Method 3: Force Spotlight to reindex the Applications folder
+echo "eCan Post-Install: Triggering Spotlight reindex"
+mdimport "{install_location}" 2>/dev/null || true
+
+# Method 4: Notify system of new application (macOS 10.14+)
+echo "eCan Post-Install: Notifying system of application installation"
+if command -v notifyutil >/dev/null 2>&1; then
+    notifyutil -p com.apple.LaunchServices.database 2>/dev/null || true
+fi
+
+# Method 5: Clear icon cache (helps with icon display issues)
+echo "eCan Post-Install: Clearing icon cache"
+if [ -d "/Library/Caches/com.apple.iconservices.store" ]; then
+    rm -rf "/Library/Caches/com.apple.iconservices.store" 2>/dev/null || true
+fi
+
+# Clear user icon cache
+USER_ICON_CACHE="$HOME/Library/Caches/com.apple.iconservices.store"
+if [ -d "$USER_ICON_CACHE" ]; then
+    rm -rf "$USER_ICON_CACHE" 2>/dev/null || true
+fi
+
+echo "eCan Post-Install: Application registration completed"
+echo "eCan Post-Install: Note - It may take a few moments for the app to appear in Launchpad"
+echo "eCan Post-Install: You can also find the app in /Applications/eCan.app"""
+
+            script_content += f"""
+
+# Final verification
+if [ -d "$APP_PATH" ] && [ -f "$APP_PATH/Contents/Info.plist" ] && [ -f "$APP_PATH/Contents/MacOS/$APP_NAME" ]; then
+    echo "eCan Post-Install: Installation verification passed"
+else
+    echo "ERROR: Installation verification failed"
+    exit 1
+fi
+
+echo "eCan Post-Install: Tasks completed successfully"
+echo "eCan is now installed and ready to use"
+
 exit 0
 """
 
@@ -961,15 +1015,61 @@ exit 0
             # Make script executable
             postinstall_script.chmod(0o755)
 
-            print(f"[PKG] Created postinstall script with features:")
-            if create_desktop_shortcut:
-                print(f"[PKG]   - Desktop shortcut creation")
+            print(f"[PKG] Created simplified postinstall script with features:")
+            print(f"[PKG]   - Essential permissions setup")
             if create_launchpad_shortcut:
-                print(f"[PKG]   - Launchpad registration")
+                print(f"[PKG]   - Launch Services registration")
             print(f"[PKG]   - Install location: {install_location}")
+            print(f"[PKG]   - Simplified error handling for better reliability")
 
         except Exception as e:
             print(f"[WARNING] Failed to create postinstall script: {e}")
+
+    def _create_simplified_distribution_xml(self, app_name: str, app_version: str, bundle_identifier: str, temp_dir: Path = None) -> str:
+        """Create simplified distribution XML for productbuild"""
+        
+        distribution_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>{app_name} {app_version}</title>
+    <organization>com.ecan</organization>
+    <domains enable_localSystem="true"/>
+    <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
+    
+    <!-- System requirements -->
+    <installation-check script="pm_install_check();"/>
+    <script>
+    <![CDATA[
+        function pm_install_check() {{
+            if(!(system.compareVersions(system.version.ProductVersion, '11.0') >= 0)) {{
+                my.result.title = 'Unable to install';
+                my.result.message = 'This application requires macOS 11.0 or later.';
+                my.result.type = 'Fatal';
+                return false;
+            }}
+            return true;
+        }}
+    ]]>
+    </script>
+
+    <pkg-ref id="{bundle_identifier}"/>
+    
+    <choices-outline>
+        <line choice="default">
+            <line choice="{bundle_identifier}"/>
+        </line>
+    </choices-outline>
+    
+    <choice id="default" title="{app_name} Installation" description="This will install {app_name} to /Applications."/>
+    <choice id="{bundle_identifier}" visible="false">
+        <pkg-ref id="{bundle_identifier}"/>
+    </choice>
+    
+    <pkg-ref id="{bundle_identifier}" version="{app_version}" onConclusion="none">
+        {app_name}-component.pkg
+    </pkg-ref>
+</installer-gui-script>"""
+
+        return distribution_xml
 
     def _create_distribution_xml(self, app_name: str, app_version: str, macos_config: Dict[str, Any], temp_dir: Path = None) -> str:
         """Create distribution XML for productbuild"""
@@ -980,10 +1080,6 @@ exit 0
         welcome_file = pkg_config.get("welcome_file", "")
         readme_file = pkg_config.get("readme_file", "")
         license_file = pkg_config.get("license_file", "")
-        conclusion_file = pkg_config.get("conclusion_file", "")
-
-        # Build welcome section
-        welcome_section = ""
         if welcome_file and Path(welcome_file).exists():
             welcome_section = f'<welcome file="{welcome_file}"/>'
 
@@ -1144,7 +1240,7 @@ exit 0
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=1800
+                timeout=900  # Reduced from 30 minutes to 15 minutes
             )
 
             if result.returncode != 0:
@@ -1198,7 +1294,7 @@ exit 0
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minutes timeout
+                timeout=180  # Reduced to 3 minutes timeout
             )
 
             if result.returncode != 0:

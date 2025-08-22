@@ -26,8 +26,7 @@ def print_mode_info(mode: str, fast: bool = False):
     if fast:
         print("[FAST] Fast Build Features:")
         print("  - Parallel processing")
-        print("  - Incremental builds")
-        print("  - Cache optimization")
+        print("  - Quick development builds")
         print("  - Estimated time: 2-5 minutes")
     elif mode == "dev":
         print("[DEV] Development Build Features:")
@@ -103,19 +102,38 @@ def _standardize_macos_artifacts(version: str, arch: str):
     """Standardize macOS build artifacts"""
     dist_dir = Path("dist")
 
-    # Find .pkg files (PKG is now the default installer format)
-    pkg_files = list(dist_dir.glob("*.pkg"))
-    if pkg_files:
-        old_path = pkg_files[0]
-        new_name = f"eCan-{version}-macos-{arch}.pkg"
-        new_path = dist_dir / new_name
+    # Standardize PKG file naming to match release.yml format
+    expected_name = f"eCan-{version}-macos-{arch}.pkg"
+    expected_path = dist_dir / expected_name
 
+    # Find .pkg files that need renaming
+    pkg_files = [f for f in dist_dir.glob("*.pkg") if f.name != expected_name]
+
+    if pkg_files:
+        # Rename the first PKG file found to the standardized name
+        old_path = pkg_files[0]
         try:
-            if old_path != new_path:
-                shutil.move(old_path, new_path)
-                print(f"[RENAME] {old_path.name} -> {new_name}")
+            if not expected_path.exists():
+                shutil.move(old_path, expected_path)
+                print(f"[RENAME] {old_path.name} -> {expected_name}")
+            else:
+                # Remove duplicate if standardized version already exists
+                old_path.unlink()
+                print(f"[RENAME] Removed duplicate: {old_path.name}")
         except Exception as e:
             print(f"[RENAME] Warning: Failed to rename {old_path}: {e}")
+
+        # Remove any additional PKG files to avoid duplicates
+        for extra_pkg in pkg_files[1:]:
+            try:
+                extra_pkg.unlink()
+                print(f"[RENAME] Removed duplicate: {extra_pkg.name}")
+            except Exception as e:
+                print(f"[RENAME] Warning: Failed to remove {extra_pkg}: {e}")
+
+    # Verify the expected PKG exists
+    if expected_path.exists():
+        print(f"[RENAME] Standardized PKG ready: {expected_name}")
     else:
         print("[RENAME] No PKG installer found for macOS")
 

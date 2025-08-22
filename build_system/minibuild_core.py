@@ -297,6 +297,38 @@ a = Analysis(
 print("[SPEC] Removing duplicates...")
 a.datas = list(dict.fromkeys(a.datas))
 a.binaries = list(dict.fromkeys(a.binaries))
+
+# Drop heavy tests/examples/__pycache__ from datas to reduce size and avoid perms
+drop_tokens = ['/tests/', '/testing/', '/__pycache__/', '/examples/']
+
+def _should_drop_path(p):
+    try:
+        lp = str(p).lower().replace('\\\\\\\\', '/').replace('\\\\', '/')
+        for tok in drop_tokens:
+            if tok in lp:
+                return True
+    except Exception:
+        pass
+    return False
+
+new_datas = []
+dropped = 0
+
+for item in list(a.datas):
+    try:
+        dest = str(item[0])
+        src = str(item[1]) if len(item) > 1 else ""
+
+        # Check for test/example/cache files
+        if _should_drop_path(dest) or _should_drop_path(src):
+            dropped += 1
+            continue
+    except Exception:
+        pass
+    new_datas.append(item)
+
+a.datas = new_datas
+print("[SPEC] Dropped %d test/example/cache data files" % dropped)
 print(f"[SPEC] Final counts - Data: {{len(a.datas)}}, Binaries: {{len(a.binaries)}}")
 
 {platform_config}
@@ -467,15 +499,24 @@ if sys.platform == 'darwin':
             'CFBundleDisplayName': '{app_name}',
             'CFBundleVersion': '{app_version}',
             'CFBundleShortVersionString': '{app_version}',
+            'CFBundleExecutable': '{app_name}',
+            'CFBundleIdentifier': 'com.ecan.app',
+            'CFBundlePackageType': 'APPL',
+            'CFBundleSignature': '????',
+            'CFBundleInfoDictionaryVersion': '6.0',
+            'LSApplicationCategoryType': 'public.app-category.productivity',
+            'LSMinimumSystemVersion': '10.14.0',
             'NSHighResolutionCapable': True,
             'NSRequiresAquaSystemAppearance': False,
-            'LSMinimumSystemVersion': '10.14.0',
+            'NSSupportsAutomaticGraphicsSwitching': True,
             'NSAppTransportSecurity': {{'NSAllowsArbitraryLoads': True}},
             'NSMicrophoneUsageDescription': '{app_name} needs microphone access for voice features',
             'NSCameraUsageDescription': '{app_name} needs camera access for visual features',
             'NSNetworkVolumesUsageDescription': '{app_name} needs network access for automation',
             'NSAppleEventsUsageDescription': '{app_name} needs AppleEvents access for system automation',
             'NSSystemAdministrationUsageDescription': '{app_name} needs admin access for system automation',
+            'LSUIElement': False,
+            'LSBackgroundOnly': False,
         }},
     )
 '''

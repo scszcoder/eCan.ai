@@ -25,7 +25,7 @@ try:
             from utils.single_instance import install_single_instance
             install_single_instance()
 
-        from utils.ecbot_crashlog import install_crash_logger
+        from utils.logger_helper import install_crash_logger
         install_crash_logger()
 
         # Set multiprocessing start method to spawn to avoid fork issues
