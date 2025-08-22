@@ -376,9 +376,46 @@ class MenuManager:
             # Read version information
             version = "1.0.0"
             try:
-                with open("VERSION", "r") as f:
-                    version = f.read().strip()
-            except:
+                import sys
+                import os
+
+                # Get correct resource path (supports PyInstaller packaging environment)
+                if hasattr(sys, '_MEIPASS'):
+                    # PyInstaller packaging environment
+                    base_path = sys._MEIPASS
+                else:
+                    # Development environment - from gui/menu_manager.py to project root
+                    base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+                # Try multiple possible VERSION file locations
+                if hasattr(sys, '_MEIPASS'):
+                    # PyInstaller environment - VERSION is in _internal directory
+                    version_paths = [
+                        os.path.join(base_path, "VERSION"),  # PyInstaller _MEIPASS root
+                        os.path.join(base_path, "_internal", "VERSION"),  # PyInstaller _internal directory
+                        os.path.join(os.path.dirname(sys.executable), "VERSION"),  # Executable directory
+                        os.path.join(os.path.dirname(sys.executable), "_internal", "VERSION"),  # Executable _internal
+                    ]
+                else:
+                    # Development environment
+                    version_paths = [
+                        os.path.join(base_path, "VERSION"),  # Project root
+                        os.path.join(os.path.dirname(__file__), "..", "VERSION"),  # Project root directory
+                        os.path.join(os.getcwd(), "VERSION"),  # Working directory
+                        "VERSION",  # Current directory
+                    ]
+
+                for version_path in version_paths:
+                    if os.path.exists(version_path) and os.path.isfile(version_path):
+                        try:
+                            with open(version_path, "r", encoding="utf-8") as f:
+                                version_content = f.read().strip()
+                                if version_content:  # Make sure it's not empty
+                                    version = version_content
+                                    break
+                        except Exception:
+                            continue
+            except Exception:
                 pass
             
             about_text = f"""
