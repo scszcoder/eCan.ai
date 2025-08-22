@@ -47,7 +47,7 @@ const DepartmentRoom: React.FC = () => {
       </div>
       <div className="agents-list">
         {deptAgents.map((agent: Agent, idx: number) => {
-          const cardId = (agent as any)?.card?.id ?? (agent as any)?.id ?? `agent-${idx}`;
+          const cardId = (agent as any)?.card?.id ?? (agent as any)?.id ?? `${t('common.agent') || 'agent'}-${idx}`;
           return (
             <AgentAvatar
               key={cardId}

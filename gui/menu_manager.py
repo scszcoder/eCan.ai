@@ -4,6 +4,7 @@ Responsible for managing all menu functionality of the application
 """
 
 import sys
+import os
 from PySide6.QtWidgets import (QMessageBox, QDialog, QLabel, QCheckBox,
                                QPushButton, QHBoxLayout, QVBoxLayout,
                                QComboBox, QTextEdit, QApplication)
@@ -27,9 +28,9 @@ class MenuManager:
     def setup_menu(self):
         """Set up eCan menu bar - cross-platform support"""
         menubar = self.main_window.menuBar()
-        
+
         # Note: Application basic info is already set in main.py, no need to repeat here
-        
+
         # Set up menus based on platform
         if sys.platform == 'darwin':  # macOS
             self._setup_macos_menus(menubar)
@@ -37,6 +38,17 @@ class MenuManager:
             self._setup_windows_menus(menubar)
         else:  # Linux and other platforms
             self._setup_linux_menus(menubar)
+
+    def setup_custom_menu(self, custom_menubar):
+        """Set up eCan menu bar for custom title bar (Windows/Linux)"""
+        # Set up simplified menus for custom title bar
+        app_menu = custom_menubar.addMenu('eCan')
+        self._setup_app_menu(app_menu)
+
+        help_menu = custom_menubar.addMenu('Help')
+        self._setup_help_menu(help_menu)
+
+        logger.info("Custom title bar menu setup complete (eCan + Help only)")
     
     def _setup_macos_menus(self, menubar):
         """Set up simplified macOS menu (eCan + Help only)"""
@@ -294,9 +306,17 @@ class MenuManager:
         shortcuts_action = QAction('Keyboard Shortcuts', self.main_window)
         shortcuts_action.triggered.connect(self.show_shortcuts)
         help_menu.addAction(shortcuts_action)
-        
+
         help_menu.addSeparator()
-        
+
+        # Log Viewer
+        log_viewer_action = QAction('View Logs...', self.main_window)
+        log_viewer_action.setShortcut('Ctrl+Shift+L')
+        log_viewer_action.triggered.connect(self.show_log_viewer)
+        help_menu.addAction(log_viewer_action)
+
+        help_menu.addSeparator()
+
         # Report issue
         feedback_action = QAction('Report Issue...', self.main_window)
         feedback_action.triggered.connect(self.report_issue)
@@ -766,13 +786,87 @@ class MenuManager:
     # ==================== Helper Methods ====================
     
     def _apply_messagebox_style(self, msg):
-        """Apply message box style"""
+        """Apply message box style and set eCan icon"""
         try:
-            # Here you can apply custom styles
-            pass
+            # Set eCan icon for message box
+            try:
+                from config.app_info import app_info
+                resource_path = app_info.app_resources_path
+
+                # Platform-specific icon candidates
+                if sys.platform == 'darwin':
+                    # macOS prefers larger, high-quality icons, prioritize logoWhite22.png
+                    icon_candidates = [
+                        os.path.join(resource_path, "images", "logos", "logoWhite22.png"),
+                        os.path.join(resource_path, "images", "logos", "rounded", "dock_256x256.png"),
+                        os.path.join(resource_path, "images", "logos", "rounded", "dock_128x128.png"),
+                        os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                        os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
+                    ]
+                else:
+                    # Windows/Linux icon candidates
+                    icon_candidates = [
+                        os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
+                        os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
+                        os.path.join(os.path.dirname(resource_path), "eCan.ico"),
+                    ]
+
+                icon_set = False
+                for candidate in icon_candidates:
+                    if os.path.exists(candidate):
+                        from PySide6.QtGui import QPixmap
+                        from PySide6.QtCore import Qt
+                        pixmap = QPixmap(candidate)
+                        if not pixmap.isNull():
+                            # Use larger icon size for macOS
+                            icon_size = 128 if sys.platform == 'darwin' else 64
+                            scaled_pixmap = pixmap.scaled(icon_size, icon_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                            msg.setIconPixmap(scaled_pixmap)
+                            icon_set = True
+                            logger.info(f"✅ MenuManager MessageBox custom icon set from: {candidate} (size: {icon_size}x{icon_size})")
+
+                            # Additional logging for development debugging
+                            if sys.platform == 'darwin':
+                                logger.info("ℹ️  macOS: Custom icon set, but system may override in development environment")
+                            break
+                        else:
+                            logger.warning(f"Failed to load icon from: {candidate}")
+
+                if not icon_set:
+                    from PySide6.QtWidgets import QMessageBox
+                    msg.setIcon(QMessageBox.Information)
+                    logger.warning("⚠️  Using default information icon - custom icon loading failed")
+                    logger.info("💡 If running in development, try building and running as packaged application")
+            except Exception as e:
+                logger.warning(f"Failed to set message box icon: {e}")
+                from PySide6.QtWidgets import QMessageBox
+                msg.setIcon(QMessageBox.Information)
+
         except Exception as e:
             logger.error(f"Failed to apply messagebox style: {e}")
-    
 
-    
+    def show_log_viewer(self):
+        """Show log viewer window"""
+        try:
+            # Import here to avoid circular imports
+            from gui.log_viewer import LogViewer
+
+            # Check if log viewer is already open
+            if hasattr(self, 'log_viewer_window') and self.log_viewer_window and not self.log_viewer_window.isHidden():
+                # Bring existing window to front
+                self.log_viewer_window.raise_()
+                self.log_viewer_window.activateWindow()
+                logger.info("Brought existing log viewer window to front")
+            else:
+                # Create new log viewer window
+                self.log_viewer_window = LogViewer(self.main_window)
+                self.log_viewer_window.show()
+                logger.info("Opened new log viewer window")
+
+        except Exception as e:
+            logger.error(f"Failed to show log viewer: {e}")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self.main_window, "Error", f"Failed to open log viewer:\n{str(e)}")
+
+
 
