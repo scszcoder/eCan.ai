@@ -408,7 +408,8 @@
       "skillSettings": "技能设置",
       "time": {
         "justNow": "刚刚"
-      }
+      },
+      "loadingEditor": "正在加载编辑器..."
     },
     "analytics": {
       "today": "今天",
