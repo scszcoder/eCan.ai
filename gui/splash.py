@@ -228,19 +228,46 @@ class ThemedSplashScreen(QWidget):
 
     def _get_version(self) -> str:
         # Try to read VERSION file similar to app_setup_helper
-        try_paths = [
-            os.path.join(os.path.dirname(__file__), '..', 'VERSION'),
-            os.path.join(os.path.dirname(__file__), '..', '..', 'VERSION'),
-        ]
+        import sys
+
+        # Get correct resource path (supports PyInstaller packaging environment)
+        if hasattr(sys, '_MEIPASS'):
+            # PyInstaller packaging environment
+            base_path = sys._MEIPASS
+        else:
+            # Development environment - from gui/splash.py to project root
+            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        # Try multiple possible VERSION file locations
+        if hasattr(sys, '_MEIPASS'):
+            # PyInstaller environment - VERSION is in _internal directory
+            try_paths = [
+                os.path.join(base_path, "VERSION"),  # PyInstaller _MEIPASS root
+                os.path.join(base_path, "_internal", "VERSION"),  # PyInstaller _internal directory
+                os.path.join(os.path.dirname(sys.executable), "VERSION"),  # Executable directory
+                os.path.join(os.path.dirname(sys.executable), "_internal", "VERSION"),  # Executable _internal
+            ]
+        else:
+            # Development environment
+            try_paths = [
+                os.path.join(base_path, "VERSION"),  # Project root
+                os.path.join(os.path.dirname(__file__), '..', 'VERSION'),  # Project root directory
+                os.path.join(os.getcwd(), "VERSION"),  # Working directory
+                "VERSION",  # Current directory
+            ]
+
         for p in try_paths:
             try:
-                if os.path.exists(p):
+                if os.path.exists(p) and os.path.isfile(p):
                     with open(p, 'r', encoding='utf-8') as f:
                         v = f.read().strip()
                         if v:
                             return v
             except Exception:
                 pass
+
+        # Return default version if not found
+        return "1.0.0"
 
     # Spinner no longer used; kept for reference if needed
     def _load_spinner_movie(self):
