@@ -126,14 +126,35 @@ class PlaywrightCoreUtils:
                 logger.debug(f"[PLAYWRIGHT] Found chromium directories: {[d.name for d in chromium_dirs]}")
 
             # 检查目录是否包含实际文件（不是空目录）
-            for browser_dir in chromium_dirs[:1]:  # 只检查第一个
+            valid_browser_found = False
+            for browser_dir in chromium_dirs:
                 if browser_dir.is_dir():
                     files = list(browser_dir.rglob("*"))
-                    if len(files) < 10:  # 至少应该有10个文件
-                        logger.warning(f"[PLAYWRIGHT] Browser directory {browser_dir} has too few files: {len(files)}")
-                        return False
-                    logger.debug(f"[PLAYWRIGHT] Browser directory {browser_dir} has {len(files)} files")
+                    file_count = len(files)
+
+                    # 更智能的验证逻辑
+                    if file_count < 10:
+                        logger.debug(f"[PLAYWRIGHT] Browser directory {browser_dir} has too few files: {file_count} (likely incomplete)")
+                        # 检查是否有关键的可执行文件
+                        executables = [f for f in files if f.is_file() and (
+                            f.name.lower().startswith('chrome') or
+                            f.name.lower().startswith('chromium') or
+                            f.suffix.lower() in ['.exe', '.app', '']
+                        )]
+                        if not executables:
+                            logger.debug(f"[PLAYWRIGHT] No executable files found in {browser_dir}")
+                            continue
+                        else:
+                            logger.debug(f"[PLAYWRIGHT] Found {len(executables)} executable(s) in {browser_dir}")
+                    else:
+                        logger.debug(f"[PLAYWRIGHT] Browser directory {browser_dir} has {file_count} files")
+
+                    valid_browser_found = True
                     break
+
+            if not valid_browser_found and chromium_dirs:
+                logger.warning(f"[PLAYWRIGHT] No valid browser installation found in chromium directories")
+                return False
 
             logger.debug(f"[PLAYWRIGHT] Browser installation at {path} is valid")
             return True
@@ -212,6 +233,42 @@ class PlaywrightCoreUtils:
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium", "chromium-headless-shell"],
                       check=True, env=env)
     
+    @staticmethod
+    def cleanup_incomplete_browsers(path: Path) -> None:
+        """清理不完整的浏览器目录"""
+        if not path or not path.exists():
+            return
+
+        try:
+            # 查找所有 chromium 目录
+            chromium_dirs = list(path.glob("chromium*"))
+
+            for browser_dir in chromium_dirs:
+                if browser_dir.is_dir():
+                    files = list(browser_dir.rglob("*"))
+                    file_count = len(files)
+
+                    # 如果文件数量太少，认为是不完整的安装
+                    if file_count < 10:
+                        # 检查是否有关键的可执行文件
+                        executables = [f for f in files if f.is_file() and (
+                            f.name.lower().startswith('chrome') or
+                            f.name.lower().startswith('chromium') or
+                            f.suffix.lower() in ['.exe', '.app', '']
+                        )]
+
+                        if not executables:
+                            logger.info(f"[PLAYWRIGHT] Cleaning incomplete browser directory: {browser_dir} ({file_count} files)")
+                            try:
+                                shutil.rmtree(browser_dir, ignore_errors=True)
+                            except Exception as e:
+                                logger.warning(f"[PLAYWRIGHT] Failed to clean {browser_dir}: {e}")
+                        else:
+                            logger.debug(f"[PLAYWRIGHT] Keeping {browser_dir} (has executables)")
+
+        except Exception as e:
+            logger.warning(f"[PLAYWRIGHT] Error during cleanup: {e}")
+
     @staticmethod
     def copy_playwright_browsers(src_path: Path, dst_path: Path) -> None:
         """复制 Playwright 浏览器文件"""

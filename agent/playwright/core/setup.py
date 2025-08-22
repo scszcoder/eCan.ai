@@ -106,7 +106,11 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     # Target directory in app data
     target = app_data_root / 'ms-playwright'
     
-    # 首先检查目标目录是否已经有效
+    # 首先清理任何不完整的浏览器目录
+    if target.exists():
+        core_utils.cleanup_incomplete_browsers(target)
+
+    # 然后检查目标目录是否已经有效
     if not force_refresh and _validate_browser_installation(target):
         logger.info("Browser installation already exists and is valid")
         core_utils.set_environment_variables(target)
@@ -117,6 +121,8 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     existing_cache = core_utils.find_playwright_cache()
     if existing_cache and existing_cache != target and not force_refresh:
         logger.info(f"Found existing Playwright cache at: {existing_cache}")
+        # 清理现有缓存中的不完整目录
+        core_utils.cleanup_incomplete_browsers(existing_cache)
         if _validate_browser_installation(existing_cache):
             logger.info("Using existing valid browser installation")
             # 使用专用的复制函数来确保 browsers.json 正确处理
