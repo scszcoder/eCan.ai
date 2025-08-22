@@ -860,337 +860,97 @@ class WebGUI(QMainWindow):
             self.menu_manager.setup_menu()
 
     def _setup_custom_menus(self):
-        """Set up custom menu bar items"""
+        """Set up simplified custom menu bar items (eCan + Help only)"""
         try:
-            # Add primary menu items
+            # Only add eCan and Help menus (simplified)
             app_menu = self.custom_menubar.addMenu('eCan')
             self._add_app_menu_items(app_menu)
 
-            file_menu = self.custom_menubar.addMenu('File')
-            self._add_file_menu_items(file_menu)
-
-            edit_menu = self.custom_menubar.addMenu('Edit')
-            self._add_edit_menu_items(edit_menu)
-
-            view_menu = self.custom_menubar.addMenu('View')
-            self._add_view_menu_items(view_menu)
-
-            tools_menu = self.custom_menubar.addMenu('Tools')
-            self._add_tools_menu_items(tools_menu)
-
             help_menu = self.custom_menubar.addMenu('Help')
             self._add_help_menu_items(help_menu)
+
+            logger.info("Custom title bar menu setup complete (eCan + Help only)")
 
         except Exception as e:
             logger.error(f"Failed to set custom menu: {e}")
 
     def _add_app_menu_items(self, menu):
         """Add application menu items"""
-        # About
-        about_action = QAction('About eCan.ai', self)
-        about_action.setStatusTip('Show information about eCan.ai')
-        about_action.triggered.connect(self._show_about)
-        menu.addAction(about_action)
+        try:
+            # About
+            about_action = QAction('About eCan.ai', self)
+            about_action.setStatusTip('Show information about eCan.ai')
+            about_action.triggered.connect(self._show_about)
+            menu.addAction(about_action)
 
-        menu.addSeparator()
+            menu.addSeparator()
 
-        # Preferences
-        preferences_action = QAction('Preferences...', self)
-        preferences_action.setShortcut('Ctrl+,')
-        preferences_action.setStatusTip('Open application preferences')
-        menu.addAction(preferences_action)
+            # Preferences
+            preferences_action = QAction('Preferences...', self)
+            preferences_action.setShortcut('Ctrl+,')
+            preferences_action.setStatusTip('Open application preferences')
+            menu.addAction(preferences_action)
 
-        # Check for updates
-        update_action = QAction('Check for Updates...', self)
-        update_action.setStatusTip('Check for application updates')
-        menu.addAction(update_action)
+            # Check for updates
+            update_action = QAction('Check for Updates...', self)
+            update_action.setStatusTip('Check for application updates')
+            menu.addAction(update_action)
 
-        menu.addSeparator()
+            menu.addSeparator()
 
-        # Quit
-        quit_action = QAction('Quit eCan.ai', self)
-        quit_action.setShortcut('Ctrl+Q')
-        quit_action.setStatusTip('Quit the application')
-        quit_action.triggered.connect(self.close)
-        menu.addAction(quit_action)
+            # Quit
+            quit_action = QAction('Quit eCan.ai', self)
+            quit_action.setShortcut('Ctrl+Q')
+            quit_action.setStatusTip('Quit the application')
+            quit_action.triggered.connect(self.close)
+            menu.addAction(quit_action)
 
-    def _add_file_menu_items(self, menu):
-        """Add File menu items"""
-        # New
-        new_action = QAction('New Chat', self)
-        new_action.setShortcut('Ctrl+N')
-        new_action.setStatusTip('Create a new chat conversation')
-        menu.addAction(new_action)
+        except Exception as e:
+            logger.error(f"Failed to setup app menu items: {e}")
 
-        new_project_action = QAction('New Project...', self)
-        new_project_action.setShortcut('Ctrl+Shift+N')
-        new_project_action.setStatusTip('Create a new project')
-        menu.addAction(new_project_action)
 
-        menu.addSeparator()
 
-        # Open
-        open_action = QAction('Open...', self)
-        open_action.setShortcut('Ctrl+O')
-        open_action.setStatusTip('Open an existing file or project')
-        menu.addAction(open_action)
 
-        # Recent files submenu
-        recent_menu = menu.addMenu('Open Recent')
-        recent_menu.setStatusTip('Open recently used files')
 
-        # Add some sample recent files
-        for i in range(3):
-            recent_action = QAction(f'Recent File {i+1}', self)
-            recent_menu.addAction(recent_action)
 
-        recent_menu.addSeparator()
-        clear_recent_action = QAction('Clear Recent Files', self)
-        recent_menu.addAction(clear_recent_action)
 
-        menu.addSeparator()
 
-        # Save
-        save_action = QAction('Save', self)
-        save_action.setShortcut('Ctrl+S')
-        save_action.setStatusTip('Save the current file')
-        menu.addAction(save_action)
 
-        save_as_action = QAction('Save As...', self)
-        save_as_action.setShortcut('Ctrl+Shift+S')
-        save_as_action.setStatusTip('Save the current file with a new name')
-        menu.addAction(save_as_action)
 
-        menu.addSeparator()
-
-        # Import/Export
-        import_action = QAction('Import...', self)
-        import_action.setStatusTip('Import data from external sources')
-        menu.addAction(import_action)
-
-        export_action = QAction('Export...', self)
-        export_action.setStatusTip('Export data to external formats')
-        menu.addAction(export_action)
-
-    def _add_edit_menu_items(self, menu):
-        """Add Edit menu items"""
-        # Undo/Redo
-        undo_action = QAction('Undo', self)
-        undo_action.setShortcut('Ctrl+Z')
-        undo_action.setStatusTip('Undo the last action')
-        menu.addAction(undo_action)
-
-        redo_action = QAction('Redo', self)
-        redo_action.setShortcut('Ctrl+Y')
-        redo_action.setStatusTip('Redo the last undone action')
-        menu.addAction(redo_action)
-
-        menu.addSeparator()
-
-        # Clipboard operations
-        cut_action = QAction('Cut', self)
-        cut_action.setShortcut('Ctrl+X')
-        cut_action.setStatusTip('Cut the selection to clipboard')
-        menu.addAction(cut_action)
-
-        copy_action = QAction('Copy', self)
-        copy_action.setShortcut('Ctrl+C')
-        copy_action.setStatusTip('Copy the selection to clipboard')
-        menu.addAction(copy_action)
-
-        paste_action = QAction('Paste', self)
-        paste_action.setShortcut('Ctrl+V')
-        paste_action.setStatusTip('Paste from clipboard')
-        menu.addAction(paste_action)
-
-        paste_special_action = QAction('Paste Special...', self)
-        paste_special_action.setShortcut('Ctrl+Shift+V')
-        paste_special_action.setStatusTip('Paste with special formatting options')
-        menu.addAction(paste_special_action)
-
-        menu.addSeparator()
-
-        # Selection operations
-        select_all_action = QAction('Select All', self)
-        select_all_action.setShortcut('Ctrl+A')
-        select_all_action.setStatusTip('Select all content')
-        menu.addAction(select_all_action)
-
-        menu.addSeparator()
-
-        # Find/Replace
-        find_action = QAction('Find...', self)
-        find_action.setShortcut('Ctrl+F')
-        find_action.setStatusTip('Find text in the current document')
-        menu.addAction(find_action)
-
-        find_replace_action = QAction('Find and Replace...', self)
-        find_replace_action.setShortcut('Ctrl+H')
-        find_replace_action.setStatusTip('Find and replace text')
-        menu.addAction(find_replace_action)
-
-    def _add_view_menu_items(self, menu):
-        """Add View menu items"""
-        # Window mode
-        fullscreen_action = QAction('Enter Full Screen', self)
-        fullscreen_action.setShortcut('F11')
-        fullscreen_action.setStatusTip('Enter or exit full screen mode')
-        fullscreen_action.triggered.connect(self._toggle_fullscreen)
-        menu.addAction(fullscreen_action)
-
-        menu.addSeparator()
-
-        # Zoom controls
-        zoom_menu = menu.addMenu('Zoom')
-        zoom_menu.setStatusTip('Control page zoom level')
-
-        zoom_in_action = QAction('Zoom In', self)
-        zoom_in_action.setShortcut('Ctrl+=')
-        zoom_in_action.setStatusTip('Increase zoom level')
-        zoom_menu.addAction(zoom_in_action)
-
-        zoom_out_action = QAction('Zoom Out', self)
-        zoom_out_action.setShortcut('Ctrl+-')
-        zoom_out_action.setStatusTip('Decrease zoom level')
-        zoom_menu.addAction(zoom_out_action)
-
-        zoom_reset_action = QAction('Reset Zoom', self)
-        zoom_reset_action.setShortcut('Ctrl+0')
-        zoom_reset_action.setStatusTip('Reset zoom to 100%')
-        zoom_menu.addAction(zoom_reset_action)
-
-        menu.addSeparator()
-
-        # UI elements
-        sidebar_action = QAction('Toggle Sidebar', self)
-        sidebar_action.setShortcut('Ctrl+B')
-        sidebar_action.setStatusTip('Show or hide the sidebar')
-        sidebar_action.setCheckable(True)
-        sidebar_action.setChecked(True)
-        menu.addAction(sidebar_action)
-
-        toolbar_action = QAction('Show Toolbar', self)
-        toolbar_action.setStatusTip('Show or hide the toolbar')
-        toolbar_action.setCheckable(True)
-        toolbar_action.setChecked(True)
-        menu.addAction(toolbar_action)
-
-        statusbar_action = QAction('Show Status Bar', self)
-        statusbar_action.setStatusTip('Show or hide the status bar')
-        statusbar_action.setCheckable(True)
-        statusbar_action.setChecked(True)
-        menu.addAction(statusbar_action)
-
-        menu.addSeparator()
-
-        # Page controls
-        reload_action = QAction('Reload Page', self)
-        reload_action.setShortcut('Ctrl+R')
-        reload_action.setStatusTip('Reload the current page')
-        menu.addAction(reload_action)
-
-        hard_reload_action = QAction('Hard Reload', self)
-        hard_reload_action.setShortcut('Ctrl+Shift+R')
-        hard_reload_action.setStatusTip('Reload page ignoring cache')
-        menu.addAction(hard_reload_action)
-
-        menu.addSeparator()
-
-        # Developer tools
-        dev_tools_action = QAction('Developer Tools', self)
-        dev_tools_action.setShortcut('F12')
-        dev_tools_action.setStatusTip('Open developer tools')
-        dev_tools_action.triggered.connect(self._toggle_dev_tools)
-        menu.addAction(dev_tools_action)
-
-    def _add_tools_menu_items(self, menu):
-        """Add Tools menu items"""
-        # AI tools
-        ai_menu = menu.addMenu('AI Tools')
-        ai_menu.setStatusTip('Access AI-powered tools')
-
-        chat_action = QAction('AI Chat Assistant', self)
-        chat_action.setShortcut('Ctrl+Shift+A')
-        chat_action.setStatusTip('Open AI chat assistant')
-        ai_menu.addAction(chat_action)
-
-        code_gen_action = QAction('Code Generator', self)
-        code_gen_action.setStatusTip('Generate code with AI')
-        ai_menu.addAction(code_gen_action)
-
-        text_analysis_action = QAction('Text Analysis', self)
-        text_analysis_action.setStatusTip('Analyze text with AI')
-        ai_menu.addAction(text_analysis_action)
-
-        menu.addSeparator()
-
-        # System tools
-        settings_action = QAction('Settings...', self)
-        settings_action.setShortcut('Ctrl+,')
-        settings_action.setStatusTip('Open application settings')
-        menu.addAction(settings_action)
-
-        plugins_action = QAction('Manage Plugins...', self)
-        plugins_action.setStatusTip('Install and manage plugins')
-        menu.addAction(plugins_action)
-
-        menu.addSeparator()
-
-        # Utilities
-        calculator_action = QAction('Calculator', self)
-        calculator_action.setStatusTip('Open calculator')
-        menu.addAction(calculator_action)
-
-        color_picker_action = QAction('Color Picker', self)
-        color_picker_action.setStatusTip('Pick colors from screen')
-        menu.addAction(color_picker_action)
-
-        menu.addSeparator()
-
-        # System information
-        system_info_action = QAction('System Information', self)
-        system_info_action.setStatusTip('View system information')
-        menu.addAction(system_info_action)
 
     def _add_help_menu_items(self, menu):
-        """Add Help menu items"""
-        # Help documentation
-        help_action = QAction('User Guide', self)
-        help_action.setShortcut('F1')
-        help_action.setStatusTip('Open user guide')
-        menu.addAction(help_action)
+        """Add Help menu items (consistent with MenuManager)"""
+        try:
+            # User manual
+            user_manual_action = QAction('eCan Help', self)
+            user_manual_action.setShortcut('F1')
+            user_manual_action.setStatusTip('Open eCan help documentation')
+            menu.addAction(user_manual_action)
 
-        tutorials_action = QAction('Tutorials', self)
-        tutorials_action.setStatusTip('View video tutorials')
-        menu.addAction(tutorials_action)
+            # Quick start guide
+            quick_start_action = QAction('Quick Start Guide', self)
+            quick_start_action.setStatusTip('View quick start guide')
+            menu.addAction(quick_start_action)
 
-        shortcuts_action = QAction('Keyboard Shortcuts', self)
-        shortcuts_action.setShortcut('Ctrl+/')
-        shortcuts_action.setStatusTip('View keyboard shortcuts')
-        menu.addAction(shortcuts_action)
+            # Keyboard shortcuts
+            shortcuts_action = QAction('Keyboard Shortcuts', self)
+            shortcuts_action.setStatusTip('View keyboard shortcuts')
+            menu.addAction(shortcuts_action)
 
-        menu.addSeparator()
+            menu.addSeparator()
 
-        # Online resources
-        website_action = QAction('Visit Website', self)
-        website_action.setStatusTip('Visit the official website')
-        menu.addAction(website_action)
+            # Report issue
+            feedback_action = QAction('Report Issue...', self)
+            feedback_action.setStatusTip('Report a bug or issue')
+            menu.addAction(feedback_action)
 
-        community_action = QAction('Community Forum', self)
-        community_action.setStatusTip('Join the community forum')
-        menu.addAction(community_action)
+            # Send feedback
+            send_feedback_action = QAction('Send Feedback...', self)
+            send_feedback_action.setStatusTip('Send feedback to developers')
+            menu.addAction(send_feedback_action)
 
-        feedback_action = QAction('Send Feedback', self)
-        feedback_action.setStatusTip('Send feedback to developers')
-        menu.addAction(feedback_action)
-
-        menu.addSeparator()
-
-        # About
-        about_action = QAction('About eCan.ai', self)
-        about_action.setStatusTip('Show information about eCan.ai')
-        about_action.triggered.connect(self._show_about)
-        menu.addAction(about_action)
+        except Exception as e:
+            logger.error(f"Failed to setup help menu items: {e}")
 
     def _add_window_controls(self, layout):
         """Add window control buttons (minimize, maximize, close)"""
