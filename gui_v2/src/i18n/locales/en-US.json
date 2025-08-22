@@ -75,7 +75,12 @@
     "count": "count",
     "agent_gifs": "agentGifs:",
     "note": "note",
-    "agents": "agents"
+    "agents": "agents",
+    "refresh": "Refresh",
+    "export": "Export",
+    "import": "Import",
+    "actions": "Actions",
+    "back": "Back"
   },
   "menu": {
     "dashboard": "Dashboard",

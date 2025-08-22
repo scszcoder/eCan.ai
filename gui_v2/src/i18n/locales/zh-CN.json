@@ -75,7 +75,12 @@
     "count": "计数",
     "agent_gifs": "代理GIF:",
     "note": "备注",
-    "agents": "代理"
+    "agents": "代理",
+    "refresh": "刷新",
+    "export": "导出",
+    "import": "导入",
+    "actions": "操作",
+    "back": "返回"
   },
   "scoreForm": {
     "weight": "权重",
