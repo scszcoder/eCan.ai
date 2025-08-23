@@ -33,11 +33,12 @@ on:
           - windows
           - macos
       arch:
-        description: 'CPU architecture (macOS: amd64/aarch64, Windows: amd64 only)'
+        description: 'CPU architecture (all: build all supported, amd64: x86_64 only, aarch64: ARM64 only)'
         required: true
-        default: 'amd64'
+        default: 'all'
         type: choice
         options:
+          - all
           - amd64
           - aarch64
       ref:
@@ -92,7 +93,7 @@ jobs:
         fi
 
   # Windows build
-  # Note: Windows only supports amd64 architecture, aarch64 architecture will be automatically skipped
+  # Note: Windows only supports amd64 architecture
   build-windows:
     needs: validate-tag
     if: |
@@ -101,8 +102,8 @@ jobs:
        github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null) &&
       (github.event.inputs.arch == 'amd64' ||
-       github.event.inputs.arch == null ||
-       (github.event.inputs.platform == 'all' && github.event.inputs.arch == 'aarch64'))
+       github.event.inputs.arch == 'all' ||
+       github.event.inputs.arch == null)
     runs-on: windows-latest
     env:
       # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
@@ -233,15 +234,18 @@ jobs:
         python scripts/check_build_env.py
 
         echo "=== Checking Architecture Selection ==="
-        echo "Selected architecture: ${{ github.event.inputs.arch || 'amd64 (default)' }}"
+        echo "Selected architecture: ${{ github.event.inputs.arch || 'all (default)' }}"
         echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
         echo "Note: Windows only supports amd64 architecture"
 
-        # Check if we're building for aarch64 on Windows (should not happen due to job conditions)
-        if ("${{ github.event.inputs.arch }}" -eq "aarch64" -and "${{ github.event.inputs.platform }}" -ne "all") {
-          echo "WARNING: aarch64 architecture requested for Windows, but Windows only supports amd64"
-          echo "This build should not have been triggered - check workflow conditions"
-        }
+        # Architecture selection logic for Windows
+        INPUT_ARCH="${{ github.event.inputs.arch }}"
+        if [ "$INPUT_ARCH" = "aarch64" ]; then
+          echo "INFO: aarch64 requested, but Windows only supports amd64"
+          echo "INFO: Building amd64 version for Windows compatibility"
+        elif [ "$INPUT_ARCH" = "all" ] || [ "$INPUT_ARCH" = "amd64" ] || [ -z "$INPUT_ARCH" ]; then
+          echo "INFO: Building Windows amd64 version"
+        fi
 
         echo "=== Checking Windows Environment Variables ==="
         if ("$env:WIN_CERT_PFX" -ne "NOT_SET") {
@@ -431,8 +435,10 @@ jobs:
         include:
           - arch: amd64
             target_arch: amd64
+            build_name: "amd64"
           - arch: aarch64
             target_arch: aarch64
+            build_name: "aarch64"
       fail-fast: false
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
@@ -462,21 +468,25 @@ jobs:
         # Determine if this matrix job should run
         SHOULD_BUILD="false"
 
-        if [ "$INPUT_PLATFORM" = "all" ]; then
-          # Build all architectures when platform is 'all'
+        # Logic for architecture selection
+        if [ "$INPUT_ARCH" = "all" ]; then
+          # Build all architectures when arch is 'all'
           SHOULD_BUILD="true"
-        elif [ -z "$INPUT_ARCH" ] || [ "$INPUT_ARCH" = "null" ]; then
-          # Default to amd64 when no arch specified
-          if [ "$ARCH" = "amd64" ]; then
-            SHOULD_BUILD="true"
-          fi
+          echo "Building $ARCH because arch=all"
         elif [ "$INPUT_ARCH" = "$ARCH" ]; then
           # Build only the specified architecture
           SHOULD_BUILD="true"
+          echo "Building $ARCH because it matches input arch"
+        elif [ -z "$INPUT_ARCH" ] || [ "$INPUT_ARCH" = "null" ]; then
+          # Default to all architectures when no arch specified
+          SHOULD_BUILD="true"
+          echo "Building $ARCH because no arch specified (default to all)"
+        else
+          echo "Skipping $ARCH because it doesn't match input arch ($INPUT_ARCH)"
         fi
 
         echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
-        echo "Should build $ARCH: $SHOULD_BUILD"
+        echo "Final decision: Should build $ARCH = $SHOULD_BUILD"
 
     - name: Checkout code
       if: steps.should_build.outputs.should_build == 'true'
@@ -584,9 +594,10 @@ jobs:
         python scripts/check_build_env.py
 
         echo "=== Checking Architecture Selection ==="
-        echo "Selected architecture: ${{ github.event.inputs.arch || 'amd64 (default)' }}"
+        echo "Selected architecture: ${{ github.event.inputs.arch || 'all (default)' }}"
         echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
         echo "Current matrix architecture: ${{ matrix.arch }}"
+        echo "Target architecture: ${{ matrix.target_arch }}"
         echo "Note: macOS supports both amd64 and aarch64 architectures"
 
         echo "=== Checking macOS Environment Variables ==="
@@ -933,8 +944,8 @@ jobs:
          github.event.inputs.platform == 'all' ||
          github.event.inputs.platform == null) &&
         (github.event.inputs.arch == 'amd64' ||
-         github.event.inputs.arch == null ||
-         github.event.inputs.platform == 'all')
+         github.event.inputs.arch == 'all' ||
+         github.event.inputs.arch == null)
       uses: actions/download-artifact@v4
       with:
         name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
@@ -947,7 +958,8 @@ jobs:
          github.event.inputs.platform == 'all' ||
          github.event.inputs.platform == null) &&
         (github.event.inputs.arch == 'aarch64' ||
-         github.event.inputs.platform == 'all')
+         github.event.inputs.arch == 'all' ||
+         github.event.inputs.arch == null)
       uses: actions/download-artifact@v4
       with:
         name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
