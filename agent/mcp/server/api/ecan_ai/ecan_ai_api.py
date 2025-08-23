@@ -21,7 +21,7 @@ def ecan_ai_api_query_components(mainwin, empty_components):
         response = send_query_components_request_to_cloud(session, token, empty_components, img_endpoint)
         logger.debug("send_query_components_request_to_cloud: respnose:", response)
         filled_components = json.loads(response["body"])["data"]
-        print("filled_components:", filled_components)
+        logger.debug("filled_components:", filled_components)
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorEcanAiApiQueryComponents")

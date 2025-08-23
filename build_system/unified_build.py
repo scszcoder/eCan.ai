@@ -177,7 +177,7 @@ class UnifiedBuildSystem:
                 "compression": mode == "prod",
                 "upx_compression": False,
                 "strip_debug": mode == "prod",
-                "onefile": mode == "prod"
+                "onefile": False  # Always create app bundles on macOS, not single executables
             }
         
         print(f"[PROFILE] Using '{mode}' profile: {profile}")

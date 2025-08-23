@@ -1544,7 +1544,7 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
     queryInfo = gen_query_components_string(components)
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    print("send_query_components_request_to_cloud, response:", jresp)
+    logger.debug("send_query_components_request_to_cloud, response:", jresp)
     if "errors" in jresp:
         screen_error = True
         logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
