@@ -3,7 +3,7 @@ from agent.ec_skill import NodeState
 
 # whatever attachments should have been saved, read, packaged into the right form by the human twin agent
 # and sent over via A2A, by the time we get them here, they'are already in the msg object
-def prep_search_parts_chatter_skill(agent, msg):
+def prep_search_parts_chatter_skill(agent, msg, current_state=None):
     print("prep_search_parts_chatter_skill", type(msg), msg)  # msg.params.message[0].text
     # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
     msg_parts = msg.params.message.parts
@@ -24,15 +24,31 @@ def prep_search_parts_chatter_skill(agent, msg):
         attachments=attachments,
         prompts=[],
         formatted_prompts=[],
-        attributes={},
+        attributes={
+            "preliminary_info": [
+                {
+                    "part name": " anti-static bags",  # ✅ valid
+                    "oems": ["NA"],  # ✅ valid
+                    "model_part_numbers": ["NA"],  # ✅ valid
+                    "applications_usage": "NA",  # ✅ valid
+                    "usage_grade": "NA"  # ✅ valid
+                }
+            ],
+            "extra_info": [],
+        },
         result={},
         tool_input={},
         tool_result={},
+        threads = [],
+        metadata = {},
         error="",
         retries=3,
         condition=False,
         case="",
         goals=[]
     )
-    return init_state
-
+    if not current_state:
+        return init_state
+    else:
+        current_state["attachments"] = attachments
+        current_state["messages"].append(msg_txt)

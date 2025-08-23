@@ -726,6 +726,7 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
                 params["content"] = json.dumps(params.get("formData"))
                 form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=params["createAt"] )
                 print("a2a_send_chat form submit:", form_submit_req)
+                request['params']['human'] = True
                 a2a_send_chat(main_window, form_submit_req)
             return create_success_response(request, result.get('data'))
         else:

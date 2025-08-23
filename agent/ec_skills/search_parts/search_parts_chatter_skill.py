@@ -23,6 +23,8 @@ from scipy.stats import chatterjeexi
 import io
 import os
 import base64
+import asyncio
+import time
 
 from agent.chats.chat_utils import a2a_send_chat
 from agent.ec_skills.file_utils.file_utils import extract_file_text
@@ -36,6 +38,7 @@ from agent.chats.tests.test_notifications import sample_metrics_0
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
 from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, get_standard_prompt
 from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
+from agent.a2a.langgraph_agent.utils import send_data_to_agent
 
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
@@ -168,15 +171,30 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
     }
 
 
+def is_form_filled(form):
+    filled = True
+    for key, value in form.items():
+        if isinstance(value, dict) or isinstance(value, list):
+            if not value:
+                filled = False
+                break
+        elif isinstance(value, str):
+            if not value.strip():
+                filled = False
+                break
+
+    return filled
+
 
 def examine_filled_specs_node(state):
-    if state["result"]:
+
+    if is_form_filled(state["attributes"]["parametric_filters"]):
         state["condition"] = True
     else:
         state["condition"] = False
 
 def confirm_FOM_node(state):
-    if state["result"]:
+    if is_form_filled(state["attributes"]["FOM"]):
         state["condition"] = True
     else:
         state["condition"] = False
@@ -277,7 +295,7 @@ def all_requirement_filled(state: NodeState) -> str:
 #         err_trace = get_traceback(e, "ErrorLLMNodeWithRawFiles")
 #         logger.debug(err_trace)
 
-def send_data_back(dtype, data, state) -> NodeState:
+def send_data_back2human(dtype, data, state) -> NodeState:
     try:
         agent_id = state["messages"][0]
         # _ensure_context(runtime.context)
@@ -341,60 +359,129 @@ def send_data_back(dtype, data, state) -> NodeState:
         return err_trace
 
 
+def adapt_preliminary_info(preliminary_info, extra_info):
+    try:
+        components = []
+        for info in preliminary_info:
+            components.append({
+                "component_id": 0,
+                "name": info["part name"],
+                "proj_id": 0,
+                "description":"",
+                "category":"",
+                "application":info["applications_usage"],
+                "metadata": {}
+                #     "extra_info" : extra_info,
+                #     "oems": info["oems"],
+                #     "model_part_numbers": info["model_part_numbers"],
+                #     "usage_grade": info["usage_grade"]
+                # }
+            })
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAdaptPreliminaryInfo")
+        logger.debug(err_trace)
+        return []
+    return components
 
 
 def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
+    
+    loop = None
     try:
         print("about to query components:", type(state), state)
-        loop = asyncio.get_event_loop()
-    except RuntimeError as e:
+        
+        # Handle event loop creation for ThreadPoolExecutor
         try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            tool_result = loop.run_until_complete(mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]} ))
-            # what we should get here is a dict of parametric search filters based on the preliminary
-            # component info, this should be passed to human for filling out and confirmation
-            print("query components completed:", type(tool_result), tool_result)
-            if "completed" in tool_result.content[0].text:
-                state.result = tool_result.content[0].text
-                state.tool_result = getattr(tool_result, 'meta', None)
+        
+        # need to set up state["tool_input"] to be components
+        state["tool_input"] = {
+            "components": adapt_preliminary_info(state["attributes"]["preliminary_info"], state["attributes"]["extra_info"])
+        }
+        
+        async def run_tool_call():
+            return await mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]})
+        
+        # Run the async function and wait for all tasks to complete
+        tool_result = loop.run_until_complete(run_tool_call())
+        
+        # Cancel any remaining tasks to prevent TaskGroup errors
+        pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        for task in pending_tasks:
+            task.cancel()
+        
+        # Wait for cancelled tasks to finish
+        if pending_tasks:
+            loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+        
+        # what we should get here is a dict of parametric search filters based on the preliminary
+        # component info, this should be passed to human for filling out and confirmation
+        print("query components completed:", type(tool_result), tool_result)
+        
+        # Check if the tool call was successful
+        if hasattr(tool_result, 'content') and tool_result.content and "completed" in tool_result.content[0].text:
+            state["result"] = tool_result.content[0].text
+            # Prefer 'meta' attribute; fall back to '_meta' (wire format) if needed
+            content0 = tool_result.content[0]
+            meta = getattr(content0, 'meta', None)
+            if meta is None:
+                meta = getattr(content0, '_meta', None)
+            state["tool_result"] = meta
 
-                # if parametric_search_filters are returned, pass them to human twin
-                #     state["parametric_search_filters"] = parametric_search_filters
-                parametric_filters = state.tool_result
-                send_data_back("form", parametric_filters, state)
-            else:
-                state["error"] = tool_result.content[0].text
+            # if parametric_search_filters are returned, pass them to human twin
+            if state["tool_result"]:
+                meta_val = state["tool_result"]
+                # Support both dict-wrapped meta {"components": [...]} and legacy list [...]
+                if isinstance(meta_val, dict):
+                    components = meta_val.get("components", [])
+                else:
+                    components = meta_val
+                print("components:", components)
+                if isinstance(components, list) and components:
+                    parametric_filters = components[0].get('metadata', {}).get('parametric_filters', {})
+                else:
+                    parametric_filters = {}
+                # needs to make sure this is the response prompt......state["result"]["llm_result"]
+                send_data_back2human("form", parametric_filters, state)
+        elif hasattr(tool_result, 'isError') and tool_result.isError:
+            state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
+        else:
+            state["error"] = "Unexpected tool result format"
 
-            return state
-        except Exception as e:
-            state['error'] = get_traceback(e, "ErrorGoToSiteNode0")
-            logger.debug(state['error'])
-            return state
-        finally:
+    except Exception as e:
+        state['error'] = get_traceback(e, "ErrorGoToSiteNode0")
+        logger.debug(state['error'])
+    finally:
+        if loop and not loop.is_closed():
+            # Cancel any remaining tasks before closing the loop
+            try:
+                pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                for task in pending_tasks:
+                    task.cancel()
+                if pending_tasks:
+                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                # Ensure async generators and default executor are shut down cleanly
+                try:
+                    if hasattr(loop, "shutdown_asyncgens"):
+                        loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                try:
+                    if hasattr(loop, "shutdown_default_executor"):
+                        loop.run_until_complete(loop.shutdown_default_executor())
+                except Exception:
+                    pass
+            except Exception:
+                pass  # Ignore errors during cleanup
             loop.close()
-    else:
-        try:
-            tool_result = loop.run_until_complete(
-                mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]}))
-            # tool_result = await mainwin.mcp_client.call_tool(
-            #     "os_connect_to_adspower", arguments={"input": state.tool_input}
-            # )
-            print("old loop query components tool completed:", type(tool_result), tool_result)
-            if "completed" in tool_result.content[0].text:
-                state.result = tool_result.content[0].text
-                state.tool_result = getattr(tool_result, 'meta', None)
-            else:
-                state["error"] = tool_result.content[0].text
-
-            return state
-        except Exception as e:
-            state['error'] = get_traceback(e, "ErrorGoToSiteNode1")
-            logger.debug(state['error'])
-            return state
+    
+    return state
 
 # this function takes the prompt generated by LLM from the previous node and puts ranking method template
 # into the right place. This way, the correct data can be passed onto the GUI side of the chat interface.
@@ -427,16 +514,96 @@ def prep_component_specs_qa_form_node(state: NodeState) -> NodeState:
         logger.debug(state['error'])
         return state
 
+
+def prep_fom_form(state: NodeState):
+    try:
+        fom = {
+          "id": "100",
+          "type": "score",
+          "title": "score system",
+          "components": [
+            {
+              "name": "price",
+              "type": "integer",
+              "raw_value": 125,
+              "target_value": 125,
+              "max_value": 150,
+              "min_value": 0,
+              "unit": "cents",
+              "tooltip": "unit price in cents, 1.25 is the target max price",
+              "score_formula": "80 + (125-price)",
+              "score_lut": {},
+              "weight": 0.3
+            },
+            {
+              "name": "availability",
+              "type": "integer",
+              "raw_value": 0,
+              "target_value": 0,
+              "max_value": 150,
+              "min_value": 0,
+              "unit": "days",
+              "tooltip": "nuber of days before the part is available",
+              "score_formula": "",
+              "score_lut": {
+                "20": 100,
+                "10": 80,
+                "8": 60
+              },
+              "weight": 0.3
+            },
+            {
+              "name": "performance",
+              "type": "integer",
+              "raw_value": {
+                "power": {
+                  "raw_value": 3,
+                  "target_value": 125,
+                  "type": "integer",
+                  "unit": "mA",
+                  "tooltip": "power consumption in mA",
+                  "score_formula": "80 + (5-current)",
+                  "score_lut": {},
+                  "weight": 0.7
+                },
+                "clock_rate": {
+                  "raw_value": 10,
+                  "target_value": 125,
+                  "max_value": 120,
+                  "min_value": 0,
+                  "type": "integer",
+                  "unit": "MHz",
+                  "tooltip": "max clock speed in MHz",
+                  "score_formula": "80 + (speed - 10)",
+                  "score_lut": {},
+                  "weight": 0.3
+                }
+              },
+              "unit": "",
+              "tooltip": "technical performance",
+              "score_formula": "100 - 5*performance",
+              "score_lut": {},
+              "weight": 0.4
+            }
+          ]
+        }
+        return fom
+    except Exception as e:
+        state['error'] = get_traceback(e, "ErrorPrepFOMForm")
+        logger.debug(state['error'])
+        return state
+
+
 def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     agent_id = state["messages"][0]
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
-    print("run_search_node:", state)
+    print("request_FOM_node:", state)
 
     # send self a message to trigger the real component search work-flow
-    fom_form = state.attributes
-    send_data_back("form", fom_form, state)
+    fom_form = prep_fom_form(state)
+    send_data_back2human("form", fom_form, state)
 
     return state
 
@@ -449,7 +616,16 @@ def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> 
     print("run_search_node:", state)
 
     # send self a message to trigger the real component search work-flow
-    result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
+    # state.attributes should look like this:
+    #  [{
+    #       "component": "",
+    #       "preliminary_info": {},
+    #       "extra_info": {},
+    #       "parametric_filters": {...},
+    #       "fom": {...}
+    #  }....]
+    result = send_data_to_agent(agent_id, "json", state["attributes"], state)
+    # result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
     state.result = result
     return state
 
@@ -490,7 +666,7 @@ def show_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -
 
     # send self a message to trigger the real component search work-flow
     final_search_results = state.tool_result
-    send_data_back("notification", final_search_results, state)
+    send_data_back2human("notification", final_search_results, state)
     return state
 
 
@@ -510,7 +686,7 @@ async def create_search_parts_chatter_skill(mainwin):
         # graph = StateGraph(State, config_schema=ConfigSchema)
         workflow = StateGraph(NodeState, WorkFlowContext)
         workflow.add_node("chat", node_wrapper(llm_node_with_raw_files, "chat", THIS_SKILL_NAME, OWNER))
-        workflow.set_entry_point("chat")
+        # workflow.set_entry_point("chat")
         # workflow.add_node("goto_site", goto_site)
         workflow.add_node("pend_for_next_human_msg", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg", THIS_SKILL_NAME, OWNER))
         workflow.add_node("more_analysis_app", node_wrapper(llm_node_with_raw_files, "more_analysis_app", THIS_SKILL_NAME, OWNER))
@@ -519,6 +695,8 @@ async def create_search_parts_chatter_skill(mainwin):
 
 
         workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0", THIS_SKILL_NAME, OWNER))
+
+        workflow.set_entry_point("query_component_specs")
         workflow.add_node("query_component_specs", query_component_specs_node)
 
         workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "pend_for_next_human_msg0"])
