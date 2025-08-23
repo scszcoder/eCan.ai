@@ -77,9 +77,9 @@ class MiniSpecBuilder:
         if profile.get("upx_compression", False):
             extra_args.append("--upx-dir=upx")
             
-        # Strip debug info (can be applied as command line arg)
-        if profile.get("strip_debug", False):
-            extra_args.append("--strip")
+        # Strip debug info is handled in spec file, not as command line arg
+        # if profile.get("strip_debug", False):
+        #     extra_args.append("--strip")
         
         cmd.extend(extra_args)
         print(f"[MINIBUILD] PyInstaller command: {' '.join(cmd)}")
@@ -220,7 +220,8 @@ class MiniSpecBuilder:
             onefile=onefile,
             console=console_mode,
             debug=debug,
-            runtime_tmpdir=runtime_tmpdir
+            runtime_tmpdir=runtime_tmpdir,
+            profile=profile
         )
 
         spec_path = self.project_root / f"{app_name}_{mode}.spec"
@@ -244,7 +245,7 @@ class MiniSpecBuilder:
 
     def _generate_spec_template(self, app_name: str, app_version: str, main_script: str,
                                mode: str, onefile: bool, console: bool, debug: bool,
-                               runtime_tmpdir: Optional[str]) -> str:
+                               runtime_tmpdir: Optional[str], profile: Dict[str, Any] = None) -> str:
         """Generate spec file content using a clean template approach"""
 
         # Get configuration data
@@ -260,6 +261,13 @@ class MiniSpecBuilder:
 
         # Platform-specific settings
         platform_config = self._get_platform_config()
+
+        # Profile-based settings
+        if profile is None:
+            profile = {}
+        
+        strip_debug = profile.get("strip_debug", False)
+        upx_compression = profile.get("upx_compression", False)
 
         # Target architecture configuration for macOS
         target_arch_config = ""
@@ -547,8 +555,8 @@ if sys.platform == 'darwin':
     name='{app_name}',
     debug={repr(debug)},
     bootloader_ignore_signals=False,
-    strip=False if sys.platform.startswith('win') else True,
-    upx=False,
+    strip=False if sys.platform.startswith('win') else {strip_debug},
+    upx={upx_compression},
     runtime_tmpdir={repr(runtime_tmpdir)},
     console={repr(console)},
     icon=icon_path,
@@ -562,8 +570,8 @@ if sys.platform == 'darwin':
     name='{app_name}',
     debug={repr(debug)},
     bootloader_ignore_signals=False,
-    strip=False if sys.platform.startswith('win') else True,
-    upx=False,
+    strip=False if sys.platform.startswith('win') else {strip_debug},
+    upx={upx_compression},
     runtime_tmpdir={repr(runtime_tmpdir)},
     console={repr(console)},
     icon=icon_path,
@@ -574,8 +582,8 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
-    strip=False if sys.platform.startswith('win') else True,
-    upx=False,
+    strip=False if sys.platform.startswith('win') else {strip_debug},
+    upx={upx_compression},
     name='{app_name}'
 )
 
