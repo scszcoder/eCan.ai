@@ -375,7 +375,7 @@ jobs:
       (github.event.inputs.platform == 'macos' ||
        github.event.inputs.platform == 'all' ||
        github.event.inputs.platform == null)
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
@@ -383,10 +383,12 @@ jobs:
             target_arch: x86_64
             build_name: "amd64"
             pyinstaller_arch: "x86_64"
+            runner: "macos-13"  # Intel x86_64 runner
           - arch: aarch64
             target_arch: arm64
             build_name: "aarch64"
             pyinstaller_arch: "arm64"
+            runner: "macos-14"  # Apple Silicon ARM64 runner
       fail-fast: false
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
@@ -522,28 +524,28 @@ jobs:
 
         # Configure architecture-specific build settings
         if [ "${{ matrix.arch }}" = "aarch64" ]; then
-          echo "[INFO] Configuring ARM64 (Apple Silicon) build"
+          echo "[INFO] Configuring ARM64 (Apple Silicon) build on native ARM64 runner"
           export ARCHFLAGS="-arch arm64"
           export _PYTHON_HOST_PLATFORM="macosx-11.0-arm64"
           export MACOSX_DEPLOYMENT_TARGET="11.0"
           export CMAKE_OSX_ARCHITECTURES="arm64"
           export CMAKE_APPLE_SILICON_PROCESSOR="arm64"
-          # Force pip to use ARM64 wheels when available
+          # Use ARM64 wheels on native ARM64 runner
           export PIP_PLATFORM="macosx_11_0_arm64"
-          # Force cross-compilation for ARM64 on Intel runner
           export PYINSTALLER_TARGET_ARCH="arm64"
           export TARGET_ARCH="arm64"
-          echo "[INFO] ARM64 environment configured"
-          echo "[WARN] Cross-compiling ARM64 on Intel runner - validation warnings expected"
+          echo "[INFO] ARM64 native environment configured"
         else
-          echo "[INFO] Configuring Intel (x86_64) build"
+          echo "[INFO] Configuring Intel (x86_64) build on native Intel runner"
           export ARCHFLAGS="-arch x86_64"
           export _PYTHON_HOST_PLATFORM="macosx-10.15-x86_64"
           export MACOSX_DEPLOYMENT_TARGET="10.15"
           export CMAKE_OSX_ARCHITECTURES="x86_64"
-          # Force pip to use x86_64 wheels
+          # Use x86_64 wheels on native Intel runner
           export PIP_PLATFORM="macosx_10_15_x86_64"
-          echo "[INFO] Intel environment configured"
+          export PYINSTALLER_TARGET_ARCH="x86_64"
+          export TARGET_ARCH="x86_64"
+          echo "[INFO] Intel native environment configured"
         fi
 
         # Verify Python architecture
