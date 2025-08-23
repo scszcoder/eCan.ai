@@ -48,10 +48,11 @@ runs:
         python -m venv .venv
         
         if [ "${{ inputs.platform }}" = "windows" ]; then
-          echo "$PWD\\.venv\\Scripts" >> $env:GITHUB_PATH
+          echo "$PWD/.venv/Scripts" >> $GITHUB_PATH
         else
           echo "$PWD/.venv/bin" >> $GITHUB_PATH
         fi
+        echo "Virtual environment created and added to PATH"
 
     - name: Install Python dependencies
       shell: bash

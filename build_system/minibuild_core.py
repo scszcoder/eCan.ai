@@ -38,18 +38,18 @@ class MiniSpecBuilder:
         self.pre_safe_dir = self.gen_hooks_dir / "pre_safe_import_module"
 
     # ---- Public API ----
-    def build(self, mode: str = "fast") -> bool:
+    def build(self, mode: str = "prod", profile: Dict[str, Any] = None) -> bool:
         # Generate essential pre-safe hooks for known problematic modules
         self._ensure_pre_safe_hooks()
         self._ensure_global_sitecustomize()
 
-        # Write spec file
-        self._last_spec_path = self._write_spec(mode)
+        # Write spec file with profile settings
+        self._last_spec_path = self._write_spec(mode, profile)
         
         # Run PyInstaller
         # Use virtual environment Python if available, fallback to sys.executable
         python_executable = self._get_python_executable()
-        cmd = [python_executable, "-m", "PyInstaller", str(self._last_spec_path), "--noconfirm", "--clean"]
+        cmd = [python_executable, "-m", "PyInstaller", str(self._last_spec_path)]
         
         # Note: target architecture is now set in the spec file, not as command line argument
         target_arch = os.getenv('TARGET_ARCH')
@@ -59,7 +59,30 @@ class MiniSpecBuilder:
             elif target_arch == 'amd64':
                 print(f"[MINIBUILD] Targeting x86_64 architecture (set in spec)")
         
-        print(f"[MINIBUILD] Running: {' '.join(cmd)}")
+        profile = profile or {}
+        print(f"[MINIBUILD] Starting {mode} build with profile: {profile}")
+        print(f"[MINIBUILD] Profile settings will be applied in spec file generation")
+        
+        # Store profile for spec generation
+        self._current_profile = profile
+        
+        # Only add basic PyInstaller args that don't conflict with spec file
+        extra_args = ["--noconfirm", "--clean"]
+        
+        # Debug settings (can be applied as command line arg)
+        if profile.get("debug", False):
+            extra_args.append("--debug=all")
+            
+        # UPX compression (can be applied as command line arg)
+        if profile.get("upx_compression", False):
+            extra_args.append("--upx-dir=upx")
+            
+        # Strip debug info (can be applied as command line arg)
+        if profile.get("strip_debug", False):
+            extra_args.append("--strip")
+        
+        cmd.extend(extra_args)
+        print(f"[MINIBUILD] PyInstaller command: {' '.join(cmd)}")
         env = os.environ.copy()
         py_path = str(self.gen_hooks_dir)
         env["PYTHONPATH"] = (py_path + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else ""))
@@ -67,9 +90,9 @@ class MiniSpecBuilder:
         
         result = subprocess.run(cmd, cwd=str(self.project_root), env=env)
         if result.returncode != 0:
-            print(f"[MINIBUILD] Build failed with code {result.returncode}")
+            print(f"[MINIBUILD] {mode.upper()} build failed with code {result.returncode}")
             return False
-        print("[MINIBUILD] Build succeeded")
+        print(f"[MINIBUILD] {mode.upper()} build completed successfully with profile settings")
         return True
 
     def _ensure_pre_safe_hooks(self) -> None:
@@ -165,8 +188,10 @@ class MiniSpecBuilder:
         return sys.executable
 
     # ---- Spec generation ----
-    def _write_spec(self, mode: str) -> Path:
+    def _write_spec(self, mode: str, profile: Dict[str, Any] = None) -> Path:
         """Generate a simplified PyInstaller spec file"""
+        profile = profile or {}
+        spec_name = f"eCan_{mode}.spec"
         app = self.cfg.get("app", {})
         app_name = app.get("name", "eCan")
         app_version = app.get("version", "1.0.0")
@@ -174,9 +199,10 @@ class MiniSpecBuilder:
 
         build_config = self.cfg.get("build", {})
         mode_cfg = build_config.get("modes", {}).get(mode, {})
-        onefile = bool(mode_cfg.get("onefile", False))
-        console = bool(mode_cfg.get("console", app.get("console", False)))
-        debug = bool(mode_cfg.get("debug", app.get("debug", False)))
+        # Apply profile settings to override mode defaults
+        onefile = profile.get("onefile", bool(mode_cfg.get("onefile", False)))
+        console_mode = profile.get("console", mode == "dev")
+        debug = profile.get("debug", bool(mode_cfg.get("debug", app.get("debug", False))))
 
         # Get runtime_tmpdir configuration
         runtime_tmpdir = self._get_runtime_tmpdir(mode_cfg)
@@ -188,7 +214,7 @@ class MiniSpecBuilder:
             main_script=main_script,
             mode=mode,
             onefile=onefile,
-            console=console,
+            console=console_mode,
             debug=debug,
             runtime_tmpdir=runtime_tmpdir
         )

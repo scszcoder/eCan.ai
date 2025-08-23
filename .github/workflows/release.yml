@@ -124,6 +124,14 @@ jobs:
         requirements-file: requirements-windows.txt
         extra-packages: pywin32-ctypes
 
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: gui_v2/node_modules
+        key: ${{ runner.os }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
     - name: Setup Node.js Environment
       uses: ./.github/actions/setup-node-env
 
@@ -185,10 +193,16 @@ jobs:
         # Architecture selection logic for Windows
         $INPUT_ARCH = "${{ github.event.inputs.arch }}"
         if ($INPUT_ARCH -eq "aarch64") {
-          Write-Host "INFO: aarch64 requested, but Windows only supports amd64"
-          Write-Host "INFO: Building amd64 version for Windows compatibility"
+          Write-Host "ERROR: Windows does not support aarch64 architecture" -ForegroundColor Red
+          Write-Host "INFO: Windows only supports amd64 (x86_64) architecture" -ForegroundColor Yellow
+          Write-Host "INFO: Please select 'amd64' or 'all' for Windows builds" -ForegroundColor Yellow
+          exit 1
         } elseif ($INPUT_ARCH -eq "all" -or $INPUT_ARCH -eq "amd64" -or [string]::IsNullOrEmpty($INPUT_ARCH)) {
-          Write-Host "INFO: Building Windows amd64 version"
+          Write-Host "INFO: Building Windows amd64 version" -ForegroundColor Green
+        } else {
+          Write-Host "ERROR: Unsupported architecture '$INPUT_ARCH' for Windows" -ForegroundColor Red
+          Write-Host "INFO: Windows only supports amd64 architecture" -ForegroundColor Yellow
+          exit 1
         }
 
     - name: Build Windows EXE
@@ -434,6 +448,15 @@ jobs:
         platform: macos
         requirements-file: requirements-macos.txt
 
+    - name: Cache Node.js dependencies
+      if: steps.should_build.outputs.should_build == 'true'
+      uses: actions/cache@v4
+      with:
+        path: gui_v2/node_modules
+        key: ${{ runner.os }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
     - name: Setup Node.js Environment
       if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-node-env
@@ -509,26 +532,13 @@ jobs:
           echo "[INFO] ARM64 environment configured"
         else
           echo "[INFO] Configuring Intel (x86_64) build"
-          # Check if we're running on ARM64 runner
-          if [ "$(uname -m)" = "arm64" ]; then
-            echo "[INFO] Running on ARM64 runner, building universal binary for x86_64 compatibility"
-            export ARCHFLAGS="-arch x86_64 -arch arm64"
-            export _PYTHON_HOST_PLATFORM="macosx-10.15-universal2"
-            export MACOSX_DEPLOYMENT_TARGET="10.15"
-            export CMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-            # Force pip to use universal2 wheels when available
-            export PIP_PLATFORM="macosx_10_15_universal2"
-            echo "[INFO] Universal binary environment configured (x86_64 + arm64)"
-          else
-            echo "[INFO] Running on Intel runner, building x86_64 binary"
-            export ARCHFLAGS="-arch x86_64"
-            export _PYTHON_HOST_PLATFORM="macosx-10.15-x86_64"
-            export MACOSX_DEPLOYMENT_TARGET="10.15"
-            export CMAKE_OSX_ARCHITECTURES="x86_64"
-            # Force pip to use x86_64 wheels
-            export PIP_PLATFORM="macosx_10_15_x86_64"
-            echo "[INFO] Intel environment configured"
-          fi
+          export ARCHFLAGS="-arch x86_64"
+          export _PYTHON_HOST_PLATFORM="macosx-10.15-x86_64"
+          export MACOSX_DEPLOYMENT_TARGET="10.15"
+          export CMAKE_OSX_ARCHITECTURES="x86_64"
+          # Force pip to use x86_64 wheels
+          export PIP_PLATFORM="macosx_10_15_x86_64"
+          echo "[INFO] Intel environment configured"
         fi
 
         # Verify Python architecture

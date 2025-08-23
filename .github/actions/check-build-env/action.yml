@@ -92,7 +92,7 @@ runs:
             echo "MAC_CERT_P12: Not set"
           fi
           if [ "${MAC_CERT_PASSWORD}" != "NOT_SET" ]; then
-            echo "MAC_CERT_PASSWORD: Not set"
+            echo "MAC_CERT_PASSWORD: Set"
           else
             echo "MAC_CERT_PASSWORD: Not set"
           fi

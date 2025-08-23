@@ -21,12 +21,14 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
-        cache: 'npm'
-        cache-dependency-path: ${{ inputs.frontend-dir }}/package-lock.json
 
     - name: Install frontend dependencies
+      working-directory: ${{ inputs.frontend-dir }}
       shell: bash
       run: |
         echo "=== Installing Frontend Dependencies ==="
-        cd ${{ inputs.frontend-dir }}
-        ${{ inputs.install-command }}
+        if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules)" ]; then
+          ${{ inputs.install-command }}
+        else
+          echo "node_modules already exists and is not empty, skipping install."
+        fi
