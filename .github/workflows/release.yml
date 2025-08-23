@@ -126,8 +126,6 @@ jobs:
 
     - name: Setup Node.js Environment
       uses: ./.github/actions/setup-node-env
-      with:
-        platform: windows
 
     - name: Install Windows-specific packages
       run: |
@@ -439,8 +437,6 @@ jobs:
     - name: Setup Node.js Environment
       if: steps.should_build.outputs.should_build == 'true'
       uses: ./.github/actions/setup-node-env
-      with:
-        platform: macos
 
     - name: Check macOS package architectures
       if: steps.should_build.outputs.should_build == 'true'
