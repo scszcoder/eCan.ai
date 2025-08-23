@@ -210,13 +210,15 @@ def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
 
     platform_name = platform.system()
 
-    # Normalize architecture names
-    if arch == "aarch64":
-        arch_normalized = "aarch64"
+    # Normalize architecture names to match release.yml matrix
+    if arch in ["aarch64", "arm64"]:
+        arch_normalized = "aarch64"  # Use aarch64 for consistency with release.yml
     elif arch in ["amd64", "x86_64"]:
-        arch_normalized = "amd64"
+        arch_normalized = "amd64"    # Use amd64 for consistency with release.yml
     else:
         arch_normalized = arch
+
+    print(f"[RENAME] Architecture mapping: {arch} -> {arch_normalized}")
 
     if platform_name == "Windows":
         platform_str = "windows"
@@ -867,6 +869,10 @@ Usage examples:
                 # Check both BUILD_ARCH and TARGET_ARCH for compatibility
                 arch = os.getenv('BUILD_ARCH') or os.getenv('TARGET_ARCH', 'amd64')
                 print(f"[RENAME] Using architecture: {arch}")
+                print(f"[RENAME] Environment variables:")
+                print(f"  BUILD_ARCH: {os.getenv('BUILD_ARCH', 'not set')}")
+                print(f"  TARGET_ARCH: {os.getenv('TARGET_ARCH', 'not set')}")
+                print(f"  PYINSTALLER_TARGET_ARCH: {os.getenv('PYINSTALLER_TARGET_ARCH', 'not set')}")
                 standardize_artifact_names(args.version, arch)
             except Exception as e:
                 print(f"[RENAME] Warning: Failed to standardize names: {e}")

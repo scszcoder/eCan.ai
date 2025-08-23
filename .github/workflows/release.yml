@@ -434,11 +434,13 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            target_arch: amd64
+            target_arch: x86_64
             build_name: "amd64"
+            pyinstaller_arch: "x86_64"
           - arch: aarch64
-            target_arch: aarch64
+            target_arch: arm64
             build_name: "aarch64"
+            pyinstaller_arch: "arm64"
       fail-fast: false
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
@@ -451,6 +453,7 @@ jobs:
       # Set build architecture for the build process
       BUILD_ARCH: ${{ matrix.arch }}
       TARGET_ARCH: ${{ matrix.target_arch }}
+      PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
     timeout-minutes: 45
 
     steps:
@@ -530,11 +533,41 @@ jobs:
 
         echo "=== Installing Python Dependencies ==="
         python -m pip install --upgrade pip
-        python -m pip install -r requirements-macos.txt
+
+        # Configure pip for architecture-specific installations
+        if [ "${{ matrix.arch }}" = "aarch64" ]; then
+          echo "[INFO] Installing ARM64-specific dependencies"
+          # Install dependencies with ARM64 preference
+          python -m pip install -r requirements-macos.txt --prefer-binary
+        else
+          echo "[INFO] Installing Intel-specific dependencies"
+          # Install dependencies with x86_64 preference
+          python -m pip install -r requirements-macos.txt --prefer-binary
+        fi
+
         python -m pip install pyinstaller==6.15.0
 
         echo "=== Verifying PyInstaller installation ==="
         python -c "import PyInstaller; print('PyInstaller installed successfully')"
+
+        echo "=== Checking installed package architectures ==="
+        python -c "
+        import platform
+        import sys
+        print(f'Python executable: {sys.executable}')
+        print(f'Python platform: {platform.platform()}')
+        print(f'Python machine: {platform.machine()}')
+        try:
+            import numpy
+            print(f'NumPy version: {numpy.__version__}')
+        except ImportError:
+            print('NumPy not installed')
+        try:
+            import PySide6
+            print(f'PySide6 available')
+        except ImportError:
+            print('PySide6 not available')
+        "
 
     - name: Uninstall pathlib if present (macOS)
       if: steps.should_build.outputs.should_build == 'true'
@@ -598,7 +631,24 @@ jobs:
         echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
         echo "Current matrix architecture: ${{ matrix.arch }}"
         echo "Target architecture: ${{ matrix.target_arch }}"
+        echo "PyInstaller target architecture: ${{ matrix.pyinstaller_arch }}"
         echo "Note: macOS supports both amd64 and aarch64 architectures"
+
+        echo "=== System Architecture Info ==="
+        uname -m
+        arch
+        sysctl -n machdep.cpu.brand_string || echo "CPU info not available"
+
+        echo "=== Python Architecture Info ==="
+        python -c "
+        import platform
+        import sys
+        print(f'Python version: {sys.version}')
+        print(f'Python platform: {platform.platform()}')
+        print(f'Python machine: {platform.machine()}')
+        print(f'Python architecture: {platform.architecture()}')
+        print(f'Python executable: {sys.executable}')
+        "
 
         echo "=== Checking macOS Environment Variables ==="
         if [ "${MAC_CERT_P12}" != "NOT_SET" ]; then
@@ -631,6 +681,32 @@ jobs:
         export TARGET_ARCH="${{ matrix.target_arch }}"
 
         echo "Building for architecture: $BUILD_ARCH (target: $TARGET_ARCH)"
+
+        # Configure architecture-specific build settings
+        if [ "${{ matrix.arch }}" = "aarch64" ]; then
+          echo "[INFO] Configuring ARM64 (Apple Silicon) build"
+          export ARCHFLAGS="-arch arm64"
+          export _PYTHON_HOST_PLATFORM="macosx-11.0-arm64"
+          export MACOSX_DEPLOYMENT_TARGET="11.0"
+          export CMAKE_OSX_ARCHITECTURES="arm64"
+          export CMAKE_APPLE_SILICON_PROCESSOR="arm64"
+          # Force pip to use ARM64 wheels when available
+          export PIP_PLATFORM="macosx_11_0_arm64"
+          echo "[INFO] ARM64 environment configured"
+        else
+          echo "[INFO] Configuring Intel (x86_64) build"
+          export ARCHFLAGS="-arch x86_64"
+          export _PYTHON_HOST_PLATFORM="macosx-10.15-x86_64"
+          export MACOSX_DEPLOYMENT_TARGET="10.15"
+          export CMAKE_OSX_ARCHITECTURES="x86_64"
+          # Force pip to use x86_64 wheels
+          export PIP_PLATFORM="macosx_10_15_x86_64"
+          echo "[INFO] Intel environment configured"
+        fi
+
+        # Verify Python architecture
+        echo "[INFO] Python architecture check:"
+        python -c "import platform; print(f'Python platform: {platform.platform()}'); print(f'Python machine: {platform.machine()}'); print(f'Python architecture: {platform.architecture()}')"
 
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
@@ -671,6 +747,16 @@ jobs:
         python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $BUILD_ARCH
         if [ $? -ne 0 ]; then
             echo "[ERROR] Build artifact validation failed"
+            exit 1
+        fi
+
+    - name: Verify architecture
+      if: steps.should_build.outputs.should_build == 'true'
+      run: |
+        echo "=== Verifying Build Architecture ==="
+        python build_system/verify_architecture.py
+        if [ $? -ne 0 ]; then
+            echo "[ERROR] Architecture verification failed"
             exit 1
         fi
 
@@ -771,12 +857,30 @@ jobs:
             echo "[OK] macOS PKG found: $PKG_PATH"
             pkg_size=$(du -sh "$PKG_PATH" | cut -f1)
             echo "   Size: $pkg_size"
+
+            # Verify PKG architecture
+            echo "=== Verifying PKG Architecture ==="
+            if command -v pkgutil >/dev/null 2>&1; then
+                echo "PKG contents:"
+                pkgutil --payload-files "$PKG_PATH" | head -10
+            fi
         elif [ -d "dist/eCan.app" ]; then
             echo "[OK] macOS App found: dist/eCan.app"
             app_size=$(du -sh dist/eCan.app | cut -f1)
             echo "   Size: $app_size"
             echo "   App structure:"
             find dist/eCan.app -type f -name "eCan" | head -5
+
+            # Verify app bundle architecture
+            echo "=== Verifying App Bundle Architecture ==="
+            if [ -f "dist/eCan.app/Contents/MacOS/eCan" ]; then
+                echo "Main executable architecture:"
+                file "dist/eCan.app/Contents/MacOS/eCan" || echo "Could not determine architecture"
+                if command -v lipo >/dev/null 2>&1; then
+                    echo "Detailed architecture info:"
+                    lipo -info "dist/eCan.app/Contents/MacOS/eCan" || echo "lipo failed"
+                fi
+            fi
         else
             echo "[ERROR] macOS build not found"
             echo "Searching for .pkg and .app files..."
@@ -882,7 +986,7 @@ jobs:
 
   # Generate and publish appcast after Release is created (ensures final URLs and sizes)
   publish-appcast:
-    needs: create-release
+    needs: [validate-tag, create-release]
     runs-on: ubuntu-latest
     env:
       ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
@@ -905,11 +1009,19 @@ jobs:
           name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
           path: windows-artifacts
 
-      - name: Download macOS artifacts
+      - name: Download macOS amd64 artifacts
         uses: actions/download-artifact@v4
         with:
-          name: eCan-macOS-${{ needs.validate-tag.outputs.version }}
+          name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
           path: macos-artifacts
+        continue-on-error: true
+
+      - name: Download macOS aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
+          path: macos-artifacts
+        continue-on-error: true
 
       - name: Download Linux artifacts (optional)
         continue-on-error: true
@@ -1053,8 +1165,6 @@ jobs:
           # No arch_filter -> aggregate all Windows entries
           main(release, platform_filter='windows', output_path='dist/appcast/appcast-windows.xml')
           PY
-
-
 
       - name: Remove empty appcast files (if any)
         if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}

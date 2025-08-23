@@ -365,6 +365,8 @@
           "notes": "Apple Silicon (M1/M2/M3) native support",
           "playwright_platform": "mac-arm64",
           "python_requirement": "arm64 native Python (not Rosetta 2)",
+          "build_requirements": "Native ARM64 build environment recommended",
+          "cross_compile_warning": "Cross-compilation from Intel may cause runtime compatibility issues",
           "special_handling": [
             "Ensure arm64 Chromium browser",
             "Native arm64 dependencies",
@@ -375,6 +377,8 @@
           "notes": "Intel Mac support",
           "playwright_platform": "mac-x64",
           "python_requirement": "x86_64 Python",
+          "build_requirements": "Intel or Rosetta 2 compatible environment",
+          "cross_compile_warning": "Cross-compilation from ARM64 may cause runtime compatibility issues",
           "special_handling": [
             "Intel Chromium browser",
             "x86_64 dependencies"
