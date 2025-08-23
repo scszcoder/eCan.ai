@@ -180,25 +180,32 @@ class BuildEnvironment:
             print("[ERROR] Virtual environment not found")
             return False
 
-        # Activate virtual environment on Windows
+        # Check for Python executable in virtual environment
         if self.is_windows:
-            activate_script = venv_path / "Scripts" / "activate.bat"
-            if activate_script.exists():
-                os.environ['VIRTUAL_ENV'] = str(venv_path)
-                os.environ['PATH'] = str(venv_path / "Scripts") + os.pathsep + os.environ['PATH']
-                print("[SUCCESS] Virtual environment activated")
-                return True
+            python_exe = venv_path / "Scripts" / "python.exe"
+            scripts_dir = venv_path / "Scripts"
         else:
-            # Activate virtual environment on Unix systems
-            activate_script = venv_path / "bin" / "activate"
-            if activate_script.exists():
-                os.environ['VIRTUAL_ENV'] = str(venv_path)
-                os.environ['PATH'] = str(venv_path / "bin") + os.pathsep + os.environ['PATH']
-                print("[SUCCESS] Virtual environment activated")
-                return True
+            python_exe = venv_path / "bin" / "python"
+            scripts_dir = venv_path / "bin"
+            
+        if not python_exe.exists():
+            print(f"[ERROR] Python executable not found: {python_exe}")
+            return False
+            
+        if not scripts_dir.exists():
+            print(f"[ERROR] Scripts directory not found: {scripts_dir}")
+            return False
 
-        print("[ERROR] Failed to activate virtual environment")
-        return False
+        # Set virtual environment variables
+        os.environ['VIRTUAL_ENV'] = str(venv_path.resolve())
+        os.environ['PATH'] = str(scripts_dir.resolve()) + os.pathsep + os.environ.get('PATH', '')
+        
+        # Update Python path to use venv Python
+        sys.executable = str(python_exe.resolve())
+        
+        print(f"[SUCCESS] Virtual environment activated: {venv_path}")
+        print(f"[INFO] Python executable: {python_exe}")
+        return True
 
 
 

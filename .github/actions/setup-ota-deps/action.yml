@@ -17,7 +17,13 @@ runs:
       shell: bash
       run: |
         echo "=== Installing OTA Dependencies ==="
-        python scripts/install_ota_dependencies.py install --platform ${{ inputs.platform }}
+        # Map platform names: macos -> darwin
+        if [ "${{ inputs.platform }}" = "macos" ]; then
+          SCRIPT_PLATFORM="darwin"
+        else
+          SCRIPT_PLATFORM="${{ inputs.platform }}"
+        fi
+        python scripts/install_ota_dependencies.py install --platform $SCRIPT_PLATFORM
 
     - name: Verify OTA dependencies
       shell: bash

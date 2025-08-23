@@ -173,18 +173,22 @@ class MiniSpecBuilder:
         return modules
 
     def _get_python_executable(self) -> str:
-        """Get the appropriate Python executable for PyInstaller"""
-        # Check if we're in a virtual environment
-        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
-            # We're in a virtual environment, use the venv Python
-            venv_python = self.project_root / "venv" / "bin" / "python3"
+        """Get Python executable path (prefer virtual environment)"""
+        # Check for virtual environment Python
+        if os.path.exists("venv"):
             if sys.platform.startswith("win"):
                 venv_python = self.project_root / "venv" / "Scripts" / "python.exe"
+            else:
+                venv_python = self.project_root / "venv" / "bin" / "python"
             
             if venv_python.exists():
+                print(f"[MINIBUILD] Using virtual environment Python: {venv_python}")
                 return str(venv_python)
+            else:
+                print(f"[MINIBUILD] Virtual environment Python not found: {venv_python}")
         
         # Fallback to current executable
+        print(f"[MINIBUILD] Using system Python: {sys.executable}")
         return sys.executable
 
     # ---- Spec generation ----
