@@ -1,0 +1,104 @@
+name: 'Check Build Environment'
+description: 'Check build environment and display system information'
+inputs:
+  platform:
+    description: 'Platform (windows, macos)'
+    required: true
+  matrix-arch:
+    description: 'Matrix architecture (for macOS)'
+    required: false
+    default: ''
+  matrix-target-arch:
+    description: 'Matrix target architecture (for macOS)'
+    required: false
+    default: ''
+  matrix-pyinstaller-arch:
+    description: 'Matrix PyInstaller architecture (for macOS)'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check build environment
+      shell: bash
+      run: |
+        echo "=== Checking Build Environment ==="
+        python scripts/check_build_env.py
+
+    - name: Check architecture selection
+      shell: bash
+      run: |
+        echo "=== Checking Architecture Selection ==="
+        echo "Platform: ${{ inputs.platform }}"
+        
+        if [ "${{ inputs.platform }}" = "windows" ]; then
+          echo "Note: Windows only supports amd64 architecture"
+        elif [ "${{ inputs.platform }}" = "macos" ]; then
+          if [ -n "${{ inputs.matrix-arch }}" ]; then
+            echo "Current matrix architecture: ${{ inputs.matrix-arch }}"
+          fi
+          if [ -n "${{ inputs.matrix-target-arch }}" ]; then
+            echo "Target architecture: ${{ inputs.matrix-target-arch }}"
+          fi
+          if [ -n "${{ inputs.matrix-pyinstaller-arch }}" ]; then
+            echo "PyInstaller target architecture: ${{ inputs.matrix-pyinstaller-arch }}"
+          fi
+          echo "Note: macOS supports both amd64 and aarch64 architectures"
+        fi
+
+    - name: Display system architecture info
+      if: ${{ inputs.platform == 'macos' }}
+      shell: bash
+      run: |
+        echo "=== System Architecture Info ==="
+        uname -m
+        arch
+        sysctl -n machdep.cpu.brand_string || echo "CPU info not available"
+
+    - name: Display Python architecture info
+      shell: bash
+      run: |
+        echo "=== Python Architecture Info ==="
+        python -c "
+        import platform
+        import sys
+        print(f'Python version: {sys.version}')
+        print(f'Python platform: {platform.platform()}')
+        print(f'Python machine: {platform.machine()}')
+        print(f'Python architecture: {platform.architecture()}')
+        print(f'Python executable: {sys.executable}')
+        "
+
+    - name: Check environment variables
+      shell: bash
+      run: |
+        echo "=== Checking Environment Variables ==="
+        if [ "${{ inputs.platform }}" = "windows" ]; then
+          if [ "${WIN_CERT_PFX}" != "NOT_SET" ]; then
+            echo "WIN_CERT_PFX: Set"
+          else
+            echo "WIN_CERT_PFX: Not set"
+          fi
+          if [ "${WIN_CERT_PASSWORD}" != "NOT_SET" ]; then
+            echo "WIN_CERT_PASSWORD: Set"
+          else
+            echo "WIN_CERT_PASSWORD: Not set"
+          fi
+        elif [ "${{ inputs.platform }}" = "macos" ]; then
+          if [ "${MAC_CERT_P12}" != "NOT_SET" ]; then
+            echo "MAC_CERT_P12: Set"
+          else
+            echo "MAC_CERT_P12: Not set"
+          fi
+          if [ "${MAC_CERT_PASSWORD}" != "NOT_SET" ]; then
+            echo "MAC_CERT_PASSWORD: Not set"
+          else
+            echo "MAC_CERT_PASSWORD: Not set"
+          fi
+          if [ "${MAC_CODESIGN_IDENTITY}" != "NOT_SET" ]; then
+            echo "MAC_CODESIGN_IDENTITY: Set"
+          else
+            echo "MAC_CODESIGN_IDENTITY: Not set"
+          fi
+        fi

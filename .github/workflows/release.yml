@@ -117,41 +117,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+    - name: Setup Python Environment
+      uses: ./.github/actions/setup-python-env
       with:
-        python-version: '3.11'
+        platform: windows
+        requirements-file: requirements-windows.txt
+        extra-packages: pywin32-ctypes
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
+    - name: Setup Node.js Environment
+      uses: ./.github/actions/setup-node-env
       with:
-        node-version: '18'
+        platform: windows
 
-    - name: Cache pip dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: windows-pip-3.11-${{ hashFiles('requirements*.txt') }}
-        restore-keys: |
-          windows-pip-3.11-
-
-    - name: Create and activate venv (Windows)
+    - name: Install Windows-specific packages
       run: |
-        echo "=== Creating Virtual Environment ==="
-        python -m venv .venv
-        # Make venv's Python first in PATH for subsequent steps
-        echo "$PWD\.venv\Scripts" >> $env:GITHUB_PATH
-
-    - name: Install Python dependencies
-      run: |
-        echo "=== Python/Pip Info (Windows venv) ==="
-        python -c "import sys; print(sys.version); print(sys.executable)"
-        python -m pip -V
-
-        echo "=== Installing Python Dependencies ==="
-        python -m pip install --upgrade pip
-        python -m pip install -r requirements-windows.txt
-        python -m pip install pyinstaller==6.15.0 pywin32-ctypes
         # Ensure pywin32 is present in the same interpreter
         python -m pip install -U pywin32
         # Rarely needed but safe; registers COM bits
@@ -159,16 +138,6 @@ jobs:
 
         echo "=== Verifying pywin32 installation ==="
         python -c "import win32api; print('pywin32 installed successfully')"
-
-    - name: Uninstall pathlib if present (Windows)
-      run: |
-        python -m pip uninstall -y pathlib; if ($LASTEXITCODE -ne 0) { Write-Host "pathlib not found or already uninstalled" }
-
-    - name: Install frontend dependencies
-      run: |
-        echo "=== Installing Frontend Dependencies ==="
-        cd gui_v2
-        npm install --legacy-peer-deps
 
     - name: Install Inno Setup
       run: |
@@ -193,70 +162,35 @@ jobs:
             exit 1
         }
 
-    - name: Install OTA dependencies (including winSparkle)
+    - name: Setup OTA Dependencies
+      uses: ./.github/actions/setup-ota-deps
+      with:
+        platform: windows
+
+    - name: Setup Build Directories
+      uses: ./.github/actions/setup-build-dirs
+      with:
+        platform: windows
+
+    - name: Check Build Environment
+      uses: ./.github/actions/check-build-env
+      with:
+        platform: windows
+
+    - name: Check Windows Architecture Selection
       run: |
-        echo "=== Installing OTA Dependencies ==="
-        python scripts/install_ota_dependencies.py install --platform windows
-
-        echo "=== Verifying OTA Dependencies ==="
-        python scripts/install_ota_dependencies.py verify
-
-        echo "=== Checking winSparkle Installation ==="
-        $dllPaths = @(
-          "third_party/winsparkle/winsparkle.dll"
-        )
-        $found = $false
-        foreach ($p in $dllPaths) {
-          if (Test-Path $p) {
-            Write-Host "winSparkle DLL found at: $p"
-            $dll = Get-Item $p
-            Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
-            $found = $true
-            break
-          }
-        }
-        if (-not $found) {
-          Write-Host "[WARN] winSparkle DLL not found in expected locations"
-          Write-Host "Searching for winSparkle files..."
-          Get-ChildItem -Path "third_party" -Recurse -Filter "*sparkle*" -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "   Found: $($_.FullName)"
-          }
-        }
-
-    - name: Create build directories
-      run: |
-        echo "=== Creating Build Directories ==="
-        New-Item -ItemType Directory -Force -Path build, dist
-
-    - name: Check build environment
-      run: |
-        echo "=== Checking Build Environment ==="
-        python scripts/check_build_env.py
-
-        echo "=== Checking Architecture Selection ==="
+        echo "=== Checking Windows Architecture Selection ==="
         echo "Selected architecture: ${{ github.event.inputs.arch || 'all (default)' }}"
         echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
         echo "Note: Windows only supports amd64 architecture"
 
         # Architecture selection logic for Windows
-        INPUT_ARCH="${{ github.event.inputs.arch }}"
-        if [ "$INPUT_ARCH" = "aarch64" ]; then
-          echo "INFO: aarch64 requested, but Windows only supports amd64"
-          echo "INFO: Building amd64 version for Windows compatibility"
-        elif [ "$INPUT_ARCH" = "all" ] || [ "$INPUT_ARCH" = "amd64" ] || [ -z "$INPUT_ARCH" ]; then
-          echo "INFO: Building Windows amd64 version"
-        fi
-
-        echo "=== Checking Windows Environment Variables ==="
-        if ("$env:WIN_CERT_PFX" -ne "NOT_SET") {
-          echo "WIN_CERT_PFX: Set"
-        } else {
-          echo "WIN_CERT_PFX: Not set"
-        }
-        if ("$env:WIN_CERT_PASSWORD" -ne "NOT_SET") {
-          echo "WIN_CERT_PASSWORD: Set"
-        } else {
-          echo "WIN_CERT_PASSWORD: Not set"
+        $INPUT_ARCH = "${{ github.event.inputs.arch }}"
+        if ($INPUT_ARCH -eq "aarch64") {
+          Write-Host "INFO: aarch64 requested, but Windows only supports amd64"
+          Write-Host "INFO: Building amd64 version for Windows compatibility"
+        } elseif ($INPUT_ARCH -eq "all" -or $INPUT_ARCH -eq "amd64" -or [string]::IsNullOrEmpty($INPUT_ARCH)) {
+          Write-Host "INFO: Building Windows amd64 version"
         }
 
     - name: Build Windows EXE
@@ -268,8 +202,8 @@ jobs:
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
 
-        # Set environment variable for build architecture
-        $env:BUILD_ARCH = "$env:BUILD_ARCH"
+        # Verify build architecture environment variable
+        Write-Host "BUILD_ARCH environment variable: $env:BUILD_ARCH"
 
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
@@ -495,61 +429,22 @@ jobs:
       if: steps.should_build.outputs.should_build == 'true'
       uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
+    - name: Setup Python Environment
       if: steps.should_build.outputs.should_build == 'true'
-      uses: actions/setup-python@v4
+      uses: ./.github/actions/setup-python-env
       with:
-        python-version: '3.11'
+        platform: macos
+        requirements-file: requirements-macos.txt
 
-    - name: Set up Node.js
+    - name: Setup Node.js Environment
       if: steps.should_build.outputs.should_build == 'true'
-      uses: actions/setup-node@v4
+      uses: ./.github/actions/setup-node-env
       with:
-        node-version: '18'
+        platform: macos
 
-    - name: Cache pip dependencies
-      if: steps.should_build.outputs.should_build == 'true'
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: macos-pip-3.11-${{ hashFiles('requirements*.txt') }}
-        restore-keys: |
-          macos-pip-3.11-
-
-    - name: Create and activate venv (macOS)
+    - name: Check macOS package architectures
       if: steps.should_build.outputs.should_build == 'true'
       run: |
-        echo "=== Creating Virtual Environment ==="
-        python -m venv .venv
-        # Make venv's Python first in PATH for subsequent steps
-        echo "$PWD/.venv/bin" >> $GITHUB_PATH
-
-    - name: Install Python dependencies
-      if: steps.should_build.outputs.should_build == 'true'
-      run: |
-        echo "=== Python/Pip Info (macOS venv) ==="
-        python -c "import sys; print(sys.version); print(sys.executable)"
-        python -m pip -V
-
-        echo "=== Installing Python Dependencies ==="
-        python -m pip install --upgrade pip
-
-        # Configure pip for architecture-specific installations
-        if [ "${{ matrix.arch }}" = "aarch64" ]; then
-          echo "[INFO] Installing ARM64-specific dependencies"
-          # Install dependencies with ARM64 preference
-          python -m pip install -r requirements-macos.txt --prefer-binary
-        else
-          echo "[INFO] Installing Intel-specific dependencies"
-          # Install dependencies with x86_64 preference
-          python -m pip install -r requirements-macos.txt --prefer-binary
-        fi
-
-        python -m pip install pyinstaller==6.15.0
-
-        echo "=== Verifying PyInstaller installation ==="
-        python -c "import PyInstaller; print('PyInstaller installed successfully')"
-
         echo "=== Checking installed package architectures ==="
         python -c "
         import platform
@@ -569,103 +464,26 @@ jobs:
             print('PySide6 not available')
         "
 
-    - name: Uninstall pathlib if present (macOS)
+    - name: Setup OTA Dependencies
       if: steps.should_build.outputs.should_build == 'true'
-      run: |
-        python -m pip uninstall -y pathlib || true
+      uses: ./.github/actions/setup-ota-deps
+      with:
+        platform: macos
 
-    - name: Install frontend dependencies
+    - name: Setup Build Directories
       if: steps.should_build.outputs.should_build == 'true'
-      run: |
-        echo "=== Installing Frontend Dependencies ==="
-        cd gui_v2
-        npm install --legacy-peer-deps
+      uses: ./.github/actions/setup-build-dirs
+      with:
+        platform: macos
 
-    - name: Install OTA dependencies (including Sparkle)
+    - name: Check Build Environment
       if: steps.should_build.outputs.should_build == 'true'
-      run: |
-        echo "=== Installing OTA Dependencies ==="
-        python scripts/install_ota_dependencies.py install --platform darwin
-
-        echo "=== Verifying OTA Dependencies ==="
-        python scripts/install_ota_dependencies.py verify
-
-        echo "=== Checking Sparkle Framework Installation ==="
-        if [ -d "third_party/sparkle/Sparkle.framework" ]; then
-          echo "[OK] Sparkle.framework found"
-          framework_size=$(du -sh third_party/sparkle/Sparkle.framework | cut -f1)
-          echo "   Size: $framework_size"
-
-          # Check framework structure
-          if [ -f "third_party/sparkle/Sparkle.framework/Versions/Current/Sparkle" ]; then
-            echo "[OK] Sparkle binary found in framework"
-          else
-            echo "[WARN] Sparkle binary not found in expected location"
-          fi
-
-          if [ -f "third_party/sparkle/sparkle-cli" ]; then
-            echo "[OK] Sparkle CLI found"
-          else
-            echo "[WARN] Sparkle CLI not found"
-          fi
-        else
-          echo "[ERROR] Sparkle.framework not found"
-          echo "Searching for Sparkle files..."
-          find third_party -name "*parkle*" -type f 2>/dev/null || echo "No Sparkle files found in third_party"
-        fi
-
-    - name: Create build directories
-      if: steps.should_build.outputs.should_build == 'true'
-      run: |
-        echo "=== Creating Build Directories ==="
-        mkdir -p build dist
-
-    - name: Check build environment
-      if: steps.should_build.outputs.should_build == 'true'
-      run: |
-        echo "=== Checking Build Environment ==="
-        python scripts/check_build_env.py
-
-        echo "=== Checking Architecture Selection ==="
-        echo "Selected architecture: ${{ github.event.inputs.arch || 'all (default)' }}"
-        echo "Platform: ${{ github.event.inputs.platform || 'all (default)' }}"
-        echo "Current matrix architecture: ${{ matrix.arch }}"
-        echo "Target architecture: ${{ matrix.target_arch }}"
-        echo "PyInstaller target architecture: ${{ matrix.pyinstaller_arch }}"
-        echo "Note: macOS supports both amd64 and aarch64 architectures"
-
-        echo "=== System Architecture Info ==="
-        uname -m
-        arch
-        sysctl -n machdep.cpu.brand_string || echo "CPU info not available"
-
-        echo "=== Python Architecture Info ==="
-        python -c "
-        import platform
-        import sys
-        print(f'Python version: {sys.version}')
-        print(f'Python platform: {platform.platform()}')
-        print(f'Python machine: {platform.machine()}')
-        print(f'Python architecture: {platform.architecture()}')
-        print(f'Python executable: {sys.executable}')
-        "
-
-        echo "=== Checking macOS Environment Variables ==="
-        if [ "${MAC_CERT_P12}" != "NOT_SET" ]; then
-          echo "MAC_CERT_P12: Set"
-        else
-          echo "MAC_CERT_P12: Not set"
-        fi
-        if [ "${MAC_CERT_PASSWORD}" != "NOT_SET" ]; then
-          echo "MAC_CERT_PASSWORD: Set"
-        else
-          echo "MAC_CERT_PASSWORD: Not set"
-        fi
-        if [ "${MAC_CODESIGN_IDENTITY}" != "NOT_SET" ]; then
-          echo "MAC_CODESIGN_IDENTITY: Set"
-        else
-          echo "MAC_CODESIGN_IDENTITY: Not set"
-        fi
+      uses: ./.github/actions/check-build-env
+      with:
+        platform: macos
+        matrix-arch: ${{ matrix.arch }}
+        matrix-target-arch: ${{ matrix.target_arch }}
+        matrix-pyinstaller-arch: ${{ matrix.pyinstaller_arch }}
 
     - name: Build macOS App
       if: steps.should_build.outputs.should_build == 'true'
@@ -695,13 +513,26 @@ jobs:
           echo "[INFO] ARM64 environment configured"
         else
           echo "[INFO] Configuring Intel (x86_64) build"
-          export ARCHFLAGS="-arch x86_64"
-          export _PYTHON_HOST_PLATFORM="macosx-10.15-x86_64"
-          export MACOSX_DEPLOYMENT_TARGET="10.15"
-          export CMAKE_OSX_ARCHITECTURES="x86_64"
-          # Force pip to use x86_64 wheels
-          export PIP_PLATFORM="macosx_10_15_x86_64"
-          echo "[INFO] Intel environment configured"
+          # Check if we're running on ARM64 runner
+          if [ "$(uname -m)" = "arm64" ]; then
+            echo "[INFO] Running on ARM64 runner, building universal binary for x86_64 compatibility"
+            export ARCHFLAGS="-arch x86_64 -arch arm64"
+            export _PYTHON_HOST_PLATFORM="macosx-10.15-universal2"
+            export MACOSX_DEPLOYMENT_TARGET="10.15"
+            export CMAKE_OSX_ARCHITECTURES="x86_64;arm64"
+            # Force pip to use universal2 wheels when available
+            export PIP_PLATFORM="macosx_10_15_universal2"
+            echo "[INFO] Universal binary environment configured (x86_64 + arm64)"
+          else
+            echo "[INFO] Running on Intel runner, building x86_64 binary"
+            export ARCHFLAGS="-arch x86_64"
+            export _PYTHON_HOST_PLATFORM="macosx-10.15-x86_64"
+            export MACOSX_DEPLOYMENT_TARGET="10.15"
+            export CMAKE_OSX_ARCHITECTURES="x86_64"
+            # Force pip to use x86_64 wheels
+            export PIP_PLATFORM="macosx_10_15_x86_64"
+            echo "[INFO] Intel environment configured"
+          fi
         fi
 
         # Verify Python architecture
@@ -752,6 +583,11 @@ jobs:
 
     - name: Verify architecture
       if: steps.should_build.outputs.should_build == 'true'
+      env:
+        BUILD_ARCH: ${{ env.BUILD_ARCH }}
+        TARGET_ARCH: ${{ env.TARGET_ARCH }}
+        PYINSTALLER_TARGET_ARCH: ${{ env.PYINSTALLER_TARGET_ARCH }}
+        VERSION: ${{ needs.validate-tag.outputs.version }}
       run: |
         echo "=== Verifying Build Architecture ==="
         python build_system/verify_architecture.py
@@ -760,14 +596,11 @@ jobs:
             exit 1
         fi
 
-    - name: Verify PKG installer
-      if: steps.should_build.outputs.should_build == 'true'
-      env:
-        BUILD_ARCH: ${{ env.BUILD_ARCH }}
-        VERSION: ${{ needs.validate-tag.outputs.version }}
-      run: |
-        chmod +x build_system/verify_pkg.sh
-        ./build_system/verify_pkg.sh
+
+
+
+
+
 
     - name: Code sign macOS app (optional)
       if: ${{ steps.should_build.outputs.should_build == 'true' && env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' }}

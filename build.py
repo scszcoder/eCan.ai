@@ -865,9 +865,17 @@ Usage examples:
             print("\n[RENAME] Standardizing artifact names...")
             _t_rename_start = time.perf_counter()
             try:
-                # Get architecture info (from environment variable or default)
+                # Get architecture info (from environment variable or auto-detect)
                 # Check both BUILD_ARCH and TARGET_ARCH for compatibility
-                arch = os.getenv('BUILD_ARCH') or os.getenv('TARGET_ARCH', 'amd64')
+                arch = os.getenv('BUILD_ARCH') or os.getenv('TARGET_ARCH')
+                if not arch:
+                    # Auto-detect architecture based on platform
+                    current_machine = platform.machine().lower()
+                    if current_machine in ['arm64', 'aarch64']:
+                        arch = 'aarch64'
+                    else:
+                        arch = 'amd64'
+                    print(f"[RENAME] Auto-detected architecture: {arch}")
                 print(f"[RENAME] Using architecture: {arch}")
                 print(f"[RENAME] Environment variables:")
                 print(f"  BUILD_ARCH: {os.getenv('BUILD_ARCH', 'not set')}")
