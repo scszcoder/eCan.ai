@@ -435,7 +435,7 @@ print(f"[SPEC] Final counts - Data: {{len(a.datas)}}, Binaries: {{len(a.binaries
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-{self._generate_exe_config(app_name, app_version, onefile, console, debug, runtime_tmpdir)}
+{self._generate_exe_config(app_name, app_version, onefile, console, debug, runtime_tmpdir, strip_debug, upx_compression)}
 '''
         return template
     def _generate_data_files_code(self) -> str:
@@ -542,7 +542,7 @@ if sys.platform == 'darwin':
 '''
 
     def _generate_exe_config(self, app_name: str, app_version: str, onefile: bool, console: bool,
-                           debug: bool, runtime_tmpdir: Optional[str]) -> str:
+                           debug: bool, runtime_tmpdir: Optional[str], strip_debug: bool = False, upx_compression: bool = False) -> str:
         """Generate EXE and packaging configuration"""
 
         if onefile:
