@@ -459,10 +459,10 @@ async def in_browser_build_dom_tree(mainwin, args):
 
         result_text_content = "completed building DOM tree."
 
-        tool_result = [TextContent(type="text", text=result_text_content)]
+        tool_result = TextContent(type="text", text=result_text_content)
 
         tool_result.meta = {"dom_tree": domTree}
-        return tool_result
+        return [tool_result]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserBuildDomTree")
@@ -1133,9 +1133,9 @@ async def os_screen_analyze(mainwin, args):
         screen_content = await read_screen8(mainwin, win_title_kw, sub_area, site,engine)
 
         msg = "completed screen analysis"
-        result = [TextContent(type="text", text=msg)]
+        result = TextContent(type="text", text=msg)
         result.meta = screen_content
-        return result
+        return [result]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSScreenAnalyze")
@@ -1330,11 +1330,14 @@ async def api_ecan_ai_query_components(mainwin, args):
     # the runbotworks task will then take over.....
     # including put reactive work into it.
     try:
+        print("api_ecan_ai_query_components args: ", args['input']['components'])
         components = ecan_ai_api_query_components(mainwin, args['input']['components'])
-        msg = "completed rpa operator report work results"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = components
-        return result
+        msg = "completed API query components results"
+        result = TextContent(type="text", text=msg)
+        # meta must be a dict – wrap components list under a key to satisfy pydantic
+        result.meta = {"components": components}
+        print("api_ecan_ai_query_components about to return: ", result)
+        return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
         logger.debug(err_trace)
@@ -1355,9 +1358,9 @@ async def api_ecan_ai_img2text_icons(mainwin, args):
         screen_data = await readRandomWindow8(mission, args["input"]["win_title_keyword"], log_user, session, token)
 
         msg = "completed rpa operator report work results"
-        result = [TextContent(type="text", text=msg)]
+        result = TextContent(type="text", text=msg)
         result.meta = screen_data
-        return result
+        return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
         logger.debug(err_trace)

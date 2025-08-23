@@ -4,7 +4,7 @@ from agent.a2a.common.types import SendTaskRequest
 from agent.ec_skills.my_twin.my_twin_chatter_skill import human_message
 
 
-def prep_my_twin_chatter_skill(agent, msg):
+def prep_my_twin_chatter_skill(agent, msg, current_state=None):
     print("prep_my_twin_chatter_skill", type(msg), msg)
 
     if isinstance(msg, SendTaskRequest):
@@ -38,6 +38,8 @@ def prep_my_twin_chatter_skill(agent, msg):
         result={},
         tool_input={},
         tool_result={},
+        threads=[],
+        metadata={},
         error="",
         retries=3,
         condition=False,

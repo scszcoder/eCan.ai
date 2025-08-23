@@ -1407,11 +1407,14 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["[component]"],
+                    "required": ["components"],
                     "properties": {
-                        "[component]": {
-                            "type": "list",
+                        "components": {
+                            "type": "array",
                             "description": "list of components with basic attributes.",
+                            "items": {
+                                "type": "object"
+                            }
                         }
                     },
                 }
@@ -1441,7 +1444,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "comma separated list of the full path of the icon files",
                         },
                         "metadata": {
-                            "type": "dict",
+                            "type": "object",
                             "description": "json data to make the api call for effective, for random image data, just leave this as {}.",
                         },
                         "end_point": {
@@ -1466,11 +1469,14 @@ def build_agent_mcp_tools_schemas():
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["[nodes]", "end_point"],
+                    "required": ["nodes", "end_point"],
                     "properties": {
-                        "[nodes]": {
-                            "type": "list",
+                        "nodes": {
+                            "type": "array",
                             "description": "list of nodes json data each with keys 'askid' and 'name'.",
+                            "items": {
+                                "type": "object"
+                            }
                         },
                         "end_point": {
                             "type": "string",

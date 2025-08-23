@@ -12,6 +12,7 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.session import ClientSession
 from contextlib import asynccontextmanager
+from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 
 
 # ============================= now create global client ===========================
@@ -144,32 +145,84 @@ async def local_mcp_list_tools(url):
 
 async def local_mcp_call_tool(url, tool_name, arguments):
     # mcp_http_base()
-    result = {}
-    async with streamablehttp_client(url) as streams:
-        async with ClientSession(streams[0], streams[1]) as session:
-            await session.initialize()
-            tools = await session.list_tools()
+    result = None
+    try:
+        # First try using a persistent session to avoid per-call teardown races
+        try:
+            mgr = Streamable_HTTP_Manager.get(url)
+            session = await mgr.session()
             result = await session.call_tool(tool_name, arguments)
-            # await session.complete()
+            try:
+                print(f"local_mcp_call_tool(persistent): received result type={type(result)} isError={getattr(result, 'isError', None)}")
+            except Exception:
+                pass
             return result
+        except BaseException as _mgr_err:
+            try:
+                print(f"Persistent session path failed, falling back to ephemeral: {_mgr_err}")
+            except Exception:
+                pass
+            # Fall back to ephemeral session
+            # Avoid terminating the HTTP session abruptly to let server finish background tasks
+            async with streamablehttp_client(url, terminate_on_close=False) as streams:
+                async with ClientSession(streams[0], streams[1]) as session:
+                    await session.initialize()
+                    # Execute tool call; rely on context manager to close session cleanly
+                    result = await session.call_tool(tool_name, arguments)
+                    try:
+                        print(f"local_mcp_call_tool: received result type={type(result)} isError={getattr(result, 'isError', None)}")
+                    except Exception:
+                        pass
+                    # Give server a moment to flush and avoid TaskGroup ExceptionGroup during teardown
+                    try:
+                        await session.send_ping()
+                    except Exception:
+                        pass
+                    try:
+                        import asyncio as _asyncio
+                        await _asyncio.sleep(0.05)
+                    except Exception:
+                        pass
+    except BaseException as e:
+        # If we already have a result, suppress teardown exceptions
+        if result is not None:
+            try:
+                print(f"Suppressed teardown error after tool result: {e}")
+            except Exception:
+                pass
+        else:
+            raise
+    return result
 
 
 async def mcp_call_tool(tool_name, args):
     # async with mcp_client.session("E-Commerce Agents Service") as session:
     print(f"MCP client calling tool: {tool_name} with args: {args}")
+    response = None
     try:
         # Call the tool and get the raw response
-        # response = await mcp_client.call_tool(tool_name, args)
         url = mcp_http_base()
-        response = await local_mcp_call_tool(url,tool_name, args)
+        response = await local_mcp_call_tool(url, tool_name, args)
         print(f"Raw response type: {type(response)}")
-        print(f"Raw response Err: {response.isError}   {response.content[0].text}")
-        # print("response meta:", response.content[0].meta)
-
-        # If the response is a CallToolResult with an error, return the error
+        try:
+            print(f"Raw response Err: {getattr(response, 'isError', None)}   {getattr(response.content[0], 'text', None)}")
+        except Exception:
+            pass
         return response
-
-    except Exception as e:
+    except BaseException as e:
+        # If we already have a valid response, prefer returning it and just log teardown errors
+        if response is not None:
+            try:
+                # Provide more context for ExceptionGroup if present
+                if hasattr(e, 'exceptions'):
+                    sub_errs = getattr(e, 'exceptions')
+                    print(f"Teardown ExceptionGroup with {len(sub_errs)} sub-exceptions; suppressing due to successful response")
+                else:
+                    print(f"Suppressed teardown error after successful tool call: {e}")
+            except Exception:
+                pass
+            return response
+        # No response obtained; propagate structured error
         error_msg = f"Error calling {tool_name}: {str(e)}"
         print(error_msg)
         return {"content": [{"type": "text", "text": error_msg}], "isError": True}
