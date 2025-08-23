@@ -13,7 +13,8 @@ runs:
       run: |
         echo "=== Creating Build Directories ==="
         if [ "${{ inputs.platform }}" = "windows" ]; then
-          New-Item -ItemType Directory -Force -Path build, dist
+          mkdir -p build dist
         else
           mkdir -p build dist
         fi
+        echo "Build directories created: build, dist"

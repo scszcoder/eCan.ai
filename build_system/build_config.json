@@ -12,6 +12,57 @@
     "console": false,
     "debug": false
   },
+  "build_profiles": {
+    "fast": {
+      "optimization": "fast",
+      "debug": false,
+      "console": false,
+      "compression": false,
+      "upx_compression": false,
+      "strip_debug": false,
+      "onefile": false
+    },
+    "dev": {
+      "optimization": "debug",
+      "debug": true,
+      "console": true,
+      "compression": false,
+      "upx_compression": false,
+      "strip_debug": false,
+      "onefile": false
+    },
+    "prod": {
+      "optimization": "size",
+      "debug": false,
+      "console": false,
+      "compression": true,
+      "upx_compression": true,
+      "strip_debug": true,
+      "onefile": true
+    },
+    "ci": {
+      "optimization": "balanced",
+      "debug": false,
+      "console": false,
+      "compression": true,
+      "upx_compression": false,
+      "strip_debug": true,
+      "onefile": true,
+      "parallel": true
+    }
+  },
+  "cache": {
+    "enabled": true,
+    "frontend_cache": true,
+    "core_cache": false,
+    "dependency_cache": true,
+    "platform_overrides": {
+      "macos": {
+        "core_cache": false,
+        "reason": "Disabled due to symlink conflicts with frameworks"
+      }
+    }
+  },
   "_field_definitions": {
     "collect_all": "使用 PyInstaller collect_all() 完整收集的包 - 收集所有数据文件、二进制文件和隐藏导入。只用于没有 PyInstaller 内置 hooks 的包。",
     "collect_data_only": "只收集数据文件的包 - 使用 collect_data_files() 只收集数据文件，不收集二进制。用于只需要数据文件的包。",

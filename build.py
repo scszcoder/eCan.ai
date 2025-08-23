@@ -204,75 +204,7 @@ class BuildEnvironment:
 
 
 
-def _standardize_artifact_names(version: str, arch: str = "amd64") -> None:
-    """Standardize build artifact names to match release.yml expected format"""
-    import shutil
-
-    platform_name = platform.system()
-
-    # Normalize architecture names to match release.yml matrix
-    if arch in ["aarch64", "arm64"]:
-        arch_normalized = "aarch64"  # Use aarch64 for consistency with release.yml
-    elif arch in ["amd64", "x86_64"]:
-        arch_normalized = "amd64"    # Use amd64 for consistency with release.yml
-    else:
-        arch_normalized = arch
-
-    print(f"[RENAME] Architecture mapping: {arch} -> {arch_normalized}")
-
-    if platform_name == "Windows":
-        platform_str = "windows"
-        # Windows only supports amd64, so force it
-        arch_normalized = "amd64"
-
-        # Rename main executable
-        src_exe = Path("dist/eCan/eCan.exe")
-        dst_exe = Path(f"dist/eCan-{version}-{platform_str}-{arch_normalized}.exe")
-        if src_exe.exists():
-            try:
-                shutil.copy2(src_exe, dst_exe)
-                print(f"[RENAME] Created: {dst_exe.name}")
-            except Exception as e:
-                print(f"[RENAME] Warning: Failed to copy {src_exe} to {dst_exe}: {e}")
-
-        # Rename installer package
-        src_setup = Path("dist/eCan-Setup.exe")
-        dst_setup = Path(f"dist/eCan-{version}-{platform_str}-{arch_normalized}-Setup.exe")
-        if src_setup.exists():
-            try:
-                shutil.move(str(src_setup), str(dst_setup))
-                print(f"[RENAME] Renamed: {dst_setup.name}")
-            except Exception as e:
-                print(f"[RENAME] Warning: Failed to rename {src_setup} to {dst_setup}: {e}")
-
-    elif platform_name == "Darwin":
-        # macOS PKG file standardization
-        platform_str = "macos"
-
-        # Standardize PKG file naming to match release.yml format
-        expected_name = f"eCan-{version}-{platform_str}-{arch_normalized}.pkg"
-        expected_path = Path(f"dist/{expected_name}")
-
-        # Find .pkg files that need renaming
-        pkg_files = [f for f in Path("dist").glob("*.pkg") if f.name != expected_name]
-
-        if pkg_files:
-            # Rename the first PKG file found
-            src_pkg = pkg_files[0]
-            try:
-                shutil.move(str(src_pkg), str(expected_path))
-                print(f"[RENAME] Renamed PKG: {src_pkg.name} -> {expected_name}")
-            except Exception as e:
-                print(f"[RENAME] Warning: Failed to rename {src_pkg.name} to {expected_name}: {e}")
-        else:
-            print(f"[RENAME] No PKG files found to rename or already correctly named")
-
-    elif platform_name == "Linux":
-        # Linux support (future)
-        platform_str = "linux"
-        print(f"[RENAME] Linux artifact standardization not yet implemented")
-
-    print(f"[RENAME] Standardization completed for {platform_str}-{arch_normalized}")
+# Removed: _standardize_artifact_names function moved to build_utils.py to eliminate duplication
 
 
 def _show_build_results():
@@ -698,80 +630,37 @@ Usage examples:
         print("[PREP] Installer-only mode: skipping cleanup")
         print("[PREP] Using existing dist files for installer creation")
 
-    # Use simplified MiniSpecBuilder for PyInstaller build; frontend and installer as needed
+    # Use unified build system for better architecture
     try:
-        from build_system.minibuild_core import MiniSpecBuilder
-        from build_system.ecan_build import FrontendBuilder, InstallerBuilder, BuildConfig
+        from build_system.unified_build import UnifiedBuildSystem
 
-        print(f"[BUILD] Starting {build_mode} build using MiniBuild...")
+        print(f"[BUILD] Starting {build_mode} build using Unified Build System...")
         print("=" * 60)
 
-        env = BuildEnvironment()
-        cfg = BuildConfig(Path("build_system")/"build_config.json")
-        if args.version:
-            cfg.update_version(args.version)
-        frontend = FrontendBuilder(Path.cwd())
-        installer = InstallerBuilder(cfg, env, Path.cwd(), mode=build_mode)
-        minispec = MiniSpecBuilder()
-
-        # Prepare third-party assets (including Playwright)
-        if not args.installer_only:
-            print("[THIRD-PARTY] Preparing third-party assets for packaging...")
-            _t_tp_start = time.perf_counter()
-            prepare_third_party_assets()
-            _t_tp_end = time.perf_counter()
-            print(f"[TIME] Third-party assets: {(_t_tp_end - _t_tp_start):.2f}s")
-        else:
-            print("[THIRD-PARTY] Installer-only mode: skipping third-party preparation")
+        # Initialize unified build system
+        build_system = UnifiedBuildSystem(Path.cwd())
         
-        # Platform-specific build preparation (already done in pre-build phase)
-        if current_platform == "Darwin":
-            print("[BUILD] macOS build preparation completed in pre-build phase")
+        # Prepare build arguments
+        build_kwargs = {
+            'skip_frontend': args.skip_frontend,
+            'skip_installer': args.skip_installer,
+            'installer_only': args.installer_only,
+            'skip_precheck': args.skip_precheck,
+            'skip_cleanup': args.skip_cleanup,
+            'force': True  # Always force rebuild for reliability
+        }
+
+        # Execute unified build
+        exit_code = build_system.build(
+            mode=build_mode,
+            version=args.version,
+            **build_kwargs
+        )
+        
+        if exit_code != 0:
+            return exit_code
             
-        # 1) Frontend
-        if args.installer_only:
-            print("[FRONTEND] Installer-only mode: skipping frontend build")
-            print("[TIME] Frontend build: skipped")
-        elif not args.skip_frontend:
-            # Always rebuild frontend for reliability
-            print(f"[FRONTEND] Building frontend...")
-            _t_front_start = time.perf_counter()
-            ok_front = frontend.build()
-            _t_front_end = time.perf_counter()
-            print(f"[TIME] Frontend build: {(_t_front_end - _t_front_start):.2f}s")
-            if not ok_front:
-                print("[ERROR] Frontend build failed")
-                return 1
-        else:
-            print("[FRONTEND] Skipped")
-            print("[TIME] Frontend build: skipped")
-            ok_front = True
-
-        # 2) Core app build
-        if args.installer_only:
-            print("[CORE] Installer-only mode: skipping core app build")
-            print("[CORE] Assuming existing dist files are ready")
-            success = True
-            print("[TIME] Core app build: skipped")
-        else:
-            # Always rebuild core application for reliability
-            print(f"[CORE] Building core application...")
-            _t_core_start = time.perf_counter()
-            success = minispec.build(build_mode)
-            _t_core_end = time.perf_counter()
-            print(f"[TIME] Core app build: {(_t_core_end - _t_core_start):.2f}s")
-
-        # 3) Installer
-        if args.installer_only or (success and not args.skip_installer):
-            _t_inst_start = time.perf_counter()
-            ok_inst = installer.build()
-            _t_inst_end = time.perf_counter()
-            print(f"[TIME] Installer: {(_t_inst_end - _t_inst_start):.2f}s")
-            if not ok_inst:
-                print("[WARNING] Installer creation failed; continuing")
-        else:
-            print("[INSTALLER] Skipped")
-            print("[TIME] Installer: skipped")
+        success = True
 
         # 4) Platform-specific post-build validation
         if success:
@@ -860,32 +749,7 @@ Usage examples:
             print("\n[ERROR] Build failed!")
             return 1
 
-        # Standardize build artifact names (if version specified)
-        if args.version and not args.installer_only:
-            print("\n[RENAME] Standardizing artifact names...")
-            _t_rename_start = time.perf_counter()
-            try:
-                # Get architecture info (from environment variable or auto-detect)
-                # Check both BUILD_ARCH and TARGET_ARCH for compatibility
-                arch = os.getenv('BUILD_ARCH') or os.getenv('TARGET_ARCH')
-                if not arch:
-                    # Auto-detect architecture based on platform
-                    current_machine = platform.machine().lower()
-                    if current_machine in ['arm64', 'aarch64']:
-                        arch = 'aarch64'
-                    else:
-                        arch = 'amd64'
-                    print(f"[RENAME] Auto-detected architecture: {arch}")
-                print(f"[RENAME] Using architecture: {arch}")
-                print(f"[RENAME] Environment variables:")
-                print(f"  BUILD_ARCH: {os.getenv('BUILD_ARCH', 'not set')}")
-                print(f"  TARGET_ARCH: {os.getenv('TARGET_ARCH', 'not set')}")
-                print(f"  PYINSTALLER_TARGET_ARCH: {os.getenv('PYINSTALLER_TARGET_ARCH', 'not set')}")
-                standardize_artifact_names(args.version, arch)
-            except Exception as e:
-                print(f"[RENAME] Warning: Failed to standardize names: {e}")
-            _t_rename_end = time.perf_counter()
-            print(f"[TIME] Artifact renaming: {(_t_rename_end - _t_rename_start):.2f}s")
+        # Artifact standardization is handled by unified build system
 
         print("\n" + "=" * 60)
         print("[SUCCESS] Build completed successfully!")
