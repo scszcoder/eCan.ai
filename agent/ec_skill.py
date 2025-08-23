@@ -265,6 +265,8 @@ class NodeState(TypedDict):
     prompts: List[dict]
     formatted_prompts: List[dict]
     messages: List[Any]
+    threads: List[dict]
+    metadata: dict
     attributes: dict
     result: dict
     tool_input: dict

@@ -921,13 +921,13 @@ def gen_get_knowledges_string():
 def gen_query_components_string(components):
     query_string = """
             query MyQuery {
-          queryComponents (qk:[
+          queryComponents (components:[
         """
     rec_string = ""
     for i in range(len(components)):
         rec_string = rec_string + "{ component_id: " + str(components[i]['component_id']) + ", "
         rec_string = rec_string + "name: \"" + components[i]['name'] + "\", "
-        rec_string = rec_string + "proj_id: \"" + components[i]['proj_id'] + "\", "
+        rec_string = rec_string + "proj_id: " + str(components[i]['proj_id']) + ", "
         rec_string = rec_string + "description: \"" + components[i]['description'] + "\", "
         rec_string = rec_string + "category: \"" + components[i]['category'] + "\", "
         rec_string = rec_string + "application: \"" + components[i]['application'] + "\", "
@@ -1544,7 +1544,7 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
     queryInfo = gen_query_components_string(components)
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-
+    print("send_query_components_request_to_cloud, response:", jresp)
     if "errors" in jresp:
         screen_error = True
         logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
