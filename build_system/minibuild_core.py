@@ -247,8 +247,16 @@ class MiniSpecBuilder:
                     target_arch_config = "target_arch='arm64',"
                     print(f"[SPEC] Mapped {target_arch} to PyInstaller arm64")
                 elif target_arch in ['amd64', 'x86_64']:
-                    target_arch_config = "target_arch='x86_64',"
-                    print(f"[SPEC] Mapped {target_arch} to PyInstaller x86_64")
+                    # Check if we're running on ARM64 runner
+                    import platform as py_platform
+                    current_arch = py_platform.machine().lower()
+                    if current_arch in ['arm64', 'aarch64']:
+                        # On ARM64 runner, build universal binary for amd64 compatibility
+                        target_arch_config = "target_arch='universal2',"
+                        print(f"[SPEC] Mapped {target_arch} to PyInstaller universal2 (ARM64 + x86_64)")
+                    else:
+                        target_arch_config = "target_arch='x86_64',"
+                        print(f"[SPEC] Mapped {target_arch} to PyInstaller x86_64")
                 else:
                     print(f"[SPEC] Unknown target architecture: {target_arch}, using default")
             else:

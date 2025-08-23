@@ -1,0 +1,32 @@
+name: 'Setup Node.js Environment'
+description: 'Setup Node.js environment and install frontend dependencies'
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '18'
+  frontend-dir:
+    description: 'Frontend directory path'
+    required: false
+    default: 'gui_v2'
+  install-command:
+    description: 'Install command to use'
+    required: false
+    default: 'npm install --legacy-peer-deps'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node.js ${{ inputs.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+        cache-dependency-path: ${{ inputs.frontend-dir }}/package-lock.json
+
+    - name: Install frontend dependencies
+      shell: bash
+      run: |
+        echo "=== Installing Frontend Dependencies ==="
+        cd ${{ inputs.frontend-dir }}
+        ${{ inputs.install-command }}

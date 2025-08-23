@@ -1,0 +1,19 @@
+name: 'Setup Build Directories'
+description: 'Create build and dist directories for the build process'
+inputs:
+  platform:
+    description: 'Platform (windows, macos)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create build directories
+      shell: bash
+      run: |
+        echo "=== Creating Build Directories ==="
+        if [ "${{ inputs.platform }}" = "windows" ]; then
+          New-Item -ItemType Directory -Force -Path build, dist
+        else
+          mkdir -p build dist
+        fi

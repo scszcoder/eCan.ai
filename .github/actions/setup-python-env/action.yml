@@ -1,0 +1,92 @@
+name: 'Setup Python Environment'
+description: 'Setup Python environment with virtual environment and dependencies'
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+  requirements-file:
+    description: 'Requirements file to install'
+    required: false
+    default: 'requirements-base.txt'
+  platform:
+    description: 'Platform (windows, macos, linux)'
+    required: true
+  install-pyinstaller:
+    description: 'Whether to install PyInstaller'
+    required: false
+    default: 'true'
+  pyinstaller-version:
+    description: 'PyInstaller version to install'
+    required: false
+    default: '6.15.0'
+  extra-packages:
+    description: 'Extra packages to install (comma-separated)'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ inputs.platform }}-pip-${{ inputs.python-version }}-${{ hashFiles('requirements*.txt') }}
+        restore-keys: |
+          ${{ inputs.platform }}-pip-${{ inputs.python-version }}-
+
+    - name: Create and activate virtual environment
+      shell: bash
+      run: |
+        echo "=== Creating Virtual Environment ==="
+        python -m venv .venv
+        
+        if [ "${{ inputs.platform }}" = "windows" ]; then
+          echo "$PWD\\.venv\\Scripts" >> $env:GITHUB_PATH
+        else
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
+        fi
+
+    - name: Install Python dependencies
+      shell: bash
+      run: |
+        echo "=== Python/Pip Info ==="
+        python -c "import sys; print(sys.version); print(sys.executable)"
+        python -m pip -V
+
+        echo "=== Installing Python Dependencies ==="
+        python -m pip install --upgrade pip
+        
+        # Install base requirements
+        if [ -f "${{ inputs.requirements-file }}" ]; then
+          python -m pip install -r "${{ inputs.requirements-file }}"
+        fi
+        
+        # Install PyInstaller if requested
+        if [ "${{ inputs.install-pyinstaller }}" = "true" ]; then
+          python -m pip install "pyinstaller==${{ inputs.pyinstaller-version }}"
+          echo "=== Verifying PyInstaller installation ==="
+          python -c "import PyInstaller; print('PyInstaller installed successfully')"
+        fi
+        
+        # Install extra packages if specified
+        if [ -n "${{ inputs.extra-packages }}" ]; then
+          IFS=',' read -ra PACKAGES <<< "${{ inputs.extra-packages }}"
+          for package in "${PACKAGES[@]}"; do
+            if [ -n "$package" ]; then
+              echo "Installing extra package: $package"
+              python -m pip install "$package"
+            fi
+          done
+        fi
+
+    - name: Uninstall pathlib if present
+      shell: bash
+      run: |
+        python -m pip uninstall -y pathlib || true
