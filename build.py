@@ -684,7 +684,7 @@ Usage examples:
                     from build_system.build_utils import validate_macos_app_bundle
 
                     # Get app name from config
-                    app_name = cfg.get_app_info().get("name", "eCan")
+                    app_name = build_system.config.config.get("app", {}).get("name", "eCan")
                     app_bundle = Path("dist") / f"{app_name}.app"
                     if app_bundle.exists():
                         print("[BUILD] macOS: Validating app bundle...")
@@ -739,7 +739,7 @@ Usage examples:
                     print(f"[WARNING] macOS: App bundle validation failed: {e}")
             elif current_platform == "Windows":
                 # Windows-specific validation
-                app_name = cfg.get_app_info().get("name", "eCan")
+                app_name = build_system.config.config.get("app", {}).get("name", "eCan")
                 exe_path = Path("dist") / f"{app_name}.exe"
                 if exe_path.exists():
                     print(f"[BUILD] Windows: Executable created successfully ({exe_path})")
@@ -747,7 +747,7 @@ Usage examples:
                     print("[WARNING] Windows: Executable not found")
             elif current_platform == "Linux":
                 # Linux-specific validation
-                app_name = cfg.get_app_info().get("name", "eCan")
+                app_name = build_system.config.config.get("app", {}).get("name", "eCan")
                 exe_path = Path("dist") / app_name
                 if exe_path.exists():
                     print(f"[BUILD] Linux: Executable created successfully ({exe_path})")

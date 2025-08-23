@@ -38,7 +38,7 @@
       "compression": true,
       "upx_compression": true,
       "strip_debug": true,
-      "onefile": true
+      "onefile": false
     },
     "ci": {
       "optimization": "balanced",
