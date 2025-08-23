@@ -175,9 +175,17 @@ class BuildEnvironment:
 
     def _activate_virtual_environment(self) -> bool:
         """Activate virtual environment"""
-        venv_path = Path("venv")
-        if not venv_path.exists():
-            print("[ERROR] Virtual environment not found")
+        # Check for both common venv directory names
+        venv_candidates = [Path("venv"), Path(".venv")]
+        venv_path = None
+        
+        for candidate in venv_candidates:
+            if candidate.exists():
+                venv_path = candidate
+                break
+                
+        if venv_path is None:
+            print("[ERROR] Virtual environment not found (checked: venv, .venv)")
             return False
 
         # Check for Python executable in virtual environment

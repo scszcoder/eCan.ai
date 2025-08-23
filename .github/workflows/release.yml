@@ -447,6 +447,7 @@ jobs:
       with:
         platform: macos
         requirements-file: requirements-macos.txt
+        python-version: ${{ matrix.arch == 'aarch64' && '3.11' || '3.11' }}
 
     - name: Cache Node.js dependencies
       if: steps.should_build.outputs.should_build == 'true'
@@ -529,7 +530,11 @@ jobs:
           export CMAKE_APPLE_SILICON_PROCESSOR="arm64"
           # Force pip to use ARM64 wheels when available
           export PIP_PLATFORM="macosx_11_0_arm64"
+          # Force cross-compilation for ARM64 on Intel runner
+          export PYINSTALLER_TARGET_ARCH="arm64"
+          export TARGET_ARCH="arm64"
           echo "[INFO] ARM64 environment configured"
+          echo "[WARN] Cross-compiling ARM64 on Intel runner - validation warnings expected"
         else
           echo "[INFO] Configuring Intel (x86_64) build"
           export ARCHFLAGS="-arch x86_64"

@@ -129,14 +129,24 @@ class BuildValidator:
         except Exception:
             pass
         
-        # Check Python binary architecture
-        try:
-            result = subprocess.run(['file', sys.executable], 
-                                  capture_output=True, text=True)
-            if result.returncode == 0 and 'x86_64' in result.stdout.lower():
-                issues.append("Python binary is x86_64 - consider ARM64 native Python")
-        except Exception:
-            pass
+        # Check Python architecture on macOS
+        if self.platform_handler.is_macos:
+            try:
+                result = subprocess.run(['file', sys.executable], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0 and 'x86_64' in result.stdout.lower():
+                    # Check if we're in cross-compilation mode (CI environment)
+                    target_arch = os.environ.get('TARGET_ARCH', '').lower()
+                    pyinstaller_arch = os.environ.get('PYINSTALLER_TARGET_ARCH', '').lower()
+                    is_ci = os.environ.get('CI', '').lower() == 'true'
+                    
+                    if is_ci and (target_arch == 'arm64' or pyinstaller_arch == 'arm64'):
+                        # This is expected in CI cross-compilation
+                        issues.append("Python binary is x86_64 (cross-compiling to ARM64 in CI)")
+                    else:
+                        issues.append("Python binary is x86_64 - consider ARM64 native Python")
+            except Exception:
+                pass
         
         # Check for Universal Binary tools
         if not shutil.which("lipo"):
