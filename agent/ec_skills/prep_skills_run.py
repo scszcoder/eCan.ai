@@ -27,16 +27,16 @@ SKILL_PREP_TABLE = {
     "ecan.ai self test": prep_self_test_skill
 }
 
-def prep_skills_run(skillName, agent, msg=None):
+def prep_skills_run(skillName, agent, msg=None, current_state=None):
     print("skill name:", skillName)
     # Try exact match first
     if skillName in SKILL_PREP_TABLE:
-        return SKILL_PREP_TABLE[skillName](agent, msg)
+        return SKILL_PREP_TABLE[skillName](agent, msg, current_state)
     # Fallback to case-insensitive lookup
     lower_map = {k.lower(): v for k, v in SKILL_PREP_TABLE.items()}
     key_lower = skillName.lower() if isinstance(skillName, str) else skillName
     if key_lower in lower_map:
-        return lower_map[key_lower](agent, msg)
+        return lower_map[key_lower](agent, msg, current_state)
     # Not found: raise informative error listing available keys
     available = ", ".join(sorted(SKILL_PREP_TABLE.keys()))
     raise KeyError(f"Skill preper not found for '{skillName}'. Available: {available}")

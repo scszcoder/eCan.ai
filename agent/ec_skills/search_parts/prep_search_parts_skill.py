@@ -1,6 +1,6 @@
 from agent.ec_skill import NodeState
 
-def prep_search_parts_skill(agent, msg=None, file_names=[]):
+def prep_search_parts_skill(agent, msg=None, current_state=None):
     print("init_search_parts_skill", type(msg), msg)  # msg.params.message[0].text
 
     attachments = []
@@ -17,10 +17,19 @@ def prep_search_parts_skill(agent, msg=None, file_names=[]):
             "url": "https://www.digikey.com/en/products"
         },
         tool_result={},
+        threads=[],
+        metadata={},
         error="",
         retries=3,
         condition=False,
         case="",
         goals=[]
     )
-    return init_state
+    if not current_state:
+        return init_state
+    else:
+        current_state["attachments"] = attachments
+        current_state["messages"].append(msg_txt)
+        current_state["tool_input"]={
+            "url": "https://www.digikey.com/en/products"
+        }

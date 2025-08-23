@@ -829,6 +829,8 @@ class TaskRunner(Generic[Context]):
 
     # async def launch_reacted_run(self, task=None):
     def launch_reacted_run(self, task=None):
+        chatNotDone = True
+        justStarted = True
         while not self._stop_event.is_set():
             try:
                 logger.trace("checking a2a queue....", self.agent.card.name)
@@ -844,24 +846,65 @@ class TaskRunner(Generic[Context]):
                         # then run this skill's runnable with the msg
                         if matched_tasks:
                             task2run = matched_tasks[0]
-                            logger.debug("task2run skill name" + task2run.skill.name)
-                            task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent)
+                            if task2run:
+                                if justStarted:
+                                    logger.debug("task2run skill name" + task2run.skill.name)
+                                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, None)
 
-                            logger.trace("task2run init state" + str(task2run.metadata["state"]))
-                            logger.trace("ready to run the right task" + task2run.name + str(msg))
-                            # response = await task2run.astream_run()
-                            response = task2run.stream_run()
+                                    logger.trace("task2run init state" + str(task2run.metadata["state"]))
+                                    logger.trace("ready to run the right task" + task2run.name + str(msg))
+                                    # response = await task2run.astream_run()
+                                    response = task2run.stream_run()
 
-                            print("reacted task run response:", response)
-                            if not response.get("success") and 'step' in response:
-                                logger.trace("sending interrupt prompt1")
-                                if '__interrupt__' in response['step']:
-                                    logger.trace("sending interrupt prompt2")
-                                    interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
-                                    prompt = interrupt_obj.value["prompt_to_human"]
-                                    # now return this prompt to GUI to display
-                                    chatId = msg.params.metadata['chatId']
-                                    self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                    print("reacted task run response:", response)
+                                    if not response.get("success") and 'step' in response:
+                                        logger.trace("sending interrupt prompt1")
+                                        if '__interrupt__' in response['step']:
+                                            logger.trace("sending interrupt prompt2")
+                                            interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                            prompt = interrupt_obj.value["prompt_to_human"]
+                                            # now return this prompt to GUI to display
+                                            chatId = msg.params.metadata['chatId']
+                                            self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                            justStarted = False
+                                        else:
+                                            justStarted = True
+                                else:
+                                    logger.debug("task2run skill name" + task2run.skill.name)
+                                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.metadata["state"])
+
+                                    logger.trace("task2run init state" + str(task2run.metadata["state"]))
+                                    logger.trace("ready to run the right task" + task2run.name + str(msg))
+                                    # response = await task2run.astream_run()
+                                    response = task2run.stream_run()
+                                    if '__interrupt__' in response['step']:
+                                        response = task2run.stream_run(Command(resume=True), stream_mode="updates", )
+                                        print("NI interacted  task resume response:", response)
+                                    else:
+                                        response = task2run.stream_run()
+                                        print("NI interacted task re-run response:", response)
+
+                                    if '__interrupt__' in response['step']:
+                                        logger.trace("sending interrupt prompt2")
+                                        interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                        prompt = interrupt_obj.value["prompt_to_human"]
+                                        # now return this prompt to GUI to display
+                                        chatId = msg.params.metadata['chatId']
+
+                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
+
+                                        if interrupt_obj.value.get("qa_form_to_agent", None):
+                                            self.sendChatFormToGUI(self.agent, chatId,
+                                                                   interrupt_obj.value.get["qa_form_to_human"])
+                                        elif interrupt_obj.value.get("notification_to_agent", None):
+                                            self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value.get[
+                                                "notification_to_human"])
+
+
+                                        justStarted = False
+                                    else:
+                                        justStarted = True
+
 
                             task_id = msg.params.id
                             self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
@@ -909,7 +952,7 @@ class TaskRunner(Generic[Context]):
                         if task2run:
                             if justStarted:
                                 print("chatter task2run skill name", task2run.skill.name)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg, None)
 
                                 print("interacted task2run init state", task2run.metadata["state"])
                                 print("ready to run the right task", task2run.name, type(msg), msg)
@@ -952,7 +995,7 @@ class TaskRunner(Generic[Context]):
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                             else:
                                 print(f"interacted {task2run.skill.name} no longer initial run", msg)
-                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg)
+                                task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg, task2run.metadata["state"])
 
                                 print("NI interacted task2run current state", task2run.metadata["state"])
                                 # print("ready to run the right task", task2run.name, msg)
