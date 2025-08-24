@@ -587,7 +587,8 @@ class WebGUI(QMainWindow):
                 db_result = chat_service.add_text_message(
                     chatId=chatId, role=role, text=content.get('text', ''), senderId=senderId, createAt=createAt,
                     senderName=senderName, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'form':
+
+            if msg_type == 'form':
                 form = content.get('form', {})
                 db_result = chat_service.add_form_message(
                     chatId=chatId, role=role, form=form, senderId=senderId,

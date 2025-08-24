@@ -14,6 +14,8 @@ def prep_my_twin_chatter_skill(agent, msg, current_state=None):
         atts = []
         human = False
         params = msg.params
+        method = msg.method
+        form = msg.params.metadata["form"]
     else:
         print("prep response message", msg)
         msg_txt = msg['params']['content']
@@ -27,6 +29,13 @@ def prep_my_twin_chatter_skill(agent, msg, current_state=None):
         msg_id = msg['id']
         human = msg['params']['human']
         params = msg['params']
+        method = msg["method"]
+        if msg["method"] == "form_submit":
+            form = msg["params"].get("formData", {})
+        else:
+            form = {}
+
+
 
     init_state = NodeState(
         messages=[agent.card.id, chat_id, msg_id, "", msg_txt],
@@ -34,16 +43,22 @@ def prep_my_twin_chatter_skill(agent, msg, current_state=None):
         attachments=atts,
         prompts=[],
         formatted_prompts=[],
-        attributes={"human": human, "params": params},
+        attributes={"human": human, "method": method, "params": params, "form": form},
         result={},
         tool_input={},
         tool_result={},
         threads=[],
-        metadata={},
+        metadata={"form":form},
         error="",
         retries=3,
         condition=False,
         case="",
         goals=[]
     )
-    return init_state
+
+    if not current_state:
+        return init_state
+    else:
+        current_state["attachments"] = atts
+        current_state["messages"].append(msg_txt)
+        return current_state

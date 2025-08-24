@@ -52,3 +52,4 @@ def prep_search_parts_chatter_skill(agent, msg, current_state=None):
     else:
         current_state["attachments"] = attachments
         current_state["messages"].append(msg_txt)
+        return current_state

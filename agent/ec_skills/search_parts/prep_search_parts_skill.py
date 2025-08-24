@@ -33,3 +33,4 @@ def prep_search_parts_skill(agent, msg=None, current_state=None):
         current_state["tool_input"]={
             "url": "https://www.digikey.com/en/products"
         }
+        return current_state

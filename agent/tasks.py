@@ -746,9 +746,9 @@ class TaskRunner(Generic[Context]):
         # for now, for the simplicity just find the task that's not scheduled.
         found = []
         msg_js = json.loads(msg["message"])         # need , encoding='utf-8'?
-        if msg_js['metadata']["type"] == "send_task":
+        if msg_js['metadata']["mtype"] == "send_task":
             found = [task for task in self.agent.tasks if msg_js['metadata']['task']['name'].lower in task.name.lower()]
-        elif msg_js['metadata']["type"] == "send_chat":
+        elif msg_js['metadata']["mtype"] == "send_chat":
             found = [task for task in self.agent.tasks if "chatter task" in task.name.lower()]
         return found
 
