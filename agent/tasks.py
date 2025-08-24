@@ -924,6 +924,7 @@ class TaskRunner(Generic[Context]):
                                     logger.trace("ready to run the right task" + task2run.name + str(msg))
                                     # response = await task2run.astream_run()
                                     response = task2run.stream_run()
+                                    print("NI, resume tick", response)
                                     # Resume with the user's reply using Command(resume=...)
                                     resume_payload = self._build_resume_payload(msg)
                                     response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
