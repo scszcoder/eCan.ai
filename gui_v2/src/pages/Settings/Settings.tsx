@@ -2,8 +2,6 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { useTheme } from '../../contexts/ThemeContext';
-import { useLanguage } from '../../contexts/LanguageContext';
 import { logger } from '../../utils/logger';
 import type { Settings } from './types';
 import { useUserStore } from '../../stores/userStore';
@@ -40,21 +38,12 @@ const initialSettings: Settings = {
 };
 
 const Settings: React.FC = () => {
-  const { t, i18n } = useTranslation();
-  const { theme, changeTheme } = useTheme();
-  const { changeLanguage } = useLanguage();
+  const { t } = useTranslation();
   const [form] = Form.useForm<Settings>();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const username = useUserStore((state) => state.username);
-  const [pageForm] = Form.useForm<{ language: string; theme: 'light' | 'dark' | 'system' }>();
   const location = useLocation();
-  // 优先使用当前操作系统/浏览器语言
-  const getDefaultLanguage = () => {
-    const browserLang = navigator.language;
-    if (browserLang === 'zh-CN' || browserLang === 'en-US') return browserLang;
-    return 'zh-CN';
-  };
 
   const isMountedRef = useRef(false);
 
@@ -104,27 +93,6 @@ const Settings: React.FC = () => {
     await loadSettings();
     message.success(t('pages.settings.refreshed'));
   }, [loadSettings, message, t]);
-
-  // 页面设置保存
-  const handlePageThemeChange = (value: 'light' | 'dark' | 'system') => {
-    saveScroll();
-    changeTheme(value);
-    message.success(t('pages.settings.themeChanged'));
-    setTimeout(restoreScroll, 0);
-  };
-  const handlePageLanguageChange = async (value: string) => {
-    saveScroll();
-    try {
-      await i18n.changeLanguage(value);
-      changeLanguage(value);
-      message.success(t('pages.settings.languageChanged'));
-      setTimeout(restoreScroll, 0);
-      console.log('当前语言已切换为:', i18n.language);
-    } catch (e) {
-      message.error(t('pages.settings.languageChangeError'));
-      console.error('语言切换失败:', e);
-    }
-  };
 
   const handleSave = async (values: Settings) => {
     try {
@@ -288,29 +256,6 @@ const Settings: React.FC = () => {
             <Button type="primary" htmlType="submit" loading={loading} size="small">{t('common.save')}</Button>
           </Form.Item>
         </Form>
-        {/* 页面设置分组放在底部，无保存按钮，切换即生效 */}
-        <Card title={t('pages.settings.page_settings')} style={{ marginTop: 32 }}>
-          <Form
-            key={location.pathname + '-page'}
-            form={pageForm}
-            layout="vertical"
-            initialValues={{ language: getDefaultLanguage(), theme: (theme === 'light' || theme === 'dark' || theme === 'system') ? theme : 'light' }}
-          >
-            <Form.Item label={getLabel('language')} name="language">
-              <Select onChange={handlePageLanguageChange}>
-                <Select.Option value="en-US">{t('languages.en-US')}</Select.Option>
-                <Select.Option value="zh-CN">{t('languages.zh-CN')}</Select.Option>
-              </Select>
-            </Form.Item>
-            <Form.Item label={getLabel('theme')} name="theme">
-              <Select onChange={handlePageThemeChange}>
-                <Select.Option value="light">{getLabel('theme.light')}</Select.Option>
-                <Select.Option value="dark">{getLabel('theme.dark')}</Select.Option>
-                <Select.Option value="system">{getLabel('theme.system')}</Select.Option>
-              </Select>
-            </Form.Item>
-          </Form>
-        </Card>
       </Card>
     </div>
   );

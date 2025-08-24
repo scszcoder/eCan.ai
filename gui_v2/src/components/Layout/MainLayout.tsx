@@ -95,9 +95,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     const userMenuItems = React.useMemo<MenuProps['items']>(() => [
         { key: 'profile', icon: <UserOutlined />, label: t('common.profile') },
-        { key: 'settings', icon: <SettingOutlined />, label: t('common.settings') },
-        { type: 'divider' },
-        { key: 'logout', icon: <LogoutOutlined />, label: t('common.logout'), onClick: handleLogout },
     ], [t]) || [];
 
     const onMenuClick = ({ key }: { key: string }) => navigate(key);
