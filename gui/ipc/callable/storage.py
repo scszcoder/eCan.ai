@@ -492,7 +492,7 @@ class CallableStorage:
             
         if options.get('remove_special_chars'):
             import re
-            result = re.sub(r'[^a-zA-Z0-9\s]', '', result)
+            result = re.sub(r'[^a-zA-Z0-9\\s]', '', result)
             
         return {
             'result': result,
