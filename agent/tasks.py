@@ -151,24 +151,18 @@ class ManagedTask(Task):
             **kwargs: Additional arguments to pass to the runnable's astream method
         """
         print("in_msg:", in_msg, "config:", config, "kwargs:", kwargs)
-        # if not in_msg:
-        #     in_args = self.metadata.get("state", {})
-        # else:
-        #     in_args = in_msg
         print("self.metadata:", self.metadata)
-        in_args = self.metadata.get("state", {})
-        print("in_args:", in_args)
 
-        if config is None:
-            config = {
+        # Reuse a persistent config (thread_id) across runs; create and cache if missing
+        effective_config = config or self.metadata.get("config")
+        if effective_config is None:
+            effective_config = {
                 "configurable": {
                     "thread_id": str(uuid.uuid4()),
                     "store": None
-                    # "thread_id": str(uuid.uuid4()),
-                    # "checkpoint_ns": "task_checkpoint",
-                    # "checkpoint_id": str(self.id)
                 }
             }
+            self.metadata["config"] = effective_config
 
         if context is None:
             context = {
@@ -180,12 +174,19 @@ class ManagedTask(Task):
                 "app_context": {},
                 "this_node": {"name": ""},
             }
-        print("current langgraph run time state0:", self.skill.runnable.get_state(config=config))
-        agen = self.skill.runnable.stream(in_args, config=config, context=context, **kwargs)
+        print("current langgraph run time state0:", self.skill.runnable.get_state(config=effective_config))
+
+        # Support Command inputs (e.g., Command(resume=...)) and normal state runs
+        if isinstance(in_msg, Command):
+            agen = self.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
+        else:
+            in_args = self.metadata.get("state", {})
+            print("in_args:", in_args)
+            agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
         try:
             print("running skill:", self.skill.name, in_msg)
-            print("stream_run config:", config)
-            print("current langgraph run time state2:", self.skill.runnable.get_state(config=config))
+            print("stream_run config:", effective_config)
+            print("current langgraph run time state2:", self.skill.runnable.get_state(config=effective_config))
             # Set up default config if not provided
 
             # Handle Command objects
@@ -245,27 +246,26 @@ class ManagedTask(Task):
             config: Configuration dictionary for the runnable
             **kwargs: Additional arguments to pass to the runnable's astream method
         """
-        if not in_msg:
-            in_args = self.metadata.get("state", {})
-        else:
-            in_args = in_msg
-
-        print("in_args:", in_args)
-
-        if config is None:
-            config = {
+        # Reuse a persistent config (thread_id) across runs; create and cache if missing
+        effective_config = config or self.metadata.get("config")
+        if effective_config is None:
+            effective_config = {
                 "configurable": {
                     "thread_id": str(uuid.uuid4())
-                    # "thread_id": str(uuid.uuid4()),
-                    # "checkpoint_ns": "task_checkpoint",
-                    # "checkpoint_id": str(self.id)
                 }
             }
+            self.metadata["config"] = effective_config
 
-        agen = self.skill.runnable.astream(in_args, config=config, **kwargs)
+        # Support Command inputs (e.g., Command(resume=...)) and normal state runs
+        if isinstance(in_msg, Command):
+            agen = self.skill.runnable.astream(in_msg, config=effective_config, **kwargs)
+        else:
+            in_args = self.metadata.get("state", {})
+            print("in_args:", in_args)
+            agen = self.skill.runnable.astream(in_args, config=effective_config, **kwargs)
         try:
             print("running skill:", self.skill.name, in_msg)
-            print("astream_run config:", config)
+            print("astream_run config:", effective_config)
 
 
             # Set up default config if not provided
@@ -277,7 +277,7 @@ class ManagedTask(Task):
             #         # Handle reset command
             #         config["configurable"]["thread_id"] = str(uuid.uuid4())
             #         in_args = {}  # Reset input args
-                # Add other command handling as needed
+            # Add other command handling as needed
 
             # Pass through any additional kwargs to astream
             step = {}
@@ -354,7 +354,7 @@ def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
     repeat_number = int(schedule.repeat_number)
 
     if schedule.repeat_type == Repeat_Types.NONE:
-        return start_time, False  # ⛔ Never auto-run
+        return start_time, False  # Never auto-run
     elif schedule.repeat_type == Repeat_Types.BY_SECONDS:
         delta = timedelta(seconds=repeat_number)
         elapsed = (now - start_time).total_seconds()
@@ -487,7 +487,7 @@ def time_to_run(agent):
     now = datetime.now()
 
     for task in agent.tasks:
-        # 🚨 Skip tasks without schedule or non-time-based tasks
+        # Skip tasks without schedule or non-time-based tasks
         if not task.schedule or task.schedule.repeat_type == Repeat_Types.NONE or task.trigger != "schedule":
             continue
 
@@ -503,7 +503,7 @@ def time_to_run(agent):
 
         overdue_time = (now - last_runtime).total_seconds()
         logger.debug("overdue:", overdue_time, repeat_seconds, elapsed_since_last_run)
-        # 🧠 Main logic: should we run now?
+        # Main logic: should we run now?
         if (now >= last_runtime and
             elapsed_since_last_run > repeat_seconds / 2 and
             not task.already_run_flag):
@@ -512,14 +512,14 @@ def time_to_run(agent):
                 "task": task
             })
 
-        # 🕒 Reset already_run_flag if now is close to the next scheduled run time
+        # Reset already_run_flag if now is close to the next scheduled run time
         if abs((next_runtime - now).total_seconds()) <= 30 * 60:
             task.already_run_flag = False
 
     if not t2rs:
         return None
 
-    # 🥇 Sort tasks: run the most overdue task first
+    # Sort tasks: run the most overdue task first
     t2rs.sort(key=lambda x: x["overdue"], reverse=True)
 
     selected_task = t2rs[0]["task"]
@@ -582,13 +582,13 @@ class TaskRunner(Generic[Context]):
                     if inspect.isawaitable(coro):
                         self.running_tasks.append(coro)
                     else:
-                        print(f"⚠️ Task returned non-awaitable: {coro}")
+                        print(f"Task returned non-awaitable: {coro}")
                 except TypeError:
-                    print(f"⚠️ Task {t.task} requires arguments — please invoke it properly.")
+                    print(f"Task {t.task} requires arguments — please invoke it properly.")
             elif inspect.isawaitable(t.task):
                 self.running_tasks.append(t.task)
             else:
-                print(f"⚠️ Task is not callable or awaitable: {t.task}")
+                print(f"Task is not callable or awaitable: {t.task}")
 
         if self.running_tasks:
             print("# of running tasks: ", len(self.running_tasks))
@@ -752,6 +752,52 @@ class TaskRunner(Generic[Context]):
             found = [task for task in self.agent.tasks if "chatter task" in task.name.lower()]
         return found
 
+    def _extract_text_from_message(self, message) -> str:
+        """Extract concatenated text from a Message object's parts list.
+        Falls back gracefully if structure differs.
+        """
+        try:
+            parts = getattr(message, "parts", None)
+            if not parts and isinstance(message, dict):
+                parts = message.get("parts")
+            if not parts:
+                # maybe plain text
+                return getattr(message, "text", "") if hasattr(message, "text") else (message or "")
+            texts = []
+            for p in parts:
+                ptype = getattr(p, "type", None) or (p.get("type") if isinstance(p, dict) else None)
+                if ptype == "text":
+                    txt = getattr(p, "text", None) or (p.get("text") if isinstance(p, dict) else None)
+                    if txt:
+                        texts.append(txt)
+            return "\n".join(texts)
+        except Exception:
+            return ""
+
+    def _build_resume_payload(self, msg) -> dict:
+        """Build a resume payload from incoming chat/task message."""
+        try:
+            if hasattr(msg, "params"):
+                message = getattr(msg.params, "message", None)
+                metadata = getattr(msg.params, "metadata", {}) or {}
+            elif isinstance(msg, dict):
+                message = msg.get("params", {}).get("message") or msg.get("message")
+                metadata = msg.get("params", {}).get("metadata", {}) or msg.get("metadata", {}) or {}
+            else:
+                message, metadata = None, {}
+            human_text = self._extract_text_from_message(message) if message else ""
+            qa_form = metadata.get("qa_form_to_agent") or metadata.get("qa_form") or {}
+            notification = metadata.get("notification_to_agent") or metadata.get("notification") or {}
+            payload = {
+                "human_text": human_text,
+                "qa_form_to_agent": qa_form,
+                "notification_to_agent": notification,
+            }
+            return payload
+        except Exception:
+            return {"human_text": ""}
+
+
     async def async_task_wait_in_line(self, request):
         try:
             print("task waiting in line.....")
@@ -793,6 +839,7 @@ class TaskRunner(Generic[Context]):
             ex_stat = "ErrorWaitInLine:" + traceback.format_exc() + " " + str(e)
             print(f"{ex_stat}")
 
+    # this is for chat task
     # async def launch_scheduled_run(self, task=None):
     def launch_scheduled_run(self, task=None):
         while not self._stop_event.is_set():
@@ -857,18 +904,18 @@ class TaskRunner(Generic[Context]):
                                     response = task2run.stream_run()
 
                                     print("reacted task run response:", response)
-                                    if not response.get("success") and 'step' in response:
+                                    step = response.get('step') or {}
+                                    if isinstance(step, dict) and '__interrupt__' in step:
                                         logger.trace("sending interrupt prompt1")
-                                        if '__interrupt__' in response['step']:
-                                            logger.trace("sending interrupt prompt2")
-                                            interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
-                                            prompt = interrupt_obj.value["prompt_to_human"]
-                                            # now return this prompt to GUI to display
-                                            chatId = msg.params.metadata['chatId']
-                                            self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                                            justStarted = False
-                                        else:
-                                            justStarted = True
+                                        logger.trace("sending interrupt prompt2")
+                                        interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                        prompt = interrupt_obj.value["prompt_to_human"]
+                                        # now return this prompt to GUI to display
+                                        chatId = msg.params.metadata['chatId']
+                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
+                                        justStarted = False
+                                    else:
+                                        justStarted = True
                                 else:
                                     logger.debug("task2run skill name" + task2run.skill.name)
                                     task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, task2run.metadata["state"])
@@ -877,37 +924,42 @@ class TaskRunner(Generic[Context]):
                                     logger.trace("ready to run the right task" + task2run.name + str(msg))
                                     # response = await task2run.astream_run()
                                     response = task2run.stream_run()
-                                    if '__interrupt__' in response['step']:
-                                        response = task2run.stream_run(Command(resume=True), stream_mode="updates", )
-                                        print("NI interacted  task resume response:", response)
-                                    else:
-                                        response = task2run.stream_run()
-                                        print("NI interacted task re-run response:", response)
+                                    # Resume with the user's reply using Command(resume=...)
+                                    resume_payload = self._build_resume_payload(msg)
+                                    response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
+                                    print("NI reacted task resume response:", response)
 
-                                    if '__interrupt__' in response['step']:
+                                    step = response.get('step') or {}
+                                    if isinstance(step, dict) and '__interrupt__' in step:
                                         logger.trace("sending interrupt prompt2")
-                                        interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                        interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
                                         prompt = interrupt_obj.value["prompt_to_human"]
                                         # now return this prompt to GUI to display
                                         chatId = msg.params.metadata['chatId']
+                                        task_id = msg.params.metadata['msgId']
+                                        print("chatId in the message", chatId)
 
+                                        hilData = sample_search_result0
+                                        hilData = sample_parameters_0
+                                        # hilData = sample_metrics_0
+                                        # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
+                                        # self.sendChatFormToGUI(self.agent, chatId, hilData)
+                                        # self.sendChatMessageToGUI(self.agent, chatId, hilData)
+                                        # self.agent.mainwin.top_gui.push_message_to_chat(chatId, hilData)
                                         self.sendChatMessageToGUI(self.agent, chatId, prompt)
 
                                         if interrupt_obj.value.get("qa_form_to_agent", None):
-                                            self.sendChatFormToGUI(self.agent, chatId,
-                                                                   interrupt_obj.value.get["qa_form_to_human"])
+                                            self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value.get["qa_form_to_human"])
                                         elif interrupt_obj.value.get("notification_to_agent", None):
-                                            self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value.get[
-                                                "notification_to_human"])
+                                            self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value.get["notification_to_human"])
 
 
                                         justStarted = False
                                     else:
                                         justStarted = True
 
-
-                            task_id = msg.params.id
-                            self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+                                task_id = msg.params.id
+                                self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
                         self.a2a_msg_queue.task_done()
 
                         # process msg here and the msg could be start a task run.
@@ -967,10 +1019,11 @@ class TaskRunner(Generic[Context]):
                                 #     msg = SendTaskRequest(**msg)
                                 # task_id = msg.params.id
                                 print("sending interrupt prompt1")
-                                if '__interrupt__' in response['step']:
+                                step = response.get('step') or {}
+                                if isinstance(step, dict) and '__interrupt__' in step:
 
                                     print("sending interrupt prompt2")
-                                    interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                    interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
                                     print("prompt to human:", prompt)
@@ -1001,17 +1054,16 @@ class TaskRunner(Generic[Context]):
                                 # print("ready to run the right task", task2run.name, msg)
 
                                 print("NI interacted task2run current response", response)
+                                # Resume with the user's reply using Command(resume=...)
+                                resume_payload = self._build_resume_payload(msg)
+                                response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
+                                print("NI interacted  task resume response:", response)
 
-                                if '__interrupt__' in response['step']:
-                                    response = task2run.stream_run(Command(resume=True), stream_mode="updates",)
-                                    print("NI interacted  task resume response:", response)
-                                else:
-                                    response = task2run.stream_run()
-                                    print("NI interacted task re-run response:", response)
 
-                                if '__interrupt__' in response['step']:
+                                step = response.get('step') or {}
+                                if isinstance(step, dict) and '__interrupt__' in step:
                                     print("NI sending interrupt prompt2")
-                                    interrupt_obj = response["step"]["__interrupt__"][0]  # [0] because it's a tuple with one item
+                                    interrupt_obj = step["__interrupt__"][0]  # [0] because it's a tuple with one item
                                     prompt = interrupt_obj.value["prompt_to_human"]
                                     # now return this prompt to GUI to display
                                     print("NI prompt to human:", prompt)

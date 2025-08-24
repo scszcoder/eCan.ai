@@ -103,7 +103,7 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
             "notification_to_human": notification
         }
     )
-    print("node running:", runtime.context.current_node)
+    print("node running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
     print("interrupted:", interrupted)
     return {
         "pended": interrupted # (3)!
@@ -133,7 +133,7 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
             "notification_to_human": notification
         }
     )
-    print("node running:", runtime.context.current_node)
+    print("node running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
     print("interrupted:", interrupted)
     return {
         "pended": interrupted  # (3)!
@@ -223,7 +223,7 @@ def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: B
             "notification_to_human": notification
         }
     )
-    print("node running:", runtime.context.current_node)
+    print("node running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
     print("interrupted:", interrupted)
     return {
         "pended": interrupted # (3)!
