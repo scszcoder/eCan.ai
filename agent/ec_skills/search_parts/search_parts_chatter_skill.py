@@ -139,7 +139,11 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
         "pended": interrupted  # (3)!
     }
 
-
+def has_parametric_filters(data):
+    try:
+        return "parametric_filters" in data["tool_result"]["components"][0]["metadata"]
+    except (KeyError, IndexError, TypeError):
+        return False
 
 def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
     # highlight-next-line
@@ -151,11 +155,16 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
 
     print("pend_for_human_fill_specs_node:", current_node_name, state)
     if state.get("tool_result", None):
-        qa_form = state.get("tool_result").get("qa_form", None)
+        pf_exists = has_parametric_filters(state)
+        if pf_exists:
+            parametric_filters = state["tool_result"]["components"][0]["metadata"]["parametric_filters"]
+        else:
+            parametric_filters = {}
+        qa_form = parametric_filters
         notification = state.get("tool_result").get("notification", None)
     else:
-        qa_form = None
-        notification = None
+        qa_form = {}
+        notification = {}
 
     interrupted = interrupt(  # (1)!
         {
@@ -164,14 +173,14 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
             "notification_to_human": notification
         }
     )
-    print("node running:", runtime.context.current_node)
+    print("node running:", current_node_name)
     print("interrupted:", interrupted)
     return {
         "pended": interrupted  # (3)!
     }
 
 
-def is_form_filled(form):
+def is_dict_filled(form):
     filled = True
     for key, value in form.items():
         if isinstance(value, dict) or isinstance(value, list):
@@ -186,12 +195,35 @@ def is_form_filled(form):
     return filled
 
 
+def is_form_filled(form):
+    filled = True
+    for item in form:
+        if not item.get("selectedValue", ""):
+            filled = False
+            break
+
+    return filled
+
+
 def examine_filled_specs_node(state):
     print("examine filled specs node.......", state)
-    if is_form_filled(state["attributes"]["parametric_filters"]):
+    pf_exists = has_parametric_filters(state)
+    if pf_exists:
+        parametric_filters = state["tool_result"]["components"][0]["metadata"]["parametric_filters"]
+        state["metadata"]["parametric_filters"] = parametric_filters
+    else:
+        parametric_filters = {}
+
+    print("parametric_filters", parametric_filters)
+    if is_form_filled(parametric_filters[0]):
+        print("parametric filters filled")
         state["condition"] = True
     else:
+        print("parametric filters NOT YET filled")
         state["condition"] = False
+        state["condition"] = True
+
+    return state
 
 def confirm_FOM_node(state):
     print("confirm FOM node.......", state)
@@ -629,16 +661,24 @@ def prep_fom_form(state: NodeState):
 
 
 def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    agent_id = state["messages"][0]
-    # _ensure_context(runtime.context)
-    self_agent = get_agent_by_id(agent_id)
-    mainwin = self_agent.mainwin
-    print("request_FOM_node:", state)
+    try:
+        agent_id = state["messages"][0]
+        # _ensure_context(runtime.context)
+        self_agent = get_agent_by_id(agent_id)
+        mainwin = self_agent.mainwin
+        print("request_FOM_node:", state)
 
-    # send self a message to trigger the real component search work-flow
-    fom_form = prep_fom_form(state)
-    send_data_back2human("send_chat","form", fom_form, state)
+        # send self a message to trigger the real component search work-flow
+        fom_form = prep_fom_form(state)
+        send_data_back2human("send_chat","form", fom_form, state)
+    except Exception as e:
+        state['error'] = get_traceback(e, "ErrorRequestFOMNode")
+        logger.debug(state['error'])
+    finally:
+        # Nothing to do; local loop was closed above
+        pass
 
+    print("request_FROM_node all done, current state is:", state)
     return state
 
 
@@ -664,15 +704,15 @@ def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> 
     return state
 
 def are_component_specs_filled(state):
-    print("is_result_ready input:", state)
+    print("are_component_specs_filled input:", state)
     if state['condition']:
-        return "send_FOM_request"
+        return "request_FOM"
     else:
         return "pend_for_next_human_msg1"
 
 
 def is_FOM_filled(state):
-    print("is_result_ready input:", state)
+    print("is_FOM_filled input:", state)
     if state['condition']:
         return "show_results"
     else:
@@ -685,6 +725,7 @@ def is_result_ready(state):
         return "show_results"
     else:
         return "pend_for_result"
+
 
 
 
@@ -745,12 +786,14 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("pend_for_next_human_msg1", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg1", THIS_SKILL_NAME, OWNER))
         workflow.add_edge("pend_for_human_input_fill_specs", "examine_filled_specs")
 
-        workflow.add_conditional_edges("examine_filled_specs", are_component_specs_filled, ["request_FOM", "pend_for_next_human_msg1"])
         workflow.add_edge("pend_for_next_human_msg1", "examine_filled_specs")
 
         workflow.add_node("request_FOM", request_FOM_node)
+        workflow.add_conditional_edges("examine_filled_specs", are_component_specs_filled, ["request_FOM", "pend_for_next_human_msg1"])
 
-        workflow.add_node("pend_for_human_input_fill_FOM", pend_for_human_fill_FOM_node)
+        workflow.add_node("pend_for_human_input_fill_FOM", node_wrapper(pend_for_human_input_node, "pend_for_human_input_fill_FOM", THIS_SKILL_NAME, OWNER))
+        workflow.add_edge("request_FOM", "pend_for_human_input_fill_FOM")
+
         workflow.add_node("confirm_FOM", confirm_FOM_node)
 
         workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2", THIS_SKILL_NAME, OWNER))
