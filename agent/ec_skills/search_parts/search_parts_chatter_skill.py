@@ -90,11 +90,11 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
 
     print(f"pend_for_human_input_node: {current_node_name}", state)
     if state.get("tool_result", None):
-        qa_form = state.get("tool_result").get("qa_form", None)
-        notification = state.get("tool_result").get("notification", None)
+        qa_form = state.get("tool_result").get("qa_form", {})
+        notification = state.get("tool_result").get("notification", {})
     else:
-        qa_form = None
-        notification = None
+        qa_form = {}
+        notification = {}
 
     interrupted = interrupt( # (1)!
         {
@@ -187,13 +187,14 @@ def is_form_filled(form):
 
 
 def examine_filled_specs_node(state):
-
+    print("examine filled specs node.......", state)
     if is_form_filled(state["attributes"]["parametric_filters"]):
         state["condition"] = True
     else:
         state["condition"] = False
 
 def confirm_FOM_node(state):
+    print("confirm FOM node.......", state)
     if is_form_filled(state["attributes"]["FOM"]):
         state["condition"] = True
     else:
@@ -394,13 +395,6 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
     try:
         print("about to query components:", type(state), state)
         
-        # Handle event loop creation for ThreadPoolExecutor
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
         # need to set up state["tool_input"] to be components
         state["tool_input"] = {
             "components": adapt_preliminary_info(state["attributes"]["preliminary_info"], state["attributes"]["extra_info"])
@@ -409,17 +403,25 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
         async def run_tool_call():
             return await mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]})
         
-        # Run the async function and wait for all tasks to complete
-        tool_result = loop.run_until_complete(run_tool_call())
-        
-        # Cancel any remaining tasks to prevent TaskGroup errors
-        pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
-        for task in pending_tasks:
-            task.cancel()
-        
-        # Wait for cancelled tasks to finish
-        if pending_tasks:
-            loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+        # Always use a dedicated local loop to avoid interfering with any global loop
+        loop = asyncio.new_event_loop()
+        try:
+            tool_result = loop.run_until_complete(run_tool_call())
+        finally:
+            try:
+                # Best-effort cleanup of the local loop
+                pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                for t in pending_tasks:
+                    t.cancel()
+                if pending_tasks:
+                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                if hasattr(loop, "shutdown_asyncgens"):
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                if hasattr(loop, "shutdown_default_executor"):
+                    loop.run_until_complete(loop.shutdown_default_executor())
+            except Exception:
+                pass
+            loop.close()
         
         # what we should get here is a dict of parametric search filters based on the preliminary
         # component info, this should be passed to human for filling out and confirmation
@@ -509,28 +511,8 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
         state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
         logger.debug(state['error'])
     finally:
-        if loop and not loop.is_closed():
-            # Cancel any remaining tasks before closing the loop
-            try:
-                pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
-                for task in pending_tasks:
-                    task.cancel()
-                if pending_tasks:
-                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
-                # Ensure async generators and default executor are shut down cleanly
-                try:
-                    if hasattr(loop, "shutdown_asyncgens"):
-                        loop.run_until_complete(loop.shutdown_asyncgens())
-                except Exception:
-                    pass
-                try:
-                    if hasattr(loop, "shutdown_default_executor"):
-                        loop.run_until_complete(loop.shutdown_default_executor())
-                except Exception:
-                    pass
-            except Exception:
-                pass  # Ignore errors during cleanup
-            loop.close()
+        # Nothing to do; local loop was closed above
+        pass
 
     print("query_component_specs_node all done, current state is:", state)
     return state
@@ -755,7 +737,7 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_edge("pend_for_next_human_msg0", "more_analysis_app")      # chat infinite loop
 
 
-        workflow.add_node("pend_for_human_input_fill_specs", pend_for_human_input_node)
+        workflow.add_node("pend_for_human_input_fill_specs", node_wrapper(pend_for_human_input_node, "pend_for_human_input_fill_specs", THIS_SKILL_NAME, OWNER))
         # workflow.add_node("request_oem_part_number", request_oem_part_number_node)
         workflow.add_edge("query_component_specs", "pend_for_human_input_fill_specs")
         workflow.add_node("examine_filled_specs", examine_filled_specs_node)
