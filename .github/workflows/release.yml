@@ -827,6 +827,47 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: ${{ steps.prep_files.outputs.files }}
+        name: "eCan AI Assistant v${{ needs.validate-tag.outputs.version }}"
+        body: |
+          # eCan AI Assistant v${{ needs.validate-tag.outputs.version }}
+          
+          ## 🚀 新版本发布
+          
+          这是 eCan AI Assistant 的最新版本，包含了最新的功能和改进。
+          
+          ## 📦 下载链接
+          
+          ### Windows 用户
+          - **安装程序**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe` (推荐)
+          - **便携版**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe`
+          
+          ### macOS 用户
+          - **PKG 安装包**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg` (推荐)
+          - **ZIP 压缩包**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.zip`
+          
+          ## 🔧 安装说明
+          
+          ### Windows
+          1. 下载 `eCan-*-Setup.exe` 安装程序
+          2. 运行安装程序并按照提示完成安装
+          3. 从开始菜单或桌面快捷方式启动应用
+          
+          ### macOS
+          1. 下载 `.pkg` 安装包
+          2. 双击安装包并按照提示完成安装
+          3. 从应用程序文件夹启动 eCan
+          
+          ## ⚠️ 系统要求
+          - **Windows**: Windows 10 或更高版本
+          - **macOS**: macOS 11.0 或更高版本
+          
+          ## 📝 更新日志
+          请查看 [CHANGELOG.md](CHANGELOG.md) 了解详细的更新内容。
+          
+          ## 🐛 问题反馈
+          如果遇到问题，请在 [Issues](https://github.com/scszcoder/ecbot/issues) 页面提交反馈。
+        draft: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
