@@ -346,7 +346,7 @@ class EC_Agent(Agent):
 								uri = attachment['url'])
 					msg_parts.append(FilePart(type="file", file=fc))
 
-			chat_msg = Message(role="user", parts=msg_parts, metadata={"type": "send_chat"})
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": "send_chat"})
 
 			if "attributes" in message["chat"]:
 				msgId = message['chat']['messages'][2],
@@ -356,6 +356,11 @@ class EC_Agent(Agent):
 				senderName = message['chat']["attributes"]["params"]["senderName"],
 				status = message['chat']["attributes"]["params"]["status"],
 				ext = ""
+				dtype = "text"
+				card = {}
+				code = {}
+				form = {}
+				notification = {}
 			else:
 				msgId = message['chat']['messages'][2],
 				chatId = message['chat']['messages'][1][0],
@@ -364,6 +369,11 @@ class EC_Agent(Agent):
 				senderName = message["params"]["senderName"],
 				status = message["params"]["status"],
 				ext = message["params"].get("ext", "")
+				dtype = message["params"]["metadata"]["dtype"]
+				card = message["params"]["metadata"]["card"]
+				code = message["params"]["metadata"]["code"]
+				form = message["params"]["metadata"]["form"]
+				notification = message["params"]["metadata"]["notification"]
 
 			payload = TaskSendParams(
 				id="0001",
@@ -373,13 +383,18 @@ class EC_Agent(Agent):
 				pushNotification = None,
 				historyLength = None,
 				metadata = {
-					"type": "send_chat",
+					"mtype": "send_chat",
+					"dtype": dtype,
 					"msgId": msgId,
 					"chatId": chatId,
 					"senderId": senderId,
 					"createAt": createAt,
 					"senderName": senderName,
 					"status": status,
+					"card": card,
+					"code": code,
+					"form": form,
+					"notification": notification,
 					"ext": ""
 				}
 			)

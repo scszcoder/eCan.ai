@@ -53,7 +53,8 @@ def parrot(state: NodeState) -> NodeState:
             print("showing agent msg", state)
             params = state["attributes"]["params"]
             if isinstance(params, TaskSendParams):
-                mtype = params.metadata["type"]
+                mtype = params.metadata["mtype"]
+                dtype = params.metadata["dtype"]
                 card = params.metadata.get("card", "")
                 code = params.metadata.get("code", "")
                 form = params.metadata.get("form", "")
@@ -65,7 +66,8 @@ def parrot(state: NodeState) -> NodeState:
                 status = params.metadata["status"]
                 ext = params.metadata["ext"]
             else:
-                mtype = params["metadata"]["type"]
+                mtype = params["metadata"]["mtype"]
+                dtype = params["metadata"]["dtype"]
                 card = params["metadata"]["card"]
                 code = params["metadata"]["code"]
                 form = params["metadata"]["form"]
@@ -79,7 +81,7 @@ def parrot(state: NodeState) -> NodeState:
 
             frontend_message = {
                 "content": {
-                    "type": mtype,
+                    "type": dtype,
                     "text": state["messages"][-1],
                     "card": card,
                     "code": code,
@@ -94,6 +96,7 @@ def parrot(state: NodeState) -> NodeState:
                 "ext": ext,
             }
             print("supposed chat id:", state["messages"][1][0])
+            print("pushing frontend message", frontend_message)
             mainwin.top_gui.push_message_to_chat(state["messages"][1][0], frontend_message)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)

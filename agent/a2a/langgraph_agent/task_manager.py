@@ -164,12 +164,12 @@ class AgentTaskManager(InMemoryTaskManager):
             waiter = self.create_waiter(task_id)
             print("created waiter....", request)
             msg_js = request.params.message  # need , encoding='utf-8'?
-            print("meta type:", msg_js.metadata["type"])
-            if msg_js.metadata["type"] == "send_task":
+            print("meta type:", msg_js.metadata["mtype"])
+            if msg_js.metadata["mtype"] == "send_task":
                 logger.info("task wait in line")
                 # agent_wait_response = await self._agent.runner.task_wait_in_line(request)
                 agent_wait_response = self._agent.runner.sync_task_wait_in_line(request)
-            elif msg_js.metadata["type"] == "send_chat":
+            elif msg_js.metadata["mtype"] == "send_chat":
                 logger.info("chat wait in line")
                 # agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
                 agent_wait_response = self._agent.runner.sync_chat_wait_in_line(request)

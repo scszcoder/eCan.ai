@@ -295,7 +295,7 @@ def all_requirement_filled(state: NodeState) -> str:
 #         err_trace = get_traceback(e, "ErrorLLMNodeWithRawFiles")
 #         logger.debug(err_trace)
 
-def send_data_back2human(dtype, data, state) -> NodeState:
+def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
     try:
         agent_id = state["messages"][0]
         # _ensure_context(runtime.context)
@@ -315,12 +315,12 @@ def send_data_back2human(dtype, data, state) -> NodeState:
         elif dtype == "notification":
             card = {}
             code = {}
-            form = {}
+            form = []
             notification = data
         else:
             card = {}
             code = {}
-            form = {}
+            form = []
             notification = {}
 
         agent_response_message = {
@@ -334,7 +334,8 @@ def send_data_back2human(dtype, data, state) -> NodeState:
                 "content": state["result"]["llm_result"],
                 "attachments": state["attachments"],
                 "metadata": {
-                    "type": dtype, # "text", "code", "form", "notification", "card
+                    "mtype": msg_type,  #send_task or send_chat
+                    "dtype": dtype, # "text", "code", "form", "notification", "card
                     "card": card,
                     "code": code,
                     "form": form,
@@ -445,17 +446,67 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
                 print("components:", components)
                 if isinstance(components, list) and components:
                     parametric_filters = components[0].get('metadata', {}).get('parametric_filters', {})
+                    if parametric_filters:
+                        parametric_filter = parametric_filters[0]
+                    else:
+                        parametric_filter = {}
                 else:
-                    parametric_filters = {}
+                    parametric_filters = []
+                    parametric_filter = {}
+
+                print("about to send back parametric_filters:", parametric_filters)
+
+                print("state at the moment:", state)
+                parametric_filter = {
+                    "id": "mcu_config_form",
+                    "type": "normal",
+                    "title": "MCU 配置",
+                    "fields": [
+                        {
+                            "id": "core",
+                            "type": "select",
+                            "label": "MCU Core",
+                            "tooltip": "MCU Core Types",
+                            "options": [
+                                { "label": "ATmega328P", "value": "ATmega328P" },
+                                { "label": "ESP32", "value": "ESP32" },
+                                { "label": "STM32F103", "value": "STM32F103" },
+                                { "label": "PIC16F84A", "value": "PIC16F84A" },
+                                { "label": "Arduino Nano", "value": "Arduino Nano" }
+                            ],
+                            "defaultValue": "ESP32"
+                        },
+                        {
+                            "id": "factory",
+                            "type": "text",
+                            "label": "Factory",
+                            "tooltip": "Test field type text",
+                            "defaultValue": "ESP——32"
+                        },
+                        {
+                            "id": "voltage",
+                            "type": "select",
+                            "label": "Operating Voltage",
+                            "tooltip": "Operation Voltage Options",
+                            "options": [
+                                { "label": "3.3V", "value": "3.3V" },
+                                { "label": "5V", "value": "5V" },
+                                { "label": "12V", "value": "12V" }
+                            ],
+                            "defaultValue": "3.3V"
+                        }
+                    ]
+                }
+                state["result"] = {"llm_result": "Here is a parametric search filter form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
                 # needs to make sure this is the response prompt......state["result"]["llm_result"]
-                send_data_back2human("form", parametric_filters, state)
+                send_data_back2human("send_chat","form", parametric_filter, state)
         elif hasattr(tool_result, 'isError') and tool_result.isError:
             state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
         else:
             state["error"] = "Unexpected tool result format"
 
     except Exception as e:
-        state['error'] = get_traceback(e, "ErrorGoToSiteNode0")
+        state['error'] = get_traceback(e, "ErrorQueryComponentSpecsNode")
         logger.debug(state['error'])
     finally:
         if loop and not loop.is_closed():
@@ -480,7 +531,8 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
             except Exception:
                 pass  # Ignore errors during cleanup
             loop.close()
-    
+
+    print("query_component_specs_node all done, current state is:", state)
     return state
 
 # this function takes the prompt generated by LLM from the previous node and puts ranking method template
@@ -603,7 +655,7 @@ def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) ->
 
     # send self a message to trigger the real component search work-flow
     fom_form = prep_fom_form(state)
-    send_data_back2human("form", fom_form, state)
+    send_data_back2human("send_chat","form", fom_form, state)
 
     return state
 
@@ -666,7 +718,7 @@ def show_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -
 
     # send self a message to trigger the real component search work-flow
     final_search_results = state.tool_result
-    send_data_back2human("notification", final_search_results, state)
+    send_data_back2human("send_chat","notification", final_search_results, state)
     return state
 
 
