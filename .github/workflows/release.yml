@@ -831,41 +831,41 @@ jobs:
         body: |
           # eCan AI Assistant v${{ needs.validate-tag.outputs.version }}
           
-          ## 🚀 新版本发布
+          ## 🚀 New Release
           
-          这是 eCan AI Assistant 的最新版本，包含了最新的功能和改进。
+          This is the latest version of eCan AI Assistant with new features and improvements.
           
-          ## 📦 下载链接
+          ## 📦 Download Links
           
-          ### Windows 用户
-          - **安装程序**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe` (推荐)
-          - **便携版**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe`
+          ### Windows Users
+          - **Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe` (Recommended)
+          - **Portable**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe`
           
-          ### macOS 用户
-          - **PKG 安装包**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg` (推荐)
-          - **ZIP 压缩包**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.zip`
+          ### macOS Users
+          - **PKG Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg` (Recommended)
+          - **ZIP Archive**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.zip`
           
-          ## 🔧 安装说明
+          ## 🔧 Installation Instructions
           
           ### Windows
-          1. 下载 `eCan-*-Setup.exe` 安装程序
-          2. 运行安装程序并按照提示完成安装
-          3. 从开始菜单或桌面快捷方式启动应用
+          1. Download the `eCan-*-Setup.exe` installer
+          2. Run the installer and follow the prompts to complete installation
+          3. Launch the application from Start Menu or desktop shortcut
           
           ### macOS
-          1. 下载 `.pkg` 安装包
-          2. 双击安装包并按照提示完成安装
-          3. 从应用程序文件夹启动 eCan
+          1. Download the `.pkg` installer package
+          2. Double-click the package and follow the prompts to complete installation
+          3. Launch eCan from the Applications folder
           
-          ## ⚠️ 系统要求
-          - **Windows**: Windows 10 或更高版本
-          - **macOS**: macOS 11.0 或更高版本
+          ## ⚠️ System Requirements
+          - **Windows**: Windows 10 or later
+          - **macOS**: macOS 11.0 or later
           
-          ## 📝 更新日志
-          请查看 [CHANGELOG.md](CHANGELOG.md) 了解详细的更新内容。
+          ## 📝 Changelog
+          Please see [CHANGELOG.md](CHANGELOG.md) for detailed update information.
           
-          ## 🐛 问题反馈
-          如果遇到问题，请在 [Issues](https://github.com/scszcoder/ecbot/issues) 页面提交反馈。
+          ## 🐛 Issue Reporting
+          If you encounter any issues, please submit feedback on the [Issues](https://github.com/scszcoder/ecbot/issues) page.
         draft: false
         prerelease: false
       env:
