@@ -20,6 +20,14 @@ try:
             finally:
                 sys.exit(0)
 
+        # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
+        try:
+            if sys.platform.startswith('win'):
+                import asyncio as _asyncio
+                _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+        except Exception:
+            pass
+
         # Single-instance guard (bypass when explicitly requested for worker subprocesses)
         if os.getenv('ECBOT_BYPASS_SINGLE_INSTANCE') != '1':
             from utils.single_instance import install_single_instance

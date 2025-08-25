@@ -7,6 +7,9 @@ from utils.logger_helper import get_agent_by_id, get_traceback
 from agent.ec_skill import *
 import json
 import base64
+import asyncio
+import sys
+from threading import Thread
 
 def rough_token_count(text: str) -> int:
     # Split on whitespace and common punctuations (roughly approximates token count)
@@ -242,8 +245,18 @@ def send_response_back(state: NodeState) -> NodeState:
 
 def run_async_in_sync(awaitable):
     """Run an async awaitable from sync code with safe event loop lifecycle and cleanup."""
+    # On Windows, Playwright requires SelectorEventLoop for subprocess support
+    if sys.platform.startswith("win"):
+        try:
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        except Exception:
+            # If setting policy fails, continue with best effort
+            pass
+
     loop = asyncio.new_event_loop()
     try:
+        # Ensure the newly created loop is current in this thread
+        asyncio.set_event_loop(loop)
         return loop.run_until_complete(awaitable)
     finally:
         try:
@@ -259,3 +272,72 @@ def run_async_in_sync(awaitable):
         except Exception:
             pass
         loop.close()
+
+
+def run_async_in_worker_thread(awaitable_or_factory):
+    """Run an async awaitable in a dedicated worker thread with its own Selector event loop.
+
+    Accepts either:
+    - a zero-arg callable that returns a coroutine (preferred), or
+    - a coroutine object (will still work, but may be created on the caller thread).
+
+    Use a factory when possible so the coroutine is created inside the worker thread,
+    ensuring no binding to a GUI/qasync loop on Windows.
+    """
+    result_holder = {}
+    error_holder = {}
+
+    def _worker():
+        # On Windows, asyncio subprocess support requires ProactorEventLoop
+        if sys.platform.startswith("win"):
+            try:
+                if hasattr(asyncio, "WindowsProactorEventLoopPolicy"):
+                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            except Exception:
+                pass
+
+        # Create loop using current policy (Proactor on Windows)
+        try:
+            loop = asyncio.get_event_loop_policy().new_event_loop()
+        except Exception:
+            try:
+                if sys.platform.startswith("win") and hasattr(asyncio, "ProactorEventLoop"):
+                    loop = asyncio.ProactorEventLoop()
+                else:
+                    loop = asyncio.new_event_loop()
+            except Exception:
+                loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            print(f"[run_async_in_worker_thread] thread={__import__('threading').current_thread().name}, policy={type(asyncio.get_event_loop_policy()).__name__}, loop={type(loop).__name__}")
+            # Create the coroutine inside the worker thread if a factory is provided
+            if callable(awaitable_or_factory):
+                coro = awaitable_or_factory()
+            else:
+                coro = awaitable_or_factory
+            res = loop.run_until_complete(coro)
+            result_holder["result"] = res
+        except Exception as e:
+            error_holder["error"] = e
+        finally:
+            try:
+                pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                for t in pending_tasks:
+                    t.cancel()
+                if pending_tasks:
+                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                if hasattr(loop, "shutdown_asyncgens"):
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                if hasattr(loop, "shutdown_default_executor"):
+                    loop.run_until_complete(loop.shutdown_default_executor())
+            except Exception:
+                pass
+            loop.close()
+
+    t = Thread(target=_worker, name="playwright-worker", daemon=True)
+    t.start()
+    t.join()
+
+    if "error" in error_holder:
+        raise error_holder["error"]
+    return result_holder.get("result")
