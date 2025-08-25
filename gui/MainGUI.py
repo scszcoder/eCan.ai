@@ -1783,7 +1783,7 @@ class MainWindow(QMainWindow):
     @property
     def async_crawler(self):
         try:
-            manager = getattr(self, 'unified_browser_manager', None)
+            manager = self.unified_browser_manager
             if manager and manager.is_ready():
                 return manager.get_async_crawler()
         except Exception as e:
@@ -1793,7 +1793,7 @@ class MainWindow(QMainWindow):
     @property
     def browser_session(self):
         try:
-            manager = getattr(self, 'unified_browser_manager', None)
+            manager = self.unified_browser_manager
             if manager and manager.is_ready():
                 return manager.get_browser_session()
         except Exception as e:

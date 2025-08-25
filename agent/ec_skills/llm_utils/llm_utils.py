@@ -238,3 +238,24 @@ def send_response_back(state: NodeState) -> NodeState:
         err_trace = get_traceback(e, "ErrorSendResponseBack")
         logger.debug(err_trace)
         return err_trace
+
+
+def run_async_in_sync(awaitable):
+    """Run an async awaitable from sync code with safe event loop lifecycle and cleanup."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(awaitable)
+    finally:
+        try:
+            pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
+            for t in pending_tasks:
+                t.cancel()
+            if pending_tasks:
+                loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+            if hasattr(loop, "shutdown_asyncgens"):
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            if hasattr(loop, "shutdown_default_executor"):
+                loop.run_until_complete(loop.shutdown_default_executor())
+        except Exception:
+            pass
+        loop.close()

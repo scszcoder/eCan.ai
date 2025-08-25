@@ -13,6 +13,7 @@ from crawl4ai import BrowserConfig
 from browser_use.browser import BrowserSession
 from browser_use.controller.service import Controller as BrowserUseController
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.agent.service import Agent
 
 from utils.logger_helper import logger_helper as logger
 
@@ -40,6 +41,7 @@ class UnifiedBrowserManager:
         # Configuration
         self._crawler_config = None
         self._file_system_path = None
+        self._browser_agent = None
 
         
     def initialize(self, crawler_config: Optional[Dict] = None, file_system_path: Optional[str] = None) -> bool:
@@ -66,6 +68,10 @@ class UnifiedBrowserManager:
                 self._initialized = True
                 self._initialization_error = None
                 logger.info("✅ Unified browser manager initialized successfully")
+
+                #now setup crawler4ai and browser_use
+                self.get_async_crawler()
+                self.get_browser_user()
                 return True
 
             except Exception as e:
@@ -186,7 +192,87 @@ class UnifiedBrowserManager:
                 return None
 
         return self._browser_session
-    
+
+    def _create_bu_agent(self):
+        from browser_use import Agent, Controller
+        from browser_use.browser import BrowserProfile, BrowserSession
+        from browser_use.llm import ChatOpenAI
+        BasicConfig = {
+            "openai_api_key": "",
+            "chrome_path": "",
+            "target_user":  "",# Twitter handle without @
+            "message":  "",
+            "reply_url":  "",
+            "headless": False,
+            "model": 'gpt-4o',
+            "base_url": 'https://x.com/home'
+        }
+        config = BasicConfig
+
+        full_message = f'@{config["target_user"]} {config["message"]}'
+        basic_task = f"""Navigate to Amazon and search a product.
+
+            Here are the specific steps:
+
+            1. Go to https://www.amazon.com/ See the search text input field at the top of the page"
+            2. Look for the text input field at the top of the page that says "What's happening?"
+            3. Click the input field and type exactly this product name: '"{config["product_phrase"]}'
+            4. Hit <Enter> key
+
+            Important:
+            - Wait for each element to load before interacting
+            - Make sure the search phrase is typed exactly as shown
+            """
+
+        llm = ChatOpenAI(model=config["model"], api_key=config["openai_api_key"])
+
+        browser_profile = BrowserProfile(
+            headless=config["headless"],
+            executable_path=config["chrome_path"],
+            minimum_wait_page_load_time=1,  # 3 on prod
+            maximum_wait_page_load_time=10,  # 20 on prod
+            viewport={'width': 1280, 'height': 1100},
+            viewport_expansion=-1,
+            highlight_elements=False,
+            user_data_dir='~/.config/browseruse/profiles/default',
+            # trace_path='./tmp/web_voyager_agent',
+        )
+        browser_session = BrowserSession(browser_profile=browser_profile)
+
+        # Construct the full message with tag
+        # Create the agent with detailed instructions
+        agent = Agent(
+            task=basic_task,
+            llm=llm,
+            browser_session=browser_session,
+            validate_output=True,
+            enable_memory=False,
+        )
+        return agent
+
+
+
+    def get_browser_user(self) -> Optional[Agent]:
+        """Get BrowserSession instance (lazy creation)"""
+        if not self._initialized:
+            logger.warning("Manager not initialized, cannot get BrowserSession")
+            return None
+
+        if self._browser_agent is None:
+            try:
+                # Note: BrowserSession needs to be created after AsyncWebCrawler is started
+                # This is just preparation, actual creation should be done when needed
+                self._browser_agent = self._create_bu_agent()
+                logger.debug("BrowserSession will be created when needed")
+                return None
+
+            except Exception as e:
+                logger.error(f"Failed to prepare BrowserSession: {e}")
+                return None
+
+        return self._browser_session
+
+
     def get_browser_use_controller(self) -> Optional[BrowserUseController]:
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserUseController")
@@ -259,6 +345,25 @@ class UnifiedBrowserManager:
             'playwright_manager_status': self._playwright_manager.get_status() if self._playwright_manager else None
         }
 
+    def switch_profile(self, new_profile):
+        # close old
+        try:
+            if self._browser_session and hasattr(self._browser_session, "close"):
+                self._browser_session.close()
+            elif self._browser_session and hasattr(self._browser_session, "shutdown"):
+                self._browser_session.shutdown()
+        except Exception:
+            pass
+
+        # create new
+        self._browser_session = BrowserSession(browser_profile=new_profile)
+
+        # rebuild agent if needed (safer than mutating in place)
+        if self._browser_agent is not None:
+            # self._browser_agent = Agent(task=..., llm=..., browser_session=self._browser_session)
+            pass
+
+        return self._browser_session
 
 
 
