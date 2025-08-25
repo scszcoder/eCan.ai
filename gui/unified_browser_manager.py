@@ -7,6 +7,7 @@ Resolves resource conflicts between crawl4ai, browser_use, and Playwright
 
 from typing import Optional, Any, Dict, TYPE_CHECKING
 import sys
+import os
 import asyncio
 from threading import Lock
 
@@ -172,14 +173,14 @@ class UnifiedBrowserManager:
             from browser_use.llm import ChatOpenAI
             print("done import browser use....")
             BasicConfig = {
-                "openai_api_key": "",
+                "openai_api_key": os.getenv("OPENAI_API_KEY"),
                 "chrome_path": "",
                 "target_user":  "",# Twitter handle without @
                 "message":  "",
                 "reply_url":  "",
                 "headless": True,
                 "model": 'gpt-4o',
-                "base_url": 'https://x.com/home',
+                "base_url": 'https://www.amazon.com/',
                 "product_phrase": "resistance loop band"
             }
             config = BasicConfig
@@ -269,19 +270,18 @@ class UnifiedBrowserManager:
 
             cfg_phrase = product_phrase or "resistance loop band"
             task_text = f"""Navigate to Amazon and search a product.
+                1. Go to https://www.amazon.com/
+                2. Focus the top search input
+                3. Type exactly: '{cfg_phrase}'
+                4. Press Enter and wait for results
+            """
 
-1. Go to https://www.amazon.com/
-2. Focus the top search input
-3. Type exactly: '{cfg_phrase}'
-4. Press Enter and wait for results
-"""
-
-            llm = ChatOpenAI(model='gpt-4o', api_key='')
+            llm = ChatOpenAI(model='gpt-4o', api_key=os.getenv("OPENAI_API_KEY"))
             browser_profile = BrowserProfile(
-                headless=True,
+                headless=False,
                 executable_path='',
                 minimum_wait_page_load_time=1,
-                maximum_wait_page_load_time=10,
+                maximum_wait_page_load_time=12,
                 viewport={'width': 1280, 'height': 1100},
                 viewport_expansion=-1,
                 highlight_elements=False,
