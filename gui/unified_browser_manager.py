@@ -346,6 +346,36 @@ class UnifiedBrowserManager:
                 return None
 
         return self._browser_use_file_system
+
+    def run_browser_use_coro(self, coro_factory):
+        """
+        Run an arbitrary Browser Use async coroutine in the dedicated worker thread.
+
+        Args:
+            coro_factory: A zero-arg callable that returns an async coroutine.
+                The coroutine MUST import and create any Browser Use / Playwright objects
+                inside itself so they bind to the worker thread's Proactor event loop.
+
+        Returns:
+            The coroutine's return value (synchronously), or None on failure.
+
+        Notes:
+            - This ensures we do NOT touch the GUI/qasync loop and avoid subprocess errors on Windows.
+            - Internally uses run_async_in_worker_thread with WindowsProactorEventLoopPolicy.
+        """
+        try:
+            # Ensure manager is initialized for environment setup
+            if not self._initialized:
+                logger.warning("Manager not initialized; initializing with defaults before running coroutine")
+                if not self.initialize():
+                    logger.error("Failed to initialize UnifiedBrowserManager")
+                    return None
+
+            return run_async_in_worker_thread(lambda: coro_factory())
+        except Exception as e:
+            logger.error(f"Failed to run Browser Use coroutine in worker thread: {e}")
+            logger.debug(get_traceback(e, "ErrorRunBrowserUseCoro"))
+            return None
     
     def cleanup(self):
         """Clean up all resources"""
