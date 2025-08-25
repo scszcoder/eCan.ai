@@ -5,6 +5,15 @@ import asyncclick as click
 import asyncio
 from uuid import uuid4
 import urllib
+import sys
+
+# Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
+try:
+    if sys.platform.startswith("win"):
+        import asyncio as _asyncio
+        _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+except Exception:
+    pass
 
 @click.command()
 @click.option("--agent", default="http://localhost:10000")
@@ -24,7 +33,7 @@ async def cli(agent, session, history, use_push_notifications: bool, push_notifi
     notification_receiver_port = notif_receiver_parsed.port
 
     if use_push_notifications:
-        from hosts.cli.push_notification_listener import PushNotificationListener
+        from agent.a2a.hosts.cli.push_notification_listener import PushNotificationListener
         notification_receiver_auth = PushNotificationReceiverAuth()
         await notification_receiver_auth.load_jwks(f"{agent}/.well-known/jwks.json")
 

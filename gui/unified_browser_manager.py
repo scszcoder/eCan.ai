@@ -6,6 +6,8 @@ Resolves resource conflicts between crawl4ai, browser_use, and Playwright
 """
 
 from typing import Optional, Any, Dict, TYPE_CHECKING
+import sys
+import asyncio
 from threading import Lock
 
 from agent.playwright import get_playwright_manager
@@ -14,8 +16,9 @@ from browser_use.browser import BrowserSession
 from browser_use.controller.service import Controller as BrowserUseController
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.agent.service import Agent
-
+from utils.logger_helper import get_agent_by_id, get_traceback
 from utils.logger_helper import logger_helper as logger
+from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
 
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler
@@ -64,14 +67,12 @@ class UnifiedBrowserManager:
 
                 self._setup_crawler_config(crawler_config)
                 self._file_system_path = file_system_path
-
+                print("crawler initialized.............")
                 self._initialized = True
                 self._initialization_error = None
                 logger.info("✅ Unified browser manager initialized successfully")
 
-                #now setup crawler4ai and browser_use
-                self.get_async_crawler()
-                self.get_browser_user()
+                # Defer crawl4ai initialization; creating it here may bind to the GUI/qasync loop.
                 return True
 
             except Exception as e:
@@ -139,40 +140,10 @@ class UnifiedBrowserManager:
             logger.warning("Manager not initialized, cannot get AsyncWebCrawler")
             return None
 
-        if self._async_crawler is None:
-            try:
-                logger.debug("Creating AsyncWebCrawler instance...")
-
-                # Ensure Playwright environment variables are set correctly
-                self._setup_crawler_environment()
-
-                # Verify environment variables are set successfully
-                import os
-                browsers_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
-                if not browsers_path:
-                    raise RuntimeError("PLAYWRIGHT_BROWSERS_PATH environment variable not set")
-
-                logger.debug(f"Using browser path: {browsers_path}")
-
-                # Create BrowserConfig
-                if self._crawler_config:
-                    browser_config = BrowserConfig(**self._crawler_config)
-                    from crawl4ai import AsyncWebCrawler
-                    self._async_crawler = AsyncWebCrawler(config=browser_config)
-                    logger.debug("✅ AsyncWebCrawler created successfully (with config)")
-                else:
-                    from crawl4ai import AsyncWebCrawler
-                    self._async_crawler = AsyncWebCrawler()
-                    logger.debug("✅ AsyncWebCrawler created successfully (default config)")
-
-            except Exception as e:
-                logger.error(f"Failed to create AsyncWebCrawler: {e}")
-                # Output more detailed error information
-                import traceback
-                logger.error(f"Detailed error info: {traceback.format_exc()}")
-                return None
-
-        return self._async_crawler
+        # Do not create AsyncWebCrawler on GUI/qasync thread to avoid Playwright subprocess errors.
+        # Create and use it within a worker thread when needed.
+        logger.debug("get_async_crawler called: returning None to avoid creating AsyncWebCrawler on GUI thread")
+        return None
     
     def get_browser_session(self) -> Optional[BrowserSession]:
         """Get BrowserSession instance (lazy creation)"""
@@ -194,61 +165,73 @@ class UnifiedBrowserManager:
         return self._browser_session
 
     def _create_bu_agent(self):
-        from browser_use import Agent, Controller
-        from browser_use.browser import BrowserProfile, BrowserSession
-        from browser_use.llm import ChatOpenAI
-        BasicConfig = {
-            "openai_api_key": "",
-            "chrome_path": "",
-            "target_user":  "",# Twitter handle without @
-            "message":  "",
-            "reply_url":  "",
-            "headless": False,
-            "model": 'gpt-4o',
-            "base_url": 'https://x.com/home'
-        }
-        config = BasicConfig
+        try:
+            print("create bu agent....")
+            from browser_use import Agent, Controller
+            from browser_use.browser import BrowserProfile, BrowserSession
+            from browser_use.llm import ChatOpenAI
+            print("done import browser use....")
+            BasicConfig = {
+                "openai_api_key": "",
+                "chrome_path": "",
+                "target_user":  "",# Twitter handle without @
+                "message":  "",
+                "reply_url":  "",
+                "headless": True,
+                "model": 'gpt-4o',
+                "base_url": 'https://x.com/home',
+                "product_phrase": "resistance loop band"
+            }
+            config = BasicConfig
+            print("done config....")
+            full_message = f'@{config["target_user"]} {config["message"]}'
+            print("done full message....")
+            basic_task = f"""Navigate to Amazon and search a product.
+    
+                Here are the specific steps:
+    
+                1. Go to https://www.amazon.com/ See the search text input field at the top of the page"
+                2. Look for the text input field at the top of the page that says "What's happening?"
+                3. Click the input field and type exactly this product name: '"{config["product_phrase"]}'
+                4. Hit <Enter> key
+    
+                Important:
+                - Wait for each element to load before interacting
+                - Make sure the search phrase is typed exactly as shown
+                """
+            print("done basic task....", basic_task)
+            llm = ChatOpenAI(model=config["model"], api_key=config["openai_api_key"])
+            print("llm set....")
+            browser_profile = BrowserProfile(
+                headless=config["headless"],
+                executable_path=config["chrome_path"],
+                minimum_wait_page_load_time=1,  # 3 on prod
+                maximum_wait_page_load_time=10,  # 20 on prod
+                viewport={'width': 1280, 'height': 1100},
+                viewport_expansion=-1,
+                highlight_elements=False,
+                user_data_dir='~/.config/browseruse/profiles/default',
+                # trace_path='./tmp/web_voyager_agent',
+            )
+            print("browser profile set....", browser_profile)
+            browser_session = BrowserSession(browser_profile=browser_profile)
+            print("browser session set....", browser_session)
+            # Construct the full message with tag
+            # Create the agent with detailed instructions
+            agent = Agent(
+                task=basic_task,
+                llm=llm,
+                browser_session=browser_session,
+                validate_output=True,
+                enable_memory=False,
+            )
+            print("browser agent set....", browser_session)
+            return agent
 
-        full_message = f'@{config["target_user"]} {config["message"]}'
-        basic_task = f"""Navigate to Amazon and search a product.
-
-            Here are the specific steps:
-
-            1. Go to https://www.amazon.com/ See the search text input field at the top of the page"
-            2. Look for the text input field at the top of the page that says "What's happening?"
-            3. Click the input field and type exactly this product name: '"{config["product_phrase"]}'
-            4. Hit <Enter> key
-
-            Important:
-            - Wait for each element to load before interacting
-            - Make sure the search phrase is typed exactly as shown
-            """
-
-        llm = ChatOpenAI(model=config["model"], api_key=config["openai_api_key"])
-
-        browser_profile = BrowserProfile(
-            headless=config["headless"],
-            executable_path=config["chrome_path"],
-            minimum_wait_page_load_time=1,  # 3 on prod
-            maximum_wait_page_load_time=10,  # 20 on prod
-            viewport={'width': 1280, 'height': 1100},
-            viewport_expansion=-1,
-            highlight_elements=False,
-            user_data_dir='~/.config/browseruse/profiles/default',
-            # trace_path='./tmp/web_voyager_agent',
-        )
-        browser_session = BrowserSession(browser_profile=browser_profile)
-
-        # Construct the full message with tag
-        # Create the agent with detailed instructions
-        agent = Agent(
-            task=basic_task,
-            llm=llm,
-            browser_session=browser_session,
-            validate_output=True,
-            enable_memory=False,
-        )
-        return agent
+        except Exception as e:
+            errMsg = get_traceback(e, "ErrorCreateBUAgent")
+            logger.debug(errMsg)
+            return None
 
 
 
@@ -258,19 +241,71 @@ class UnifiedBrowserManager:
             logger.warning("Manager not initialized, cannot get BrowserSession")
             return None
 
-        if self._browser_agent is None:
+        # Do not create Browser Use Agent on GUI/qasync thread to avoid Playwright subprocess errors.
+        # Agent will be created and run within run_basic_agent_task() on a worker thread.
+        logger.debug("get_browser_user called: returning None to avoid creating Agent on GUI thread")
+        return None
+
+    def run_basic_agent_task(self, product_phrase: Optional[str] = None):
+        """Build and run a simple Browser Use agent inside a worker thread with its own Selector loop.
+
+        This avoids running Playwright on the GUI/qasync loop (which lacks subprocess support on Windows).
+        """
+        async def _do():
+            # Reinforce Proactor policy inside the coroutine context (worker thread) for subprocess support
+            if sys.platform.startswith("win"):
+                try:
+                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+                except Exception:
+                    pass
             try:
-                # Note: BrowserSession needs to be created after AsyncWebCrawler is started
-                # This is just preparation, actual creation should be done when needed
-                self._browser_agent = self._create_bu_agent()
-                logger.debug("BrowserSession will be created when needed")
-                return None
+                loop = asyncio.get_running_loop()
+                print(f"[UnifiedBrowserManager._do] loop={type(loop).__name__}")
+            except Exception:
+                pass
+            from browser_use import Agent
+            from browser_use.llm import ChatOpenAI
+            from browser_use.browser import BrowserProfile, BrowserSession
 
-            except Exception as e:
-                logger.error(f"Failed to prepare BrowserSession: {e}")
-                return None
+            cfg_phrase = product_phrase or "resistance loop band"
+            task_text = f"""Navigate to Amazon and search a product.
 
-        return self._browser_session
+1. Go to https://www.amazon.com/
+2. Focus the top search input
+3. Type exactly: '{cfg_phrase}'
+4. Press Enter and wait for results
+"""
+
+            llm = ChatOpenAI(model='gpt-4o', api_key='')
+            browser_profile = BrowserProfile(
+                headless=True,
+                executable_path='',
+                minimum_wait_page_load_time=1,
+                maximum_wait_page_load_time=10,
+                viewport={'width': 1280, 'height': 1100},
+                viewport_expansion=-1,
+                highlight_elements=False,
+                user_data_dir='~/.config/browseruse/profiles/default',
+            )
+            browser_session = BrowserSession(browser_profile=browser_profile)
+
+            agent = Agent(
+                task=task_text,
+                llm=llm,
+                browser_session=browser_session,
+                validate_output=True,
+                enable_memory=False,
+            )
+
+            history = await agent.run()
+            return history
+
+        try:
+            return run_async_in_worker_thread(lambda: _do())
+        except Exception as e:
+            logger.error(f"Failed to run Browser Use agent task: {e}")
+            logger.debug(get_traceback(e, "ErrorRunBasicAgentTask"))
+            return None
 
 
     def get_browser_use_controller(self) -> Optional[BrowserUseController]:
