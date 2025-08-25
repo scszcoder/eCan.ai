@@ -36,7 +36,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.mcp.local_client import mcp_call_tool
 from agent.chats.tests.test_notifications import sample_metrics_0
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
-from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, get_standard_prompt
+from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content, get_standard_prompt, run_async_in_sync
 from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
 from agent.a2a.langgraph_agent.utils import send_data_to_agent
 
@@ -195,6 +195,7 @@ def is_dict_filled(form):
     return filled
 
 
+
 def is_form_filled(form):
     filled = True
     for item in form:
@@ -225,12 +226,32 @@ def examine_filled_specs_node(state):
 
     return state
 
+
+
+def has_fom(data):
+    try:
+        return "fom_form" in data["tool_result"]["components"][0]["metadata"]
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
 def confirm_FOM_node(state):
     print("confirm FOM node.......", state)
-    if is_form_filled(state["attributes"]["FOM"]):
+    fom_exists = has_fom(state)
+    if fom_exists:
+        fom = state["tool_result"]["components"][0]["metadata"]["parametric_filters"]
+        state["metadata"]["fom"] = fom
+    else:
+        fom = {}
+
+    print("filled figure of merit", fom)
+    if is_form_filled(fom):
+        print("FOM filled")
         state["condition"] = True
     else:
+        print("FOM NOT YET filled")
         state["condition"] = False
+        state["condition"] = True
 
 def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
     # highlight-next-line
@@ -436,25 +457,9 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
             return await mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]})
         
         # Always use a dedicated local loop to avoid interfering with any global loop
-        loop = asyncio.new_event_loop()
-        try:
-            tool_result = loop.run_until_complete(run_tool_call())
-        finally:
-            try:
-                # Best-effort cleanup of the local loop
-                pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
-                for t in pending_tasks:
-                    t.cancel()
-                if pending_tasks:
-                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
-                if hasattr(loop, "shutdown_asyncgens"):
-                    loop.run_until_complete(loop.shutdown_asyncgens())
-                if hasattr(loop, "shutdown_default_executor"):
-                    loop.run_until_complete(loop.shutdown_default_executor())
-            except Exception:
-                pass
-            loop.close()
-        
+        # Run the async call safely from sync
+        tool_result = run_async_in_sync(run_tool_call())
+
         # what we should get here is a dict of parametric search filters based on the preliminary
         # component info, this should be passed to human for filling out and confirmation
         print("query components completed:", type(tool_result), tool_result)
@@ -682,12 +687,23 @@ def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) ->
     return state
 
 
+async def browser_search_with_parametric_filters(mainwin, url, parametric_filters):
+    bu = mainwin.unified_browser_manager.get_browser_user()
+    browse_history = await bu.run()
+    browse_history.save_to_file('./tmp/history.json')
+    return
+
+
 def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     agent_id = state["messages"][0]
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
     print("run_search_node:", state)
+    parametric_filters = state["attributes"].get("parametric_filters", {})
+    # url = state["tool_input"]["url"]
+    url = "https://www.digikey.com/en/products"
+    tool_result = run_async_in_sync(browser_search_with_parametric_filters(mainwin, url, parametric_filters))
 
     # send self a message to trigger the real component search work-flow
     # state.attributes should look like this:
@@ -698,9 +714,96 @@ def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> 
     #       "parametric_filters": {...},
     #       "fom": {...}
     #  }....]
-    result = send_data_to_agent(agent_id, "json", state["attributes"], state)
+    # result = send_data_to_agent(agent_id, "json", state["attributes"], state)
     # result = self_agent.a2a_send_chat_message(self_agent, {"message": "search_parts_request", "params": state.attributes})
-    state.result = result
+    state["tool_result"] = {
+        "id": "search_results_form",
+        "title": "MCU Search Results",
+        "Items": [
+            {
+                "product_id": "mcu",
+                "product_name": "product1",
+                "brand": "brand1",
+                "model": "model1",
+                "main_image": "img_url",
+                "url": "web_site_page_url",
+                "rank": 1,
+                "score": 99.01,
+                "highlights": [
+                    { "label": "size", "value": "0201", "unit": "size" },
+                    { "label": "price", "value": "0.01", "unit": "size" },
+                    { "label": "precision", "value": "100", "unit": "ppm" }
+                ],
+                "app_specific": [
+                    {
+                        "app": "oil_diffuser",
+                        "needed_criterias": [
+                            {
+                                "criteria1": "spec1",
+                                "required_value": "100",
+                                "matched_value": "120"
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "product_id": "mcu",
+                "product_name": "product2",
+                "brand": "brand2",
+                "model": "model2",
+                "main_image": "img_url",
+                "url": "web_site_page_url",
+                "rank": 1,
+                "score": 99.01,
+                "highlights": [
+                    { "label": "size", "value": "0201", "unit": "size" },
+                    { "label": "price", "value": "0.01", "unit": "size" },
+                    { "label": "precision", "value": "100", "unit": "ppm" }
+                ],
+                "app_specific": [
+                    {
+                        "app": "oil_diffuser",
+                        "needed_criterias": [
+                            {
+                                "criteria1": "spec1",
+                                "required_value": "100",
+                                "matched_value": "120"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "summary": {
+            "product1": {
+                "criteria1": "value",
+                "criteria2": "value",
+                "criteria3": "value"
+            },
+            "product2": {
+                "criteria1": "value",
+                "criteria2": "value",
+                "criteria3": "value"
+            },
+            "product3": {
+                "criteria1": "value",
+                "criteria2": "value",
+                "criteria3": "value"
+            }
+        },
+        "comments": [],
+        "statistics": {
+            "sites_visited": 1,
+            "searches": 1,
+            "pages_visited": 1,
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "products_compared": 1
+        },
+        "behind_the_scene": "url",
+        "show_feedback_options": True
+    }
     return state
 
 def are_component_specs_filled(state):
@@ -714,10 +817,9 @@ def are_component_specs_filled(state):
 def is_FOM_filled(state):
     print("is_FOM_filled input:", state)
     if state['condition']:
-        return "show_results"
+        return "run_search"
     else:
-        return "pend_for_result"
-
+        return "pend_for_next_human_msg2"
 
 def is_result_ready(state):
     print("is_result_ready input:", state)
@@ -740,7 +842,7 @@ def show_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -
     print("show_results_node:", state)
 
     # send self a message to trigger the real component search work-flow
-    final_search_results = state.tool_result
+    final_search_results = state["tool_result"]
     send_data_back2human("send_chat","notification", final_search_results, state)
     return state
 
@@ -795,6 +897,7 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_edge("request_FOM", "pend_for_human_input_fill_FOM")
 
         workflow.add_node("confirm_FOM", confirm_FOM_node)
+        workflow.add_edge("pend_for_human_input_fill_FOM", "confirm_FOM")
 
         workflow.add_node("pend_for_next_human_msg2", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg2", THIS_SKILL_NAME, OWNER))
 
@@ -806,7 +909,10 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
 
         workflow.add_node("show_results", show_results_node)
-        workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])
+        # workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])
+
+        workflow.add_edge("run_search", "show_results")
+
         workflow.add_edge("show_results", END)
 
 
