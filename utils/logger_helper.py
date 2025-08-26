@@ -23,7 +23,8 @@ logging.Logger.trace = trace
 # ====== END ======
 
 login = None
-top_web_gui = None
+
+
 class LoggerHelper:
     _instance = None
 
@@ -276,14 +277,6 @@ def get_log_path():
     env_info = logger_helper._get_environment_info()
     return env_info['log_path']
 # ====== END ======
-
-def get_top_web_gui():
-    global top_web_gui
-    return top_web_gui
-
-def set_top_web_gui(web_gui):
-    global top_web_gui
-    top_web_gui = web_gui
 
 def get_agent_by_id(agent_id):
     """Safely fetch agent by id from the current main window.

@@ -3,6 +3,7 @@
 
 import multiprocessing
 import sys
+import os
 import traceback
 
 # Top-level exception handling, catch all import and runtime exceptions
@@ -10,7 +11,6 @@ try:
     # Multi-process protection - must be before all other imports
     if __name__ == '__main__':
         # Worker-mode support for packaged subprocesses: execute external script and exit
-        import os
         run_script = os.getenv('ECBOT_RUN_SCRIPT')
         if run_script:
             try:
@@ -66,7 +66,7 @@ try:
     # Basic configuration imports
     from config.app_info import app_info
     from config.app_settings import app_settings
-    from utils.logger_helper import set_top_web_gui, logger_helper as logger
+    from utils.logger_helper import logger_helper as logger
     from app_context import AppContext
     progress_manager.update_progress(15, "Loading configuration...")
 
@@ -76,8 +76,6 @@ try:
             return
 
         try:
-            import os
-
             # Only handle the most critical cv2 path issue
             if hasattr(sys, '_MEIPASS'):
                 cv2_path = os.path.join(sys._MEIPASS, 'cv2')
@@ -242,9 +240,6 @@ try:
 
         progress_manager.update_progress(85, "Finalizing setup...")
         ctx.set_web_gui(web_gui)
-        set_top_web_gui(web_gui)
-
-        utils.logger_helper.login.setTopGUI(web_gui)
         logger.info("WebGUI setup completed")
 
         # Finish splash screen
