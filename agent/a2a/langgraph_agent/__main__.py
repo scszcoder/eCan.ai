@@ -7,6 +7,15 @@ import click
 import os
 import logging
 from dotenv import load_dotenv
+import sys
+
+# Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
+try:
+    if sys.platform.startswith("win"):
+        import asyncio as _asyncio
+        _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+except Exception:
+    pass
 
 load_dotenv()
 
