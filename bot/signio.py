@@ -1,11 +1,11 @@
-# import boto3
+# # import boto3
 
-username = "abc.xyz@gmail.com"
-password = "#Abc1234"
+# username = "abc.xyz@gmail.com"
+# password = "#Abc1234"
 
-USER_POOL_ID = 'us-east-1_uUmKJUfB3'
-CLIENT_ID = '5400r8q5p9gfdhln2feqcpljsh'
-CLIENT_SECRET = ''
+# USER_POOL_ID = 'us-east-1_uUmKJUfB3'
+# CLIENT_ID = '5400r8q5p9gfdhln2feqcpljsh'
+# CLIENT_SECRET = ''
 
 
 # auth_client = boto3.client("cognito-idp", region_name="us-east-1")

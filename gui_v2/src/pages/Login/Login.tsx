@@ -113,7 +113,7 @@ const Login: React.FC = () => {
 	}, [form]);
 
 	const handleLogin = async (values: LoginFormValues, api: IPCAPI) => {
-		const response: APIResponse<any> = await api.login(values.username, values.password, values.role);
+		const response: APIResponse<any> = await api.login(values.username, values.password, values.role, i18n.language);
 		if (response.success && response.data) {
 			console.log('[Login] Login successful', response.data);
 			const { token, message: successMessage } = response.data;
@@ -141,7 +141,7 @@ const Login: React.FC = () => {
 			messageApi.error(t('login.passwordMismatch'));
 			return;
 		}
-		const response = await api.signup(values.username, values.password);
+		const response = await api.signup(values.username, values.password, i18n.language);
 		if (response.success) {
 			Modal.success({
 				title: t('login.signupSuccess'),
@@ -156,46 +156,46 @@ const Login: React.FC = () => {
 	};
 
 	const handleForgotPasswordSendCode = async () => {
-    try {
-        const username = form.getFieldValue('username');
-        if (!username) {
-            messageApi.error(t('login.usernameRequired'));
-            return;
-        }
-        const api = get_ipc_api();
-        await api.forgotPassword(username);
-        setCodeSent(true);
-        messageApi.success(t('login.forgotCodeSent'));
-    } catch (error) {
-        logger.error('Forgot password send code error:', error);
-        messageApi.error(t('login.forgotCodeSendError'));
-    }
-};
+		try {
+			const username = form.getFieldValue('username');
+			if (!username) {
+				messageApi.error(t('login.usernameRequired'));
+				return;
+			}
+			const api = get_ipc_api();
+			await api.forgotPassword(username, i18n.language);
+			setCodeSent(true);
+			messageApi.success(t('login.forgotCodeSent'));
+		} catch (error) {
+			logger.error('Forgot password send code error:', error);
+			messageApi.error(t('login.forgotCodeSendError'));
+		}
+	};
 
-const handleForgotPasswordReset = async () => {
-    try {
-        const username = form.getFieldValue('username');
-        const confirmCode = form.getFieldValue('confirmCode');
-        const newPassword = form.getFieldValue('newPassword');
-        if (!username || !confirmCode || !newPassword) {
-            messageApi.error(t('login.forgotFieldsRequired'));
-            return;
-        }
-        const api = get_ipc_api();
-        const response = await api.confirmForgotPassword(username, confirmCode, newPassword);
-        if (response.success) {
-            messageApi.success(t('login.forgotSuccess'));
-            setMode('login');
-            setCodeSent(false);
-            form.resetFields();
-        } else {
-            messageApi.error(response.error?.message || t('login.failed'));
-        }
-    } catch (error) {
-        logger.error('Forgot password reset error:', error);
-        messageApi.error(t('login.forgotResetError'));
-    }
-};
+	const handleForgotPasswordReset = async () => {
+		try {
+			const username = form.getFieldValue('username');
+			const confirmCode = form.getFieldValue('confirmCode');
+			const newPassword = form.getFieldValue('newPassword');
+			if (!username || !confirmCode || !newPassword) {
+				messageApi.error(t('login.forgotFieldsRequired'));
+				return;
+			}
+			const api = get_ipc_api();
+			const response = await api.confirmForgotPassword(username, confirmCode, newPassword, i18n.language);
+			if (response.success) {
+				messageApi.success(t('login.forgotSuccess'));
+				setMode('login');
+				setCodeSent(false);
+				form.resetFields();
+			} else {
+				messageApi.error(response.error?.message || t('login.failed'));
+			}
+		} catch (error) {
+			logger.error('Forgot password reset error:', error);
+			messageApi.error(t('login.forgotResetError'));
+		}
+	};
 
 	const handleSubmit = async (values: LoginFormValues) => {
 		setLoading(true);

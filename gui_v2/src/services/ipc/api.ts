@@ -103,8 +103,8 @@ export class IPCAPI {
      * @param password - 密码
      * @returns Promise 对象，解析为登录响应
      */
-    public async login<T>(username: string, password: string, machine_role: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('login', { username, password, machine_role });
+    public async login<T>(username: string, password: string, machine_role: string, lang?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('login', { username, password, machine_role, lang });
     }
 
     public async getLastLoginInfo<T>(): Promise<APIResponse<T>> {
@@ -115,16 +115,16 @@ export class IPCAPI {
         return this.executeRequest<T>('logout', {});
     }
 
-    public async signup<T>(username: string, password: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('signup', { username, password });
+    public async signup<T>(username: string, password: string, lang?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('signup', { username, password, lang });
     }
 
-    public async forgotPassword<T>(username: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('forgot_password', { username });
+    public async forgotPassword<T>(username: string, lang?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('forgot_password', { username, lang });
     }
 
-    public async confirmForgotPassword<T>(username: string, confirmCode: string, newPassword: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('confirm_forgot_password', { username, confirmCode, newPassword});
+    public async confirmForgotPassword<T>(username: string, confirmCode: string, newPassword: string, lang?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('confirm_forgot_password', { username, confirmCode, newPassword, lang});
     }
 
     public async getAll<T>(username: string): Promise<APIResponse<T>> {

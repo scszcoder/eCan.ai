@@ -1244,6 +1244,21 @@ class MainWindow(QMainWindow):
         # Start WebDriver initialization in background
         asyncio.create_task(self._start_webdriver_initialization())
 
+        # Start LightRAG server
+        self._start_lightrag_deferred()
+
+    def _start_lightrag_deferred(self):
+        """Start LightRAG server in deferred mode."""
+        try:
+            from knowledge.lightrag_server import LightragServer
+            self.lightrag_server = LightragServer(
+                extra_env={"APP_DATA_PATH": ecb_data_homepath + "/lightrag_data"}
+            )
+            self.lightrag_server.start(wait_ready=False)
+            logger.info("LightRAG server started (deferred, non-blocking)")
+        except Exception as e:
+            logger.warning(f"Deferred LightRAG start failed: {e}")
+
     async def initialize_mcp(self):
         local_server_port = 4668
         url = f"http://127.0.0.1:{local_server_port}/api/initialize"  # <-- you need to implement this
