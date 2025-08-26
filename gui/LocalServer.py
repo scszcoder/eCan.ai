@@ -1,5 +1,14 @@
 import threading
 import asyncio
+import sys
+import os
+import time
+import uuid
+import json
+import traceback
+import httpx
+from concurrent.futures import Future
+from asyncio import Future as AsyncFuture
 
 # 导入 logger（需要在早期导入以便在所有类中使用）
 from utils.logger_helper import logger_helper as logger
@@ -10,15 +19,8 @@ from starlette.staticfiles import StaticFiles
 from starlette.routing import Route, Mount, ASGIApp, Router
 from starlette.middleware.cors import CORSMiddleware
 import uvicorn
-import os
-import time
-import uuid
-import json
-from concurrent.futures import Future
-from asyncio import Future as AsyncFuture
+
 # ==================== 环境检测和条件导入 ====================
-import sys
-import os
 
 class EnvironmentConfig:
     """环境配置管理器"""
@@ -86,13 +88,7 @@ set_server_main_win = env_config.get_module('set_server_main_win')
 lifespan = env_config.get_module('lifespan')
 from utils.gui_dispatch import run_on_main_thread, post_to_main_thread
 
-import sys
-import traceback
-import httpx
 response_dict = {}
-
-# mecaLocalServer = Flask(__name__, static_folder='dist')  # Serve Vue static files
-# CORS(mecaLocalServer)
 MainWin = None
 IMAGE_FOLDER = os.path.abspath("run_images")  # Ensure this is your intended path
 base_dir = getattr(sys, '_MEIPASS', os.getcwd())
@@ -116,7 +112,7 @@ async def serve_image(request):
 async def gen_feedbacks(request):
     logger.info("serving gen_feedbacks.....")
     mids = request.query_params.get('mids', "-1")  # Default value is "-1"
-    logger.info("mids", mids)
+    logger.info(f"mids: {mids}")
 
     data = run_on_main_thread(lambda: MainWin.genFeedbacks(mids))
     return JSONResponse(data, status_code=200)
@@ -156,7 +152,7 @@ async def stream(request):
 async def sync_bots_missions(request):
     try:
         incoming_data = await request.json()
-        logger.info("sync_bots_missions Received data:", incoming_data)
+        logger.info(f"sync_bots_missions Received data: {incoming_data}")
 
         b_emails = incoming_data.get('bots', [])
         minfos = incoming_data.get('missions', [])
@@ -173,7 +169,7 @@ async def sync_bots_missions(request):
         return JSONResponse({"status": "success", "result": result}, status_code=200)
 
     except Exception as e:
-        ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
+        ex_stat = f"ErrorFetchSchedule: {traceback.format_exc()} {str(e)}"
         logger.error(ex_stat)
         return JSONResponse({"status": "failure", "result": ex_stat}, status_code=500)
 
@@ -201,23 +197,13 @@ async def get_skill_graph(skg_file):
     return skill_graph
 
 async def save_skill_graph(skill_graph, skg_file):
-    saved = False
     try:
         with open(skg_file, "w") as outfile:
             json.dump(skill_graph, outfile, indent=4)
-        outfile.close()
-        saved = True
+        return True
     except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorSaveSkillGraph:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorSaveSkillGraph: traceback information not available:" + str(e)
-        saved = False
-    return saved
-
+        logger.error(f"ErrorSaveSkillGraph: {traceback.format_exc()} {str(e)}")
+        return False
 # Wrap the raw ASGI handler for POST
 # messages_router = Router([
 #     Route("/", endpoint=sse_handle_messages, methods=["POST"])
@@ -433,31 +419,16 @@ class ServerOptimizer:
         warnings.filterwarnings("ignore", category=DeprecationWarning)
         logger.debug("✅ Disabled deprecation warnings for PyInstaller")
 
-    @staticmethod
-    def setup_windows_policy():
-        """设置 Windows 事件循环策略"""
-        if os.name == 'nt':
-            try:
-                import asyncio
-                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-                logger.debug("✅ Set WindowsSelectorEventLoopPolicy for thread compatibility")
-            except Exception as e:
-                logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {e}")
-
-# Add the health check route to the server (replacing the existing one)
-    logger.info(f"Route summary: base routes={len(RouteBuilder.get_base_routes())}, mcp routes={'enabled' if env_config.has_mcp_support() else 'disabled'}")
-    try:
-        import inspect
-        mcpr = RouteBuilder.get_mcp_routes() if env_config.has_mcp_support() else []
-        for r in routes:
-            if isinstance(r, Mount):
-                logger.info(f"Mounted: {r.path} -> {getattr(r.app, '__name__', type(r.app).__name__)}")
-            elif isinstance(r, Route):
-                logger.info(f"Route: {r.path} methods={getattr(r, 'methods', None)} name={getattr(r, 'name', None)}")
-    except Exception as _e:
-        logger.debug(f"Route introspection failed: {_e}")
-
-mecaLocalServer.add_route("/healthz", health_check, methods=["GET"])
+    # @staticmethod
+    # def setup_windows_policy():
+    #     """设置 Windows 事件循环策略"""
+    #     if os.name == 'nt':
+    #         try:
+    #             import asyncio
+    #             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    #             logger.debug("✅ Set WindowsSelectorEventLoopPolicy for thread compatibility")
+    #         except Exception as e:
+    #             logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {e}")
 
 def run_starlette(port=4668):
     """启动 Starlette 服务器"""
@@ -471,9 +442,7 @@ def run_starlette(port=4668):
             ServerOptimizer.setup_pyinstaller_environment()
 
         # Windows 兼容性设置
-        ServerOptimizer.setup_windows_policy()
-
-        # MCP 会话管理器将在 Starlette 应用的 lifespan 中正确管理
+        # ServerOptimizer.setup_windows_policy()
 
         def _make_server(_lifespan_on: bool, host_bind: str):
             logger.info(f"Uvicorn config: host={host_bind}, port={port}, loop=asyncio, http=h11, lifespan={'on' if _lifespan_on else 'off'}")
@@ -503,7 +472,7 @@ def run_starlette(port=4668):
         host_candidates = [
             os.environ.get("ECBOT_LOCAL_SERVER_HOST", "127.0.0.1"),
             "0.0.0.0",
-]
+        ]
 
         last_err = None
         for host_bind in host_candidates:
@@ -523,7 +492,6 @@ def run_starlette(port=4668):
         logger.exception(f"Failed to start local server on port {port}: {e}")
         # Force-write startup exception to file for diagnosis in frozen environments
         try:
-            import traceback
             logger.error(traceback.format_exc())
         except Exception:
             pass
@@ -543,8 +511,3 @@ def start_local_server_in_thread(mwin):
 
     starlette_thread.start()
     logger.info("local server kicked off....................")
-
-
-
-# if __name__ == '__main__':
-#     run_starlette()

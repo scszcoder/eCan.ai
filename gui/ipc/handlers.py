@@ -293,7 +293,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         login: Login = ctx.login
         agents = login.main_win.agents
 
-        top_web_gui = login.top_gui
+        web_gui = ctx.web_gui
         for test in tests:
             test_id = test.get('test_id')
             test_args = test.get('args', {})
@@ -302,7 +302,7 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             if test_id == 'default_test':
                 ctx = AppContext()
                 login:Login = ctx.login
-                result = run_default_tests(top_web_gui, login.main_win)
+                result = run_default_tests(web_gui, login.main_win)
             # Add other test cases as needed
             else:
                 print(">>>>>running test:", test_id, "trigger running procrement task")

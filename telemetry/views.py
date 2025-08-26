@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Sequence, List
 
 
 @dataclass
@@ -23,7 +23,7 @@ class RegisteredFunction:
 
 @dataclass
 class ControllerRegisteredFunctionsTelemetryEvent(BaseTelemetryEvent):
-	registered_functions: list[RegisteredFunction]
+	registered_functions: List[RegisteredFunction]
 	name: str = 'controller_registered_functions'
 
 
@@ -31,9 +31,9 @@ class ControllerRegisteredFunctionsTelemetryEvent(BaseTelemetryEvent):
 class AgentStepTelemetryEvent(BaseTelemetryEvent):
 	agent_id: str
 	step: int
-	step_error: list[str]
+	step_error: List[str]
 	consecutive_failures: int
-	actions: list[dict]
+	actions: List[dict]
 	name: str = 'agent_step'
 
 

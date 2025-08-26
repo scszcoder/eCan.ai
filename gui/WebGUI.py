@@ -526,7 +526,6 @@ class WebGUI(QMainWindow):
                     logger.warning(f"Error stopping LightragServer: {e}")
 
                 # Force exit
-                import os
                 logger.info("Force exiting with os._exit(0)")
                 os._exit(0)
 
