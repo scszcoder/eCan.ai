@@ -6,6 +6,7 @@ from gui.LoginoutGUI import Login
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
+from auth.auth_messages import auth_messages
 
 from utils.logger_helper import logger_helper as logger
 
@@ -17,7 +18,7 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
     
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        params: 请求参数，必须包含 'username' 和 'password' 字段，可选 'lang' 字段
         
     Returns:
         str: JSON 格式的响应消息
@@ -35,11 +36,16 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
                 error
             )
         
-        # 获取用户名和密码
+        # 获取用户名、密码和语言参数
         username = data['username']
         password = data['password']
-        machine_role = data['machine_role']
-        logger.debug("user name:" + username + " password:" + password + " machine_role:" + machine_role)
+        machine_role = data.get('machine_role', 'Commander')
+        lang = data.get('lang', auth_messages.DEFAULT_LANG)  # 如果为空使用系统默认语言
+        
+        # 设置国际化语言
+        auth_messages.set_language(lang)
+        
+        logger.debug(f"user name: {username}, password: [HIDDEN], machine_role: {machine_role}, lang: {lang}")
         
         ctx = AppContext()
         login: Login = ctx.login
@@ -52,35 +58,35 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
             logger.info(f"Login successful for user: {username}")
             return create_success_response(request, {
                 'token': token,
-                'message': 'Login successful'
+                'message': auth_messages.get_message('login_success')
             })
         elif result == 'NetworkError':
             logger.error(f"Network error during login for user: {username}")
             return create_error_response(
                 request,
                 'NETWORK_ERROR',
-                'Network connection failed. Please check your internet connection and try again.'
+                auth_messages.get_message('login_network_error')
             )
         elif result == 'TimeoutError':
             logger.error(f"Authentication timeout for user: {username}")
             return create_error_response(
                 request,
                 'TIMEOUT_ERROR',
-                'Authentication request timed out. Please try again or check your network connection.'
+                auth_messages.get_message('login_timeout_error')
             )
         else:
             logger.warning(f"Invalid credentials for user: {username}")
             return create_error_response(
                 request,
                 'INVALID_CREDENTIALS',
-                'Invalid username or password'
+                auth_messages.get_message('login_invalid_credentials')
             )
     except Exception as e:
         logger.error(f"Error in login handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during login: {str(e)}"
+            auth_messages.get_message('login_failed')
         )
 
 @IPCHandlerRegistry.handler('get_last_login')
@@ -152,7 +158,7 @@ def handle_signup(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
     """处理注册请求
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        params: 请求参数，必须包含 'username' 和 'password' 字段，可选 'lang' 字段
     Returns:
         str: JSON 格式的响应消息
     """
@@ -168,6 +174,10 @@ def handle_signup(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCR
             )
         username = data['username']
         password = data['password']
+        lang = data.get('lang', auth_messages.DEFAULT_LANG)  # 如果为空使用系统默认语言
+        
+        # 设置国际化语言
+        auth_messages.set_language(lang)
         ctx = AppContext()
         login: Login = ctx.login
         success, message = login.handleSignUp(username, password)
@@ -196,7 +206,7 @@ def handle_forgot_password(request: IPCRequest, params: Optional[Dict[str, Any]]
     """处理忘记密码请求
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 字段
+        params: 请求参数，必须包含 'username' 字段，可选 'lang' 字段
     Returns:
         str: JSON 格式的响应消息
     """
@@ -211,26 +221,30 @@ def handle_forgot_password(request: IPCRequest, params: Optional[Dict[str, Any]]
                 error
             )
         username = data['username']
+        lang = data.get('lang', auth_messages.DEFAULT_LANG)  # 如果为空使用系统默认语言
+        
+        # 设置国际化语言
+        auth_messages.set_language(lang)
         ctx = AppContext()
         login: Login = ctx.login
         success = login.handleForgotPassword(username)
         logger.info(f"ForgotPassword process started for user: {username}")
         if success == True:
             return create_success_response(request, {
-                'message': 'Forgot password process started, please check your email for the confirmation code.'
+                'message': auth_messages.get_message('forgot_password_sent')
             })
         else:
             return create_error_response(
                 request,
                 'FORGOT_PASSWORD_ERROR',
-                f"Error during forgot password."
+                auth_messages.get_message('forgot_password_failed')
             )
     except Exception as e:
         logger.error(f"Error in forgot_password handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'FORGOT_PASSWORD_ERROR',
-            f"Error during forgot password: {str(e)}"
+            auth_messages.get_message('forgot_password_failed')
         )
 
 @IPCHandlerRegistry.handler('confirm_forgot_password')
@@ -238,7 +252,7 @@ def handle_confirm_forgot_password(request: IPCRequest, params: Optional[Dict[st
     """处理确认忘记密码请求
     Args:
         request: IPC 请求对象
-        params: 请求参数，必须包含 'username', 'confirmCode', 'newPassword' 字段
+        params: 请求参数，必须包含 'username', 'confirmCode', 'newPassword' 字段，可选 'lang' 字段
     Returns:
         str: JSON 格式的响应消息
     """
@@ -255,25 +269,31 @@ def handle_confirm_forgot_password(request: IPCRequest, params: Optional[Dict[st
         username = data['username']
         confirm_code = data['confirmCode']
         new_password = data['newPassword']
+        lang = data.get('lang', auth_messages.DEFAULT_LANG)  # 如果为空使用系统默认语言
+        
+        # 设置国际化语言
+        auth_messages.set_language(lang)
+        
         ctx = AppContext()
         login: Login = ctx.login
-        try:
-            response = login.handleConfirmForgotPassword(username, confirm_code, new_password)
+
+        success, message = login.handleConfirmForgotPassword(username, confirm_code, new_password)
+        if success:
             logger.info(f"ConfirmForgotPassword successful for user: {username}")
             return create_success_response(request, {
-                'message': 'Password reset successful, you can now log in with your new password.'
+                'message': auth_messages.get_message('confirm_forgot_success')
             })
-        except Exception as e:
-            logger.warning(f"ConfirmForgotPassword failed for user: {username}, error: {e}")
+        else:
+            logger.warning(f"ConfirmForgotPassword failed for user: {username}, error: {message}")
             return create_error_response(
                 request,
                 'CONFIRM_FORGOT_PASSWORD_FAILED',
-                str(e)
+                message
             )
     except Exception as e:
         logger.error(f"Error in confirm_forgot_password handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'CONFIRM_FORGOT_PASSWORD_ERROR',
-            f"Error during confirm forgot password: {str(e)}"
+            auth_messages.get_message('confirm_forgot_failed')
         )
