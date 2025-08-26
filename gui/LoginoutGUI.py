@@ -10,7 +10,6 @@ import traceback
 from datetime import datetime
 
 from gui.MainGUI import MainWindow
-from gui.login_ui import LoginUI
 from auth.auth_service import AuthService
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
@@ -31,12 +30,6 @@ class Login:
         # Initialize business logic service
         self.auth_service = AuthService()
         
-        # Initialize UI
-        self.ui = LoginUI(parent)
-        
-        # Setup UI callbacks
-        self._setup_ui_callbacks()
-        
         # Application state
         self.xport = None
         self.ip = commanderIP
@@ -44,27 +37,8 @@ class Login:
         self.gui_net_msg_queue = asyncio.Queue()
         self.mainLoop = None
         
-        # Load initial role from auth service
-        self._sync_role_with_ui()
-        
         logger.info("Login controller initialized")
     
-    def _setup_ui_callbacks(self):
-        """Setup callbacks between UI and business logic."""
-        self.ui.set_login_callback(self._handle_login)
-        self.ui.set_signup_callback(self._handle_signup)
-        self.ui.set_forgot_password_callback(self._handle_forgot_password)
-        self.ui.set_confirm_forgot_password_callback(self._handle_confirm_forgot_password)
-    
-    def _sync_role_with_ui(self):
-        """Sync role selection in UI with auth service."""
-        role = self.auth_service.get_role()
-        role_list = ["Staff Officer", "Commander", "Commander Only", "Platoon"]
-        try:
-            role_index = role_list.index(role)
-            self.ui.role_select.setCurrentIndex(role_index)
-        except ValueError:
-            self.ui.role_select.setCurrentIndex(1)  # Default to Commander
 
     # Handler methods for UI callbacks
     def _handle_login(self, username: str, password: str, role: str, schedule_mode: str):
@@ -77,21 +51,13 @@ class Login:
             success, message = self.auth_service.login(username, password, role)
             
             if success:
-                # Save user settings
-                self.ui.save_user_settings(username)
-                
-                # Hide UI and launch main window
-                self.ui.hide()
                 self._launch_main_window(schedule_mode)
-                
                 logger.info("Login successful!")
             else:
-                self.ui.show_error_message(message)
                 logger.error(f"Login failed: {message}")
                 
         except Exception as e:
             logger.error(f"Login error: {e}")
-            self.ui.show_error_message(f"Login failed: {str(e)}")
             logger.error(traceback.format_exc())
     
     def _handle_signup(self, username: str, password: str):
@@ -100,14 +66,12 @@ class Login:
             success, message = self.auth_service.sign_up(username, password)
             
             if success:
-                self.ui.show_success_message(message)
-                self.ui.reset_to_login_mode()
+                logger.info(f"Signup successful: {message}")
             else:
-                self.ui.show_error_message(message)
+                logger.error(f"Signup failed: {message}")
                 
         except Exception as e:
             logger.error(f"Signup error: {e}")
-            self.ui.show_error_message(f"Signup failed: {str(e)}")
     
     def _handle_forgot_password(self, username: str):
         """Handle forgot password request from UI."""
@@ -115,13 +79,12 @@ class Login:
             success, message = self.auth_service.forgot_password(username)
             
             if success:
-                self.ui.show_info_message(message)
+                logger.info(f"Forgot password: {message}")
             else:
-                self.ui.show_error_message(message)
+                logger.error(f"Forgot password failed: {message}")
                 
         except Exception as e:
             logger.error(f"Forgot password error: {e}")
-            self.ui.show_error_message(f"Password reset failed: {str(e)}")
     
     def _handle_confirm_forgot_password(self, username: str, confirm_code: str, new_password: str):
         """Handle confirm forgot password request from UI."""
@@ -129,14 +92,12 @@ class Login:
             success, message = self.auth_service.confirm_forgot_password(username, confirm_code, new_password)
             
             if success:
-                self.ui.show_success_message(message)
-                self.ui.reset_to_login_mode()
+                logger.info(f"Password reset confirmed: {message}")
             else:
-                self.ui.show_error_message(message)
+                logger.error(f"Password reset failed: {message}")
                 
         except Exception as e:
             logger.error(f"Confirm forgot password error: {e}")
-            self.ui.show_error_message(f"Password confirmation failed: {str(e)}")
     
     # Public interface methods
     def get_gui_msg_queue(self):
@@ -165,7 +126,6 @@ class Login:
     def set_role(self, role):
         """Set machine role."""
         self.auth_service.set_role(role)
-        self._sync_role_with_ui()
 
     def is_commander(self):
         """Check if current role is commander."""
@@ -191,7 +151,7 @@ class Login:
                 self, main_key, tokens, self.mainLoop, self.ip,
                 self.auth_service.current_user, ecbhomepath,
                 self.gui_net_msg_queue, self.auth_service.machine_role, 
-                schedule_mode, self.ui.get_language()
+                schedule_mode, "en-US"  # Default language
             )
             
             # Configure main window
@@ -341,34 +301,22 @@ class Login:
             logger.error(f"Logout error: {e}")
             return False
     
-    # UI delegation methods
-    def show(self):
-        """Show the login UI."""
-        self.ui.show()
-    
-    def hide(self):
-        """Hide the login UI."""
-        self.ui.hide()
-    
-    def exec(self):
-        """Execute the login dialog."""
-        return self.ui.exec()
 
     # Legacy methods for backward compatibility with IPC handlers
     def handleLogin(self, uname="", pw="", mrole=""):
         """Legacy login method for backward compatibility with IPC handlers."""
-        username = uname or self.ui.get_username()
-        password = pw or self.ui.get_password()
-        role = mrole or self.ui.get_role()
-        schedule_mode = self.ui.get_schedule_mode()
+        username = uname
+        password = pw
+        role = mrole or "Commander"  # Default role
+        schedule_mode = "manual"  # Default schedule mode
         
         self._handle_login(username, password, role, schedule_mode)
         return "Successful" if self.auth_service.is_signed_in() else "Failed"
     
     def handleSignUp(self, uname="", pw=""):
         """Legacy signup method for backward compatibility with IPC handlers."""
-        username = uname or self.ui.get_username()
-        password = pw or self.ui.get_password()
+        username = uname
+        password = pw
         
         success, message = self.auth_service.sign_up(username, password)
         return success, message
@@ -382,19 +330,3 @@ class Login:
         """Legacy confirm forgot password method for backward compatibility with IPC handlers."""
         success, message = self.auth_service.confirm_forgot_password(username, confirm_code, new_password)
         return success, message
-
-    # Fake login method for testing
-    def fakeLogin(self):
-        """Fake login for testing purposes."""
-        logger.info("Performing fake login for testing")
-        
-        username = self.ui.get_username() or "test@example.com"
-        success, message = self.auth_service.fake_login(username)
-        
-        if success:
-            self.ui.save_user_settings(username)
-            self.ui.hide()
-            self._launch_main_window(self.ui.get_schedule_mode())
-            logger.info("Fake login completed successfully")
-        else:
-            self.ui.show_error_message(message)
