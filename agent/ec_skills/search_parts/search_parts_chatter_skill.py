@@ -688,10 +688,15 @@ def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) ->
 
 
 async def browser_search_with_parametric_filters(mainwin, url, parametric_filters):
-    bu = mainwin.unified_browser_manager.get_browser_user()
-    browse_history = await bu.run()
-    browse_history.save_to_file('./tmp/history.json')
-    return
+    # Run Browser Use inside a worker thread with a Selector event loop to support Playwright subprocesses on Windows.
+    manager = mainwin.unified_browser_manager
+    result = manager.run_basic_agent_task(product_phrase=parametric_filters.get("product_phrase") if isinstance(parametric_filters, dict) else None)
+    try:
+        if hasattr(result, "save_to_file"):
+            result.save_to_file('./tmp/history.json')
+    except Exception:
+        pass
+    return result
 
 
 def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
