@@ -75,3 +75,52 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
         logger.error(err_trace)
         usable_prompts = []
     return usable_prompts
+
+
+def api_ecan_ai_ocr_read_screen(mainwin, nodes):
+    try:
+        session = mainwin.session
+        token = mainwin.tokens['AuthenticationResult']['IdToken']
+
+        wan_api_endpoint = mainwin.wan_api_endpoint
+        logger.debug("wan api endpoint:", wan_api_endpoint)
+        response = send_get_nodes_prompts_request_to_cloud(session, token, nodes, wan_api_endpoint)
+        logger.debug("api_ecan_ai_get_nodes_prompts: respnose:", response)
+
+        # 检查响应是否包含错误
+        if "errors" in response:
+            logger.debug("API returned errors:", response["errors"])
+            return []
+
+        # 检查响应格式
+        if "body" not in response:
+            logger.debug("Response missing 'body' field:", response)
+            return []
+
+        raw_body = response["body"]
+
+        # First decode
+        level1 = json.loads(raw_body)  # dict with keys: data
+        level2 = json.loads(level1["data"]["body"])  # inner string -> dict
+        prompts = level2["data"]  # [[[ "system", "..."], ["human", "..."]]]
+
+        # prompts = json.loads(response["body"])["data"]
+        usable_prompts = []
+        for prompt in prompts:
+            usable_prompts.append(
+                [
+                    {
+                        "role": "system",
+                        "content": prompt[0][1]
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt[1][1]
+                    }
+                ]
+            )
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorEcanAiApiGetNodesPrompts")
+        logger.error(err_trace)
+        usable_prompts = []
+    return usable_prompts
