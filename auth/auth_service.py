@@ -6,13 +6,11 @@ This class handles all authentication operations without any UI dependencies.
 import asyncio
 import json
 import os
-import platform
 import time
 import base64
 import hmac
 import hashlib
 import traceback
-from datetime import datetime
 from os.path import exists
 from typing import Dict, Any, Tuple, Optional
 
@@ -21,10 +19,8 @@ import botocore
 from pycognito import Cognito, AWSSRP
 from botocore.config import Config
 
-from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from auth.auth_messages import auth_messages
-from utils.fernet import encrypt_password, decrypt_password
 from auth.auth_config import AuthConfig
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
@@ -274,28 +270,6 @@ class AuthService:
                 return False, auth_messages.get_message('login_invalid_credentials')
             else:
                 return False, auth_messages.get_message('login_failed')
-    
-    def fake_login(self, username: str = "test@example.com") -> Tuple[bool, str]:
-        """Fake login for testing purposes."""
-        logger.info("Performing fake login for testing")
-        
-        # Set fake tokens
-        self.tokens = {
-            'ChallengeParameters': {}, 
-            'AuthenticationResult': {
-                'AccessToken': 'fake_access_token',
-                'ExpiresIn': 3600, 
-                'TokenType': 'Bearer',
-                'RefreshToken': 'fake_refresh_token',
-                'IdToken': 'fake_id_token'
-            }
-        }
-        
-        self.current_user = username
-        self.current_user_pw = "fake_password"
-        self.signed_in = True
-        
-        return True, "Fake login successful"
     
     def sign_up(self, username: str, password: str) -> Tuple[bool, str]:
         """
