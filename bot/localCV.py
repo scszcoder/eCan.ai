@@ -1,17 +1,16 @@
 import pytesseract
 from pytesseract import Output
 import os
-import cv2
 import imutils
 from PIL import Image
 from datetime import datetime
-import traceback
 import asyncio
 from textUtils import CLICKABLE, BLOCK, PARAGRAPH, LINE, WORD
 from concurrent.futures import ProcessPoolExecutor
 import json
 import numpy as np
-from Logger import *
+from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import logger_helper as logger
 
 
 class PythonObjectEncoder(json.JSONEncoder):
@@ -110,6 +109,7 @@ def img_has_match(result, thresh):
 
 # SC note: - CCORR is the fastest, but not as accurate.
 def match_icon(data):
+    import cv2
     image, template = data
     # return cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
     # return cv2.matchTemplate(image, template, cv2.TM_CCOEFF)
@@ -129,9 +129,10 @@ def match_icon(data):
 # def match_template(aname, iconFile, targetImage, factor, log=False):
 # def match_template(aname, icon, targetImage, factor, log=False):
 def match_template(aname, icon, targetImage, factor, logger):
+    import cv2
     # aname, icon, targetImage, factor = mt_input
     # global logger
-    log3("matching icon: " + aname + "....")
+    logger.debug("matching icon: " + aname + "....")
 
     match_results = []
     outData = {"level": [], "page_num": [], "block_num": [], "par_num": [], "line_num": [], "word_num": [], "left": [],
@@ -153,7 +154,7 @@ def match_template(aname, icon, targetImage, factor, logger):
 
     # template = cv2.Canny(template, 50, 200)
     (tH, tW) = template.shape[:2]
-    log3("icon dimension tH: " + str(tH) + " tW: " + str(tW))
+    logger.debug("icon dimension tH: " + str(tH) + " tW: " + str(tW))
 
     # loop over the images to find the template in
     # for imagePath in glob.glob(args["images"] + "/*.jpg"):
@@ -162,7 +163,7 @@ def match_template(aname, icon, targetImage, factor, logger):
     # bookkeeping variable to keep track of the matched region
 
     # gray = img2
-    log3("base image dimension::" + json.dumps(targetImage.shape))
+    logger.debug("base image dimension::" + json.dumps(targetImage.shape))
     gray = cv2.cvtColor(targetImage, cv2.COLOR_BGR2GRAY)
     # edged = cv2.Canny(gray, 50, 200)
     edged = gray
@@ -189,7 +190,7 @@ def match_template(aname, icon, targetImage, factor, logger):
     else:
         search_space = factor[aname]
 
-    log3("search scales::" + str(len(search_space)))
+    logger.debug("search scales::" + str(len(search_space)))
 
     try:
         allresults = []
@@ -344,25 +345,19 @@ def match_template(aname, icon, targetImage, factor, logger):
                      "shape": matched_result[5], "locs": effective})
 
         # one more round of filtering of potential duplicates....
-        log3("effecitves:" + json.dumps(matched_effectives, cls=NumpyEncoder))
+        logger.debug("effecitves:" + json.dumps(matched_effectives, cls=NumpyEncoder))
 
         match_results = remove_duplicates(matched_effectives)
 
     except Exception as e:
-        logger.error("ERROR occured.")
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorExtractInfo:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorExtractInfo traceback information not available:" + str(e)
-        logger.error("exception:" + ex_stat)
+        errMsg = get_traceback(e, "ErrorMatchTemplate")
+        logger.error(errMsg)
 
-    log3(aname + " match_results:" + json.dumps(match_results, cls=NumpyEncoder))
+    logger.debug(aname + " match_results:" + json.dumps(match_results, cls=NumpyEncoder))
     return match_results
 
 def loadImg(imageFile):
+    import cv2
     if isinstance(imageFile, str):  # If it's a file path, load the image
         img = cv2.imread(imageFile)         # Load target image
     else:
@@ -372,8 +367,8 @@ def loadImg(imageFile):
 def local_match_template(anames, iconFiles, imageFile, factor, logger):
     """ Perform template matching locally using OpenCV. """
     # logger = LoggerUtil().get_logger()  # Ensure logger is initialized inside worker
-    # log3(f"Matching icon: {args[0]}....")
-    log3("time stamp4D1: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    # logger.debug(f"Matching icon: {args[0]}....")
+    logger.debug("time stamp4D1: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     print("Performing local template matching anchors...", anames)
     print("imageFile...", imageFile)
@@ -388,10 +383,10 @@ def local_match_template(anames, iconFiles, imageFile, factor, logger):
 
     icon_clickables = []
     for aname, icon in zip(anames, icons):
-        log3("time stamp4D4: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        logger.debug("time stamp4D4: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         matches = match_template(aname, icon, img, factor, logger)  # Run template matching
-        log3("time stamp4D5: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        logger.debug("time stamp4D5: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         for match in matches:
             icon_clickables.append(
@@ -400,14 +395,14 @@ def local_match_template(anames, iconFiles, imageFile, factor, logger):
                     match["box"][2], match["box"][3], match["type"], match["text_data"], match["scale"]
                 )
             )
-    log3("time stamp4D9: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.debug("time stamp4D9: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     return icon_clickables
 
 async def local_run_icon_matching(anames, iconFiles, imageFile, factor, logger):
     """ Run local icon matching using OpenCV. """
     print("Starting local ICON MATCH...")
-    log3("time stamp4D0: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.debug("time stamp4D0: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     loop = asyncio.get_running_loop()
     # result = await loop.run_in_executor(icon_match_executor, local_match_template, anames, iconFiles, imageFile, factor, logger)
@@ -432,7 +427,7 @@ def gen_block_data(raw, logger, wc=0, pi=0, ibi=0):
     box_top = raw['top'][0]
     box_right = raw['left'][0] + raw['width'][0]
     box_bottom = raw['top'][0] + raw['height'][0]
-    log3(f"Initial Index: wc -  {wc}, pi - {pi}, ibi -  {ibi}")
+    logger.debug(f"Initial Index: wc -  {wc}, pi - {pi}, ibi -  {ibi}")
     for i in range(n):
         if raw['text'][i].strip() != "":  # only process this word if usefull
             new_word = WORD(i, raw['text'][i], (
@@ -564,7 +559,7 @@ def is_dark_mode(img, logger, threshold=0.75):
 
     # Compute the fraction of dark pixels. A pixel is considered 'dark' if its grayscale value is less than 128.
     dark_fraction = np.sum(img < 128) / (img.shape[0] * img.shape[1])
-    log3(f"dark_fraction: {dark_fraction}")
+    logger.debug(f"dark_fraction: {dark_fraction}")
 
     return dark_fraction > threshold
 
@@ -579,6 +574,7 @@ def print_block_data(raw, blk_by_idxs):
 
 # this is very useful for images with low contrast: light colored text on light colord background, or dark colored text on dark colored background.
 def enhance(img):
+    import cv2
     # print("img:", img)
 
     im = img.astype(np.float32)
@@ -645,7 +641,7 @@ def flatten_lines(blk_data, logger):
                         processed = processed + 1
                         if check_dummy_line(l) == False:
                             lines.append(l)
-    log3("lines processed: " + str(processed) + ", dummy lines filtered out: " + str(processed - len(lines)))
+    logger.debug("lines processed: " + str(processed) + ", dummy lines filtered out: " + str(processed - len(lines)))
     return lines
 
 
@@ -668,7 +664,7 @@ def segmentize_line(line, logger, gap_factor=3):
     char_width = int(all_word_width / n_chars)
     word_gap = char_width * gap_factor
     # print("word gap:", char_width, gap_factor, word_gap)
-    log3("-------working on a line ----------<<"+line.get_line_text()+">>")
+    logger.debug("-------working on a line ----------<<"+line.get_line_text()+">>")
     for i in range(n):
         if words[i].get_text() and not words[i].get_text().isspace():
             # if the word is NOT dummy (i.e. empty string or space string), if dummy, then simply do nothing and skip over it.
@@ -714,10 +710,10 @@ def segmentize_line(line, logger, gap_factor=3):
     # print("seg bound:[" + str(seg.get_left()) + ", " + str(seg.get_right()) + "] ")
     new_lines.append(seg)
     # line.add_line_seg(seg)
-    log3(f"segmented into {len(new_lines)} lines.....")
+    logger.debug(f"segmented into {len(new_lines)} lines.....")
     for nl in new_lines:
         nl.print()
-    log3("vvvvvvvvvvvvvvvvvvvv line add segment vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
+    logger.debug("vvvvvvvvvvvvvvvvvvvv line add segment vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
 
     return new_lines
 
@@ -735,6 +731,7 @@ def segmentize_lines(lines, logger):
 # input: image bytes
 # output: a list of top-bottom left to right sorted LINEs data structure, one can search thru.
 async def image2text_lines(img):
+    import cv2
     img = loadImg(img)
 
     imgShape = img.shape
@@ -752,8 +749,8 @@ async def image2text_lines(img):
     # convert color image to gray image.
     gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
 
-    log3("pong pong pong????")
-    log3("time stamp3A: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.debug("pong pong pong????")
+    logger.debug("time stamp3A: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     # inv_img = cv2.bitwise_not(gray)
     # ret, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY_INV)
@@ -769,25 +766,25 @@ async def image2text_lines(img):
 
     # start of sc optimization comment out - 2024/05/05
     if is_dark_mode(img, logger):
-        log3("extract in DARK mode......")
+        logger.debug("extract in DARK mode......")
         img2 = enhance(gray)
-        log3("time stamp3AB0: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        logger.debug("time stamp3AB0: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         th2 = cv2.threshold(np.array(img2), 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-        log3("time stamp3AB1: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        logger.debug("time stamp3AB1: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         # page_info2 = pytesseract.image_to_data(th2, output_type=Output.DICT, lang="chi_sim")
         page_info2 = pytesseract.image_to_data(th2, output_type=Output.DICT)
         page_info = page_info2
     else:
-        log3("extract in LIGHT mode......")
+        logger.debug("extract in LIGHT mode......")
         # page_info1 = pytesseract.image_to_data(th2, output_type=Output.DICT, lang="chi_sim")
         page_info1 = pytesseract.image_to_data(gray, output_type=Output.DICT)
         page_info = page_info1
 
     # page_info = remote_ocr(img_file)
-    log3("pageInfoooo::" + json.dumps(page_info))
+    logger.debug("pageInfoooo::" + json.dumps(page_info))
 
     remove_junks(page_info)
-    log3("time stamp3C: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.debug("time stamp3C: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
     print("extracted texts: ", page_info)
 
@@ -804,7 +801,7 @@ async def image2text_lines(img):
 
     resegmented = segmentize_lines(all_lines, logger)
 
-    log3("time stamp3C0: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.debug("time stamp3C0: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     
     return resegmented
 
@@ -821,4 +818,5 @@ async def image2objects(img, icon_templates):
         "text_lines": await image2text_lines(img),
         "icons": await local_run_icon_matching(anames, iconFiles, imageFile, factor, logger)
     }
-    
+
+

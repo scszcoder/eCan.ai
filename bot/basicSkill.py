@@ -26,6 +26,7 @@ import io
 
 from ping3 import ping
 import utils.logger_helper
+from agent.mcp.server.server import mouse_click
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
@@ -6941,6 +6942,9 @@ async def processLogCrossNetwork8(step, i, mission):
     # Always proceed to the next instruction
     return (i + 1), DEFAULT_RUN_STATUS
 
+def mouseClick(loc):
+    pyautogui.moveTo(loc[0], loc[1])
+    pyautogui.click()
 
 def mousePressAndHold(loc, duration):
     # Move to the position
@@ -6961,7 +6965,12 @@ def mousePressAndHoldOnScreenWord(sd, word, duration= 12, nth=0):
     obj_box = find_clickable_object(sd, "paragraph", word, "info", 0)
     if obj_box:
         loc = get_clickable_loc(obj_box, "center", [0, 0], "box")
-        mousePressAndHold(loc, duration)
+        if duration:
+            mousePressAndHold(loc, duration)
+        else:
+            mouseClick(loc)
+
+
 
 
 

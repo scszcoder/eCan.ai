@@ -1,7 +1,6 @@
 import json
 import random
 import re
-import cv2
 from calendar import isleap
 from bs4 import BeautifulSoup
 
@@ -152,6 +151,7 @@ def get_month_days(year, month):
 # input: screen save file name.
 # output: on the screen saving image, find and return the location of the file name input box.
 def find_file_name_box(sfn):
+    import cv2
     output = [[0, 0, 0], [0, 0, 0]]
     image = cv2.imread(sfn)
     # mat full star, 0.8, match empty star 0.80, match half star 0.8.

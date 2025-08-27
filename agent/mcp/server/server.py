@@ -32,7 +32,7 @@ from agent.ec_skills.browser_use_for_ai.browser_use_extension import (
     Position,
 )
 import shutil
-from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile
+from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile, mousePressAndHold, mousePressAndHoldOnScreenWord
 from utils.logger_helper import login
 from bot.seleniumSkill import *
 from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
@@ -43,8 +43,8 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
 from .event_store import InMemoryEventStore
 from collections import defaultdict
-# from agent.ec_skills.dom.dom_utils import *
-from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components, api_ecan_ai_get_nodes_prompts
+from agent.ec_skills.dom.dom_utils import *
+from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components, api_ecan_ai_get_nodes_prompts, api_ecan_ai_ocr_read_screen
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 
 
@@ -747,6 +747,27 @@ async def mouse_click(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def mouse_press_hold(mainwin, args):
+    try:
+        logger.debug(f"MOUSE CLICKINPUT: {args}")
+        press_time = args["input"]["press_time"]
+        pyautogui.moveTo(args["input"]["loc"][0], args["input"]["loc"][1])
+        time.sleep(args["input"]["post_move_delay"])
+        pyautogui.mouseDown()
+        time.sleep(press_time)
+        pyautogui.mouseUp()
+        time.sleep(args["input"]["post_delay"])
+
+        msg = "completed mouse press and hold"
+        result = [TextContent(type="text", text=msg)]
+
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorMousePressHold")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def mouse_move(mainwin, args):
     try:
         logger.debug(f"MOUSE HOVER INPUT: {args}")
@@ -792,6 +813,33 @@ async def mouse_scroll(mainwin, args):
         err_trace = get_traceback(e, "ErrorMouseScroll")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+
+async def mouse_act_on_screen(mainwin, args):
+    try:
+        screen_data = args["input"]["screen_data"]
+        action = args["input"]["action"]
+        target = args["input"]["target"]
+        target_params = args["input"]["target_params"]
+        action_params = args["input"]["action_params"]
+
+        if action == "click":
+            time.sleep(args["input"].get("post_move_delay",1))
+            mousePressAndHoldOnScreenWord(screen_data, target, duration=0, nth=0)
+        elif action == "press_hold":
+            time.sleep(args["input"].get("post_move_delay", 1))
+            mousePressAndHoldOnScreenWord(screen_data, target, duration= 12, nth=0)
+
+        time.sleep(args["input"].get("post_delay", 0))
+        msg = "completed action on screen."
+        result = [TextContent(type="text", text=msg)]
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorMouseActOnScreen")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
 
 async def keyboard_text_input(mainwin, args):
     try:
@@ -1392,6 +1440,7 @@ tool_function_mapping = {
         "in_browser_drag_drop": in_browser_drag_drop,
         "in_browser_multi_actions": in_browser_multi_actions,
         "mouse_click": mouse_click,
+        "mouse_press_hold": mouse_press_hold,
         "mouse_move": mouse_move,
         "mouse_drag_drop": mouse_drag_drop,
         "mouse_scroll": mouse_scroll,
@@ -1421,7 +1470,9 @@ tool_function_mapping = {
         "os_reconnect_wifi": os_reconnect_wifi,
         "api_ecan_ai_query_components": api_ecan_ai_query_components,
         "api_ecan_ai_img2text_icons": api_ecan_ai_img2text_icons,
-        "api_ecan_ai_get_nodes_prompts": api_ecan_ai_get_nodes_prompts
+        "api_ecan_ai_get_nodes_prompts": api_ecan_ai_get_nodes_prompts,
+        "api_ecan_ai_ocr_read_screen": api_ecan_ai_ocr_read_screen,
+        "mouse_act_on_screen": mouse_act_on_screen
     }
 
 def set_server_main_win(mw):
