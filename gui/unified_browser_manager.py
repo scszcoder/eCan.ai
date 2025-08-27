@@ -286,6 +286,7 @@ class UnifiedBrowserManager:
                 viewport_expansion=-1,
                 highlight_elements=False,
                 user_data_dir='~/.config/browseruse/profiles/default',
+                keep_alive=True,
             )
             browser_session = BrowserSession(browser_profile=browser_profile)
 

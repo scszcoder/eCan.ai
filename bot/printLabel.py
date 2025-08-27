@@ -14,7 +14,6 @@ import numpy as np
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
 from PIL import Image, ImageFont, ImageDraw
-import cv2
 from pdf2image import convert_from_path
 from concurrent.futures import ThreadPoolExecutor
 
@@ -233,6 +232,7 @@ def genPVQSText(site, order_data, product_book):
 
     return name_text
 def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, font_full_path, font_size):
+    import cv2
     print("pdf to img start....", working_dir + pdffile)
     # images = convert_from_path(working_dir + pdffile)
     document = fitz.open(working_dir + pdffile)
