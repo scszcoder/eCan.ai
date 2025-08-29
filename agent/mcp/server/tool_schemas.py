@@ -1459,7 +1459,6 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-
     tool_schema = types.Tool(
         name="api_ecan_ai_get_nodes_prompts",
         description="run API to obtain the prompts for the langggraph nodes.",
@@ -1482,6 +1481,30 @@ def build_agent_mcp_tools_schemas():
                             "type": "string",
                             "description": "either local/lan/wan, local means the algorithm runs on this host, lan means the algorithm runs on a remote computer within the LAN, wan means the algorithm runs on a remote computer on the internet, outside of the LAN",
                         },
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+
+    tool_schema = types.Tool(
+        name="api_ecan_ai_cloud_search",
+        description="run API to search components.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["setup"],
+                    "properties": {
+                        "setup": {
+                            "type": "object",
+                            "description": "setup contains component preliminary info, parametric filter values, and result figure of merit schemes.",
+                        }
                     },
                 }
             }
