@@ -46,6 +46,7 @@ from collections import defaultdict
 from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components, api_ecan_ai_get_nodes_prompts, api_ecan_ai_ocr_read_screen
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
+from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
 
 
 server_main_win = None
@@ -1472,6 +1473,7 @@ tool_function_mapping = {
         "api_ecan_ai_img2text_icons": api_ecan_ai_img2text_icons,
         "api_ecan_ai_get_nodes_prompts": api_ecan_ai_get_nodes_prompts,
         "api_ecan_ai_ocr_read_screen": api_ecan_ai_ocr_read_screen,
+        "api_ecan_ai_cloud_search": api_ecan_ai_cloud_search,
         "mouse_act_on_screen": mouse_act_on_screen
     }
 
