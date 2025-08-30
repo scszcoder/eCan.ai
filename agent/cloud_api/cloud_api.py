@@ -1116,10 +1116,23 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        logger.error("AppSync getAgents error: " + json.dumps(jresp))
+        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+            logger.info("No agents data found for user - returning empty dict")
+            jresponse = {}
+        else:
+            jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        jresponse = json.loads(jresp["data"]["getAgents"])
+        try:
+            agents_data = jresp["data"]["getAgents"]
+            if agents_data is None:
+                logger.info("getAgents returned null - user has no agents data")
+                jresponse = {}
+            else:
+                jresponse = json.loads(agents_data)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Failed to parse getAgents response: {e}")
+            jresponse = {}
 
     return jresponse
 
@@ -1208,10 +1221,24 @@ def send_get_agent_skills_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        logger.error("AppSync getAgentSkills error: " + json.dumps(jresp))
+        # Handle case where user has no agent skills data (return empty dict)
+        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+            logger.info("No agent skills data found for user - returning empty dict")
+            jresponse = {}
+        else:
+            jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        jresponse = json.loads(jresp["data"]["getAgentSkills"])
+        try:
+            skills_data = jresp["data"]["getAgentSkills"]
+            if skills_data is None:
+                logger.info("getAgentSkills returned null - user has no agent skills data")
+                jresponse = {}
+            else:
+                jresponse = json.loads(skills_data)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Failed to parse getAgentSkills response: {e}")
+            jresponse = {}
 
     return jresponse
 
@@ -1325,10 +1352,23 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        logger.error("AppSync getAgentTasks error: " + json.dumps(jresp))
+        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+            logger.info("No agent tasks data found for user - returning empty dict")
+            jresponse = {}
+        else:
+            jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        jresponse = json.loads(jresp["data"]["getAgentTasks"])
+        try:
+            tasks_data = jresp["data"]["getAgentTasks"]
+            if tasks_data is None:
+                logger.info("getAgentTasks returned null - user has no agent tasks data")
+                jresponse = {}
+            else:
+                jresponse = json.loads(tasks_data)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Failed to parse getAgentTasks response: {e}")
+            jresponse = {}
 
     return jresponse
 
@@ -1441,10 +1481,23 @@ def send_get_agent_tools_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        logger.error("AppSync getAgentTools error: " + json.dumps(jresp))
+        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+            logger.info("No agent tools data found for user - returning empty dict")
+            jresponse = {}
+        else:
+            jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        jresponse = json.loads(jresp["data"]["getAgentTools"])
+        try:
+            tools_data = jresp["data"]["getAgentTools"]
+            if tools_data is None:
+                logger.info("getAgentTools returned null - user has no agent tools data")
+                jresponse = {}
+            else:
+                jresponse = json.loads(tools_data)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Failed to parse getAgentTools response: {e}")
+            jresponse = {}
 
     return jresponse
 
@@ -1531,10 +1584,23 @@ def send_get_knowledges_request_to_cloud(session, token, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        logger.error("AppSync getKnowledges error: " + json.dumps(jresp))
+        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+            logger.info("No knowledges data found for user - returning empty dict")
+            jresponse = {}
+        else:
+            jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        jresponse = json.loads(jresp["data"]["getKnowledges"])
+        try:
+            knowledges_data = jresp["data"]["getKnowledges"]
+            if knowledges_data is None:
+                logger.info("getKnowledges returned null - user has no knowledges data")
+                jresponse = {}
+            else:
+                jresponse = json.loads(knowledges_data)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Failed to parse getKnowledges response: {e}")
+            jresponse = {}
 
     return jresponse
 

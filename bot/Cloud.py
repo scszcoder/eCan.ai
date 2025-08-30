@@ -1739,10 +1739,24 @@ def send_query_skills_request_to_cloud(session, token, q_settings, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        logger_helper.error("AppSync querySkills error: " + json.dumps(jresp))
+        # Handle case where user has no skills data (return empty list)
+        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+            logger_helper.info("No skills data found for user - returning empty list")
+            jresponse = []
+        else:
+            jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        jresponse = json.loads(jresp["data"]["querySkills"])
+        try:
+            skills_data = jresp["data"]["querySkills"]
+            if skills_data is None:
+                logger_helper.info("querySkills returned null - user has no skills data")
+                jresponse = []
+            else:
+                jresponse = json.loads(skills_data)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger_helper.error(f"Failed to parse querySkills response: {e}")
+            jresponse = []
 
 
     return jresponse
@@ -1796,6 +1810,7 @@ def send_query_bots_request_to_cloud(session, token, q_settings, endpoint):
     else:
         jresponse = json.loads(jresp["data"]["queryBots"])
         # print("jresponse", jresponse)
+        logger_helper.debug("query bots response: ", jresponse)
 
     return jresponse
 
@@ -1807,10 +1822,24 @@ def send_query_missions_request_to_cloud(session, token, q_settings, endpoint):
 
     if "errors" in jresp:
         screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        logger_helper.error("AppSync queryMissions error: " + json.dumps(jresp))
+        # Handle case where user has no missions data (return empty list)
+        if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+            logger_helper.info("No missions data found for user - returning empty list")
+            jresponse = []
+        else:
+            jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        jresponse = json.loads(jresp["data"]["queryMissions"])
+        try:
+            missions_data = jresp["data"]["queryMissions"]
+            if missions_data is None:
+                logger_helper.info("queryMissions returned null - user has no missions data")
+                jresponse = []
+            else:
+                jresponse = json.loads(missions_data)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger_helper.error(f"Failed to parse queryMissions response: {e}")
+            jresponse = []
 
 
     return jresponse
@@ -1824,10 +1853,24 @@ def send_query_missions_by_time_request_to_cloud(session, token, q_settings, end
 
         if "errors" in jresp:
             screen_error = True
-            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-            jresponse = jresp["errors"][0]
+            logger_helper.error("AppSync queryMissions by time error: " + json.dumps(jresp))
+            # Handle case where user has no missions data (return empty list)
+            if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+                logger_helper.warning("No missions data found for user by time - returning empty list")
+                jresponse = []
+            else:
+                jresponse = jresp["errors"][0] if jresp["errors"] else {}
         else:
-            jresponse = json.loads(jresp["data"]["queryMissions"])
+            try:
+                missions_data = jresp["data"]["queryMissions"]
+                if missions_data is None:
+                    logger_helper.info("queryMissions by time returned null - user has no missions data")
+                    jresponse = []
+                else:
+                    jresponse = json.loads(missions_data)
+            except (json.JSONDecodeError, TypeError) as e:
+                logger_helper.error(f"Failed to parse queryMissions by time response: {e}")
+                jresponse = []
 
     except Exception as e:
         # Get the traceback information
@@ -1837,7 +1880,7 @@ def send_query_missions_by_time_request_to_cloud(session, token, q_settings, end
             ex_stat = "ErrorQueryMissionByTime:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorQueryMissionByTime traceback information not available:" + str(e)
-        print(ex_stat)
+        logger_helper.error(ex_stat)
         jresponse = {}
 
     return jresponse
@@ -1851,10 +1894,24 @@ def send_query_manager_missions_request_to_cloud(session, token, q_settings, end
 
         if "errors" in jresp:
             screen_error = True
-            logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
-            jresponse = jresp["errors"][0]
+            logger_helper.error("AppSync getManagerMissions error: " + json.dumps(jresp))
+            # Handle case where user has no manager missions data (return empty dict)
+            if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
+                logger_helper.warning("No manager missions data found for user - returning empty dict")
+                jresponse = {}
+            else:
+                jresponse = jresp["errors"][0] if jresp["errors"] else {}
         else:
-            jresponse = json.loads(jresp["data"]["getManagerMissions"])
+            try:
+                missions_data = jresp["data"]["getManagerMissions"]
+                if missions_data is None:
+                    logger_helper.info("getManagerMissions returned null - user has no manager missions data")
+                    jresponse = {}
+                else:
+                    jresponse = json.loads(missions_data)
+            except (json.JSONDecodeError, TypeError) as e:
+                logger_helper.error(f"Failed to parse getManagerMissions response: {e}")
+                jresponse = {}
 
     except Exception as e:
         # Get the traceback information
@@ -1864,7 +1921,7 @@ def send_query_manager_missions_request_to_cloud(session, token, q_settings, end
             ex_stat = "ErrorQueryManagerMissions:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorQueryManagerMissions traceback information not available:" + str(e)
-        print(ex_stat)
+        logger_helper.error(ex_stat)
         jresponse = {}
 
     return jresponse
@@ -2140,32 +2197,59 @@ def cloud_rm(session, f2rm, token, endpoint):
     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
 def appsync_http_request(query_string, session, token, endpoint):
+    """
+    Send AppSync GraphQL request with authentication.
+    Supports both Cognito User Pool tokens and Google ID tokens.
+    """
     if API_DEV_MODE:
         APPSYNC_API_ENDPOINT_URL = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
     else:
         APPSYNC_API_ENDPOINT_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql'
-    # Use JSON format string for the query. It does not need reformatting.
+    
     if not endpoint:
         endpoint = APPSYNC_API_ENDPOINT_URL
+    
+    # Format token for authentication
+    if token and not token.startswith('Bearer '):
+        formatted_token = f'Bearer {token}'
+    else:
+        formatted_token = token
+    
     headers = {
         'Content-Type': "application/graphql",
-        'Authorization': token,
+        'Authorization': formatted_token,
         'cache-control': "no-cache"
     }
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=endpoint,
-        method='POST',
-        timeout=300,
-        headers=headers,
-        json={'query': query_string}
-    )
-    # save response to a log file. with a time stamp.
-    # print(response)
-    jresp = response.json()
-
-    return jresp
+    try:
+        # Send the request
+        response = session.request(
+            url=endpoint,
+            method='POST',
+            timeout=300,
+            headers=headers,
+            json={'query': query_string}
+        )
+        
+        jresp = response.json()
+        
+        # Check for authentication errors
+        if "errors" in jresp:
+            for error in jresp["errors"]:
+                if error.get("errorType") == "UnauthorizedException":
+                    logger_helper.error(f"AppSync authentication failed: {error.get('message', 'Unknown error')}")
+                    logger_helper.error(f"Token format: {formatted_token[:50]}...")
+        
+        return jresp
+        
+    except Exception as e:
+        logger_helper.error(f"AppSync request failed: {e}")
+        return {
+            'errors': [{
+                'errorType': 'RequestError',
+                'message': str(e)
+            }]
+        }
 
 def appsync_http_request_w_apikey(query_string, session, apikey, endpoint):
 

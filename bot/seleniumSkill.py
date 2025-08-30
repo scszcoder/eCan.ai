@@ -15,9 +15,10 @@ import time
 from datetime import datetime, timedelta
 import traceback
 import os
+import json
 from bot.adsAPISkill import startADSWebDriver
 from bot.Logger import log3, log6
-from bot.basicSkill import *
+from bot.basicSkill import STEP_GAP, DEFAULT_RUN_STATUS, symTab
 from config.app_info import app_info
 from bot.seleniumScrapeAmzShop import search_phrase
 
