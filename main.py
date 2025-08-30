@@ -246,6 +246,17 @@ try:
         print("✅ WebGUI instance created successfully")
         logger.info("WebGUI instance created successfully")
 
+        progress_manager.update_progress(80, "Setting up URL scheme handling...")
+        
+        # Setup URL scheme handling
+        try:
+            from utils.url_scheme_handler import setup_url_scheme_handling
+            url_scheme_handler = setup_url_scheme_handling(web_gui, auto_register=True)
+            ctx.set_url_scheme_handler(url_scheme_handler)
+            logger.info("URL scheme handling setup completed")
+        except Exception as e:
+            logger.warning(f"URL scheme setup failed: {e}")
+
         progress_manager.update_progress(85, "Finalizing setup...")
         ctx.set_web_gui(web_gui)
         logger.info("WebGUI setup completed")

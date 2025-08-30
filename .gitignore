@@ -18,6 +18,7 @@ test.py
 *.pyc
 /songc_yahoo_com/
 /249511118_qq_com/
+/liuqiang100_gmail_com/
 # React GUI inside gui_v2
 gui_v2/node_modules/
 gui_v2/build/

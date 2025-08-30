@@ -43,6 +43,18 @@ class AuthMessages:
             # Logout messages
             'logout_success': 'User logged out successfully',
             'logout_failed': 'Logout failed',
+            
+            # OAuth callback messages
+            'oauth_success_title': 'Authentication Successful',
+            'oauth_success_message': 'You have successfully authenticated with Google.',
+            'oauth_success_launching': 'Launching application in {countdown} seconds...',
+            'oauth_manual_launch': 'Launch Application Manually',
+            
+            # OAuth error messages
+            'oauth_error_title': 'Authentication Error',
+            'oauth_error_label': 'Error',
+            'oauth_error_description_label': 'Description',
+            'oauth_error_close_instruction': 'Please close this window and try again.'
         },
         'zh-CN': {
             # Login messages
@@ -76,6 +88,18 @@ class AuthMessages:
             # Logout messages
             'logout_success': '用户已成功退出',
             'logout_failed': '退出失败',
+            
+            # OAuth callback messages
+            'oauth_success_title': '认证成功',
+            'oauth_success_message': '您已成功通过Google认证。',
+            'oauth_success_launching': '应用程序将在 {countdown} 秒后启动...',
+            'oauth_manual_launch': '手动启动应用程序',
+            
+            # OAuth error messages
+            'oauth_error_title': '认证错误',
+            'oauth_error_label': '错误',
+            'oauth_error_description_label': '描述',
+            'oauth_error_close_instruction': '请关闭此窗口并重试。'
         }
     }
     

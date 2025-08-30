@@ -1079,3 +1079,82 @@ class WebGUI(QMainWindow):
             sg.center().x() - self.width() // 2,
             sg.center().y() - self.height() // 2,
         )
+    
+    def handle_oauth_success(self):
+        """Handle successful OAuth authentication"""
+        try:
+            logger.info("OAuth authentication successful - bringing window to foreground")
+            
+            # Bring window to foreground
+            self.activateWindow()
+            self.raise_()
+            self.show()
+            
+            # Set window on top temporarily
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+            self.show()
+            # Remove stay on top after a short delay
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(2000, lambda: self._remove_stay_on_top())
+            
+            # Show success notification
+            self._show_notification("Authentication successful!", "success")
+            
+            # Refresh authentication status in the web interface
+            if hasattr(self, 'web_engine_view') and self.web_engine_view:
+                self.web_engine_view.page().runJavaScript("""
+                    if (window.authManager) {
+                        window.authManager.refreshAuthStatus();
+                    }
+                """)
+            
+        except Exception as e:
+            logger.error(f"Error handling OAuth success: {e}")
+    
+    def handle_oauth_error(self, error: str):
+        """Handle OAuth authentication error"""
+        try:
+            logger.error(f"OAuth authentication error: {error}")
+            
+            # Bring window to foreground
+            self.activateWindow()
+            self.raise_()
+            self.show()
+            
+            # Show error notification
+            self._show_notification(f"Authentication failed: {error}", "error")
+            
+        except Exception as e:
+            logger.error(f"Error handling OAuth error: {e}")
+    
+    def _remove_stay_on_top(self):
+        """Remove stay on top flag"""
+        try:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
+            self.show()
+        except Exception as e:
+            logger.error(f"Error removing stay on top: {e}")
+    
+    def _show_notification(self, message: str, notification_type: str = "info"):
+        """Show notification to user"""
+        try:
+            # Show system notification if available
+            if hasattr(self, 'web_engine_view') and self.web_engine_view:
+                # Send notification to web interface
+                js_code = f"""
+                    if (window.showNotification) {{
+                        window.showNotification('{message}', '{notification_type}');
+                    }} else if (window.console) {{
+                        console.log('Notification: {message}');
+                    }}
+                """
+                self.web_engine_view.page().runJavaScript(js_code)
+            
+            # Fallback: log the notification
+            if notification_type == "error":
+                logger.error(f"Notification: {message}")
+            else:
+                logger.info(f"Notification: {message}")
+                
+        except Exception as e:
+            logger.error(f"Error showing notification: {e}")

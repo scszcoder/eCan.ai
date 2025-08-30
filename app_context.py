@@ -77,4 +77,8 @@ class AppContext:
         from agent.playwright.core.setup import get_playwright_browsers_path
         return get_playwright_browsers_path()
 
+    def set_url_scheme_handler(self, handler):
+        """Set URL scheme handler"""
+        self.url_scheme_handler = handler
+
     # 你可以继续添加更多 set/get 方法 

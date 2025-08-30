@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
     def __init__(self, loginout_gui, main_key, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
         super().__init__()
         self.loginout_gui = loginout_gui
+        self.auth_service = loginout_gui.auth_service  # Reference to auth service for tokens
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
@@ -463,7 +464,7 @@ class MainWindow(QMainWindow):
                 self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
                 self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
         else:
-            logger.warning("no general settings file." + self.general_settings_file)
+            logger.warning("no general settings file, and build default general settings values:" + self.general_settings_file)
             # If configuration file doesn't exist, use default values
             self.general_settings = {}
             self.debug_mode = False
@@ -1045,7 +1046,7 @@ class MainWindow(QMainWindow):
                 logger.info("bot cloud done....")
             logger.info("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
-            logger.info("find all bots")
+            logger.info("find all bots"  + str(len(bots_data)))
             self.loadLocalBots(bots_data)
             self.showMsg("bots loaded")
 
@@ -1279,6 +1280,17 @@ class MainWindow(QMainWindow):
     def stop_lightrag_server(self):
         self.lightrag_server.stop()
         self.lightrag_server = None
+    
+    def get_auth_token(self):
+        """Get authentication token from auth service."""
+        try:
+            tokens = self.auth_service.get_tokens()
+            if tokens and isinstance(tokens, dict) and 'AuthenticationResult' in tokens:
+                return tokens['AuthenticationResult']['IdToken']
+            return None
+        except Exception as e:
+            logger.error(f"Error getting auth token: {e}")
+            return None
 
     async def async_agents_init(self):
         """
@@ -7146,22 +7158,29 @@ class MainWindow(QMainWindow):
         logger.trace("TRYING...."+main_file, "fetchSchedule", self)
         if os.path.exists(main_file):
             logger.trace("OPENING...."+main_file, "fetchSchedule", self)
-            with open(main_file, 'r') as psk_file:
-                code_jsons = json.load(psk_file)
+            try:
+                with open(main_file, 'r') as psk_file:
+                    code_jsons = json.load(psk_file)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parsing error in file {main_file}: Line {e.lineno}, Column {e.colno}, Position {e.pos}: {e}")
+                logger.warning(f"Skipping malformed JSON file: {main_file}")
+                return dependencies  # Return current dependencies and continue
+            except Exception as e:
+                logger.error(f"Error reading file {main_file}: {e}")
+                return dependencies
 
-                # go thru all steps.
-                for key in code_jsons.keys():
-                    if "type" in code_jsons[key]:
-                        if code_jsons[key]["type"] == "Use Skill":
-                            if "public" in code_jsons[key]["skill_path"]:
-                                dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
-                            else:
-                                dependency_file = self.my_ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+            # go thru all steps.
+            for key in code_jsons.keys():
+                if "type" in code_jsons[key]:
+                    if code_jsons[key]["type"] == "Use Skill":
+                        if "public" in code_jsons[key]["skill_path"]:
+                            dependency_file = self.homepath + "/resource/skills/" + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
+                        else:
+                            dependency_file = self.my_ecb_data_homepath + code_jsons[key]["skill_path"] + "/" + code_jsons[key]["skill_name"] + ".psk"
 
-
-                            if dependency_file not in dependencies:
-                                dependencies.add(dependency_file)
-                                self.find_dependencies(dependency_file, visited, dependencies)
+                        if dependency_file not in dependencies:
+                            dependencies.add(dependency_file)
+                            self.find_dependencies(dependency_file, visited, dependencies)
 
 
 

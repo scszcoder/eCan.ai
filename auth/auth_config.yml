@@ -2,18 +2,26 @@
 # Centralized configuration for all authentication providers
 
 COGNITO:
-  USER_POOL_ID: "us-east-1_uUmKJUfB3"
-  CLIENT_ID: "5400r8q5p9gfdhln2feqcpljsh"
+  USER_POOL_ID: "us-east-1_uUmKJUfB3"  # Set via environment variable AWS_COGNITO_USER_POOL_ID
+  CLIENT_ID: "5400r8q5p9gfdhln2feqcpljsh"  # Set via environment variable AWS_COGNITO_CLIENT_ID
   CLIENT_SECRET: ""
-  REGION: "us-east-1"
+  IDENTITY_POOL_ID: "us-east-1:ccfa987f-2eee-45c9-ac59-b698f6cbda8e"  # Set via environment variable AWS_COGNITO_IDENTITY_POOL_ID
+  REGION: "us-east-1"  # Set via environment variable AWS_REGION
   DEFAULT_USERNAME: "249511118@qq.com"  # 更新为实际使用的用户名
   DEFAULT_PASSWORD: "your-actual-password-here"  # ⚠️ 需要填入对应的密码
+  
+  # Google Identity Provider Configuration for Cognito
+  GOOGLE_PROVIDER:
+    PROVIDER_NAME: "accounts.google.com"
+    CLIENT_ID: "363461562508-a5kdd4nlhgke3b2b96pqkqn3isn19r2t.apps.googleusercontent.com"  # Must match GOOGLE.CLIENT_ID
 
-# Future authentication providers (reserved for expansion)
+# Google OAuth Configuration
 GOOGLE:
-  # CLIENT_ID: "your-google-client-id"
-  # CLIENT_SECRET: "your-google-client-secret"
-  # REDIRECT_URI: "your-redirect-uri"
+  CLIENT_ID: "363461562508-a5kdd4nlhgke3b2b96pqkqn3isn19r2t.apps.googleusercontent.com"
+  CLIENT_SECRET: "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"
+  SCOPES: ["openid", "email", "profile"]
+  REDIRECT_URI_BASE: "http://127.0.0.1"  # Base URL for dynamic callback generation
+  CALLBACK_PORT_RANGE: [8080, 8090]  # Port range for local callback server
 
 APPLE:
   # CLIENT_ID: "your-apple-client-id"

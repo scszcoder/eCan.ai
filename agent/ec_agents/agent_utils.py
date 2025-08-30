@@ -19,7 +19,11 @@ SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "json", "file"]
 def add_new_agents_to_cloud(mainwin, agents):
     try:
         cloud_agents = prep_agent_data_for_cloud(mainwin, agents)
-        jresp = send_add_agents_request_to_cloud(mainwin.session, cloud_agents, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
+        jresp = send_add_agents_request_to_cloud(mainwin.session, cloud_agents, auth_token, mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
         # Get the traceback information
@@ -36,8 +40,12 @@ def add_new_agents_to_cloud(mainwin, agents):
 def save_agents_to_cloud(mainwin, agents):
     try:
         cloud_agents = prep_agent_data_for_cloud(mainwin, agents)
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
         jresp = send_update_agents_request_to_cloud(mainwin.session, cloud_agents,
-                                                 mainwin.tokens['AuthenticationResult']['IdToken'],
+                                                 auth_token,
                                                  mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
@@ -57,9 +65,17 @@ def load_agents_from_cloud(mainwin):
     cloud_agents = []
     try:
         logger.info("load_agents_from_cloud.......")
-        jresp = send_get_agents_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return cloud_agents
+        jresp = send_get_agents_request_to_cloud(mainwin.session, auth_token, mainwin.getWanApiEndpoint())
         logger.info("cloud returns.......", jresp)
-        all_agents = json.loads(jresp['body'])
+        if isinstance(jresp, dict) and 'body' in jresp:
+            all_agents = json.loads(jresp['body'])
+        else:
+            logger.warning("No agents data returned from cloud")
+            all_agents = []
         for ajs in all_agents:
             new_agent = gen_new_agent(mainwin, ajs)
             if new_agent:
@@ -234,7 +250,11 @@ def prep_agent_data_for_cloud(mainwin, agents):
 def remove_agents_from_cloud(mainwin, agents):
     try:
         api_removes=[{"id": item.card.id, "owner": "", "reason": ""} for item in agents]
-        jresp = send_remove_agents_request_to_cloud(mainwin.session, api_removes, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return
+        jresp = send_remove_agents_request_to_cloud(mainwin.session, api_removes, auth_token, mainwin.getWanApiEndpoint())
 
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -254,7 +274,11 @@ def remove_agents_from_cloud(mainwin, agents):
 def add_new_agent_skills_to_cloud(mainwin, skills):
     try:
         cloud_agent_skills = prep_agent_skills_data_for_cloud(mainwin, skills)
-        jresp = send_add_agent_skills_request_to_cloud(mainwin.session, cloud_agent_skills, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
+        jresp = send_add_agent_skills_request_to_cloud(mainwin.session, cloud_agent_skills, auth_token, mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
         # Get the traceback information
@@ -271,8 +295,12 @@ def add_new_agent_skills_to_cloud(mainwin, skills):
 def save_agent_skills_to_cloud(mainwin, skills):
     try:
         cloud_agent_skills = prep_agent_skills_data_for_cloud(mainwin, skills)
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
         jresp = send_update_agents_request_to_cloud(mainwin.session, cloud_agent_skills,
-                                                 mainwin.tokens['AuthenticationResult']['IdToken'],
+                                                 auth_token,
                                                  mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
@@ -290,9 +318,17 @@ def save_agent_skills_to_cloud(mainwin, skills):
 def load_agent_skills_from_cloud(mainwin):
     cloud_agent_skills = []
     try:
-        jresp = send_get_agent_skills_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return cloud_agent_skills
+        jresp = send_get_agent_skills_request_to_cloud(mainwin.session, auth_token, mainwin.getWanApiEndpoint())
         logger.info("cloud get agent skills returns.......", jresp)
-        all_agent_skills = json.loads(jresp['body'])
+        if isinstance(jresp, dict) and 'body' in jresp:
+            all_agent_skills = json.loads(jresp['body'])
+        else:
+            logger.warning("No agent skills data returned from cloud")
+            all_agent_skills = []
         logger.info("true cloud agent skills ...", all_agent_skills)
         for askjs in all_agent_skills:
             new_agent_skill = gen_new_agent_skill(mainwin, askjs)
@@ -453,7 +489,11 @@ def prep_agent_skills_data_for_cloud(mainwin, agent_skills):
 def remove_agent_skills_from_cloud(mainwin, agent_skills):
     try:
         api_removes=[{"id": item.id, "owner": "", "reason": ""} for item in agent_skills]
-        jresp = send_remove_agent_skills_request_to_cloud(mainwin.session, api_removes, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return
+        jresp = send_remove_agent_skills_request_to_cloud(mainwin.session, api_removes, auth_token, mainwin.getWanApiEndpoint())
 
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -473,7 +513,11 @@ def remove_agent_skills_from_cloud(mainwin, agent_skills):
 def add_new_agent_tools_to_cloud(mainwin, tools):
     try:
         cloud_agent_tools = prep_agent_tools_data_for_cloud(mainwin, tools)
-        jresp = send_add_agent_tools_request_to_cloud(mainwin.session, cloud_agent_tools, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
+        jresp = send_add_agent_tools_request_to_cloud(mainwin.session, cloud_agent_tools, auth_token, mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
         # Get the traceback information
@@ -491,8 +535,12 @@ def add_new_agent_tools_to_cloud(mainwin, tools):
 def save_agent_tools_to_cloud(mainwin, tools):
     try:
         cloud_agent_tools = prep_agent_tools_data_for_cloud(mainwin, tools)
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
         jresp = send_update_agent_tools_request_to_cloud(mainwin.session, cloud_agent_tools,
-                                                 mainwin.tokens['AuthenticationResult']['IdToken'],
+                                                 auth_token,
                                                  mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
@@ -512,8 +560,16 @@ def save_agent_tools_to_cloud(mainwin, tools):
 def load_agent_tools_from_cloud(mainwin):
     try:
         cloud_agent_tools = []
-        jresp = send_get_agent_tools_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_agent_tools = json.loads(jresp['body'])
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return cloud_agent_tools
+        jresp = send_get_agent_tools_request_to_cloud(mainwin.session, auth_token, mainwin.getWanApiEndpoint())
+        if isinstance(jresp, dict) and 'body' in jresp:
+            all_agent_tools = json.loads(jresp['body'])
+        else:
+            logger.warning("No agent tools data returned from cloud")
+            all_agent_tools = []
         for atooljs in all_agent_tools:
             new_agent_tool = gen_new_agent_tools(mainwin, atooljs)
             if new_agent_tool:
@@ -668,7 +724,11 @@ def prep_agent_tools_data_for_cloud(mainwin, agent_tools):
 def remove_agent_tools_from_cloud(mainwin, agent_tools):
     try:
         api_removes=[{"id": item.id, "owner": "", "reason": ""} for item in agent_tools]
-        jresp = send_remove_agent_tools_request_to_cloud(mainwin.session, api_removes, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return
+        jresp = send_remove_agent_tools_request_to_cloud(mainwin.session, api_removes, auth_token, mainwin.getWanApiEndpoint())
 
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -688,7 +748,11 @@ def remove_agent_tools_from_cloud(mainwin, agent_tools):
 def add_new_agent_tasks_to_cloud(mainwin, tasks):
     try:
         cloud_agent_tasks = prep_agent_tasks_data_for_cloud(mainwin, tasks)
-        jresp = send_add_agent_tasks_request_to_cloud(mainwin.session, cloud_agent_tasks, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
+        jresp = send_add_agent_tasks_request_to_cloud(mainwin.session, cloud_agent_tasks, auth_token, mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
         # Get the traceback information
@@ -706,8 +770,12 @@ def add_new_agent_tasks_to_cloud(mainwin, tasks):
 def save_agent_tasks_to_cloud(mainwin, tasks):
     try:
         cloud_agent_tasks = prep_agent_tasks_data_for_cloud(mainwin, tasks)
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
         jresp = send_update_agent_tasks_request_to_cloud(mainwin.session, cloud_agent_tasks,
-                                                 mainwin.tokens['AuthenticationResult']['IdToken'],
+                                                 auth_token,
                                                  mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
@@ -727,8 +795,16 @@ def save_agent_tasks_to_cloud(mainwin, tasks):
 def load_agent_tasks_from_cloud(mainwin):
     cloud_agent_tasks = []
     try:
-        jresp = send_get_agent_tasks_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_agent_tasks = json.loads(jresp['body'])
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return cloud_agent_tasks
+        jresp = send_get_agent_tasks_request_to_cloud(mainwin.session, auth_token, mainwin.getWanApiEndpoint())
+        if isinstance(jresp, dict) and 'body' in jresp:
+            all_agent_tasks = json.loads(jresp['body'])
+        else:
+            logger.warning("No agent tasks data returned from cloud")
+            all_agent_tasks = []
         logger.info("true cloud agent tasks ...", all_agent_tasks)
         for askjs in all_agent_tasks:
             new_agent_task = gen_new_agent_tasks(mainwin, askjs)
@@ -878,7 +954,11 @@ def prep_agent_tasks_data_for_cloud(mainwin, agent_tasks):
 def remove_agent_tasks_from_cloud(mainwin, agent_tasks):
     try:
         api_removes=[{"id": item.id, "owner": "", "reason": ""} for item in agent_tasks]
-        jresp = send_remove_agent_tasks_request_to_cloud(mainwin.session, api_removes, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return
+        jresp = send_remove_agent_tasks_request_to_cloud(mainwin.session, api_removes, auth_token, mainwin.getWanApiEndpoint())
 
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
@@ -898,7 +978,11 @@ def remove_agent_tasks_from_cloud(mainwin, agent_tasks):
 def add_new_knowledges_to_cloud(mainwin, knowledges):
     try:
         cloud_knowledges = prep_agent_data_for_cloud(mainwin, knowledges)
-        jresp = send_add_knowledges_request_to_cloud(mainwin.session, cloud_knowledges, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
+        jresp = send_add_knowledges_request_to_cloud(mainwin.session, cloud_knowledges, auth_token, mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
         # Get the traceback information
@@ -916,8 +1000,12 @@ def add_new_knowledges_to_cloud(mainwin, knowledges):
 def save_knowledges_to_cloud(mainwin, knowledges):
     try:
         cloud_knowledges = prep_knowledges_data_for_cloud(mainwin, knowledges)
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return {"success": False, "message": "No authentication token"}
         jresp = send_update_knowledges_request_to_cloud(mainwin.session, cloud_knowledges,
-                                                 mainwin.tokens['AuthenticationResult']['IdToken'],
+                                                 auth_token,
                                                  mainwin.getWanApiEndpoint())
         return jresp
     except Exception as e:
@@ -937,8 +1025,16 @@ def save_knowledges_to_cloud(mainwin, knowledges):
 def load_knowledges_from_cloud(mainwin):
     try:
         cloud_knowledges = []
-        jresp = send_get_knowledges_request_to_cloud(mainwin.session, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
-        all_knowledges = json.loads(jresp['body'])
+        auth_token = mainwin.get_auth_token()
+        if not auth_token:
+            logger.error("No valid authentication token available")
+            return cloud_knowledges
+        jresp = send_get_knowledges_request_to_cloud(mainwin.session, auth_token, mainwin.getWanApiEndpoint())
+        if isinstance(jresp, dict) and 'body' in jresp:
+            all_knowledges = json.loads(jresp['body'])
+        else:
+            logger.warning("No knowledges data returned from cloud")
+            all_knowledges = []
         for kjs in all_knowledges:
             new_knowledge = gen_new_knowledge(mainwin, kjs)
             if new_knowledge:
