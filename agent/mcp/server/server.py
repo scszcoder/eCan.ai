@@ -21,7 +21,6 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from agent.mcp.server.scrapers.px_captcha.px_captcha_solver import px_captcha_solve
 
 from agent.mcp.server.tool_schemas import *
 import json

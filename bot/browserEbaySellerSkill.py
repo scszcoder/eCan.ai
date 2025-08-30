@@ -8,7 +8,7 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
     genStepSearchAnchorInfo, genStepMouseClick, genStepMouseScroll, genStepCreateDir, genStepKeyInput, genStepTextInput, \
     STEP_GAP, DEFAULT_RUN_STATUS, symTab, genStepThink, genStepSearchWordLine, genStepCalcObjectsDistance, \
     genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination, genStepReadXlsxFile, genStepReadJsonFile, \
-    genStepUploadFiles, genStepDownloadFiles
+    genStepUploadFiles, genStepDownloadFiles, genStepBringAppToFront, genStepUseExternalSkill, genStepWaitUntil
 from bot.Logger import log3
 from bot.etsySellerSkill import genStepPrepGSOrder
 from bot.labelSkill import genStepPrepareGSOrder

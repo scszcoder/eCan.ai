@@ -25,8 +25,6 @@ import requests
 import io
 
 from ping3 import ping
-import utils.logger_helper
-from agent.mcp.server.server import mouse_click
 from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
