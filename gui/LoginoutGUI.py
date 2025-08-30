@@ -99,6 +99,57 @@ class Login:
         except Exception as e:
             logger.error(f"Confirm forgot password error: {e}")
     
+    def _handle_google_login(self, machine_role: str = "Commander", schedule_mode: str = "manual", lang: str = "en-US"):
+        """Handle Google OAuth login request from UI.
+        
+        Delegates authentication to auth_service and handles UI-specific operations.
+        
+        Args:
+            machine_role: Machine role for the user
+            schedule_mode: Schedule mode for the application
+            lang: Language for internationalization
+            
+        Returns:
+            Tuple of (success: bool, message: str, data: dict)
+        """
+        try:
+            from auth.auth_messages import auth_messages
+            
+            logger.info(f"Starting Google OAuth authentication flow for role: {machine_role}")
+            
+            # Set language for messages
+            auth_messages.set_language(lang)
+            
+            # Delegate authentication to auth_service
+            success, message, auth_data = self.auth_service.google_login(machine_role)
+            
+            if not success:
+                logger.error(f"Google authentication failed: {message}")
+                return False, message, {}
+            
+            # Launch main window after successful authentication
+            try:
+                self._launch_main_window(schedule_mode)
+                logger.info("Main window launched successfully after Google login")
+            except Exception as e:
+                logger.error(f"Failed to launch main window: {e}")
+                return False, f'Failed to launch main window: {str(e)}', {}
+            
+            # Add UI-specific data to response
+            response_data = auth_data.copy()
+            
+            # Add redirect URL for web client
+            response_data['redirect'] = '/dashboard'  # Default redirect to dashboard after successful login
+            
+            logger.info(f"Google login completed successfully for user: {auth_data['user_info']['email']}")
+            
+            return True, message, response_data
+            
+        except Exception as e:
+            logger.error(f"Error in Google login handler: {e}")
+            logger.error(traceback.format_exc())
+            return False, f'Google login failed: {str(e)}', {}
+    
     # Public interface methods
     def get_gui_msg_queue(self):
         """Get GUI message queue."""
@@ -198,56 +249,14 @@ class Login:
         try:
             with open(config_file, 'r') as file:
                 lines = file.readlines()
+        except FileNotFoundError:
+            lines = []
+        except Exception as e:
+            logger.error(f"Error reading config file {config_file}: {e}")
+            return
             
-            with open(config_file, 'w') as file:
-                for line in lines:
-                    if line.strip().startswith(f'export {var_name}='):
-                        file.write(f'{env_var_command}\n')
-                        variable_updated = True
-                    else:
-                        file.write(line)
-                
-                if not variable_updated:
-                    file.write(f'\n{env_var_command}\n')
-            
-            logger.info(f"Environment variable {var_name} {'updated' if variable_updated else 'set'} in {config_file}")
-        except IOError as e:
-            logger.error(f"Unable to write to {config_file}: {e}")
-
-    def set_or_replace_env_variable_macos(self, var_name, var_value, shell=None):
-        """
-        Sets or replaces a permanent environment variable for the user on macOS.
-        The variable will be set or updated for the default shell of the user (Bash or Zsh).
-
-        :param var_name: Name of the environment variable
-        :param var_value: Value of the environment variable
-        :param shell: Optional, specify the shell (bash or zsh), otherwise auto-detect
-        :return: Status message
-        """
-        # Auto-detect the shell if not specified
-        if not shell:
-            shell = os.path.basename(os.environ.get('SHELL', ''))
-
-        # Determine the appropriate config file based on the shell
-        if shell == 'bash':
-            config_file = os.path.join(os.path.expanduser('~'), '.bash_profile')
-            if not os.path.exists(config_file):
-                # Fallback to .bashrc if .bash_profile does not exist
-                config_file = os.path.join(os.path.expanduser('~'), '.bashrc')
-        elif shell == 'zsh':
-            config_file = os.path.join(os.path.expanduser('~'), '.zshrc')
-        else:
-            return "Unsupported shell. Please use Bash or Zsh."
-
-        # Construct the command to add or update the environment variable
-        env_var_command = f'export {var_name}="{var_value}"'
-        variable_updated = False
-
-        # Check if the variable is already in the file
+        # Write updated config file
         try:
-            with open(config_file, 'r') as file:
-                lines = file.readlines()
-
             with open(config_file, 'w') as file:
                 for line in lines:
                     # If the variable exists, replace its value
@@ -261,10 +270,15 @@ class Login:
                 if not variable_updated:
                     file.write(f'\n{env_var_command}\n')
 
-            print(
-                f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}.")
+            logger.info(f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}")
+            
+            # Also set in current process environment
+            os.environ[var_name] = var_value
+            
         except IOError as e:
-            print(f"Error: Unable to open or write to {config_file} - {e}")
+            logger.error(f"Error: Unable to open or write to {config_file} - {e}")
+            # Fallback: just set in current process
+            os.environ[var_name] = var_value
 
     def setLoop(self, loop):
         """Set the main event loop."""

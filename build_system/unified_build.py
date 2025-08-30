@@ -18,6 +18,7 @@ from build_system.build_cleaner import BuildCleaner
 from build_system.build_utils import standardize_artifact_names, show_build_results
 from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuilder, InstallerBuilder
 from build_system.minibuild_core import MiniSpecBuilder
+from build_system.url_scheme_config import URLSchemeBuildConfig
 
 
 class BuildError(Exception):
@@ -246,6 +247,20 @@ class UnifiedBuildSystem:
         except Exception as e:
             raise BuildError(f"Frontend build failed: {e}", 1)
     
+    def setup_url_scheme(self) -> bool:
+        """Setup URL scheme configuration for the build"""
+        print("[URL-SCHEME] Setting up URL scheme configuration...")
+        try:
+            success = URLSchemeBuildConfig.setup_url_scheme_for_build()
+            if success:
+                print("[URL-SCHEME] URL scheme configuration ready")
+            else:
+                print("[URL-SCHEME] Warning: URL scheme setup failed")
+            return success
+        except Exception as e:
+            print(f"[URL-SCHEME] Warning: URL scheme setup error: {e}")
+            return False
+    
     def build_core(self, mode: str, force: bool = False) -> bool:
         """Build core application with caching and profile-based settings"""
         if not force and not self.cache.should_rebuild_core():
@@ -256,6 +271,9 @@ class UnifiedBuildSystem:
         print(f"[CORE] Building core application in {mode} mode...")
         
         try:
+            # Setup URL scheme configuration before building
+            self.setup_url_scheme()
+            
             minispec = MiniSpecBuilder()
             # Apply profile settings to the build
             return minispec.build(mode, profile)
@@ -301,6 +319,19 @@ class UnifiedBuildSystem:
         except Exception as e:
             print(f"[RENAME] Warning: Failed to standardize names: {e}")
     
+    def register_url_scheme_post_build(self) -> None:
+        """Register URL scheme after build completion"""
+        print("\n[URL-SCHEME] Registering URL scheme post-build...")
+        try:
+            from build_system.url_scheme_config import register_url_scheme_post_build
+            success = register_url_scheme_post_build()
+            if success:
+                print("[URL-SCHEME] URL scheme registered successfully")
+            else:
+                print("[URL-SCHEME] Warning: URL scheme registration failed")
+        except Exception as e:
+            print(f"[URL-SCHEME] Warning: Post-build registration error: {e}")
+    
     def build(self, mode: str = "prod", version: str = None, **kwargs) -> int:
         """Unified build method with comprehensive error handling"""
         overall_start = time.perf_counter()
@@ -336,6 +367,9 @@ class UnifiedBuildSystem:
             
             # Standardize artifacts
             self.standardize_artifacts(version)
+            
+            # Post-build URL scheme registration
+            self.register_url_scheme_post_build()
             
             # Show results
             show_build_results()

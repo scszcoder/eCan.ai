@@ -262,6 +262,14 @@ export class IPCAPI {
     }
 
     /**
+     * Google OAuth login with language support
+     * @param lang - Language code for internationalization
+     */
+    public async googleLogin<T>(lang?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('google_login', { lang });
+    }
+
+    /**
      * Initiate Apple login flow via backend
      */
     public async loginWithApple<T>(): Promise<APIResponse<T>> {

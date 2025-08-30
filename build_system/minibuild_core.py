@@ -262,6 +262,9 @@ class MiniSpecBuilder:
         # Platform-specific settings
         platform_config = self._get_platform_config()
 
+        # URL scheme configuration
+        url_scheme_options = self._get_url_scheme_options()
+
         # Profile-based settings
         if profile is None:
             profile = {}
@@ -413,18 +416,10 @@ def _should_drop_path(p):
 
 new_datas = []
 dropped = 0
-
-for item in list(a.datas):
-    try:
-        dest = str(item[0])
-        src = str(item[1]) if len(item) > 1 else ""
-
-        # Check for test/example/cache files
-        if _should_drop_path(dest) or _should_drop_path(src):
-            dropped += 1
-            continue
-    except Exception:
-        pass
+for item in a.datas:
+    if _should_drop_path(item[0]):
+        dropped += 1
+        continue
     new_datas.append(item)
 
 a.datas = new_datas
@@ -435,7 +430,7 @@ print(f"[SPEC] Final counts - Data: {{len(a.datas)}}, Binaries: {{len(a.binaries
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-{self._generate_exe_config(app_name, app_version, onefile, console, debug, runtime_tmpdir, strip_debug, upx_compression)}
+{self._generate_exe_config(app_name, app_version, onefile, console, debug, runtime_tmpdir, strip_debug, upx_compression, url_scheme_options)}
 '''
         return template
     def _generate_data_files_code(self) -> str:
@@ -505,15 +500,38 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=None)
         pyinstaller_cfg = build_config.get("pyinstaller", {})
         return pyinstaller_cfg.get("excludes", [])
 
-    def _get_platform_config(self) -> str:
-        """Generate platform-specific configuration code"""
-        if not platform_handler.is_macos:
+    def _get_platform_config(self) -> Dict[str, Any]:
+        """Get platform-specific configuration"""
+        return self.cfg.get("platform", {})
+
+    def _get_url_scheme_options(self) -> str:
+        """Get URL scheme PyInstaller options"""
+        try:
+            from build_system.url_scheme_config import URLSchemeBuildConfig
+            options = URLSchemeBuildConfig.get_pyinstaller_options()
+            
+            if not options:
+                return ""
+            
+            # Convert options to spec file format
+            option_lines = []
+            for option in options:
+                if option.startswith("--osx-bundle-identifier="):
+                    bundle_id = option.split("=", 1)[1]
+                    option_lines.append(f"bundle_identifier='{bundle_id}',")
+                # Skip info_plist option as it's already handled in the template
+                # elif option.startswith("--info-plist="):
+                #     plist_path = option.split("=", 1)[1]
+                #     option_lines.append(f"info_plist='{plist_path}',")
+            
+            return "\n        ".join(option_lines)
+            
+        except Exception as e:
+            print(f"[SPEC] Warning: URL scheme options error: {e}")
             return ""
 
-        platform_config = self.cfg.get("platforms", {}).get("macos", {})
-        codesign_config = platform_config.get("codesign", {})
-        codesign_excludes = codesign_config.get("exclude_patterns", [])
-
+    def _get_codesign_excludes_code(self, codesign_excludes: List[str]) -> str:
+        """Generate codesign excludes code for macOS"""
         if not codesign_excludes:
             return ""
 
@@ -542,7 +560,7 @@ if sys.platform == 'darwin':
 '''
 
     def _generate_exe_config(self, app_name: str, app_version: str, onefile: bool, console: bool,
-                           debug: bool, runtime_tmpdir: Optional[str], strip_debug: bool = False, upx_compression: bool = False) -> str:
+                           debug: bool, runtime_tmpdir: Optional[str], strip_debug: bool = False, upx_compression: bool = False, url_scheme_options: str = "") -> str:
         """Generate EXE and packaging configuration"""
 
         if onefile:
@@ -587,13 +605,13 @@ coll = COLLECT(
     name='{app_name}'
 )
 
-# macOS app bundle
+        # macOS app bundle
 if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
         name='{app_name}.app',
         icon=icon_path,
-        bundle_identifier='com.ecan.app',
+        {url_scheme_options}
         info_plist={{
             'CFBundleName': '{app_name}',
             'CFBundleDisplayName': '{app_name}',
@@ -617,6 +635,12 @@ if sys.platform == 'darwin':
             'NSSystemAdministrationUsageDescription': '{app_name} needs admin access for system automation',
             'LSUIElement': False,
             'LSBackgroundOnly': False,
+            # URL Scheme Configuration for ecan://
+            'CFBundleURLTypes': [{{
+                'CFBundleURLName': 'com.ecan.oauth',
+                'CFBundleURLSchemes': ['ecan'],
+                'CFBundleURLIconFile': 'eCan.icns'
+            }}],
         }},
     )
 '''

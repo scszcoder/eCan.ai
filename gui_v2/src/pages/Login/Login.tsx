@@ -222,10 +222,56 @@ const Login: React.FC = () => {
 		}
 	};
 
-  // Placeholder for Google login to prevent runtime errors if referenced in JSX
-  const handleGoogleLogin = useCallback(() => {
-    // TODO: implement Google login flow
-  }, []);
+  // Google login handler
+  const handleGoogleLogin = useCallback(async () => {
+    setLoading(true);
+    try {
+      const api = get_ipc_api();
+      if (!api) throw new Error(t('common.error'));
+
+      logger.info('Starting Google OAuth login');
+      
+      const response: APIResponse<any> = await api.googleLogin(i18n.language);
+      
+      if (response.success && response.data) {
+        logger.info('Google login successful', response.data);
+        
+        const { token, user_info, message } = response.data;
+        
+        // Store minimal authentication state (UI only)
+        localStorage.setItem('token', token);
+        localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem('userRole', 'Commander'); // Default role for Google users
+        localStorage.setItem('username', user_info.email);
+        
+        // Update user store (UI state only)
+        useUserStore.getState().setUsername(user_info.email);
+        
+        // Enable page refresh monitoring
+        pageRefreshManager.enable();
+        
+        // Show success message
+        messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
+        
+        // Navigate to main page
+        setTimeout(() => {
+          navigate('/agents');
+        }, 1500);
+        
+      } else {
+        logger.error('Google login failed', response.error);
+        const errorMessage = response.error?.message || t('login.googleFailed') || 'Google login failed';
+        messageApi.error(errorMessage);
+      }
+      
+    } catch (error) {
+      logger.error('Google login error:', error);
+      const errorMessage = t('login.googleError') || 'Google login error';
+      messageApi.error(`${errorMessage}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [i18n.language, navigate, messageApi]);
 
   // Placeholder for Apple login to prevent runtime errors if referenced in JSX
   const handleAppleLogin = useCallback(() => {

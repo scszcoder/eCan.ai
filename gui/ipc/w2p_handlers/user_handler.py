@@ -7,6 +7,8 @@ from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from auth.auth_messages import auth_messages
+from auth.oauth import GoogleOAuthManager, CognitoGoogleIntegration
+from auth.auth_config import AuthConfig
 
 from utils.logger_helper import logger_helper as logger
 
@@ -296,4 +298,69 @@ def handle_confirm_forgot_password(request: IPCRequest, params: Optional[Dict[st
             request,
             'CONFIRM_FORGOT_PASSWORD_ERROR',
             auth_messages.get_message('confirm_forgot_failed')
+        )
+
+@IPCHandlerRegistry.handler('google_login')
+def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle Google OAuth login request
+    
+    Delegates to LoginoutGUI._handle_google_login for business logic processing.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters, optional 'lang' and 'machine_role' fields
+        
+    Returns:
+        IPCResponse: JSON response with authentication result
+    """
+    try:
+        logger.debug(f"Google login handler called with request: {request}")
+        
+        # Get parameters
+        lang = params.get('lang', auth_messages.DEFAULT_LANG) if params else auth_messages.DEFAULT_LANG
+        machine_role = params.get('machine_role', 'Commander') if params else 'Commander'
+        schedule_mode = params.get('schedule_mode', 'manual') if params else 'manual'
+        
+        # Get Login instance and delegate to business logic
+        ctx = AppContext()
+        login: Login = ctx.login
+        
+        # Call business logic in LoginoutGUI
+        success, message, data = login._handle_google_login(machine_role, schedule_mode, lang)
+        
+        if success:
+            # Generate session token for the application
+            session_token = str(uuid.uuid4()).replace('-', '')
+            
+            # Prepare response data with safe field access
+            response_data = {
+                'token': session_token,
+                'message': message,
+                'redirect': data.get('redirect', '/dashboard')  # Default redirect if not provided
+            }
+            
+            # Add optional fields if available
+            if 'user_info' in data:
+                response_data['user_info'] = data['user_info']
+            if 'aws_credentials' in data:
+                response_data['aws_credentials'] = data['aws_credentials']
+            if 'identity_id' in data:
+                response_data['identity_id'] = data['identity_id']
+            
+            logger.info(f"Google login successful")
+            return create_success_response(request, response_data)
+        else:
+            logger.error(f"Google login failed: {message}")
+            return create_error_response(
+                request,
+                'GOOGLE_LOGIN_ERROR',
+                message
+            )
+        
+    except Exception as e:
+        logger.error(f"Error in Google login handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'GOOGLE_LOGIN_ERROR',
+            f'Google login failed: {str(e)}'
         )

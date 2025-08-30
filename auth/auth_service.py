@@ -18,10 +18,11 @@ import boto3
 import botocore
 from pycognito import Cognito, AWSSRP
 from botocore.config import Config
+from auth.auth_config import AuthConfig
 
 from utils.logger_helper import logger_helper as logger
 from auth.auth_messages import auth_messages
-from auth.auth_config import AuthConfig
+
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
 from bot.network import commanderIP, commanderServer, commanderXport
@@ -31,11 +32,9 @@ class AuthService:
     """Pure business logic class for authentication operations."""
     
     def __init__(self, language: str = 'en-US'):
-        self.cog = None
-        self.aws_client = None
-        self.aws_srp = None
+        """Initialize the authentication service."""
+        # Initialize tokens and user state
         self.tokens = None
-        self.id_token = None
         self.old_access_token = None
         self.cognito_user_id = None
         self.current_user = ""
@@ -61,6 +60,37 @@ class AuthService:
         
         # Load initial configuration
         self.read_role()
+    
+    def _setup_aws_clients_with_credentials(self, aws_credentials: Dict[str, str]) -> None:
+        """Set up AWS clients with temporary credentials from Cognito Identity Pool."""
+        try:
+            # Create session with temporary credentials
+            self.aws_session = boto3.Session(
+                aws_access_key_id=aws_credentials['access_key'],
+                aws_secret_access_key=aws_credentials['secret_key'],
+                aws_session_token=aws_credentials['session_token'],
+                region_name=AuthConfig.COGNITO.REGION
+            )
+            
+            # Update AWS client with new session
+            self.aws_client = self.aws_session.client('cognito-idp')
+            
+            # Store credentials for other AWS services
+            self.aws_credentials = aws_credentials
+            
+            logger.info("AWS clients updated with temporary credentials from Cognito Identity Pool")
+            
+        except Exception as e:
+            logger.error(f"Failed to setup AWS clients with temporary credentials: {e}")
+            raise
+    
+    def get_aws_client(self, service_name: str):
+        """Get AWS client for specified service using current credentials."""
+        if hasattr(self, 'aws_session') and self.aws_session:
+            return self.aws_session.client(service_name)
+        else:
+            # Fallback to default credentials
+            return boto3.client(service_name, region_name=AuthConfig.COGNITO.REGION)
     
     def read_role(self) -> None:
         """Read machine role from configuration file."""
@@ -139,7 +169,8 @@ class AuthService:
             
             # Check AWS service availability
             try:
-                response = requests.get("https://cognito-idp.us-east-1.amazonaws.com", timeout=10)
+                region = AuthConfig.COGNITO.REGION
+                response = requests.get(f"https://cognito-idp.{region}.amazonaws.com", timeout=10)
                 return response.status_code < 500
             except:
                 return True  # Basic network is working
@@ -254,6 +285,10 @@ class AuthService:
             self.current_user = username
             self.current_user_pw = password
             self.signed_in = True  # 🔧 Set signed_in flag to True after successful login
+            
+            # Update saved login info for next startup
+            self._update_saved_login_info(username, password)
+            
             logger.info(f"Successfully authenticated user: {self.cognito_user_id}")
             logger.info(f"Login successful for user: {username}")
             return True, auth_messages.get_message('login_success')
@@ -270,6 +305,173 @@ class AuthService:
                 return False, auth_messages.get_message('login_invalid_credentials')
             else:
                 return False, auth_messages.get_message('login_failed')
+    
+    def google_login(self, machine_role: str = "Commander") -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Authenticate user with LOCAL Google OAuth (not Hosted UI) and AWS Cognito.
+        
+        Args:
+            machine_role: Machine role for the user
+            
+        Returns:
+            Tuple of (success: bool, message: str, data: dict)
+        """
+        try:
+            from auth.oauth import GoogleOAuthManager, CognitoGoogleIntegration
+            
+            logger.info(f"Starting LOCAL Google OAuth authentication for role: {machine_role}")
+            
+            # Initialize authentication components
+            try:
+                google_oauth = GoogleOAuthManager()  # Use direct Google OAuth, not Hosted UI
+                cognito_integration = CognitoGoogleIntegration()
+            except ValueError as e:
+                logger.error(f"Authentication configuration error: {e}")
+                return False, f'Authentication not configured: {str(e)}', {}
+            
+            # Perform DIRECT Google OAuth authentication (local callback)
+            logger.info("Performing DIRECT Google OAuth authentication with local callback")
+            google_auth_result = google_oauth.authenticate(timeout=300)
+            
+            if not google_auth_result['success']:
+                logger.error(f"Google OAuth failed: {google_auth_result['error']}")
+                return False, google_auth_result['error'], {}
+            
+            google_tokens = google_auth_result['data']['tokens']
+            user_info = google_auth_result['data']['user_info']
+            
+            logger.info(f"Google OAuth successful for user: {user_info['email']}")
+            
+            # Integrate with AWS Cognito Identity Pool using Google tokens
+            logger.info("Integrating with AWS Cognito Identity Pool using Google tokens")
+            identity_result = cognito_integration.authenticate_with_google_token(
+                google_tokens, user_info  # Direct Google tokens, not Cognito tokens
+            )
+            
+            if not identity_result['success']:
+                logger.error(f"Cognito Identity Pool integration failed: {identity_result['error']}")
+                return False, identity_result['error'], {}
+            
+            # Set up AWS session with temporary credentials from Identity Pool
+            aws_credentials = identity_result['data']['aws_credentials']
+            self._setup_aws_clients_with_credentials(aws_credentials)
+            
+            # Set role and user data
+            self.set_role(machine_role)
+            self.current_user = user_info['email']
+            self.current_user_pw = "cognito_google_oauth"  # Updated placeholder
+            
+            # For Google OAuth, first update saved login info with Google user, then get Cognito User Pool tokens
+            google_email = user_info.get('email', '')
+            
+            # Update saved login info immediately with Google user information
+            saved_info = self.get_saved_login_info()
+            password = saved_info.get('password', '')
+            
+            if password and google_email:
+                self._update_saved_login_info(google_email, password)
+               # For Google OAuth, try to get Cognito User Pool tokens using saved credentials
+            try:
+                cognito_result = self._authenticate_with_cognito_user_pool_google(
+                    google_tokens.get('id_token', ''), 
+                    user_info
+                )
+                
+                if cognito_result['success']:
+                    # Use Cognito User Pool tokens for maximum compatibility
+                    cognito_tokens = cognito_result['tokens']
+                    self.tokens = {
+                        "AuthenticationResult": {
+                            "AccessToken": cognito_tokens.get('AccessToken', ''),
+                            "IdToken": cognito_tokens.get('IdToken', ''),  # Cognito User Pool ID token
+                            "RefreshToken": cognito_tokens.get('RefreshToken', ''),
+                            "TokenType": "Bearer",
+                            "ExpiresIn": cognito_tokens.get('ExpiresIn', 3600)
+                        }
+                    }
+                    self.id_token = cognito_tokens.get('IdToken', '')
+                    self.old_access_token = cognito_tokens.get('AccessToken', '')
+                    logger.info("Using Cognito User Pool tokens - full AWS API access available")
+                else:
+                    # Use Google tokens with Identity Pool credentials
+                    # This should work if Identity Pool Role Mappings are configured correctly
+                    logger.warning("Cognito User Pool authentication failed, using Google tokens with Identity Pool credentials")
+                    logger.info("Ensure Identity Pool Role Mappings are configured for Google OAuth users")
+                    
+                    self.tokens = {
+                        "AuthenticationResult": {
+                            "AccessToken": google_tokens.get('access_token', ''),
+                            "IdToken": google_tokens.get('id_token', ''),  # Google ID token
+                            "RefreshToken": google_tokens.get('refresh_token', ''),
+                            "TokenType": google_tokens.get('token_type', 'Bearer'),
+                            "ExpiresIn": google_tokens.get('expires_in', 3600)
+                        }
+                    }
+                    self.id_token = google_tokens.get('id_token', '')
+                    self.old_access_token = google_tokens.get('access_token', '')
+                    
+                    # Log guidance for fixing permissions
+                    logger.info(" To fix Google OAuth permissions, run: python3 auth/fix_google_oauth_permissions.py")
+                    
+            except Exception as e:
+                logger.error(f"Error getting Cognito User Pool tokens: {e}")
+                logger.warning("Using Google tokens with Identity Pool credentials as fallback")
+                
+                # Use Google tokens as fallback
+                self.tokens = {
+                    "AuthenticationResult": {
+                        "AccessToken": google_tokens.get('access_token', ''),
+                        "IdToken": google_tokens.get('id_token', ''),
+                        "RefreshToken": google_tokens.get('refresh_token', ''),
+                        "TokenType": google_tokens.get('token_type', 'Bearer'),
+                        "ExpiresIn": google_tokens.get('expires_in', 3600)
+                    }
+                }
+                self.id_token = google_tokens.get('id_token', '')
+                self.old_access_token = google_tokens.get('access_token', '')
+                
+                logger.info(" To fix Google OAuth permissions, run: python3 auth/fix_google_oauth_permissions.py")
+            self.cognito_user_id = identity_result['data']['identity_id']
+            refresh_token = google_tokens.get('refresh_token', '')
+
+            if refresh_token:
+                self.cog = Cognito(
+                    AuthConfig.COGNITO.USER_POOL_ID,
+                    AuthConfig.COGNITO.CLIENT_ID,
+                    username=self.cognito_user_id,
+                    refresh_token=refresh_token
+                )
+                logger.info(f"Cognito client initialized for user: {self.cognito_user_id}")
+            else:
+                logger.warning("No refresh token available for Cognito client setup")
+                self.cog = None
+
+            # Set up AWS clients with temporary credentials
+            aws_credentials = identity_result['data']['aws_credentials']
+            self._setup_aws_clients_with_credentials(aws_credentials)
+            
+            self.signed_in = True
+            logger.info(f"Cognito login state set: signed_in={self.signed_in}, user={self.current_user}")
+            
+            # Prepare response data
+            response_data = {
+                'user_info': {
+                    'email': user_info['email'],
+                    'name': user_info['name'],
+                    'picture': user_info.get('picture', ''),
+                    'verified_email': user_info.get('email_verified', False)
+                },
+                'aws_credentials': aws_credentials,
+                'identity_id': identity_result['data']['identity_id']
+            }
+            
+            logger.info(f"Cognito Google login successful for user: {user_info['email']}")
+            return True, auth_messages.get_message('login_success'), response_data
+            
+        except Exception as e:
+            logger.error(f"Cognito Google login failed: {e}")
+            logger.error(traceback.format_exc())
+            return False, f'Cognito Google login failed: {str(e)}', {}
     
     def sign_up(self, username: str, password: str) -> Tuple[bool, str]:
         """
@@ -424,6 +626,157 @@ class AuthService:
         """Get current authentication tokens."""
         return self.tokens
     
+    def _authenticate_with_cognito_user_pool_google(self, google_id_token: str, user_info: Dict) -> Dict:
+        """
+        Authenticate Google OAuth user with Cognito User Pool, updating saved credentials with Google user info.
+        
+        Args:
+            google_id_token: Google ID token
+            user_info: Google user information
+            
+        Returns:
+            Dict containing success status and Cognito User Pool tokens
+        """
+        try:
+            from pycognito import Cognito
+            
+            # Use Google user email as the username for Cognito User Pool
+            google_email = user_info.get('email', '')
+            if not google_email:
+                logger.warning("No Google email found in user info")
+                return {
+                    'success': False,
+                    'error': 'No Google email found in user info'
+                }
+            
+            # Get saved login credentials for password
+            saved_info = self.get_saved_login_info()
+            password = saved_info.get('password', '')
+            
+            if not password:
+                logger.warning("No saved password found for Cognito authentication")
+                return {
+                    'success': False,
+                    'error': 'No saved password found for Cognito authentication'
+                }
+            
+            logger.info(f"Authenticating Google OAuth user with Cognito User Pool: {google_email}")
+            
+            # Create Cognito client and authenticate with Google email as username
+            cog = Cognito(
+                AuthConfig.COGNITO.USER_POOL_ID,
+                AuthConfig.COGNITO.CLIENT_ID,
+                username=google_email
+            )
+            
+            try:
+                # Try to authenticate with existing user
+                cog.authenticate(password=password)
+                
+                # Get the tokens
+                tokens = {
+                    'AccessToken': cog.access_token,
+                    'IdToken': cog.id_token,
+                    'RefreshToken': cog.refresh_token,
+                    'ExpiresIn': 3600
+                }
+                
+                # Login info already updated in main flow, no need to update again
+                
+                logger.info(f"Successfully authenticated existing Cognito User Pool user: {google_email}")
+                
+                return {
+                    'success': True,
+                    'tokens': tokens
+                }
+                
+            except Exception as auth_error:
+                # Check if user doesn't exist (expected for first-time Google OAuth users)
+                if "NotAuthorizedException" in str(auth_error) and "Incorrect username or password" in str(auth_error):
+                    logger.info(f"First-time Google OAuth user detected: {google_email}")
+                    logger.info("Creating Cognito User Pool account for seamless future access...")
+                else:
+                    logger.warning(f"Cognito User Pool authentication failed: {auth_error}")
+                
+                # Try to create user if it doesn't exist
+                try:
+                    logger.info(f"Setting up Cognito User Pool account for Google user: {google_email}")
+                    
+                    # Create user using admin privileges with current AWS credentials
+                    import boto3
+                    
+                    # Use the current AWS session with temporary credentials from Identity Pool
+                    if hasattr(self, 'aws_session') and self.aws_session:
+                        cognito_client = self.aws_session.client('cognito-idp', region_name=AuthConfig.COGNITO.REGION)
+                    else:
+                        # Fallback to default credentials
+                        cognito_client = boto3.client('cognito-idp', region_name=AuthConfig.COGNITO.REGION)
+                    
+                    # Create user with admin privileges
+                    cognito_client.admin_create_user(
+                        UserPoolId=AuthConfig.COGNITO.USER_POOL_ID,
+                        Username=google_email,
+                        TemporaryPassword=password,
+                        MessageAction='SUPPRESS',  # Don't send welcome email
+                        UserAttributes=[
+                            {
+                                'Name': 'email',
+                                'Value': google_email
+                            },
+                            {
+                                'Name': 'email_verified',
+                                'Value': 'true'
+                            }
+                        ]
+                    )
+                    
+                    # Set permanent password
+                    cognito_client.admin_set_user_password(
+                        UserPoolId=AuthConfig.COGNITO.USER_POOL_ID,
+                        Username=google_email,
+                        Password=password,
+                        Permanent=True
+                    )
+                    
+                    logger.info(f"✅ Successfully created Cognito User Pool account for Google user: {google_email}")
+                    
+                    # Now try to authenticate again
+                    cog.authenticate(password=password)
+                    
+                    # Get the tokens
+                    tokens = {
+                        'AccessToken': cog.access_token,
+                        'IdToken': cog.id_token,
+                        'RefreshToken': cog.refresh_token,
+                        'ExpiresIn': 3600
+                    }
+                    
+                    # Login info already updated in main flow, no need to update again
+                    
+                    logger.info("✅ Google OAuth user now has full Cognito User Pool access")
+                    
+                    return {
+                        'success': True,
+                        'tokens': tokens
+                    }
+                    
+                except Exception as create_error:
+                    logger.error(f"Failed to create Cognito User Pool user: {create_error}")
+                    
+                    # Check if it's a permission error
+                    if "AccessDeniedException" in str(create_error):
+                        logger.error("SOLUTION: Add cognito-idp:AdminCreateUser permission to AWS user, or manually create user in Cognito Console")
+                        logger.error(f"Manual steps: 1) Go to AWS Cognito Console 2) Create user: {google_email} 3) Set password and verify email")
+                    
+                    raise auth_error  # Re-raise the original authentication error
+            
+        except Exception as e:
+            logger.error(f"Error authenticating with Cognito User Pool: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def get_saved_login_info(self) -> Dict[str, str]:
         """Get saved login information from uli.json and environment variables."""
         try:
@@ -463,6 +816,36 @@ class AuthService:
                 "username": "",
                 "password": ""
             }
+    
+
+    def _update_saved_login_info(self, username: str, password: str):
+        """Update saved login information with new username and password."""
+        try:
+            # Read current data from uli.json
+            data = {}
+            if exists(self.acct_file):
+                with open(self.acct_file, 'r') as jsonfile:
+                    data = json.load(jsonfile)
+            
+            # Update with new username (Google email)
+            data["user"] = username
+            
+            # Keep the same password storage method
+            if data.get("pw") == "SCECBOTPW":
+                # Password is stored in environment variable, keep it that way
+                pass
+            else:
+                # Update password directly
+                data["pw"] = password
+            
+            # Write updated data back to uli.json
+            with open(self.acct_file, 'w') as jsonfile:
+                json.dump(data, jsonfile, indent=2)
+            
+            logger.info(f"Updated saved login info with Google user: {username}")
+            
+        except Exception as e:
+            logger.error(f"Error updating saved login info: {e}")
     
 
     def scramble(self, word: str) -> str:
