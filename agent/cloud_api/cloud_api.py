@@ -5,7 +5,7 @@ from utils.logger_helper import logger_helper as logger
 import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
-from bot.Cloud import appsync_http_request, appsync_http_request8
+from bot.Cloud import appsync_http_request, gen_daily_update_string
 
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 

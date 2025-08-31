@@ -1,5 +1,7 @@
 import ast
 import json
+import re
+import shutil
 from dotenv import load_dotenv
 
 from agent.chats.chat_service import ChatService
@@ -7,7 +9,6 @@ from agent.chats.chats_db import ECBOT_CHAT_DB
 from bot.ebbot import EBBOT
 from bot.missions import EBMISSION
 from common.models import VehicleModel
-from knowledge.lightrag_server import LightragServer
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread
 from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
@@ -49,7 +50,7 @@ from common.db_init import init_db, get_session
 from common.services import MissionService, ProductService, SkillService, BotService, VehicleService
 
 from gui.BotGUI import BotNewWin
-from bot.Cloud import set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
+from bot.Cloud import send_dequeue_tasks_to_cloud, send_schedule_request_to_cloud, send_update_missions_ex_status_to_cloud, set_up_cloud, upload_file, send_add_missions_request_to_cloud, \
     send_remove_missions_request_to_cloud, send_update_missions_request_to_cloud, send_add_bots_request_to_cloud, \
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
     send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,\
@@ -66,11 +67,11 @@ from gui.TrainGUI import TrainNewWin, ReminderWin
 from gui.VehicleMonitorGUI import VehicleMonitorWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
-from bot.basicSkill import symTab, STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
+from bot.basicSkill import processExternalHook, symTab, STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, ManagerTriggerTable
 from bot.inventories import INVENTORY
-from bot.wanChat import subscribeToWanChat, wanHandleRxMessage, wanSendMessage, wanSendMessage8, parseCommandString
+from bot.wanChat import wanSendMessage, wanSendMessage8
 from lzstring import LZString
 import openpyxl
 import tzlocal
@@ -80,7 +81,7 @@ from pynput.mouse import Controller as MouseController
 from typing import List
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
-from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, readPSkillFile, addNameSpaceToAddress, running, running_step_index
+from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running, running_step_index
 from gui.ui_settings import SettingsWidget
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
@@ -107,10 +108,8 @@ import concurrent.futures
 # from agent.mcp.sse_manager import SSEManager
 # from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 from gui.unified_browser_manager import get_unified_browser_manager
-from gui.webdriver.initializer import start_webdriver_initialization
-from gui.webdriver.initializer import get_webdriver_initializer_sync
 from browser_use.filesystem.file_system import FileSystem
-from langchain_openai import ChatOpenAI
+from auth.auth_service import AuthService
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -221,10 +220,10 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, loginout_gui, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
+    def __init__(self, auth_service: AuthService, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
         super().__init__()
-        self.loginout_gui = loginout_gui
-        self.auth_service = loginout_gui.auth_service  # Reference to auth service for tokens
+        self.auth_service = auth_service  # Reference to auth service for tokens
+        self.tokens = self.auth_service.tokens
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
@@ -246,7 +245,6 @@ class MainWindow(QMainWindow):
         self.session = set_up_cloud()
         self.mainLoop = mainloop
         self.threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
-        self.tokens = inTokens
         self.machine_role = machine_role
         if "Platoon" in self.machine_role:
             self.functions = "buyer,seller"
@@ -1607,9 +1605,6 @@ class MainWindow(QMainWindow):
     def get_helper_agent(self):
         return self.helper_agent
 
-    def updateTokens(self, tokens):
-        self.tokens = tokens
-
     def getHomePath(self):
         return self.homepath
 
@@ -1994,9 +1989,6 @@ class MainWindow(QMainWindow):
                 cursor = self.logConsole.textCursor()
                 cursor.movePosition(QTextCursor.MoveOperation.End)
                 self.logConsole.setTextCursor(cursor)
-
-    def setTokens(self, intoken):
-        self.tokens = intoken
 
     def createLabel(self, text):
         label = QLabel(QApplication.translate("QLabel", text))
@@ -8612,7 +8604,7 @@ class MainWindow(QMainWindow):
                     msg = json.dumps(hbJson)
                     # send to commander
                     msg_with_delimiter = msg + "!ENDMSG!"
-                    log6("platoon heartbeat", "wan_log", self, self.running_mission, running_step_index, "~^v^v~")
+                    logger.debug("platoon heartbeat", "wan_log", self, self.running_mission, running_step_index, "~^v^v~")
                     if self.commanderXport:
                         log3("sending heartbeat", "serveCommander", self)
                         if self.commanderXport and not self.commanderXport.is_closing():
@@ -9029,8 +9021,7 @@ class MainWindow(QMainWindow):
 
             if not task.done():
                 task.cancel()
-        if self.loginout_gui:
-            self.loginout_gui.show()
+
         event.accept()
 
     def createTrialRunMission(self):
