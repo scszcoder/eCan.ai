@@ -185,21 +185,15 @@ class Login:
     def _launch_main_window(self, schedule_mode: str):
         """Launch the main application window after successful login."""
         try:
-            # Set environment variable for password
-            if platform.system() == 'Darwin':
-                self._set_env_variable_macos("SCECBOTPW", self.auth_service.scramble(self.auth_service.current_user_pw))
-            else:
-                os.environ["SCECBOTPW"] = self.auth_service.scramble(self.auth_service.current_user_pw)
-            
             # Get authentication tokens
             tokens = self.auth_service.get_tokens()
-            main_key = self.auth_service.scramble(self.auth_service.current_user_pw)
+            # main_key = self.auth_service.scramble(self.auth_service.current_user_pw)
             
             # Create main window
             app_ctx = AppContext()
             
             self.main_win = MainWindow(
-                self, main_key, tokens, self.mainLoop, self.ip,
+                self, tokens, self.mainLoop, self.ip,
                 self.auth_service.current_user, ecbhomepath,
                 self.gui_net_msg_queue, self.auth_service.machine_role, 
                 schedule_mode, "en-US"  # Default language
@@ -227,58 +221,6 @@ class Login:
         except Exception as e:
             logger.error(f"Error launching main window: {e}")
             raise
-    
-    def _set_env_variable_macos(self, var_name: str, var_value: str, shell=None):
-        """Set environment variable on macOS."""
-        if not shell:
-            shell = os.path.basename(os.environ.get('SHELL', ''))
-        
-        if shell == 'bash':
-            config_file = os.path.join(os.path.expanduser('~'), '.bash_profile')
-            if not os.path.exists(config_file):
-                config_file = os.path.join(os.path.expanduser('~'), '.bashrc')
-        elif shell == 'zsh':
-            config_file = os.path.join(os.path.expanduser('~'), '.zshrc')
-        else:
-            logger.warning("Unsupported shell for environment variable setting")
-            return
-        
-        env_var_command = f'export {var_name}="{var_value}"'
-        variable_updated = False
-        
-        try:
-            with open(config_file, 'r') as file:
-                lines = file.readlines()
-        except FileNotFoundError:
-            lines = []
-        except Exception as e:
-            logger.error(f"Error reading config file {config_file}: {e}")
-            return
-            
-        # Write updated config file
-        try:
-            with open(config_file, 'w') as file:
-                for line in lines:
-                    # If the variable exists, replace its value
-                    if line.strip().startswith(f'export {var_name}='):
-                        file.write(f'{env_var_command}\n')
-                        variable_updated = True
-                    else:
-                        file.write(line)
-
-                # If the variable was not found, add it to the file
-                if not variable_updated:
-                    file.write(f'\n{env_var_command}\n')
-
-            logger.info(f"Environment variable {var_name} {'updated' if variable_updated else 'set'} successfully in {config_file}")
-            
-            # Also set in current process environment
-            os.environ[var_name] = var_value
-            
-        except IOError as e:
-            logger.error(f"Error: Unable to open or write to {config_file} - {e}")
-            # Fallback: just set in current process
-            os.environ[var_name] = var_value
 
     def setLoop(self, loop):
         """Set the main event loop."""

@@ -221,7 +221,7 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, loginout_gui, main_key, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
+    def __init__(self, loginout_gui, inTokens, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
         super().__init__()
         self.loginout_gui = loginout_gui
         self.auth_service = loginout_gui.auth_service  # Reference to auth service for tokens
@@ -263,7 +263,6 @@ class MainWindow(QMainWindow):
         self.todaysSchedule = {}
         self.schedule_mode = schedule_mode
         self.ip = ip
-        self.main_key = main_key
         self.user = user
         self.chat_id = user.split("@")[0] + "_" + user.split("@")[1].replace(".", "_")
         self.log_user = self.chat_id
@@ -2547,65 +2546,6 @@ class MainWindow(QMainWindow):
 
     def runAllTests(self):
         self.showMsg("running all tests suits.")
-        htmlfile = 'C:/temp/pot.html'
-        # self.test_scroll()
-        # test_get_all_wins()
-
-
-        # test_ads_batch(self)
-        # test_sqlite3(self)
-        # test_read_buy_req_files(self)
-        # test_misc()
-        # test_scrape_amz_prod_list()
-        # test_api(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
-        # run_genSchedules_test_case(self, self.session, self.tokens['AuthenticationResult']['IdToken'], 1)
-        # test_run_mission(self)
-        # test_save_csk(self.session, self.tokens['AuthenticationResult']['IdToken'])
-
-        # new_mission = EBMISSION(self)
-        # test_request_skill_run(new_mission)
-
-        # asyncio.ensure_future(testLocalImageAPI2(self))
-        # asyncio.create_task(testLocalImageAPI2(self))
-        # asyncio.create_task(testLocalImageAPI3(self))
-        # testSyncLocalImageAPI(self)
-        # asyncio.ensure_future(stressTestImageAPI(self, 5))
-
-        # loop = asyncio.get_event_loop()
-        # loop.create_task(stressTestImageAPI(self, iterations=6))
-        # testGetManagerMissions(self)
-        # test_report_skill_run_result(new_mission)
-        # msg = "vVABC|M123|B21|S-running_idle|Error: Exception hello world"
-        # ek = self.getEncryptKey()
-        # ek = self.generate_key_from_string(self.main_key)
-        # em = self.encrypt_string(ek, msg)
-        # print("key:", self.main_key, ek, em)
-        # print("recovered:", self.decrypt_string(ek, em))
-        #
-        # test_presigned_updownload(new_mission)
-        # asyncio.create_task(test_send_file(fieldLinks[0]["transport"]))
-        # test_handle_extern_skill_run_report(self.session, self.tokens['AuthenticationResult']['IdToken'])
-        # asyncio.ensure_future(test_wait_until8())
-
-        # testCloudAccessWithAPIKey(self.session, self.tokens['AuthenticationResult']['IdToken'])
-        # testSyncPrivateCloudImageAPI(self)
-        # asyncio.ensure_future(test_helper(self))  # removed: test code not available in production
-        # testReportVehicles(self)
-        # testDequeue(self)
-        # Start Gradio in a separate thread
-        # self.gradioWin.show()
-        # test_processSearchWordLine()
-        # test_UpdateBotADSProfileFromSavedBatchTxt()
-        # test_run_group_of_tasks(self)
-
-        # filename, _ = QFileDialog.getOpenFileName(
-        #     self,
-        #     QApplication.translate("QFileDialog", "Open Browser Test Setup File"),
-        #     '',
-        #     QApplication.translate("QFileDialog", "Setup Files (*.json)")
-        # )
-
-        # testWebdriverADSAndChromeConnection(self, filename)
 
     async def runTodaysLocalWork(self):
         # send a request to commander for today's scheduled work.
@@ -9860,12 +9800,6 @@ class MainWindow(QMainWindow):
             else:
                 ex_stat = "ErrorSendMissionResultsFilesToCommander: traceback information not available:" + str(e)
             log3(ex_stat)
-
-
-    def getEncryptKey(self):
-        key, salt = derive_key(self.main_key)
-        return key
-
 
     async def halt_action(self):
         print("escape hotkey pressed!")
