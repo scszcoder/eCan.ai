@@ -300,10 +300,10 @@ class MissionService:
             self.session.commit()
         return mission_instances
 
-    def sync_cloud_mission_data(self, session, tokens, mwin):
+    def sync_cloud_mission_data(self, session, auth_token, mwin):
 
         logger.debug("sending query missions.....")
-        jresp = send_query_missions_by_time_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+        jresp = send_query_missions_by_time_request_to_cloud(session, auth_token,
                                                      [{"byowneruser": True}], mwin.getWanApiEndpoint())
         logger.debug("jresp:", type(jresp), jresp)
         
@@ -325,7 +325,7 @@ class MissionService:
             logger.warning(f"Unexpected jresp format: {type(jresp)}, using empty list")
             all_missions = []
 
-        jresp = send_query_manager_missions_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+        jresp = send_query_manager_missions_request_to_cloud(session, auth_token,
                                                      [{"byowneruser": True}], mwin.getWanApiEndpoint())
         logger.debug("manager missions::", jresp)
         

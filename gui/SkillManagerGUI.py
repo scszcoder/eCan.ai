@@ -334,9 +334,9 @@ class CustomItemModel(QStandardItemModel):
 
 # class MainWindow(QWidget):
 class SkillManagerWindow(QMainWindow):
-    def __init__(self, parent, entrance="msg"):
+    def __init__(self, mainwin, entrance="msg"):
         super(SkillManagerWindow, self).__init__()
-        self.parent = parent
+        self.mainwin = mainwin
         self.mainWidget = QWidget()
         self.skills = []
         self.show_all_local_button = QPushButton(QApplication.translate("QPushButton", "Show All"))
@@ -368,7 +368,7 @@ class SkillManagerWindow(QMainWindow):
         self.sk_info_label = QLabel(QApplication.translate("QLabel", "Skill Info:"), alignment=Qt.AlignLeft)
         self.skill_search_edit = QLineEdit()
         self.skill_search_edit.setClearButtonEnabled(True)
-        self.skill_search_edit.addAction(QIcon(self.parent.getHomePath() + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
+        self.skill_search_edit.addAction(QIcon(self.mainwin.getHomePath() + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
         self.skill_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "Search Skill With Keywords"))
         self.skill_search_edit.returnPressed.connect(self.search_skill_button.click)
 
@@ -386,15 +386,15 @@ class SkillManagerWindow(QMainWindow):
         header.setFont(font)
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
 
-        # self.skillModel = SkillTableModel(self.parent)
+        # self.skillModel = SkillTableModel(self.mainwin)
         # self.skillModel = QStandardItemModel(0, 8)
-        self.skillModel = CustomItemModel(0, 8, self.parent.skills)
+        self.skillModel = CustomItemModel(0, 8, self.mainwin.skills)
         colLabels = ['Skill ID', 'Name', 'Owner', 'Users', 'Created On', 'Platform', 'App Name', 'App Exe', 'App Args', 'Site Name', 'Site URL', 'page', 'Privacy', '']
         self.skillModel.setHorizontalHeaderLabels(colLabels)
         self.skillTableView.setModel(self.skillModel)
 
         i = 0
-        # self.parent.showMsg("skills:::"+str(len(self.parent.skills)))
+        # self.mainwin.showMsg("skills:::"+str(len(self.mainwin.skills)))
         # self.fillTable()              #no need to do this, table will be filled in MainGUI
 
         # Replace "Arial" and 12 with your desired font family and size
@@ -409,7 +409,7 @@ class SkillManagerWindow(QMainWindow):
         self.skillTableView.doubleClicked.connect(self.handleRowDoubleClick)
 
 
-        self.delegate = SkillCellDelegate(self.parent)
+        self.delegate = SkillCellDelegate(self.mainwin)
         # self.skillTableView.setItemDelegate(delegate)
 
         self.infoConsoleBox = Expander(self, QApplication.translate("QWidget", "Skill Description:"))
@@ -470,7 +470,7 @@ class SkillManagerWindow(QMainWindow):
         for rowIdx in range(self.skillModel.rowCount()):
             try:
                 skill = next(
-                    (x for x in self.parent.skills if x.getSkid() == int(self.skillModel.item(rowIdx, 0).text())),
+                    (x for x in self.mainwin.skills if x.getSkid() == int(self.skillModel.item(rowIdx, 0).text())),
                     None)
                 if skill:
                     # Update the app_link value
@@ -488,7 +488,7 @@ class SkillManagerWindow(QMainWindow):
 
 
     def handleRowDoubleClick(self, index):
-        this_skill = next((x for x in self.parent.skills if x.getSkid() == int(self.skillModel.item(index.row(), 0).text())), None)
+        this_skill = next((x for x in self.mainwin.skills if x.getSkid() == int(self.skillModel.item(index.row(), 0).text())), None)
         # now open this skill in skill editor and populate all, but make save skill button grayed out and disabled.
 
 
@@ -497,19 +497,19 @@ class SkillManagerWindow(QMainWindow):
     def searchSkills(self):
         matched_idxs = []
         sphrases = self.skill_search_edit.text().split()
-        for skidx in range(len(self.parent.skills)):
+        for skidx in range(len(self.mainwin.skills)):
             for sphrase in sphrases:
-                if (sphrase in self.parent.skills[skidx].getName()) or \
-                    (sphrase in self.parent.skills[skidx].getPlatform()) or \
-                    (sphrase in self.parent.skills[skidx].getApp()) or \
-                    (sphrase in self.parent.skills[skidx].getSiteName()) or \
-                    (sphrase in self.parent.skills[skidx].getPage()) or \
-                    (sphrase in self.parent.skills[skidx].getDescription()):
+                if (sphrase in self.mainwin.skills[skidx].getName()) or \
+                    (sphrase in self.mainwin.skills[skidx].getPlatform()) or \
+                    (sphrase in self.mainwin.skills[skidx].getApp()) or \
+                    (sphrase in self.mainwin.skills[skidx].getSiteName()) or \
+                    (sphrase in self.mainwin.skills[skidx].getPage()) or \
+                    (sphrase in self.mainwin.skills[skidx].getDescription()):
                     matched_idxs.append(skidx)
                     break
 
-        self.parent.showMsg("search result indexs:"+json.dumps(matched_idxs))
-        self.search_result_skills = [self.parent.skills[idx] for idx in matched_idxs]
+        self.mainwin.showMsg("search result indexs:"+json.dumps(matched_idxs))
+        self.search_result_skills = [self.mainwin.skills[idx] for idx in matched_idxs]
         self.skillModel.clear()
         self.fillBlankSkillsTable(self.search_result_skills)
 
@@ -537,7 +537,7 @@ class SkillManagerWindow(QMainWindow):
 
     def showAllLocalSkills(self):
         self.skillModel.clear()
-        self.fillBlankSkillsTable(self.parent.skills)
+        self.fillBlankSkillsTable(self.mainwin.skills)
 
     def showSearchResultSkills(self):
         self.skillModel.clear()
@@ -551,7 +551,7 @@ class SkillManagerWindow(QMainWindow):
             tab_index = tab_names.index(new_tab_name)
         else:
             # need to add a new tab.
-            self.parent.showMsg("adding a new tab....")
+            self.mainwin.showMsg("adding a new tab....")
 
 
         vmodel = self.SkillTableViews[tab_index].model()
@@ -600,16 +600,16 @@ class SkillManagerWindow(QMainWindow):
             # Set Privacy Icon
             icon_item = QStandardItem()
             icon_path = {
-                "PUB": self.parent.getHomePath() + '/resource/images/icons/skills_78.png',
-                "PRV": self.parent.getHomePath() + '/resource/images/icons/private_skills_78.png'
-            }.get(privacy, self.parent.getHomePath() + '/resource/images/icons/private_usable_skills_78.png')
+                "PUB": self.mainwin.getHomePath() + '/resource/images/icons/skills_78.png',
+                "PRV": self.mainwin.getHomePath() + '/resource/images/icons/private_skills_78.png'
+            }.get(privacy, self.mainwin.getHomePath() + '/resource/images/icons/private_usable_skills_78.png')
 
             icon_item.setIcon(QIcon(icon_path))
             icon_item.setSizeHint(QSize(32, 32))
             model.setItem(rowIdx, 12, icon_item)
 
             # Disable editing if the owner is not the current user, except for the app_link column
-            if owner != self.parent.user:
+            if owner != self.mainwin.user:
                 for col in range(0, 13):  # Iterate over all columns to disable editing
                     if col != 7:  # Exclude app_link column from being disabled
                         item = model.item(rowIdx, col)
@@ -621,12 +621,12 @@ class SkillManagerWindow(QMainWindow):
             print(f"Error setting row {rowIdx}: {e}")
 
     def fillTable(self):
-        # print("filling table with ", len(self.parent.skills), "skills.")
+        # print("filling table with ", len(self.mainwin.skills), "skills.")
         i = 0
         # self.addColTitleRow()
-        for sk in self.parent.skills:
-            self.parent.showMsg("FILL ADD 1 ROW..."+str(i))
-            self.add1TableRow(i, self.parent.skills)
+        for sk in self.mainwin.skills:
+            self.mainwin.showMsg("FILL ADD 1 ROW..."+str(i))
+            self.add1TableRow(i, self.mainwin.skills)
             self.skillTableView.setRowHeight(i, 32)
             i = i + 1
 
@@ -639,7 +639,7 @@ class SkillManagerWindow(QMainWindow):
 
     def add1TableRow(self, rowIdx, rowData):
         new_data = [str(rowData[rowIdx].getSkid()), rowData[rowIdx].getName(), rowData[rowIdx].getOwner(), rowData[rowIdx].getOwner(), rowData[rowIdx].getCreatedOn(), rowData[rowIdx].getPlatform(), rowData[rowIdx].getApp(), rowData[rowIdx].getAppLink(), rowData[rowIdx].getAppArgs(), rowData[rowIdx].getSiteName(), rowData[rowIdx].getSite(), rowData[rowIdx].getPage(), rowData[rowIdx].getPrivacy()]
-        self.parent.showMsg("New ROW:"+json.dumps(new_data))
+        self.mainwin.showMsg("New ROW:"+json.dumps(new_data))
         self.skillModel.addRow(new_data)
 
 
@@ -683,13 +683,13 @@ class SkillManagerWindow(QMainWindow):
 
     def runAll(self):
         # Logic for removing a bot, remove the data and remove the file.
-        self.parent.showMsg("runn all")
+        self.mainwin.showMsg("runn all")
 
 
     def eventFilter(self, source, event):
-        # self.parent.showMsg("Source:", source, "Event:", event)
+        # self.mainwin.showMsg("Source:", source, "Event:", event)
         if event.type() == QEvent.ContextMenu and source is self.skillTableView:
-            # self.parent.showMsg("skill menu....")
+            # self.mainwin.showMsg("skill menu....")
             self.popMenu = QMenu(self)
             self.SkillOpenAction = self._createSkillOpenAction()
             self.SkillCopyAction = self._createSkillCopyAction()
@@ -702,23 +702,23 @@ class SkillManagerWindow(QMainWindow):
             self.popMenu.setFont(self.main_menu_font)
 
             selected_act = self.popMenu.exec_(event.globalPos())
-            # self.parent.showMsg("selected:"+selected_act)
+            # self.mainwin.showMsg("selected:"+selected_act)
 
             if selected_act:
                 self.selected_skill_row = source.rowAt(event.pos().y())
-                # self.parent.showMsg("selected row:"+str(self.selected_skill_row))
+                # self.mainwin.showMsg("selected row:"+str(self.selected_skill_row))
                 if self.selected_skill_row == -1:
                     self.selected_skill_row = source.model().rowCount() - 1
                 self.selected_skill_column = source.columnAt(event.pos().x())
                 if self.selected_skill_column == -1:
                     self.selected_skill_column = source.model().columnCount() - 1
 
-                # self.parent.showMsg("selected col :"+str(self.selected_skill_column))
+                # self.mainwin.showMsg("selected col :"+str(self.selected_skill_column))
                 self.selected_skill_item = self.skillModel.item(self.selected_skill_row)
-                # self.parent.showMsg("selected item1 :", self.selected_skill_item)
+                # self.mainwin.showMsg("selected item1 :", self.selected_skill_item)
 
                 skill_idx = self.skillTableView.index(source)
-                # self.parent.showMsg("selected Skill_idx :"+str(skill_idx))
+                # self.mainwin.showMsg("selected Skill_idx :"+str(skill_idx))
 
                 if skill_idx < 0 or skill_idx >= self.skillModel.rowCount():
                     Skill_idxs = []
@@ -727,7 +727,7 @@ class SkillManagerWindow(QMainWindow):
 
 
                 self.selected_skill_item = source.model().item(self.selected_skill_row, 0)
-                self.parent.showMsg("selected item2 :"+json.dumps(self.selected_skill_item))
+                self.mainwin.showMsg("selected item2 :"+json.dumps(self.selected_skill_item))
 
                 if self.selected_skill_item:
                     skid = int(self.selected_skill_item.text())
@@ -735,7 +735,7 @@ class SkillManagerWindow(QMainWindow):
                 else:
                     skids = []
 
-                self.parent.showMsg("selected mids :"+json.dumps(skids))
+                self.mainwin.showMsg("selected mids :"+json.dumps(skids))
 
                 if selected_act == self.SkillOpenAction:
                     print("set to refresh status...", Skill_idxs, skids)
@@ -770,7 +770,7 @@ class SkillManagerWindow(QMainWindow):
         return new_action
 
     def fetchMySkills(self):
-        self.parent.showMsg("Start fetching my skills......")
+        self.mainwin.showMsg("Start fetching my skills......")
 
         try:
             if self.skill_search_edit.text() == "":
@@ -778,8 +778,8 @@ class SkillManagerWindow(QMainWindow):
             else:
                 qsettings = {"byowneruser": False, "qphrase": self.skill_search_edit.text()}
 
-            resp = send_query_skills_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qsettings, self.parent.getWanApiEndpoint())
-            # self.parent.showMsg("fetch skills results:", resp)
+            resp = send_query_skills_request_to_cloud(self.mainwin.session, self.mainwin.get_auth_token(), qsettings, self.mainwin.getWanApiEndpoint())
+            # self.mainwin.showMsg("fetch skills results:", resp)
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -795,8 +795,8 @@ class SkillManagerWindow(QMainWindow):
 
 
     def openSkill(self, skill):
-        self.parent.showMsg("opening skill....")
-        self.parent.trainNewSkillWin.show()
+        self.mainwin.showMsg("opening skill....")
+        self.mainwin.trainNewSkillWin.show()
 
 
     def deleteSkill(self, skill):
@@ -810,7 +810,7 @@ class SkillManagerWindow(QMainWindow):
         ret = msgBox.exec_()
 
         if ret == QMessageBox.Yes:
-            self.parent.showMsg("deleting skill....")
+            self.mainwin.showMsg("deleting skill....")
             items = [self.selected_skill_item]
             # if len(items):
             #     for item in items:
@@ -822,10 +822,10 @@ class SkillManagerWindow(QMainWindow):
             #         self.missionModel.removeRow(item.row())
             #
             #     # remove on the cloud side
-            #     jresp = send_remove_skills_request_to_cloud(self.session, api_removes, self.tokens['AuthenticationResult']['IdToken'], self.parent.getWanApiEndpoint())
+            #     jresp = send_remove_skills_request_to_cloud(self.session, api_removes, self.mainwin.get_auth_token(), self.mainwin.getWanApiEndpoint())
             #     if "errorType" in jresp:
             #         screen_error = True
-            #         self.parent.showMsg("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
+            #         self.mainwin.showMsg("Delete Bots ERROR Type: ", jresp["errorType"], "ERROR Info: ", jresp["errorInfo"], )
             #     else:
             #         jbody = json.loads(jresp["body"])
             #         #now that delete is successfull, update local file as well.

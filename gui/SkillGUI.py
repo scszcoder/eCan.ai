@@ -557,7 +557,7 @@ class SkillGUI(QMainWindow):
         self.currentSkill = None
 
         self.session = None
-        self.cog = None
+        self.auth_token = None
         self.rects = []
         self.edit_mode = "new"
 
@@ -1767,9 +1767,9 @@ class SkillGUI(QMainWindow):
         elif self.pbRTSel.currentText() == 'By Bound Box':
             self.pbNRefSel.setCurrentIndex(2)
 
-    def set_cloud(self, session, cog):
+    def set_cloud(self, session, auth_token):
         self.session = session
-        self.cog = cog
+        self.auth_token = auth_token
 
     def start_train(self):
         self.show_msg("start training...")
@@ -1807,7 +1807,7 @@ class SkillGUI(QMainWindow):
         self.remove_all_rects()
         # result = read_screen(file_name)
         train_req = [{"skillName": "amz_main_browse", "skillFile": "amz_main_browse.csk", "imageFile": file_name}]
-        result = req_train_read_screen(self.session, train_req, self.cog['AuthenticationResult']['IdToken'], self.parent.getWanApiEndpoint())
+        result = req_train_read_screen(self.session, train_req, self.auth_token, self.parent.getWanApiEndpoint())
         print("result:", result)
         result_json = json.loads(result)
         resp = json.loads(result_json["data"]["reqTrain"])
@@ -2416,14 +2416,14 @@ class SkillGUI(QMainWindow):
             if self.saveSkMBCheckboxCloud.isChecked():
                 # save to cloud here.
                 self.show_msg("saving this skill to cloud ")
-                upload_file(self.session, skd_file_path, self.cog.id_token, self.parent.getWanApiEndpoint(),"skill")
-                upload_file(self.session, psk_file_path, self.cog.id_token, self.parent.getWanApiEndpoint(),"skill")
-                # upload_file(self.session, csk_file_path, self.cog.id_token, self.parent.getWanApiEndpoint(), "skill")
+                upload_file(self.session, skd_file_path, self.auth_token, self.parent.getWanApiEndpoint(),"skill")
+                upload_file(self.session, psk_file_path, self.auth_token, self.parent.getWanApiEndpoint(),"skill")
+                # upload_file(self.session, csk_file_path, self.auth_token, self.parent.getWanApiEndpoint(), "skill")
 
                 # upload
                 anchor_files = [f for f in os.listdir(my_skill_img_dir) if os.path.isfile(f)]
                 for anchor_file in anchor_files:
-                    upload_file(self.session, anchor_file, self.cog.id_token, self.parent.getWanApiEndpoint(), "skill")
+                    upload_file(self.session, anchor_file, self.auth_token, self.parent.getWanApiEndpoint(), "skill")
 
                 # add/update  to cloud DB
                 if self.edit_mode == "new":
@@ -2432,7 +2432,7 @@ class SkillGUI(QMainWindow):
                     # populate ts_skill here with these parameters:
                     # platform,app,site,page,name,path,main,descriptio,runtime
 
-                    result = send_add_skills_request_to_cloud(self.session, [new_skill], self.cog.id_token, self.parent.getWanApiEndpoint())
+                    result = send_add_skills_request_to_cloud(self.session, [new_skill], self.auth_token, self.parent.getWanApiEndpoint())
 
                     # add skillManagerWin
                     self.parent.skills.add(new_skill)
@@ -2441,7 +2441,7 @@ class SkillGUI(QMainWindow):
                     this_skid = int(skd_data["sk_info"].get_skid())
                     this_skill = next((x for x in self.parent.skills if x.getSkid() == this_skid), None)
                     if this_skill:
-                        result = send_update_skills_request_to_cloud(self.session, [this_skill], self.cog.id_token, self.parent.getWanApiEndpoint())
+                        result = send_update_skills_request_to_cloud(self.session, [this_skill], self.auth_token, self.parent.getWanApiEndpoint())
                     else:
                         self.show_msg("WARNING: SKILL TO BE UPDATED NOT FOUND!")
 

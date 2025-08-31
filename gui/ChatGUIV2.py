@@ -13,9 +13,9 @@ from Cloud import send_query_chat_request_to_cloud
 
 
 class ChatDialog(QDialog):
-    def __init__(self, parent, select_bot_id):
+    def __init__(self, mainwin, select_bot_id):
         super().__init__()
-        self.parent = parent
+        self.mainwin = mainwin
         self.contact_messages = {}  # 用于存储每个联系人的消息记录
         self.init_ui()
         self.init_contact(select_bot_id)
@@ -37,7 +37,7 @@ class ChatDialog(QDialog):
         }
 
     def init_contact(self, select_bot_id):
-        bots = self.parent.bots
+        bots = self.mainwin.bots
         select_index = 0
         for index, bot in enumerate(bots):
             if bot.getBid() == select_bot_id:
@@ -206,8 +206,8 @@ class ChatDialog(QDialog):
     def send_message(self):
         message = self.input_field.text()
         if message:
-            if self.parent.host_role == "Staff Officer":
-                self.parent.sa_send_chat(message)
+            if self.mainwin.host_role == "Staff Officer":
+                self.mainwin.sa_send_chat(message)
                 self.input_field.clear()
                 self.addRightMessage(message)
             else:
@@ -269,7 +269,7 @@ class ChatDialog(QDialog):
         qs = [{"msgID": message_id, "user": current_item.text(),
                "timeStamp": timeStamp, "products": "",
                "goals": goals_string, "background": "", "msg": message}]
-        result = send_query_chat_request_to_cloud(self.parent.session, self.parent.tokens['AuthenticationResult']['IdToken'], qs, self.parent.getWanApiEndpoint())
+        result = send_query_chat_request_to_cloud(self.mainwin.session, self.mainwin.get_auth_token(), qs, self.mainwin.getWanApiEndpoint())
         self.addLeftMessage(result['body'])
         self.message_history.moveCursor(QTextCursor.MoveOperation.End)
         self.message_history.ensureCursorVisible()

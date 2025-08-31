@@ -542,7 +542,7 @@ class EBMISSION(QStandardItem):
         self.tasks = M_Action_Items()
         self.main_win_settings = {"mission_id": self.pubAttributes.missionId,
                                 "session": self.main_win.session,
-                                "token": self.main_win.tokens['AuthenticationResult']['IdToken'],
+                                "token": self.main_win.get_auth_token(),
                                 "uid": self.main_win.uid}
         self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
         self.icon = QIcon(main_win.file_resource.mission_icon_path)

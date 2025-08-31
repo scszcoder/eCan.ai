@@ -108,7 +108,6 @@ import concurrent.futures
 # from agent.mcp.sse_manager import SSEManager
 # from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 from gui.unified_browser_manager import get_unified_browser_manager
-from browser_use.filesystem.file_system import FileSystem
 from auth.auth_service import AuthService
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
@@ -223,7 +222,6 @@ class MainWindow(QMainWindow):
     def __init__(self, auth_service: AuthService, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
         super().__init__()
         self.auth_service = auth_service  # Reference to auth service for tokens
-        self.tokens = self.auth_service.tokens
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
@@ -826,7 +824,7 @@ class MainWindow(QMainWindow):
 
             self.skillNewFromFileAction.setDisabled(True)
 
-        # server = HttpServer(self, self.session, self.tokens['AuthenticationResult']['IdToken'])
+        # server = HttpServer(self, self.session, self.get_auth_token())
         # self.server_port = server.port
 
         # centralWidget.addBot(self.botListView)
@@ -1039,7 +1037,7 @@ class MainWindow(QMainWindow):
             # load skills into memory.
             if not self.debug_mode or self.schedule_mode == "auto":
                 logger.info("getting bots from cloud....")
-                self.bot_service.sync_cloud_bot_data(self.session, self.tokens, self)
+                self.bot_service.sync_cloud_bot_data(self.session, self.get_auth_token(), self)
                 logger.info("bot cloud done....")
             logger.info("bot service sync cloud data")
             bots_data = self.bot_service.find_all_bots()
@@ -1050,7 +1048,7 @@ class MainWindow(QMainWindow):
             self.createNewBotsFromBotsXlsx()
 
             if not self.debug_mode or self.schedule_mode == "auto":
-                self.mission_service.sync_cloud_mission_data(self.session, self.tokens, self)
+                self.mission_service.sync_cloud_mission_data(self.session, self.get_auth_token(), self)
             logger.info("mission cloud synced")
             missions_data = self.mission_service.find_missions_by_createon()
             logger.info("local mission data:", missions_data)
@@ -1139,13 +1137,13 @@ class MainWindow(QMainWindow):
             else:
                 self.peer_task = asyncio.create_task(self.wait_forever())
                 # self.peer_task = asyncio.create_task(self.monitorTroop(self.gui_net_msg_queue))
-            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
+            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.get_auth_token(), self.chat_id))
             # self.wan_msg_task = asyncio.create_task(wanHandleRxMessage(self))
             self.showMsg("spawned wan chat task")
 
         if self.host_role == "Platoon":
             self.peer_task = asyncio.create_task(self.serveCommander(self.gui_net_msg_queue))
-            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.tokens, self.chat_id))
+            # self.wan_sub_task = asyncio.create_task(subscribeToWanChat(self, self.get_auth_token(), self.chat_id))
             # self.wan_sub_task = asyncio.create_task(self.wait_forever())
             # self.wan_msg_task = asyncio.create_task(self.wait_forever())
 
@@ -2655,7 +2653,7 @@ class MainWindow(QMainWindow):
 
                 log3(f"schedule file {schedule_file} exists: {todaysScheduleExists}", "fetchSchedule", self)
                 if not todaysScheduleExists or forceful:
-                    jresp = send_schedule_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], ts_name, settings, self.getWanApiEndpoint())
+                    jresp = send_schedule_request_to_cloud(self.session, self.get_auth_token(), ts_name, settings, self.getWanApiEndpoint())
                     log3(f"schedule JRESP: {len(jresp['body'])} bytes", "fetchSchedule", self)
                 else:
                     with open(schedule_file, "r") as sf:
@@ -4366,7 +4364,7 @@ class MainWindow(QMainWindow):
 
     def updateMissionsStatToCloud(self, missions):
         mstats = [{"mid": m.getMid(), "status": m.getStatus()} for m in missions]
-        send_update_missions_ex_status_to_cloud(self.session, mstats, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndPoint())
+        send_update_missions_ex_status_to_cloud(self.session, mstats, self.get_auth_token(), self.getWanApiEndPoint())
 
 
     def updateUnassigned(self, tg_type, vname, task_group, tbd):
@@ -4921,7 +4919,7 @@ class MainWindow(QMainWindow):
         self.trainNewSkillWin.show()
         #rem = ReminderWin(self)
         #rem.show()
-        self.trainNewSkillWin.set_cloud(self.session, self.tokens)
+        self.trainNewSkillWin.set_cloud(self.session, self.get_auth_token())
 
 
     def saveAll(self):
@@ -4978,7 +4976,7 @@ class MainWindow(QMainWindow):
                 "createon": new_bot.getCreateOn(),
                 "vehicle": new_bot.getVehicle()
             })
-        jresp = send_add_bots_request_to_cloud(self.session, new_bots, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+        jresp = send_add_bots_request_to_cloud(self.session, new_bots, self.get_auth_token(), self.getWanApiEndpoint())
 
         if "errorType" in jresp:
             screen_error = True
@@ -5035,7 +5033,7 @@ class MainWindow(QMainWindow):
             })
             # self.updateBotRelatedVehicles(abot)
         if not localOnly:
-            jresp = send_update_bots_request_to_cloud(self.session, bots, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+            jresp = send_update_bots_request_to_cloud(self.session, bots, self.get_auth_token(), self.getWanApiEndpoint())
             if "errorType" in jresp:
                 screen_error = True
                 self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"]), "ERROR Info: "+json.dumps(jresp["errorInfo"]))
@@ -5089,7 +5087,7 @@ class MainWindow(QMainWindow):
                 self.updateBotRelatedVehicles(abot)
 
             if not localOnly:
-                jresp = send_update_bots_request_to_cloud(self.session, bjs, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+                jresp = send_update_bots_request_to_cloud(self.session, bjs, self.get_auth_token(), self.getWanApiEndpoint())
                 if "errorType" in jresp:
                     screen_error = True
                     self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
@@ -5172,7 +5170,7 @@ class MainWindow(QMainWindow):
             self.showMsg("adding a .... new... mission")
             addedNewMissions = []
             jresp = send_add_missions_request_to_cloud(self.session, new_missions,
-                                                       self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+                                                       self.get_auth_token(), self.getWanApiEndpoint())
             if "errorType" in jresp:
                 print("jresp:", jresp)
                 self.showMsg("Error Add New Mission From File: "+json.dumps(jresp))
@@ -5317,7 +5315,7 @@ class MainWindow(QMainWindow):
                 "original_req_file": amission.getReqFile()
             })
 
-        jresp = send_update_missions_request_to_cloud(self.session, missions, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+        jresp = send_update_missions_request_to_cloud(self.session, missions, self.get_auth_token(), self.getWanApiEndpoint())
         if "errorType" in jresp:
             screen_error = True
             self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
@@ -6174,7 +6172,7 @@ class MainWindow(QMainWindow):
 
             # remove on the cloud side
             jresp = send_remove_missions_request_to_cloud(self.session, mjs,
-                                                          self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+                                                          self.get_auth_token(), self.getWanApiEndpoint())
             self.showMsg("DONE WITH CLOUD SIDE REMOVE MISSION REQUEST.....")
             if "errorType" in jresp:
                 screen_error = True
@@ -6213,7 +6211,7 @@ class MainWindow(QMainWindow):
     def updateCusMissionStatus(self, amission):
         # send this mission's status to Cloud
         api_missions = [amission]
-        # jresp = send_update_missions_request_to_cloud(self.session, api_missions, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+        # jresp = send_update_missions_request_to_cloud(self.session, api_missions, self.get_auth_token(), self.getWanApiEndpoint())
         # if "errorType" in jresp:
         #     screen_error = True
         #     self.showMsg("Delete Bots ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
@@ -6274,7 +6272,7 @@ class MainWindow(QMainWindow):
                     'original_req_file': amission["privateProfile"]["original_req_file"]
                 })
 
-            jresp = send_update_bots_request_to_cloud(self.session, mjs, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+            jresp = send_update_bots_request_to_cloud(self.session, mjs, self.get_auth_token(), self.getWanApiEndpoint())
             if "errorType" in jresp:
                 screen_error = True
                 self.showMsg("ERROR Type: " + json.dumps(jresp["errorType"]),
@@ -6444,7 +6442,7 @@ class MainWindow(QMainWindow):
 
             # now the common part.
             jresp = send_remove_bots_request_to_cloud(self.session, bjs,
-                                                      self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+                                                      self.get_auth_token(), self.getWanApiEndpoint())
             self.showMsg("DONE WITH CLOUD SIDE REMOVE BOT REQUEST.....")
             if "errorType" in jresp:
                 screen_error = True
@@ -6777,7 +6775,7 @@ class MainWindow(QMainWindow):
                             #add bots to the relavant data structure and add these bots to the cloud and local DB.
 
                             jresp = send_add_missions_request_to_cloud(self.session, filebmissions,
-                                                                   self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+                                                                   self.get_auth_token(), self.getWanApiEndpoint())
 
                             if "errorType" in jresp:
                                 screen_error = True
@@ -6954,7 +6952,7 @@ class MainWindow(QMainWindow):
         # cloud side first
 
         if len(new_buy_missions) > 0:
-            jresp = send_add_missions_request_to_cloud(self.session, new_buy_missions, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+            jresp = send_add_missions_request_to_cloud(self.session, new_buy_missions, self.get_auth_token(), self.getWanApiEndpoint())
 
             if "errorType" in jresp:
                 screen_error = True
@@ -7003,10 +7001,10 @@ class MainWindow(QMainWindow):
             anchor_files = os.listdir(anchor_dir)
             for af in anchor_files:
                 full_af_name = anchor_dir + "/" + af
-                jresp = upload_file(self.session, full_af_name, self.tokens['AuthenticationResult']['IdToken'],  self.getWanApiEndpoint(), "anchor")
+                jresp = upload_file(self.session, full_af_name, self.get_auth_token(),  self.getWanApiEndpoint(), "anchor")
 
             csk_file = scripts_dir + "/" + os.path.basename(filename).split(".")[0] + ".csk"
-            jresp = upload_file(self.session, csk_file, self.tokens['AuthenticationResult']['IdToken'],  self.getWanApiEndpoint(), "csk")
+            jresp = upload_file(self.session, csk_file, self.get_auth_token(),  self.getWanApiEndpoint(), "csk")
 
 
     def newSkillFromFile(self):
@@ -7026,7 +7024,7 @@ class MainWindow(QMainWindow):
                     if skill_json:
                         #add skills to the relavant data structure and add these bots to the cloud and local DB.
                         # send_add_skills_to_cloud
-                        jresp = send_add_skills_request_to_cloud(self.session, [skill_json], self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+                        jresp = send_add_skills_request_to_cloud(self.session, [skill_json], self.get_auth_token(), self.getWanApiEndpoint())
 
                         if "errorType" in jresp:
                             screen_error = True
@@ -7414,7 +7412,7 @@ class MainWindow(QMainWindow):
     def getAllBotsFromCloud(self):
         # File actions
         #resp = send_get_bots_request_to_cloud(self.session, self.cog.access_token, self.getWanApiEndpoint())
-        jresp = send_get_bots_request_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+        jresp = send_get_bots_request_to_cloud(self.session, self.get_auth_token(), self.getWanApiEndpoint())
         if "errorType" in jresp:
             screen_error = True
             self.showMsg("Gat All Bots ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
@@ -7509,7 +7507,7 @@ class MainWindow(QMainWindow):
                                     vehicle_report = self.prepVehicleReportData(found_vehicle)
                                     resp = send_report_vehicles_to_cloud(
                                         self.session,
-                                        self.tokens['AuthenticationResult']['IdToken'],
+                                        self.get_auth_token(),
                                         vehicle_report,
                                         self.getWanApiEndpoint()
                                     )
@@ -8179,7 +8177,7 @@ class MainWindow(QMainWindow):
                         #  now
                         vehicle_report = self.prepVehicleReportData(found_vehicle)
                         resp = send_report_vehicles_to_cloud(self.session,
-                                                             self.tokens['AuthenticationResult']['IdToken'],
+                                                             self.get_auth_token(),
                                                              vehicle_report,
                                                              self.getWanApiEndpoint())
                         self.saveVehiclesJsonFile()
@@ -8928,7 +8926,7 @@ class MainWindow(QMainWindow):
 
                 log3("TO be sent to cloud side::"+json.dumps(allTodoReports), "doneWithToday", self)
                 # if this is a commmander, then send report to cloud
-                # send_completion_status_to_cloud(self.session, allTodoReports, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+                # send_completion_status_to_cloud(self.session, allTodoReports, self.get_auth_token(), self.getWanApiEndpoint())
                 eodReportMsg = {
                     "type": "TEAM_REPORT",
                     "bid": "",
@@ -9330,7 +9328,7 @@ class MainWindow(QMainWindow):
 
                     # send vehicle status to cloud DB
                     vehicle_report = self.prepFullVehicleReportData()
-                    resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
+                    resp = send_report_vehicles_to_cloud(self.session, self.get_auth_token(),
                                                          vehicle_report, self.getWanApiEndpoint())
 
             if not monitor_msg_queue.empty():
@@ -9382,7 +9380,7 @@ class MainWindow(QMainWindow):
                 # and dispatch the work into scheduler.
             elif in_message["type"] == "report results":
                 ext_run_results = json.loads(in_message["contents"].replace("\\", "\\\\"))
-                handleExtLabelGenResults(self.session, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint(), ext_run_results)
+                handleExtLabelGenResults(self.session, self.get_auth_token(), self.getWanApiEndpoint(), ext_run_results)
             else:
                 print("Unknown message type!!!")
 
@@ -9405,7 +9403,7 @@ class MainWindow(QMainWindow):
                     print("about to download....", batch['file'])
 
                     local_file = download_file(self.session, self.my_ecb_data_homepath, batch['dir'] + "/" + batch['file'],
-                                               "", self.tokens['AuthenticationResult']['IdToken'],
+                                               "", self.get_auth_token(),
                                                self.getWanApiEndpoint(), "general")
                     batch['dir'] = os.path.dirname(local_file)
                     orders[bi]['dir'] = os.path.dirname(local_file)
@@ -10013,7 +10011,7 @@ class MainWindow(QMainWindow):
                 "contents": json.dumps(heartbeatInfo).replace('"', '\\"'),
                 "parameters": json.dumps({}),
             }
-            # self.wan_sub_task = asyncio.create_task(wanSendMessage8(req_msg, self.tokens["AuthenticationResult"]["IdToken"], self.websocket))
+            # self.wan_sub_task = asyncio.create_task(wanSendMessage8(req_msg, self.get_auth_token(), self.websocket))
             await wanSendMessage8(req_msg, self)
 
 
@@ -10095,7 +10093,7 @@ class MainWindow(QMainWindow):
         aws_datetime_string = current_time.isoformat()
 
         session = self.session
-        token = self.tokens['AuthenticationResult']['IdToken']
+        token = self.get_auth_token()
         qs = [{
             "msgID": "1",
             "user": self.user,
@@ -10125,14 +10123,14 @@ class MainWindow(QMainWindow):
             vehicle_report = self.prepVehicleReportData(found_vehicle)
             log3("vehicle status report"+json.dumps(vehicle_report))
             if self.general_settings.get("schedule_mode", "auto") != "test":
-                resp = send_report_vehicles_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'],
+                resp = send_report_vehicles_to_cloud(self.session, self.get_auth_token(),
                                                  vehicle_report, self.getWanApiEndpoint())
             self.saveVehiclesJsonFile()
 
     def updateVehicles(self, vehicles):
         vjs=[self.prepVehicleReportData(v) for v in vehicles]
 
-        resp = send_update_vehicles_request_to_cloud(self.session, vjs, self.tokens['AuthenticationResult']['IdToken'], self.getWanApiEndpoint())
+        resp = send_update_vehicles_request_to_cloud(self.session, vjs, self.get_auth_token(), self.getWanApiEndpoint())
         # for now simply update json file, can put in local db if needed in future.... sc-01/06/2025
         self.saveVehiclesJsonFile()
 
@@ -10182,7 +10180,7 @@ class MainWindow(QMainWindow):
                 print("all vehicles:", [v.getName() for v in self.vehicles])
                 idle_vehicles = [{"vname": v.getName()} for v in self.vehicles if v.getStatus() == "running_idle" and self.vRunnable(v)]
                 print("running idel vehicles:", idle_vehicles)
-                resp = send_dequeue_tasks_to_cloud(self.session, self.tokens['AuthenticationResult']['IdToken'], idle_vehicles, self.getWanApiEndpoint())
+                resp = send_dequeue_tasks_to_cloud(self.session, self.get_auth_token(), idle_vehicles, self.getWanApiEndpoint())
                 print("RESP:", resp)
                 if "body" in resp:
                     cloudQSize = resp['body']['remainingQSize']
@@ -11089,7 +11087,7 @@ class MainWindow(QMainWindow):
                        f"the body of the product reivew  the following criteria: 1) no more 5 sentences long, best to be less than 3 sentences long, each sentence should contain no more than 12 words. 2) non repeating 3) try comment on product's quality, price, or particular attributes or good for certain occassions (for example, a gift to a closed friend or relative). 4) avoid exaggerating wording, it's perferrable to sound cliche \n" +
                        f"the return reponse should be json structure data, it should a list of json dicts with seller_fb_title, sell_fb_body, product_fb_title, product_fb_body as the key, and the corresponding text as the value.\n"
             }]
-            response = send_query_chat_request_to_cloud(self.session, self.tokens, qs, self.getWanApiEndpoint())
+            response = send_query_chat_request_to_cloud(self.session, self.get_auth_token(), qs, self.getWanApiEndpoint())
             for midx, mid in enumerate(mids):
                 fbs[str(mid)] = response[midx]
 

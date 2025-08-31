@@ -31,7 +31,7 @@ from agent.ec_skills.browser_use_for_ai.browser_use_extension import (
     Position,
 )
 import shutil
-from bot.basicSkill import takeScreenShot, carveOutImage, maskOutImage, saveImageToFile, mousePressAndHold, mousePressAndHoldOnScreenWord
+from bot.basicSkill import readRandomWindow8, takeScreenShot, carveOutImage, maskOutImage, saveImageToFile, mousePressAndHold, mousePressAndHoldOnScreenWord
 from utils.logger_helper import login
 from bot.seleniumSkill import *
 from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
@@ -1399,7 +1399,7 @@ async def api_ecan_ai_img2text_icons(mainwin, args):
     try:
         log_user = mainwin.user.replace("@", "_").replace(".", "_")
         session = mainwin.session
-        token = mainwin.tokens['AuthenticationResult']['IdToken']
+        token = mainwin.get_auth_token()
 
         mission = mainwin.getTrialRunMission()
 

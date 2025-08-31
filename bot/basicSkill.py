@@ -6359,7 +6359,7 @@ def regSteps(stepType, stepData, start, result, mainWin):
         }
     ]
     #upload screen to S3
-    resp = send_reg_steps_to_cloud(mainWin.session, steps, mainWin.tokens['AuthenticationResult']['IdToken'], mainWin.getWanApiEndpoint())
+    resp = send_reg_steps_to_cloud(mainWin.session, steps, mainWin.get_auth_token(), mainWin.getWanApiEndpoint())
 
 
 def processPasteToData(step, i):

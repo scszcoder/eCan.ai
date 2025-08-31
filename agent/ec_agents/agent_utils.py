@@ -1182,7 +1182,7 @@ def prep_knowledges_data_for_cloud(mainwin, knowledges):
 def remove_knowledges_from_cloud(mainwin, knowledges):
     try:
         api_removes=[{"id": item.id, "owner": "", "reason": ""} for item in knowledges]
-        jresp = send_remove_knowledges_request_to_cloud(mainwin.session, api_removes, mainwin.tokens['AuthenticationResult']['IdToken'], mainwin.getWanApiEndpoint())
+        jresp = send_remove_knowledges_request_to_cloud(mainwin.session, api_removes, mainwin.get_auth_token(), mainwin.getWanApiEndpoint())
 
     except Exception as e:
         traceback_info = traceback.extract_tb(e.__traceback__)
