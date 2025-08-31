@@ -1631,12 +1631,12 @@ def testCloudAccessWithAPIKey(session, token, mainwin):
 
 def testReportVehicles(mwinwin):
     vehicle_report = mwinwin.prepVehicleReportData()
-    resp = send_report_vehicles_to_cloud(mwinwin.session, mwinwin.tokens['AuthenticationResult']['IdToken'], vehicle_report)
+    resp = send_report_vehicles_to_cloud(mwinwin.session, mwinwin.get_auth_token(), vehicle_report)
 
 
 def testDequeue(mwinwin):
     vehicle_report = mwinwin.prepVehicleReportData()
-    resp = send_dequeue_tasks_to_cloud(mwinwin.session, mwinwin.tokens['AuthenticationResult']['IdToken'], vehicle_report, mwinwin.getWanApiEndpoint())
+    resp = send_dequeue_tasks_to_cloud(mwinwin.session, mwinwin.get_auth_token(), vehicle_report, mwinwin.getWanApiEndpoint())
 
 def testUpdateMissionsExStatus(mwin):
     print("entering test....")
@@ -1644,7 +1644,7 @@ def testUpdateMissionsExStatus(mwin):
         "mid": 11098,
         "status": "started"
     }]
-    resp = send_update_missions_ex_status_to_cloud(mwin.session, mstats, mwin.tokens['AuthenticationResult']['IdToken'], mwin.getWanApiEndpoint())
+    resp = send_update_missions_ex_status_to_cloud(mwin.session, mstats, mwin.get_auth_token(), mwin.getWanApiEndpoint())
     print("test done!!!")
 
 
@@ -2087,7 +2087,7 @@ async def stressTestImageAPI(mwin, iterations):
 
 
 def testGetManagerMissions(mwin):
-    result = send_query_manager_missions_request_to_cloud(mwin.session, mwin.tokens['AuthenticationResult']['IdToken'], [], mwin.getWanApiEndpoint())
+    result = send_query_manager_missions_request_to_cloud(mwin.session, mwin.get_auth_token(), [], mwin.getWanApiEndpoint())
     print(result)
 
 

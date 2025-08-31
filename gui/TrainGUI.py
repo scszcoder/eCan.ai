@@ -116,7 +116,7 @@ class TrainNewWin(QMainWindow):
         self.mainWidget = QWidget()
         self.trainDialog = TrainDialogWin(self)
         self.session = None
-        self.cog = None
+        self.auth_token = None
 
         self.start_tutor_button = QPushButton(QApplication.translate("QPushButton", "Tutorial"))
         self.start_demo_button = QPushButton(QApplication.translate("QPushButton", "Start Demo"))
@@ -376,6 +376,6 @@ class TrainNewWin(QMainWindow):
         # self.skillGUI.skFCDiagram.show()
         pass
 
-    def set_cloud(self, session, cog):
+    def set_cloud(self, session, auth_token):
         self.session = session
-        self.cog = cog
+        self.auth_token = auth_token

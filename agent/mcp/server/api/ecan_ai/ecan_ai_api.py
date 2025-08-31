@@ -9,7 +9,7 @@ def ecan_ai_api_query_components(mainwin, empty_components):
     filled_components = []
     try:
         session = mainwin.session
-        token = mainwin.tokens['AuthenticationResult']['IdToken']
+        token = mainwin.get_auth_token()
 
         img_engine = mainwin.getImageEngine()
         if img_engine == "lan":
@@ -31,7 +31,7 @@ def ecan_ai_api_query_components(mainwin, empty_components):
 def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
     try:
         session = mainwin.session
-        token = mainwin.tokens['AuthenticationResult']['IdToken']
+        token = mainwin.get_auth_token()
 
         wan_api_endpoint = mainwin.wan_api_endpoint
         logger.debug("wan api endpoint:", wan_api_endpoint)
@@ -80,7 +80,7 @@ def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
 def api_ecan_ai_ocr_read_screen(mainwin, nodes):
     try:
         session = mainwin.session
-        token = mainwin.tokens['AuthenticationResult']['IdToken']
+        token = mainwin.get_auth_token()
 
         wan_api_endpoint = mainwin.wan_api_endpoint
         logger.debug("wan api endpoint:", wan_api_endpoint)
