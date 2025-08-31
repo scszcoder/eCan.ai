@@ -11,6 +11,8 @@ import base64
 import hmac
 import hashlib
 import traceback
+import keyring
+import logging
 from os.path import exists
 from typing import Dict, Any, Tuple, Optional
 
@@ -239,12 +241,13 @@ class AuthService:
             Tuple of (success: bool, message: str)
         """
         try:
-            logger.info(f"Attempting login for user: {username}")
+            # Update role if provided
+            if role:
+                self.set_role(role)
             
-            # Check network connectivity
-            if not self._check_network_connection():
-                logger.error("Network connection check failed")
-                return False, "Network connection failed"
+            # Store credentials if login is successful
+            if not self._update_saved_login_info(username, password):
+                logger.warning("Failed to update saved login info")
             
             # Set up AWS SRP authentication
             self.aws_srp = AWSSRP(
@@ -777,40 +780,55 @@ class AuthService:
                 'error': str(e)
             }
 
-    def get_saved_login_info(self) -> Dict[str, str]:
-        """Get saved login information from uli.json and environment variables."""
+    def _store_credentials(self, username: str, password: str) -> bool:
+        """Securely store credentials in the system keyring."""
         try:
-            # Read from uli.json file
+            keyring.set_password("ecbot_auth", username, password)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store credentials: {e}")
+            return False
+
+    def _get_credentials(self, username: str) -> Tuple[bool, str]:
+        """Retrieve credentials from the system keyring."""
+        try:
+            password = keyring.get_password("ecbot_auth", username)
+            if password is None:
+                return False, "No password found"
+            return True, password
+        except Exception as e:
+            return False, str(e)
+
+    def get_saved_login_info(self) -> Dict[str, str]:
+        """Get saved login information from keyring storage."""
+        try:
+            # Get username from uli.json if it exists
+            username = ""
             if exists(self.acct_file):
-                with open(self.acct_file, 'r') as jsonfile:
-                    data = json.load(jsonfile)
-                    
-                    username = data.get("user", "")
-                    password = ""
-                    
-                    # Get password from environment variable if it's stored as SCECBOTPW
-                    if data.get("pw") == "SCECBOTPW":
-                        scrambled_pw = os.environ.get("SCECBOTPW", "")
-                        if scrambled_pw:
-                            password = self.descramble(scrambled_pw)
-                    else:
-                        password = data.get("pw", "")
-                    
-                    return {
-                        "machine_role": self.machine_role,
-                        "username": username,
-                        "password": password
-                    }
+                try:
+                    with open(self.acct_file, 'r') as f:
+                        data = json.load(f)
+                        username = data.get("user", "")
+                except Exception as e:
+                    logger.warning(f"Error reading username from {self.acct_file}: {e}")
             
-            # Fallback to current values if file doesn't exist
+            # Get password from keyring if username exists
+            password = ""
+            if username:
+                success, result = self._get_credentials(username)
+                if success:
+                    password = result
+                else:
+                    logger.warning(f"Could not retrieve password: {result}")
+            
             return {
                 "machine_role": self.machine_role,
-                "username": self.current_user,
-                "password": self.current_user_pw
+                "username": username,
+                "password": password
             }
             
         except Exception as e:
-            logger.error(f"Error reading saved login info: {e}")
+            logger.error(f"Error getting saved login info: {e}")
             return {
                 "machine_role": self.machine_role,
                 "username": "",
@@ -818,60 +836,64 @@ class AuthService:
             }
     
 
-    def _update_saved_login_info(self, username: str, password: str):
+    def _update_saved_login_info(self, username: str, password: str) -> bool:
         """Update saved login information with new username and password."""
         try:
-            # Read current data from uli.json
+            # Update username in uli.json
             data = {}
             if exists(self.acct_file):
-                with open(self.acct_file, 'r') as jsonfile:
-                    data = json.load(jsonfile)
+                try:
+                    with open(self.acct_file, 'r') as f:
+                        data = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Error reading {self.acct_file}: {e}")
             
-            # Update with new username (Google email)
             data["user"] = username
             
-            # Keep the same password storage method
-            if data.get("pw") == "SCECBOTPW":
-                # Password is stored in environment variable, keep it that way
-                pass
-            else:
-                # Update password directly
-                data["pw"] = password
+            # Save updated data
+            try:
+                with open(self.acct_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                logger.error(f"Error writing to {self.acct_file}: {e}")
             
-            # Write updated data back to uli.json
-            with open(self.acct_file, 'w') as jsonfile:
-                json.dump(data, jsonfile, indent=2)
-            
-            logger.info(f"Updated saved login info with Google user: {username}")
+            # Store password in keyring
+            if not self._store_credentials(username, password):
+                logger.error("Failed to store password")
+                return False
+                
+            logger.info(f"Updated login info for user: {username}")
+            return True
             
         except Exception as e:
-            logger.error(f"Error updating saved login info: {e}")
+            logger.error(f"Error updating login info: {e}")
+            return False
     
 
-    def scramble(self, word: str) -> str:
-        """Scramble password for storage."""
-        min_val = 33
-        max_val = 126
-        word_list = list(word)
+    # def scramble(self, word: str) -> str:
+    #     """Scramble password for storage."""
+    #     min_val = 33
+    #     max_val = 126
+    #     word_list = list(word)
         
-        for i in range(len(word_list)):
-            asc = ord(word_list[i]) - (i + 1)
-            if asc < min_val:
-                asc = max_val - (min_val - asc) + 1
-            word_list[i] = chr(asc)
+    #     for i in range(len(word_list)):
+    #         asc = ord(word_list[i]) - (i + 1)
+    #         if asc < min_val:
+    #             asc = max_val - (min_val - asc) + 1
+    #         word_list[i] = chr(asc)
         
-        return ''.join(word_list)
+    #     return ''.join(word_list)
     
-    def descramble(self, word: str) -> str:
-        """Descramble password from storage."""
-        min_val = 33
-        max_val = 126
-        word_list = list(word)
+    # def descramble(self, word: str) -> str:
+    #     """Descramble password from storage."""
+    #     min_val = 33
+    #     max_val = 126
+    #     word_list = list(word)
         
-        for i in range(len(word_list)):
-            asc = ord(word_list[i]) + (i + 1)
-            if asc > max_val:
-                asc = min_val + (asc - max_val) - 1
-            word_list[i] = chr(asc)
+    #     for i in range(len(word_list)):
+    #         asc = ord(word_list[i]) + (i + 1)
+    #         if asc > max_val:
+    #             asc = min_val + (asc - max_val) - 1
+    #         word_list[i] = chr(asc)
         
-        return ''.join(word_list)
+    #     return ''.join(word_list)

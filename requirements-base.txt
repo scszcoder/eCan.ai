@@ -34,8 +34,9 @@ colorlog==6.8.2
 configobj==5.0.9
 configparser==7.2.0
 crontab==1.0.1
-cryptography==42.0.7
+cryptography==43.0.1
 decorator==5.2.1
+keyring==25.2.1
 deepdiff==8.0.1
 defusedxml==0.7.1
 Deprecated==1.2.18
@@ -268,4 +269,3 @@ crawl4ai==0.7.1
 fake-useragent==2.2.0
 asteval==1.0.6
 PyJWT>=2.8.0
-keyring>=24.3.1
