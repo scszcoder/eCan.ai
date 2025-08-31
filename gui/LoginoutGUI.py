@@ -13,7 +13,7 @@ from gui.MainGUI import MainWindow
 from auth.auth_service import AuthService
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
-from bot.network import commanderIP, commanderServer, commanderXport
+from bot.network import commanderIP
 
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
@@ -193,7 +193,7 @@ class Login:
             app_ctx = AppContext()
             
             self.main_win = MainWindow(
-                self, tokens, self.mainLoop, self.ip,
+                self.auth_service, self.mainLoop, self.ip,
                 self.auth_service.current_user, ecbhomepath,
                 self.gui_net_msg_queue, self.auth_service.machine_role, 
                 schedule_mode, "en-US"  # Default language

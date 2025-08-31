@@ -25,12 +25,11 @@ import requests
 import io
 
 from ping3 import ping
-from bot.Cloud import upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
+from bot.Cloud import send_query_chat_request_to_cloud8, upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
-    download_file, download_file8, send_file_op_request_to_cloud, \
-    send_update_missions_ex_status_to_cloud, send_reg_steps_to_cloud
-from bot.lanAPI import req_lan_read_screen8, req_lan_read_screen
+    download_file, send_update_missions_ex_status_to_cloud, send_reg_steps_to_cloud
+from bot.lanAPI import req_lan_read_screen8
 from bot.Logger import log3, log6, log68
 from utils.logger_helper import logger_helper as logger
 from typing import TYPE_CHECKING

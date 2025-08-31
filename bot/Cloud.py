@@ -23,84 +23,84 @@ ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
 
-def direct_send_screen(file_name, bucket="winrpa"):
-    response = "nothing"
-    """Upload a file to an S3 bucket
+# def direct_send_screen(file_name, bucket="winrpa"):
+#     response = "nothing"
+#     """Upload a file to an S3 bucket
 
-    :param file_name: File to upload
-    :param bucket: Bucket to upload to
-    :param object_name: S3 object name. If not specified then file_name is used
-    :return: True if file was uploaded, else False
-    """
-    # Set the desired multipart threshold value (5GB)
-    GB = 1024 ** 3
-    config = TransferConfig(multipart_threshold=5 * GB)
-    config = TransferConfig(max_concurrency=5)
-    config = TransferConfig(use_threads=False)
+#     :param file_name: File to upload
+#     :param bucket: Bucket to upload to
+#     :param object_name: S3 object name. If not specified then file_name is used
+#     :return: True if file was uploaded, else False
+#     """
+#     # Set the desired multipart threshold value (5GB)
+#     GB = 1024 ** 3
+#     config = TransferConfig(multipart_threshold=5 * GB)
+#     config = TransferConfig(max_concurrency=5)
+#     config = TransferConfig(use_threads=False)
 
-    # for remote object full path:
-    # username/os_app/site_page/task/filename.
-    # the relative dir name should be the same, EC platform/date/
-    # for example, ebay should be EB/D20220201/****
-    # file name should be in the format of (8char)ownerID_timestamp.png
-    object_name = os.path.basename(file_name)
-    full_dir_name = os.path.dirname(file_name)
-    subdirname5 = os.path.basename(full_dir_name)
-    sub_dir_name5 = os.path.dirname(full_dir_name)
-    subdirname4 = os.path.basename(sub_dir_name5)
-    sub_dir_name4 = os.path.dirname(sub_dir_name5)
-    subdirname3 = os.path.basename(sub_dir_name4)
-    sub_dir_name3 = os.path.dirname(sub_dir_name4)
-    subdirname2 = os.path.basename(sub_dir_name3)
-    sub_dir_name2 = os.path.dirname(sub_dir_name3)
-    subdirname1 = os.path.basename(sub_dir_name2)
-    sub_dir_name1 = os.path.dirname(sub_dir_name2)
-    subdirname0 = os.path.basename(sub_dir_name1)
-    sub_dir_name0 = os.path.dirname(sub_dir_name1)
+#     # for remote object full path:
+#     # username/os_app/site_page/task/filename.
+#     # the relative dir name should be the same, EC platform/date/
+#     # for example, ebay should be EB/D20220201/****
+#     # file name should be in the format of (8char)ownerID_timestamp.png
+#     object_name = os.path.basename(file_name)
+#     full_dir_name = os.path.dirname(file_name)
+#     subdirname5 = os.path.basename(full_dir_name)
+#     sub_dir_name5 = os.path.dirname(full_dir_name)
+#     subdirname4 = os.path.basename(sub_dir_name5)
+#     sub_dir_name4 = os.path.dirname(sub_dir_name5)
+#     subdirname3 = os.path.basename(sub_dir_name4)
+#     sub_dir_name3 = os.path.dirname(sub_dir_name4)
+#     subdirname2 = os.path.basename(sub_dir_name3)
+#     sub_dir_name2 = os.path.dirname(sub_dir_name3)
+#     subdirname1 = os.path.basename(sub_dir_name2)
+#     sub_dir_name1 = os.path.dirname(sub_dir_name2)
+#     subdirname0 = os.path.basename(sub_dir_name1)
+#     sub_dir_name0 = os.path.dirname(sub_dir_name1)
 
-    object_name = subdirname0 + "/" + subdirname1 + "/" + subdirname2 + "/" + subdirname3 + "/" + subdirname4 + "/" + subdirname5 + "/" + object_name
+#     object_name = subdirname0 + "/" + subdirname1 + "/" + subdirname2 + "/" + subdirname3 + "/" + subdirname4 + "/" + subdirname5 + "/" + object_name
 
-    logger_helper.debug(file_name)
-    logger_helper.debug(object_name)
-    # Upload the file
-    s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
-    try:
-        response = s3_client.upload_file(file_name, bucket, object_name, Config=config)
-    except ClientError as e:
-        logging.error(e)
-        return str(e)
-    return response
+#     logger_helper.debug(file_name)
+#     logger_helper.debug(object_name)
+#     # Upload the file
+#     s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
+#     try:
+#         response = s3_client.upload_file(file_name, bucket, object_name, Config=config)
+#     except ClientError as e:
+#         logging.error(e)
+#         return str(e)
+#     return response
 
 
-def list_s3_file():
-    # method 1 per: https://stackoverflow.com/questions/27292145/python-boto-list-contents-of-specific-dir-in-bucket
-    #s3 = boto3.resource('s3')
-    #my_bucket = s3.Bucket('winrpa')
+# def list_s3_file():
+#     # method 1 per: https://stackoverflow.com/questions/27292145/python-boto-list-contents-of-specific-dir-in-bucket
+#     #s3 = boto3.resource('s3')
+#     #my_bucket = s3.Bucket('winrpa')
 
-    #logger_helper.debug("s3 bucket: "+json.dumps(my_bucket.objects))
+#     #logger_helper.debug("s3 bucket: "+json.dumps(my_bucket.objects))
 
-    #for object_summary in my_bucket.objects.filter(Prefix="cognito/"):
-    #   logger_helper.debug(object_summary.key)
-    # ==== end , conclusion, failed getting "NoCredentialsError"=========
+#     #for object_summary in my_bucket.objects.filter(Prefix="cognito/"):
+#     #   logger_helper.debug(object_summary.key)
+#     # ==== end , conclusion, failed getting "NoCredentialsError"=========
 
-    # from same link, but later comments:
-    _BUCKET_NAME = 'winrpa'
-    _PREFIX = 'EB/'
-    s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
-    """List files in specific S3 URL"""
-    response = s3_client.list_objects(Bucket=_BUCKET_NAME, Prefix=_PREFIX)
-    logger_helper.debug("list s3 results:"+json.dumps(response.get('Contents', [])))
-    for x in response.get('Contents', []):
-        logger_helper.debug("content::"+json.dumps(x["Key"]))
+#     # from same link, but later comments:
+#     _BUCKET_NAME = 'winrpa'
+#     _PREFIX = 'EB/'
+#     s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
+#     """List files in specific S3 URL"""
+#     response = s3_client.list_objects(Bucket=_BUCKET_NAME, Prefix=_PREFIX)
+#     logger_helper.debug("list s3 results:"+json.dumps(response.get('Contents', [])))
+#     for x in response.get('Contents', []):
+#         logger_helper.debug("content::"+json.dumps(x["Key"]))
 
-def get_presigned_url(target):
-    s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id="AWS_KEY_ID", aws_secret_access_key="AWS_SECRET")
+# def get_presigned_url(target):
+#     s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id="AWS_KEY_ID", aws_secret_access_key="AWS_SECRET")
 
-    # Generate the presigned URL
-    response = s3_client.generate_presigned_post(Bucket='winrpa', Key=target, ExpiresIn=120)
+#     # Generate the presigned URL
+#     response = s3_client.generate_presigned_post(Bucket='winrpa', Key=target, ExpiresIn=120)
 
-    print("get presign resp: ", response)
-    return response
+#     print("get presign resp: ", response)
+#     return response
 
 #resp is the response from requesting the presigned_url
 def send_file_with_presigned_url(src_file, resp):
@@ -2145,56 +2145,56 @@ def download_file(session, datahome, f2dl, source, token, endpoint, ftype="gener
 
 
 
-def download_file8(session, datahome, f2dl, token, endpoint, ftype="general"):
-    try:
-        fname = os.path.basename(f2dl)
-        fwords = f2dl.split("/")
-        relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
-        prefix = ftype + "|" + os.path.dirname(f2dl)
+# def download_file8(session, datahome, f2dl, token, endpoint, ftype="general"):
+#     try:
+#         fname = os.path.basename(f2dl)
+#         fwords = f2dl.split("/")
+#         relf2dl = "/".join([t for i, t in enumerate(fwords) if i > findIdx(fwords, 'testdata')])
+#         prefix = ftype + "|" + os.path.dirname(f2dl)
 
-        fopreqs = [{"op": "download", "names": fname, "options": prefix}]
+#         fopreqs = [{"op": "download", "names": fname, "options": prefix}]
 
-        res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
-        # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+#         res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
+#         # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
-        resd = json.loads(res['body']['urls']['result'])
-        # logger_helper.debug("cloud response data: "+json.dumps(resd))
-        resp = get_file_with_presigned_url(datahome+f2dl, resd['body'][0])
-        #
-        # logger_helper.debug("resp:"+json.dumps(resp))
-        link = resd['body'][0]
+#         resd = json.loads(res['body']['urls']['result'])
+#         # logger_helper.debug("cloud response data: "+json.dumps(resd))
+#         resp = get_file_with_presigned_url(datahome+f2dl, resd['body'][0])
+#         #
+#         # logger_helper.debug("resp:"+json.dumps(resp))
+#         link = resd['body'][0]
 
-    except Exception as e:
-        # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "Errordownload_file8:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "Errordownload_file8 traceback information not available:" + str(e)
-        link = ""
+#     except Exception as e:
+#         # Get the traceback information
+#         traceback_info = traceback.extract_tb(e.__traceback__)
+#         # Extract the file name and line number from the last entry in the traceback
+#         if traceback_info:
+#             ex_stat = "Errordownload_file8:" + traceback.format_exc() + " " + str(e)
+#         else:
+#             ex_stat = "Errordownload_file8 traceback information not available:" + str(e)
+#         link = ""
 
-    return link
+#     return link
 
 
 
 # list dir on my cloud storage
-def cloud_ls(session, token, endpoint):
-    flist = []
-    fopreqs = [{"op" : "list", "names": "", "options": ""}]
-    res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
-    # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
+# def cloud_ls(session, token, endpoint):
+#     flist = []
+#     fopreqs = [{"op" : "list", "names": "", "options": ""}]
+#     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
+#     # logger_helper.debug("cloud response: "+json.dumps(res['body']['urls']['result']))
 
-    for k in res['body']["urls"][0]['Contents']:
-        flist.append(k['Key'])
+#     for k in res['body']["urls"][0]['Contents']:
+#         flist.append(k['Key'])
 
-    return flist
+#     return flist
 
 
-def cloud_rm(session, f2rm, token, endpoint):
-    fopreqs = [{"op": "delete", "names": f2rm, "options": ""}]
-    res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
-    logger_helper.debug("cloud response: "+json.dumps(res['body']))
+# def cloud_rm(session, f2rm, token, endpoint):
+#     fopreqs = [{"op": "delete", "names": f2rm, "options": ""}]
+#     res = send_file_op_request_to_cloud(session, fopreqs, token, endpoint)
+#     logger_helper.debug("cloud response: "+json.dumps(res['body']))
 
 def appsync_http_request(query_string, session, token, endpoint):
     """
@@ -2208,16 +2208,10 @@ def appsync_http_request(query_string, session, token, endpoint):
     
     if not endpoint:
         endpoint = APPSYNC_API_ENDPOINT_URL
-    
-    # Format token for authentication
-    if token and not token.startswith('Bearer '):
-        formatted_token = f'Bearer {token}'
-    else:
-        formatted_token = token
-    
+
     headers = {
         'Content-Type': "application/graphql",
-        'Authorization': formatted_token,
+        'Authorization': token,
         'cache-control': "no-cache"
     }
 
@@ -2238,7 +2232,7 @@ def appsync_http_request(query_string, session, token, endpoint):
             for error in jresp["errors"]:
                 if error.get("errorType") == "UnauthorizedException":
                     logger_helper.error(f"AppSync authentication failed: {error.get('message', 'Unknown error')}")
-                    logger_helper.error(f"Token format: {formatted_token[:50]}...")
+                    logger_helper.error(f"Token format: {token[:50]}...")
         
         return jresp
         
@@ -2399,106 +2393,106 @@ async def upload_file8(session, f2ul, token, endpoint, ftype="general"):
     logger_helper.debug(">>>>>>>>>>>>>>>>>>>>>file Upload time stamp: "+datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
 
-async def send_wan_chat_message(content, sender, token, endpoint):
-    variables = {
-        "content": content,
-        "sender": sender
-    }
-    query_string = gen_wan_send_chat_message_string(content['msg'])
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
-    async with aiohttp.ClientSession() as session8:
-        async with session8.post(
-                url=endpoint,
-                timeout=aiohttp.ClientTimeout(total=300),
-                headers=headers,
-                json={
-                        'query': query_string,
-                        'variables': variables
-                }
-        ) as response:
-            jresp = await response.json()
-            print(jresp)
-            return jresp
+# async def send_wan_chat_message(content, sender, token, endpoint):
+#     variables = {
+#         "content": content,
+#         "sender": sender
+#     }
+#     query_string = gen_wan_send_chat_message_string(content['msg'])
+#     headers = {
+#         'Content-Type': "application/graphql",
+#         'Authorization': token,
+#         'cache-control': "no-cache",
+#     }
+#     async with aiohttp.ClientSession() as session8:
+#         async with session8.post(
+#                 url=endpoint,
+#                 timeout=aiohttp.ClientTimeout(total=300),
+#                 headers=headers,
+#                 json={
+#                         'query': query_string,
+#                         'variables': variables
+#                 }
+#         ) as response:
+#             jresp = await response.json()
+#             print(jresp)
+#             return jresp
 
 
 
-async def wan_chat_subscribe(token, endpoint):
-    query_string = gen_wan_subscription_connection_string()
-    async def handle_message(websocket):
-        while True:
-            try:
-                response = await websocket.recv()
-                response_data = json.loads(response)
-                if response_data["type"] == "data":
-                    message = response_data["payload"]["data"]["onMessageSent"]
-                    print("New message received:", message)
-            except websockets.exceptions.ConnectionClosedError:
-                print("Connection lost. Attempting to reconnect...")
-                break
+# async def wan_chat_subscribe(token, endpoint):
+#     query_string = gen_wan_subscription_connection_string()
+#     async def handle_message(websocket):
+#         while True:
+#             try:
+#                 response = await websocket.recv()
+#                 response_data = json.loads(response)
+#                 if response_data["type"] == "data":
+#                     message = response_data["payload"]["data"]["onMessageSent"]
+#                     print("New message received:", message)
+#             except websockets.exceptions.ConnectionClosedError:
+#                 print("Connection lost. Attempting to reconnect...")
+#                 break
 
-    while True:
-        try:
-            async with websockets.connect(endpoint, extra_headers={
-                'Content-Type': 'application/json',
-                'Authorization': token
-            }) as websocket:
-                # Send connection init message
-                init_msg = {
-                    "type": "connection_init"
-                }
-                await websocket.send(json.dumps(init_msg))
+#     while True:
+#         try:
+#             async with websockets.connect(endpoint, extra_headers={
+#                 'Content-Type': 'application/json',
+#                 'Authorization': token
+#             }) as websocket:
+#                 # Send connection init message
+#                 init_msg = {
+#                     "type": "connection_init"
+#                 }
+#                 await websocket.send(json.dumps(init_msg))
 
-                # Wait for connection ack
-                while True:
-                    response = await websocket.recv()
-                    response_data = json.loads(response)
-                    if response_data["type"] == "connection_ack":
-                        break
+#                 # Wait for connection ack
+#                 while True:
+#                     response = await websocket.recv()
+#                     response_data = json.loads(response)
+#                     if response_data["type"] == "connection_ack":
+#                         break
 
-                # Start subscription
-                sub_msg = {
-                    "id": "1",
-                    "type": "start",
-                    "payload": {
-                        "query": query_string,
-                        "variables": {}
-                    }
-                }
-                await websocket.send(json.dumps(sub_msg))
+#                 # Start subscription
+#                 sub_msg = {
+#                     "id": "1",
+#                     "type": "start",
+#                     "payload": {
+#                         "query": query_string,
+#                         "variables": {}
+#                     }
+#                 }
+#                 await websocket.send(json.dumps(sub_msg))
 
-                await handle_message(websocket)
-        except Exception as e:
-            print(f"ErrorInternetConnectionLost: {e}. Retrying websocket connection in 5 seconds...")
-            await asyncio.sleep(5)
+#                 await handle_message(websocket)
+#         except Exception as e:
+#             print(f"ErrorInternetConnectionLost: {e}. Retrying websocket connection in 5 seconds...")
+#             await asyncio.sleep(5)
 
 
 
-def local_http_request(query_string, session, api_Key, endpoint):
+# def local_http_request(query_string, session, api_Key, endpoint):
 
-    headers = {
-        'Content-Type': "application/graphql",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
+#     headers = {
+#         'Content-Type': "application/graphql",
+#         'Authorization': token,
+#         'cache-control': "no-cache",
+#     }
 
-    # Now we can simply post the request...
-    response = session.request(
-        url=endpoint,
-        method='POST',
-        timeout=300,
-        headers=headers,
-        json={'query': query_string}
-    )
-    # save response to a log file. with a time stamp.
-    print(response)
+#     # Now we can simply post the request...
+#     response = session.request(
+#         url=endpoint,
+#         method='POST',
+#         timeout=300,
+#         headers=headers,
+#         json={'query': query_string}
+#     )
+#     # save response to a log file. with a time stamp.
+#     print(response)
 
-    jresp = response.json()
+#     jresp = response.json()
 
-    return jresp
+#     return jresp
 
 
 

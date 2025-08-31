@@ -11,7 +11,6 @@ import socketserver
 import threading
 import socket
 import time
-import webbrowser
 from urllib.parse import urlparse, parse_qs
 from typing import Optional, Dict, Any
 import secrets
