@@ -437,7 +437,7 @@ def extract_search_results_table(driver):
     finally:
         driver.quit()
 
-#
-# if __name__ == "__main__":
-#     main()
+
+if __name__ == "__main__":
+    extract_search_results_table()
 
