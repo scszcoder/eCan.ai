@@ -2,7 +2,7 @@
   "id": "mcu_config_form",
   "type": "normal",
   "title": "MCU 配置",
-  "fields": [
+  "parametric_filters": [
     {
       "id": "core",
       "type": "select",
