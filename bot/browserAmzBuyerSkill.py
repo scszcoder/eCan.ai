@@ -10,7 +10,8 @@ from bot.basicSkill import genStepHeader, genStepStub, genStepWait, genStepCreat
     genScrollDownUntilLoc, genStepMoveDownloadedFileToDestination, genStepReadXlsxFile, genStepReadJsonFile, \
     genStepUploadFiles, genStepDownloadFiles, genStepECBFetchDailySchedule, genStepECBCollectBotProfiles, \
     genStepExternalHook, genStepECBDispatchTroops, genStepUpdateBuyMissionResult, genStepObtainReviews, \
-    genStepBringAppToFront
+    genStepBringAppToFront, genStepLog, genStepFillData, genStepScreenCapture, genStepMouseMove, \
+    genStepAmzDetailsCheckPosition
 from bot.Logger import log3
 from bot.etsySellerSkill import genStepPrepGSOrder
 from bot.labelSkill import genStepPrepareGSOrder

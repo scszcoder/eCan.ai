@@ -4,9 +4,6 @@ from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
 import asyncio
-import os
-import platform
-
 
 from gui.MainGUI import MainWindow
 from auth.auth_manager import AuthManager

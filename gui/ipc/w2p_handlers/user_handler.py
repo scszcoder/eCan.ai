@@ -210,7 +210,7 @@ def handle_confirm_forgot_password(request: IPCRequest, params: Optional[Dict[st
         auth_messages.set_language(lang)
         return create_error_response(request, 'CONFIRM_FORGOT_PASSWORD_ERROR', auth_messages.get_message('confirm_forgot_failed'))
 
-@IPCHandlerRegistry.background_handler('google_login')
+@IPCHandlerRegistry.handler('google_login')
 def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handles google_login requests with internationalized responses."""
     lang = auth_messages.DEFAULT_LANG
