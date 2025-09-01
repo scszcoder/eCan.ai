@@ -1,19 +1,13 @@
 import json
 import os
-import re
 from datetime import datetime
 import base64
 import requests
-import boto3
-from botocore.exceptions import ClientError
-from boto3.s3.transfer import TransferConfig
-import logging
 import aiohttp
 import asyncio
 
 from bot.envi import getECBotDataHome
 from utils.logger_helper import logger_helper
-import websockets
 import traceback
 from config.constants import API_DEV_MODE
 from aiolimiter import AsyncLimiter
@@ -23,84 +17,6 @@ ecb_data_homepath = getECBotDataHome()
 # Constants Copied from AppSync API 'Settings'
 API_URL = 'https://w3lhm34x5jgxlbpr7zzxx7ckqq.appsync-api.ap-southeast-2.amazonaws.com/graphql'
 
-# def direct_send_screen(file_name, bucket="winrpa"):
-#     response = "nothing"
-#     """Upload a file to an S3 bucket
-
-#     :param file_name: File to upload
-#     :param bucket: Bucket to upload to
-#     :param object_name: S3 object name. If not specified then file_name is used
-#     :return: True if file was uploaded, else False
-#     """
-#     # Set the desired multipart threshold value (5GB)
-#     GB = 1024 ** 3
-#     config = TransferConfig(multipart_threshold=5 * GB)
-#     config = TransferConfig(max_concurrency=5)
-#     config = TransferConfig(use_threads=False)
-
-#     # for remote object full path:
-#     # username/os_app/site_page/task/filename.
-#     # the relative dir name should be the same, EC platform/date/
-#     # for example, ebay should be EB/D20220201/****
-#     # file name should be in the format of (8char)ownerID_timestamp.png
-#     object_name = os.path.basename(file_name)
-#     full_dir_name = os.path.dirname(file_name)
-#     subdirname5 = os.path.basename(full_dir_name)
-#     sub_dir_name5 = os.path.dirname(full_dir_name)
-#     subdirname4 = os.path.basename(sub_dir_name5)
-#     sub_dir_name4 = os.path.dirname(sub_dir_name5)
-#     subdirname3 = os.path.basename(sub_dir_name4)
-#     sub_dir_name3 = os.path.dirname(sub_dir_name4)
-#     subdirname2 = os.path.basename(sub_dir_name3)
-#     sub_dir_name2 = os.path.dirname(sub_dir_name3)
-#     subdirname1 = os.path.basename(sub_dir_name2)
-#     sub_dir_name1 = os.path.dirname(sub_dir_name2)
-#     subdirname0 = os.path.basename(sub_dir_name1)
-#     sub_dir_name0 = os.path.dirname(sub_dir_name1)
-
-#     object_name = subdirname0 + "/" + subdirname1 + "/" + subdirname2 + "/" + subdirname3 + "/" + subdirname4 + "/" + subdirname5 + "/" + object_name
-
-#     logger_helper.debug(file_name)
-#     logger_helper.debug(object_name)
-#     # Upload the file
-#     s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
-#     try:
-#         response = s3_client.upload_file(file_name, bucket, object_name, Config=config)
-#     except ClientError as e:
-#         logging.error(e)
-#         return str(e)
-#     return response
-
-
-# def list_s3_file():
-#     # method 1 per: https://stackoverflow.com/questions/27292145/python-boto-list-contents-of-specific-dir-in-bucket
-#     #s3 = boto3.resource('s3')
-#     #my_bucket = s3.Bucket('winrpa')
-
-#     #logger_helper.debug("s3 bucket: "+json.dumps(my_bucket.objects))
-
-#     #for object_summary in my_bucket.objects.filter(Prefix="cognito/"):
-#     #   logger_helper.debug(object_summary.key)
-#     # ==== end , conclusion, failed getting "NoCredentialsError"=========
-
-#     # from same link, but later comments:
-#     _BUCKET_NAME = 'winrpa'
-#     _PREFIX = 'EB/'
-#     s3_client = boto3.client('s3',  region_name='us-east-1',  aws_access_key_id="AWS_KEY_ID",  aws_secret_access_key="AWS_SECRET")
-#     """List files in specific S3 URL"""
-#     response = s3_client.list_objects(Bucket=_BUCKET_NAME, Prefix=_PREFIX)
-#     logger_helper.debug("list s3 results:"+json.dumps(response.get('Contents', [])))
-#     for x in response.get('Contents', []):
-#         logger_helper.debug("content::"+json.dumps(x["Key"]))
-
-# def get_presigned_url(target):
-#     s3_client = boto3.client('s3', region_name='us-east-1', aws_access_key_id="AWS_KEY_ID", aws_secret_access_key="AWS_SECRET")
-
-#     # Generate the presigned URL
-#     response = s3_client.generate_presigned_post(Bucket='winrpa', Key=target, ExpiresIn=120)
-
-#     print("get presign resp: ", response)
-#     return response
 
 #resp is the response from requesting the presigned_url
 def send_file_with_presigned_url(src_file, resp):

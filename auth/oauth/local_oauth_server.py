@@ -25,7 +25,10 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler for OAuth callbacks"""
     
     def do_GET(self):
-        """Handle GET requests from OAuth provider"""
+        """
+        Handles the incoming GET request from Cognito after the user authenticates with Google.
+        This is the method that executes when the browser is redirected to our local server.
+        """
         try:
             parsed_url = urlparse(self.path)
             params = parse_qs(parsed_url.query)
@@ -40,11 +43,13 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(b'Not Found')
                 return
             
-            # Check for authorization code
+            # Step 1: Check if the URL parameters contain 'code'.
             if 'code' in params:
+                # Step 2: If found, store it on the server instance so the wait_for_callback method can retrieve it.
                 self.server.auth_code = params['code'][0]
                 self.server.state = params.get('state', [None])[0]
                 logger.info("Authorization code received successfully")
+                # Step 3: Send a success HTML page back to the user's browser.
                 self._send_success_response()
                 
             # Check for error
@@ -346,17 +351,22 @@ class LocalOAuthServer:
     automatically destroyed after authentication completes or times out.
     """
     
-    def __init__(self, timeout: int = 300, port_range: tuple = None):
+    def __init__(self, url: str, timeout: int = 300):
         """
-        Initialize the OAuth server
-        
+        Initialize the OAuth server.
+
         Args:
+            url: The full callback URL to listen on (e.g., http://127.0.0.1:8080/callback).
             timeout: Server timeout in seconds (default: 5 minutes)
-            port_range: Tuple of (min_port, max_port) for port allocation
         """
+        # Step 1: Parse the full URL to get the hostname and port.
         self.timeout = timeout
-        self.port_range = port_range
-        self.port = self._find_free_port()
+        parsed_url = urlparse(url)
+        self.hostname = parsed_url.hostname
+        self.port = parsed_url.port
+        self.url = url
+        # Step 2: Check if the port is available, raise an error if it's already in use.
+        self._check_port()
         self.server = None
         self.server_thread = None
         self.auth_code = None
@@ -368,26 +378,14 @@ class LocalOAuthServer:
         
         logger.info(f"OAuth server initialized on port {self.port}")
     
-    def _find_free_port(self) -> int:
-        """Find a free port within the configured range"""
-        min_port, max_port = self.port_range
-        
-        # Try ports in the configured range
-        for port in range(min_port, max_port + 1):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.bind(('127.0.0.1', port))
-                    return port
-            except OSError:
-                continue
-        
-        # If no port in range is available, fall back to any free port
-        logger.warning(f"No free port in range {min_port}-{max_port}, using any available port")
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('127.0.0.1', 0))
-            s.listen(1)
-            port = s.getsockname()[1]
-        return port
+    def _check_port(self):
+        """Check if the configured port is available to bind."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((self.hostname, self.port))
+        except OSError as e:
+            logger.error(f"Address {self.hostname}:{self.port} is already in use. Please close the other application or change the CALLBACK_URL in auth_config.yml.")
+            raise RuntimeError(f"Address {self.hostname}:{self.port} is in use.") from e
     
     def _generate_pkce_pair(self):
         """Generate PKCE code verifier and challenge"""
@@ -403,8 +401,8 @@ class LocalOAuthServer:
         logger.debug("PKCE pair generated successfully")
     
     def get_redirect_uri(self) -> str:
-        """Get the redirect URI for this server (Python local address only)"""
-        return f"http://127.0.0.1:{self.port}/callback"
+        """Get the redirect URI for this server."""
+        return self.url
     
     def get_pkce_params(self) -> Dict[str, str]:
         """Get PKCE parameters for OAuth request"""
@@ -418,10 +416,13 @@ class LocalOAuthServer:
         return self.code_verifier
     
     def start_server(self):
-        """Start the OAuth callback server"""
+        """
+        Starts the OAuth callback server in a separate, non-blocking thread.
+        This allows the main application to remain responsive while waiting for the callback.
+        """
         try:
             self.server = socketserver.TCPServer(
-                ('127.0.0.1', self.port), 
+                (self.hostname, self.port),
                 OAuthCallbackHandler
             )
             
@@ -438,7 +439,7 @@ class LocalOAuthServer:
             )
             self.server_thread.start()
             
-            logger.info(f"OAuth server started on http://127.0.0.1:{self.port}")
+            logger.info(f"OAuth server started on http://{self.hostname}:{self.port}")
             
         except Exception as e:
             logger.error(f"Failed to start OAuth server: {e}")
@@ -446,10 +447,8 @@ class LocalOAuthServer:
     
     def wait_for_callback(self) -> Dict[str, Any]:
         """
-        Wait for OAuth callback with timeout
-        
-        Returns:
-            Dict containing auth_code, state, or error information
+        Waits for the OAuth callback with a timeout. This is a blocking call.
+        It continuously checks for the auth_code or an error set by the OAuthCallbackHandler.
         """
         if not self.server:
             raise RuntimeError("Server not started")
@@ -518,12 +517,12 @@ class LocalOAuthServer:
         self.start_server()
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, *_):
         """Context manager exit - ensures server is always cleaned up"""
         self.shutdown()
 
 
-def create_oauth_server(timeout: int = 300, port_range: tuple = None) -> LocalOAuthServer:
+def create_oauth_server(url: str, timeout: int = 300) -> LocalOAuthServer:
     """
     Factory function to create a new OAuth server
     
@@ -534,4 +533,4 @@ def create_oauth_server(timeout: int = 300, port_range: tuple = None) -> LocalOA
     Returns:
         LocalOAuthServer instance
     """
-    return LocalOAuthServer(timeout=timeout, port_range=port_range)
+    return LocalOAuthServer(url=url, timeout=timeout)

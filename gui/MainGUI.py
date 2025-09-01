@@ -108,7 +108,7 @@ import concurrent.futures
 # from agent.mcp.sse_manager import SSEManager
 # from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 from gui.unified_browser_manager import get_unified_browser_manager
-from auth.auth_service import AuthService
+from auth.auth_manager import AuthManager
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -219,9 +219,9 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow(QMainWindow):
-    def __init__(self, auth_service: AuthService, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
+    def __init__(self, auth_manager: AuthManager, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
         super().__init__()
-        self.auth_service = auth_service  # Reference to auth service for tokens
+        self.auth_manager = auth_manager  # Reference to auth manager for state and services
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
@@ -1279,7 +1279,7 @@ class MainWindow(QMainWindow):
     def get_auth_token(self):
         """Get authentication token from auth service."""
         try:
-            tokens = self.auth_service.get_tokens()
+            tokens = self.auth_manager.get_tokens()
             if tokens and isinstance(tokens, dict) and 'AuthenticationResult' in tokens:
                 return tokens['AuthenticationResult']['IdToken']
             return None
