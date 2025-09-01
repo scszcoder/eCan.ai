@@ -460,6 +460,23 @@ class UDPServerProtocol:
             print(f"received lan DB server IP: {lanDBServerIP}")
             self.topgui.setLanDBServer(lanDBServerIP)
 
+    def error_received(self, exc):
+        """Optional UDP error callback to satisfy Datagram Protocol interface."""
+        try:
+            log3(f"UDP server error received: {exc}", "tcpip", self.topgui)
+        except Exception:
+            pass
+
+    def connection_lost(self, exc):
+        """Handle UDP transport close gracefully to avoid AttributeError on shutdown."""
+        try:
+            log3("UDP server transport closed", "tcpip", self.topgui)
+            if self.on_con_lost and not self.on_con_lost.done():
+                self.on_con_lost.set_result(True)
+        except Exception:
+            pass
+
+
     async def reconnect_to_commander(self, commanderIP):
         global commanderXport
 

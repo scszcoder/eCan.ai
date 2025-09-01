@@ -10,7 +10,7 @@ from bot.ebbot import EBBOT
 from bot.missions import EBMISSION
 from common.models import VehicleModel
 from utils.time_util import TimeUtil
-from gui.LocalServer import start_local_server_in_thread
+from gui.LocalServer import start_local_server_in_thread, stop_local_server
 from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
 from agent.mcp.config import mcp_http_base, mcp_sse_url
 from agent.ec_skills.llm_utils.llm_utils import pick_llm
@@ -104,6 +104,7 @@ from agent.ec_skill import *
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
 from agent.mcp.server.server import set_server_main_win
 from agent.ec_agents.build_agents import *
+from agent.tasks import TaskRunnerRegistry
 import concurrent.futures
 # from agent.mcp.sse_manager import SSEManager
 # from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
@@ -549,7 +550,7 @@ class MainWindow(QMainWindow):
         self.south_layout.addLayout(self.bottomButtonsLayout)
         self.bottomButtonsLayout.addWidget(self.log_out_button)
         self.save_all_button.clicked.connect(self.saveAll)
-        self.log_out_button.clicked.connect(self.logOut)
+        self.log_out_button.clicked.connect(self.logout)
 
         self.southWidget = QWidget()
         self.southWidget.setLayout(self.south_layout)
@@ -908,11 +909,11 @@ class MainWindow(QMainWindow):
         # because if we don't know who the real boss is, there no point doing any networking.....
         if "Platoon" not in self.machine_role:
             logger.info("run commander side networking......")
-            self.mainLoop.create_task(runCommanderLAN(self))
+            self.lan_task = self.mainLoop.create_task(runCommanderLAN(self))
 
         else:
             logger.info("run platoon side networking...")
-            self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
+            self.lan_task = self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
 
         def on_ok():
             self.rpa_quit_confirmation_future = loop.create_future()
@@ -4932,15 +4933,115 @@ class MainWindow(QMainWindow):
     def findAllBot(self):
         self.bot_service.find_all_bots()
 
-    def logOut(self):
-        self.showMsg("logging out........")
-        # result = self.cog_client.global_sign_out(self.cog.access_token)
-        #result = self.cog_client.global_sign_out(AccessToken=self.cog.access_token)
-        result = self.cog.logout()
+    def logout(self):
+        """Initiate graceful logout and cleanup of background tasks/servers."""
+        if getattr(self, "_cleanup_in_progress", False):
+            return
+        self._cleanup_in_progress = True
+        self.showMsg("logging out (graceful shutdown)........")
+        try:
+            # Run async cleanup without blocking the UI thread
+            self.mainLoop.create_task(self._async_cleanup_and_logout())
+        except Exception as e:
+            logger.warning(f"Failed to schedule async cleanup: {e}")
+            # Fallback: at least close window
+            try:
+                self.close()
+            except Exception:
+                pass
+
+    async def _async_cleanup_and_logout(self):
+        """Asynchronously cleanup background tasks, servers, and resources, then logout."""
+        # Stop LightRAG server
+        try:
+            if getattr(self, 'lightrag_server', None):
+                self.stop_lightrag_server()
+        except Exception as e:
+            logger.warning(f"Error stopping LightRAG server: {e}")
+
+        # Stop local Starlette server (uvicorn) and join thread
+        try:
+            stop_local_server()
+            th = getattr(self, 'local_server_thread', None)
+            if th and th.is_alive():
+                # Give it a moment to exit
+                th.join(timeout=3)
+        except Exception as e:
+            logger.warning(f"Error stopping local server: {e}")
+
+        # Close websocket if present
+        try:
+            if getattr(self, 'websocket', None):
+                ws = self.websocket
+                close_fn = getattr(ws, 'close', None)
+                if close_fn:
+                    if asyncio.iscoroutinefunction(close_fn):
+                        await close_fn()
+                    else:
+                        close_fn()
+        except Exception as e:
+            logger.debug(f"Error closing websocket: {e}")
+
+        # Signal all agent TaskRunner loops to stop (while-loops in threads)
+        try:
+            TaskRunnerRegistry.stop_all()
+        except Exception as e:
+            logger.debug(f"Error stopping TaskRunners: {e}")
+
+        # Cancel asyncio tasks we manage
+        to_cancel = []
+        for name in (
+            'lan_task', 'peer_task', 'monitor_task', 'chat_task', 'keyboard_task', 'wan_sub_task',
+            'rpa_task', 'manager_task'
+        ):
+            try:
+                t = getattr(self, name, None)
+                if t and not t.done():
+                    t.cancel()
+                    to_cancel.append(t)
+            except Exception:
+                pass
+        if to_cancel:
+            try:
+                await asyncio.gather(*to_cancel, return_exceptions=True)
+            except Exception:
+                pass
+
+        # Shut down ThreadPoolExecutor
+        try:
+            if getattr(self, 'threadPoolExecutor', None):
+                self.threadPoolExecutor.shutdown(wait=False, cancel_futures=True)
+        except Exception as e:
+            logger.debug(f"Error shutting down ThreadPoolExecutor: {e}")
+
+        # Drain/stop Qt thread pool if used
+        try:
+            if getattr(self, 'threadPool', None):
+                # Wait for queued runnables to finish quickly
+                self.threadPool.waitForDone(1000)  # 1s timeout
+        except Exception as e:
+            logger.debug(f"Error waiting for QThreadPool: {e}")
+
+        # Close MCP client manager if present
+        try:
+            mgr = getattr(self, 'mcp_client_manager', None)
+            if mgr and hasattr(mgr, 'close'):
+                await mgr.close()
+        except Exception as e:
+            logger.debug(f"Error closing MCP client manager: {e}")
+
+        # Finally, call auth logout and close window
+        try:
+            if hasattr(self, 'auth_manager') and self.auth_manager:
+                self.auth_manager.logout()
+        except Exception as e:
+            logger.debug(f"Auth logout error: {e}")
 
         self.showMsg("logged out........")
-        self.close()
-        # now should close the main window and bring back up the login screen?
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
     def addNewBots(self, new_bots):

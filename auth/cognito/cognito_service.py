@@ -99,8 +99,10 @@ class CognitoService:
             return {'success': False, 'error': e.response['Error']['Code']}
 
 
-    def get_google_login_url(self, redirect_uri):
-        """Constructs the Cognito Hosted UI URL that initiates the Google login flow."""
+    def get_google_login_url(self, redirect_uri, pkce_params: dict | None = None):
+        """Constructs the Cognito Hosted UI URL that initiates the Google login flow.
+        Optionally includes PKCE parameters when provided.
+        """
         # Key Parameters:
         # - identity_provider=Google: Tells Cognito to redirect directly to Google for authentication instead of showing the Cognito login page.
         # - response_type=code:       Indicates that we expect a one-time authorization code via the callback upon successful authentication.
@@ -108,21 +110,26 @@ class CognitoService:
         cognito_domain = AuthConfig.COGNITO.DOMAIN
         client_id = AuthConfig.COGNITO.CLIENT_ID
 
-        # We use the /oauth2/authorize endpoint instead of /login.
-        # The /authorize endpoint is the standard OAuth 2.0 endpoint and is more direct,
-        # bypassing some of the Hosted UI's default behaviors that might ignore the identity_provider hint.
-        url = (
-            f"{cognito_domain}/oauth2/authorize?"
-            f"response_type=code&"
-            f"client_id={client_id}&"
-            f"redirect_uri={redirect_uri}&"
-            f"identity_provider=Google&"
-            f"scope=openid+profile+email"
-        )
+        base_url = f"{cognito_domain}/oauth2/authorize"
+        params = {
+            'response_type': 'code',
+            'client_id': client_id,
+            'redirect_uri': redirect_uri,
+            'identity_provider': 'Google',
+            'scope': 'openid profile email'
+        }
+
+        if pkce_params:
+            params.update(pkce_params)
+
+        from urllib.parse import urlencode
+        url = f"{base_url}?{urlencode(params)}"
         return {'success': True, 'data': {'url': url}}
 
-    def exchange_code_for_tokens(self, code, redirect_uri):
-        """Performs a secure, server-to-server request to exchange an authorization code for JWTs."""
+    def exchange_code_for_tokens(self, code, redirect_uri, code_verifier: str | None = None):
+        """Performs a secure, server-to-server request to exchange an authorization code for JWTs.
+        If PKCE was used in the authorization request, the matching code_verifier must be provided.
+        """
         # Key Parameters:
         # - grant_type='authorization_code': Specifies that we are using the Authorization Code Grant flow.
         # - code:                          The one-time authorization code captured from the local server callback.
@@ -143,6 +150,8 @@ class CognitoService:
             'code': code,
             'redirect_uri': redirect_uri
         }
+        if code_verifier:
+            data['code_verifier'] = code_verifier
 
         try:
             response = requests.post(url, headers=headers, data=data, auth=auth)

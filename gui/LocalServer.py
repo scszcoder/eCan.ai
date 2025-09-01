@@ -343,9 +343,9 @@ class RouteBuilder:
 
         if mcp_routes:
             routes.extend(mcp_routes)
-            logger.info("✅ Added full MCP routes for development environment")
+            logger.info("✅ Added MCP routes")
         else:
-            logger.info("🔧 Using simplified routes (MCP functionality limited)")
+            logger.info("🔧 MCP routes not added (disabled or unsupported)")
 
         return routes
 
@@ -430,8 +430,13 @@ class ServerOptimizer:
     #         except Exception as e:
     #             logger.warning(f"Failed to set WindowsSelectorEventLoopPolicy: {e}")
 
+# Global reference to allow graceful shutdown
+CURRENT_UVICORN_SERVER = None
+
+
 def run_starlette(port=4668):
     """启动 Starlette 服务器"""
+    global CURRENT_UVICORN_SERVER
     logger.info(f"Starting Starlette server on port {port}")
     logger.info(f"Environment: {'PyInstaller' if env_config.is_frozen else 'Development'}")
     logger.info(f"MCP Support: {'Enabled' if env_config.has_mcp_support() else 'Disabled'}")
@@ -444,31 +449,6 @@ def run_starlette(port=4668):
         # Windows 兼容性设置
         # ServerOptimizer.setup_windows_policy()
 
-        def _make_server(_lifespan_on: bool, host_bind: str):
-            logger.info(f"Uvicorn config: host={host_bind}, port={port}, loop=asyncio, http=h11, lifespan={'on' if _lifespan_on else 'off'}")
-            cfg = uvicorn.Config(
-                app=mecaLocalServer,
-                host=host_bind,
-                port=port,
-                log_level="debug",
-                access_log=False,
-                loop="asyncio",
-                http="h11",
-                lifespan=("on" if _lifespan_on else "off"),
-                # Disable uvicorn's default logging config to avoid PyInstaller import issues
-                # (avoids 'Unable to configure formatter "default"')
-                log_config=None,
-            )
-            srv = uvicorn.Server(cfg)
-            if hasattr(srv, "install_signal_handlers"):
-                # Replace with no-op instead of boolean to avoid TypeError in certain uvicorn versions
-                srv.install_signal_handlers = (lambda: None)
-            return srv
-
-        # lifespan 策略：开发与打包环境统一禁用，避免线程/loop差异
-        use_lifespan = False
-        logger.info("🔧 Lifespan disabled for all environments")
-
         host_candidates = [
             os.environ.get("ECBOT_LOCAL_SERVER_HOST", "127.0.0.1"),
             "0.0.0.0",
@@ -478,14 +458,29 @@ def run_starlette(port=4668):
         for host_bind in host_candidates:
             try:
                 logger.info(f"✅ Starting Uvicorn server on {host_bind}:{port}")
-                server = _make_server(use_lifespan, host_bind)
+                config = uvicorn.Config(
+                    app=mecaLocalServer,
+                    host=host_bind,
+                    port=port,
+                    log_level="debug",
+                    access_log=False,
+                    loop="asyncio",
+                    http="h11",
+                    # lifespan is handled by the Starlette app itself
+                    log_config=None,
+                )
+                server = uvicorn.Server(config)
+                if hasattr(server, "install_signal_handlers"):
+                    server.install_signal_handlers = (lambda: None)
+
+                CURRENT_UVICORN_SERVER = server
                 server.run()
                 logger.info(f"✅ Uvicorn server exited normally on {host_bind}:{port}")
                 last_err = None
                 break
             except Exception as e1:
                 last_err = e1
-                logger.warning(f"Uvicorn failed on host={host_bind} lifespan={'on' if use_lifespan else 'off'}: {e1}")
+                logger.warning(f"Uvicorn failed on host={host_bind}: {e1}")
         if last_err:
             raise last_err
     except Exception as e:
@@ -496,6 +491,22 @@ def run_starlette(port=4668):
         except Exception:
             pass
         raise
+    finally:
+        CURRENT_UVICORN_SERVER = None
+
+
+def stop_local_server():
+    """Request uvicorn server to shutdown gracefully in its thread."""
+    try:
+        if 'CURRENT_UVICORN_SERVER' in globals() and CURRENT_UVICORN_SERVER is not None:
+            logger.info("Stopping local Starlette server (uvicorn.should_exit=True)...")
+            CURRENT_UVICORN_SERVER.should_exit = True
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to signal local server stop: {e}")
+        return False
+
 
 # Start Starlette server in a separate thread
 def start_local_server_in_thread(mwin):
