@@ -260,8 +260,15 @@ class MainWindow(QMainWindow):
         self.todaysSchedule = {}
         self.schedule_mode = schedule_mode
         self.ip = ip
-        self.user = user
-        self.chat_id = user.split("@")[0] + "_" + user.split("@")[1].replace(".", "_")
+        # Normalize user to a safe email-like value
+        self.user = user if (user and isinstance(user, str) and "@" in user) else "unknown@local"
+        # Build chat_id safely
+        try:
+            local_part, domain_part = self.user.split("@", 1)
+        except ValueError:
+            local_part, domain_part = self.user, "local"
+        domain_part_sanitized = domain_part.replace(".", "_")
+        self.chat_id = f"{local_part}_{domain_part_sanitized}"
         self.log_user = self.chat_id
         self.my_ecb_data_homepath = f"{ecb_data_homepath}/{self.log_user}"
         if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):
@@ -1278,11 +1285,26 @@ class MainWindow(QMainWindow):
         self.lightrag_server = None
     
     def get_auth_token(self):
-        """Get authentication token from auth service."""
+        """Return a valid JWT for AppSync Authorization header.
+        Prefer Cognito IdToken; fall back to AccessToken. Support multiple token shapes.
+        """
         try:
             tokens = self.auth_manager.get_tokens()
-            if tokens and isinstance(tokens, dict) and 'AuthenticationResult' in tokens:
-                return tokens['AuthenticationResult']['IdToken']
+            if not tokens or not isinstance(tokens, dict):
+                return None
+            # Common flat shapes from OAuth token exchange
+            for k in ('IdToken', 'id_token'):
+                if k in tokens and isinstance(tokens[k], str) and tokens[k]:
+                    return tokens[k]
+            for k in ('AccessToken', 'access_token'):
+                if k in tokens and isinstance(tokens[k], str) and tokens[k]:
+                    return tokens[k]
+            # Nested shape from Cognito AWSSRP / refresh
+            ar = tokens.get('AuthenticationResult') if isinstance(tokens, dict) else None
+            if isinstance(ar, dict):
+                for k in ('IdToken', 'AccessToken'):
+                    if k in ar and isinstance(ar[k], str) and ar[k]:
+                        return ar[k]
             return None
         except Exception as e:
             logger.error(f"Error getting auth token: {e}")

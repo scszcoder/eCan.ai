@@ -27,10 +27,10 @@ class AuthManager:
         self.acct_file = self.ecb_data_homepath + "/uli.json"
         self.refresh_task = None
         # Try to restore session from persisted refresh token
-        try:
-            self.try_restore_session()
-        except Exception as e:
-            logger.warning(f"AuthManager: Failed to restore session on startup: {e}")
+        # try:
+        #     self.try_restore_session()
+        # except Exception as e:
+        #     logger.warning(f"AuthManager: Failed to restore session on startup: {e}")
 
     def is_signed_in(self):
         return self.signed_in
@@ -133,12 +133,23 @@ class AuthManager:
                 self.tokens = tokens
                 self.signed_in = True
 
-                # Parse the user's email from the id_token and set it as the current user.
+                # Parse the user's identity (email) from tokens; fall back to userInfo endpoint.
+                email = None
                 id_token = self.tokens.get('id_token') or self.tokens.get('IdToken')
                 if id_token:
                     claims = self.cognito_service.verify_token(id_token, 'id')
                     if claims.get('success'):
-                        self.current_user = claims['data'].get('email')
+                        email = claims['data'].get('email') or claims['data'].get('username')
+
+                if not email:
+                    access_token = self.tokens.get('access_token') or self.tokens.get('AccessToken')
+                    if access_token and hasattr(self.cognito_service, 'get_userinfo'):
+                        ui = self.cognito_service.get_userinfo(access_token)
+                        if ui.get('success'):
+                            data = ui.get('data') or {}
+                            email = data.get('email') or data.get('username')
+
+                self.current_user = email or self._get_saved_username() or "unknown@local"
 
                 # Save signed-in user and refresh token for session persistence
                 if self.current_user:

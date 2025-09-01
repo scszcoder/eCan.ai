@@ -202,3 +202,15 @@ class CognitoService:
         except ClientError as e:
             logger.error(f"CognitoService: Token refresh failed: {e.response['Error']['Code']}")
             return {'success': False, 'error': e.response['Error']['Code']}
+
+
+    def get_userinfo(self, access_token: str):
+        """Calls Cognito's OIDC userInfo endpoint to fetch user claims (like email)."""
+        try:
+            url = f"{AuthConfig.COGNITO.DOMAIN}/oauth2/userInfo"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+            return {"success": True, "data": resp.json()}
+        except requests.exceptions.RequestException as e:
+            return {"success": False, "error": e.response.json() if getattr(e, 'response', None) else str(e)}
