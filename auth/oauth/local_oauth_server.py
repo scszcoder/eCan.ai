@@ -12,7 +12,7 @@ import threading
 import socket
 import time
 from urllib.parse import urlparse, parse_qs
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import secrets
 import base64
 import hashlib
@@ -235,7 +235,6 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
     def _get_application_scheme(self) -> str:
         """Get the application scheme for launching the app"""
         # This should match the scheme registered in your app
-        # For example: 'ecbot://' or 'myapp://'
         return 'ecan://'
     
     def _schedule_server_shutdown(self):

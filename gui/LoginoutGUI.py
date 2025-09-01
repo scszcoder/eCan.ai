@@ -154,9 +154,15 @@ class Login:
         return self.main_win
 
     def handleLogout(self):
-        """Handle user logout."""
-        if self.main_win:
-            self.main_win.stop_lightrag_server()
+        """Handle user logout (graceful)."""
+        try:
+            if self.main_win:
+                # Delegate to MainWindow's graceful logout which cleans tasks/servers and closes window
+                self.main_win.logout()
+                return True
+        except Exception as e:
+            logger.warning(f"handleLogout fallback due to error: {e}")
+        # Fallback to direct auth logout if main window missing
         return self.auth_manager.logout()
 
     # Legacy methods for backward compatibility with IPC handlers

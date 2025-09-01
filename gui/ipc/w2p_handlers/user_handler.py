@@ -82,6 +82,7 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
         login: Login = ctx.login
         result = login.handleGetLastLogin()
 
+        logger.info("last saved user info:", result)
         return create_success_response(request, {
             'last_login': result,
             'message': auth_messages.get_message('get_last_login_success')

@@ -26,6 +26,11 @@ class AuthManager:
         self.ecb_data_homepath = getECBotDataHome()
         self.acct_file = self.ecb_data_homepath + "/uli.json"
         self.refresh_task = None
+        # Try to restore session from persisted refresh token
+        try:
+            self.try_restore_session()
+        except Exception as e:
+            logger.warning(f"AuthManager: Failed to restore session on startup: {e}")
 
     def is_signed_in(self):
         return self.signed_in
@@ -65,7 +70,11 @@ class AuthManager:
             if result['success']:
                 self.tokens = result['data']
                 self.signed_in = True
-                self._update_saved_login_info(username, password)  # Save credentials on success
+                # Persist username/password and refresh token
+                self._update_saved_login_info(username, password, role)  # Save credentials on success
+                rt = (self.tokens.get('RefreshToken') or self.tokens.get('refresh_token'))
+                if rt:
+                    self._store_refresh_token(username, rt)
                 self.start_refresh_task()  # Start the background refresh task
                 logger.info(f"AuthManager: Login successful for {username}")
                 return {'success': True}
@@ -80,27 +89,26 @@ class AuthManager:
             return {'success': False, 'error': str(e)}
 
     def google_login(self, role):
-        """Orchestrates the entire Google login flow using a local callback server."""
+        """Orchestrates the entire Google login flow using a local callback server with PKCE and persists refresh token."""
         try:
             self.machine_role = role
 
-            # Step 1: Read the configuration and start a temporary local HTTP server to listen for the callback.
-            # Using a `with` statement ensures the server is properly shut down after the flow completes or errors out.
+            # Step 1: Start a temporary local HTTP server to listen for the callback.
             callback_url = AuthConfig.GOOGLE.CALLBACK_URL
             with LocalOAuthServer(url=callback_url, timeout=300) as server:
                 redirect_uri = server.get_redirect_uri()
 
-                # Step 2: Get the Cognito Hosted UI URL, which will direct the user straight to the Google login page.
-                result = self.cognito_service.get_google_login_url(redirect_uri)
+                # Step 2: Include PKCE parameters in the Cognito Hosted UI URL.
+                pkce_params = server.get_pkce_params()
+                result = self.cognito_service.get_google_login_url(redirect_uri, pkce_params)
                 if not result['success']:
                     raise Exception(f"Could not get Google login URL: {result.get('error')}")
 
-                # Step 3: Open the URL in the user's default browser. The application will now pause and wait for the callback.
+                # Step 3: Open the URL in the user's default browser and wait for callback.
                 webbrowser.open(result['data']['url'])
                 logger.info("AuthManager: Browser opened for Google auth. Waiting for callback...")
 
                 # Step 4: Wait for the local server to capture the callback request from Cognito.
-                # This is a blocking call that will return upon receiving the code, an error, or a timeout.
                 callback_result = server.wait_for_callback()
                 if not callback_result.get('success'):
                     raise Exception(f"Google login failed during callback: {callback_result.get('error')}")
@@ -110,24 +118,34 @@ class AuthManager:
                 if not auth_code:
                     raise Exception("Authorization code not found in callback.")
 
-                # Step 6: Use the authorization code to exchange it for JWTs via a secure server-to-server request to Cognito.
-                # This is the most critical security step, ensuring that only our backend can get the final tokens.
+                # Step 6: Exchange the code for tokens, providing the PKCE code_verifier.
                 logger.info("AuthManager: Authorization code received. Exchanging for tokens...")
-                token_result = self.cognito_service.exchange_code_for_tokens(auth_code, redirect_uri)
-
+                code_verifier = server.get_code_verifier()
+                token_result = self.cognito_service.exchange_code_for_tokens(auth_code, redirect_uri, code_verifier)
                 if not token_result.get('success'):
                     raise Exception(f"Failed to exchange code for tokens: {token_result.get('error')}")
 
-                # Step 7: Login successful! Store the tokens and update the internal state.
-                self.tokens = token_result['data']
+                # Step 7: Normalize token keys and persist refresh token.
+                tokens = token_result['data'] or {}
+                # Normalize refresh token key to match refresh loop expectations
+                if 'refresh_token' in tokens and 'RefreshToken' not in tokens:
+                    tokens['RefreshToken'] = tokens['refresh_token']
+                self.tokens = tokens
                 self.signed_in = True
 
                 # Parse the user's email from the id_token and set it as the current user.
-                id_token = self.tokens.get('id_token')
+                id_token = self.tokens.get('id_token') or self.tokens.get('IdToken')
                 if id_token:
                     claims = self.cognito_service.verify_token(id_token, 'id')
-                    if claims['success']:
+                    if claims.get('success'):
                         self.current_user = claims['data'].get('email')
+
+                # Save signed-in user and refresh token for session persistence
+                if self.current_user:
+                    self._set_saved_username(self.current_user)
+                refresh_token = self.tokens.get('RefreshToken')
+                if refresh_token and self.current_user:
+                    self._store_refresh_token(self.current_user, refresh_token)
 
                 # Step 8: Start the background token refresh task to maintain a long-lived session.
                 self.start_refresh_task()
@@ -180,6 +198,14 @@ class AuthManager:
             return {'success': False, 'error': str(e)}
 
     def logout(self):
+        # Delete persisted refresh token for the saved user
+        try:
+            saved_username = self.current_user or self._get_saved_username()
+            if saved_username:
+                self._delete_refresh_token(saved_username)
+        except Exception as e:
+            logger.warning(f"AuthManager: Failed to delete stored refresh token on logout: {e}")
+
         self.stop_refresh_task()  # Stop the background refresh task
         self.tokens = None
         self.current_user = None
@@ -190,14 +216,8 @@ class AuthManager:
     def get_saved_login_info(self):
         """Get saved login information from keyring storage."""
         try:
-            username = ""
-            if exists(self.acct_file):
-                try:
-                    with open(self.acct_file, 'r') as f:
-                        data = json.load(f)
-                        username = data.get("user", "")
-                except Exception as e:
-                    logger.warning(f"Error reading username from {self.acct_file}: {e}")
+            username = self._get_saved_username()
+            self.machine_role = self._get_saved_machine_role()
 
             password = ""
             if username:
@@ -209,14 +229,14 @@ class AuthManager:
 
             return {
                 "machine_role": self.machine_role,
-                "username": username,
+                "username": username or "",
                 "password": password
             }
         except Exception as e:
             logger.error(f"Error getting saved login info: {e}")
             return {"machine_role": self.machine_role, "username": "", "password": ""}
 
-    def _update_saved_login_info(self, username, password):
+    def _update_saved_login_info(self, username, password, role):
         """Update saved login information with new username and password."""
         try:
             data = {}
@@ -228,6 +248,7 @@ class AuthManager:
                     logger.warning(f"Error reading {self.acct_file}: {e}")
 
             data["user"] = username
+            data["machine_role"] = role
 
             try:
                 with open(self.acct_file, 'w') as f:
@@ -248,7 +269,7 @@ class AuthManager:
     def _store_credentials(self, username, password):
         """Securely store credentials in the system keyring."""
         try:
-            keyring.set_password("ecbot_auth", username, password)
+            keyring.set_password("ecan_auth", username, password)
             return True
         except Exception as e:
             logger.error(f"Failed to store credentials: {e}")
@@ -257,20 +278,132 @@ class AuthManager:
     def _get_credentials(self, username):
         """Retrieve credentials from the system keyring."""
         try:
-            password = keyring.get_password("ecbot_auth", username)
+            password = keyring.get_password("ecan_auth", username)
             if password is None:
                 return False, "No password found"
             return True, password
         except Exception as e:
             return False, str(e)
 
+    # --- Session persistence helpers ---
+    def _refresh_service(self) -> str:
+        return "ecan_refresh"
 
+    def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
+        try:
+            keyring.set_password(self._refresh_service(), username, refresh_token)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store refresh token: {e}")
+            return False
+
+    def _get_refresh_token(self, username: str) -> tuple[bool, str]:
+        try:
+            token = keyring.get_password(self._refresh_service(), username)
+            if token is None:
+                return False, "No refresh token found"
+            return True, token
+        except Exception as e:
+            return False, str(e)
+
+    def _delete_refresh_token(self, username: str) -> bool:
+        try:
+            # Some keyring backends may not implement delete_password; fallback to overwrite empty
+            try:
+                keyring.delete_password(self._refresh_service(), username)  # type: ignore[attr-defined]
+            except Exception:
+                keyring.set_password(self._refresh_service(), username, "")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to delete refresh token: {e}")
+            return False
+
+    def _set_saved_username(self, username: str) -> None:
+        try:
+            data = {}
+            if exists(self.acct_file):
+                try:
+                    with open(self.acct_file, 'r') as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            data["user"] = username
+            with open(self.acct_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to persist username: {e}")
+
+    def _get_saved_username(self) -> str | None:
+        try:
+            if exists(self.acct_file):
+                with open(self.acct_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get("user")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to read saved username: {e}")
+            return None
+        
+    def _get_saved_machine_role(self) -> str | None:
+        try:
+            if exists(self.acct_file):
+                with open(self.acct_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get("machine_role")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to read saved machine role: {e}")
+            return None
+
+    def try_restore_session(self) -> bool:
+        """Attempt to restore session from stored refresh token silently at startup."""
+        username = self._get_saved_username()
+        if not username:
+            return False
+        ok, rt = self._get_refresh_token(username)
+        if not ok or not rt:
+            return False
+        try:
+            result = self.cognito_service.refresh_tokens(rt)
+            if not result.get('success'):
+                logger.warning(f"AuthManager: Stored refresh token invalid for {username}: {result.get('error')}")
+                self._delete_refresh_token(username)
+                return False
+            tokens = result['data'] or {}
+            tokens['RefreshToken'] = rt
+            self.tokens = tokens
+            self.signed_in = True
+            # Determine current user from id token if possible
+            id_token = tokens.get('id_token') or tokens.get('IdToken')
+            if id_token:
+                claims = self.cognito_service.verify_token(id_token, 'id')
+                if claims.get('success'):
+                    self.current_user = claims['data'].get('email') or username
+                else:
+                    self.current_user = username
+            else:
+                self.current_user = username
+            logger.info(f"AuthManager: Session restored for {self.current_user}")
+            # Try to start refresh task; skip if no running loop
+            try:
+                self.start_refresh_task()
+            except Exception as e:
+                logger.debug(f"AuthManager: Could not start refresh task yet: {e}")
+            return True
+        except Exception as e:
+            logger.warning(f"AuthManager: Failed to restore session: {e}")
+            return False
 
     def start_refresh_task(self):
         """Starts the background token refresh task."""
         if self.refresh_task is None or self.refresh_task.done():
             logger.info("AuthManager: Starting token refresh task.")
-            self.refresh_task = asyncio.create_task(self._token_refresh_loop())
+            try:
+                self.refresh_task = asyncio.create_task(self._token_refresh_loop())
+            except RuntimeError as e:
+                # No running event loop; will be started later when loop is available
+                logger.debug(f"AuthManager: Cannot start refresh task (no event loop?): {e}")
+                self.refresh_task = None
 
     def stop_refresh_task(self):
         """Stops the background token refresh task."""
