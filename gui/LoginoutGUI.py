@@ -116,7 +116,6 @@ class Login:
             )
 
             self.main_win.setOwner(self.auth_manager.get_current_user())
-            self.main_win.set_top_gui(app_ctx.web_gui)
             self.main_win.hide()
             app_ctx.set_main_window(self.main_win)
 

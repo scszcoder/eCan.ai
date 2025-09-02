@@ -18,6 +18,7 @@ import traceback
 from datetime import datetime, timedelta
 from calendar import monthrange
 from langgraph.types import interrupt, Command
+from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from agent.chats.tests.test_notifications import *
 
@@ -718,6 +719,7 @@ class TaskRunner(Generic[Context]):
 
     def sendChatMessageToGUI(self, sender_agent, chatId, msg):
         print("sendChatMessageToGUI::", msg)
+        
         try:
             if isinstance(msg, str):
                 mid = str(uuid.uuid4())
@@ -731,7 +733,9 @@ class TaskRunner(Generic[Context]):
                     "status": "sent"        # 使用枚举类型
                 }
 
-                resp = self.agent.mainwin.top_gui.push_message_to_chat(chatId, msg_data)
+                app_ctx = AppContext()
+                mainwin = app_ctx.main_window
+                resp = mainwin.chat_service.push_message_to_chat(chatId, msg_data)
 
             else:
                 msg = "WARNING: Chat is supposed to be a string!"
@@ -754,8 +758,9 @@ class TaskRunner(Generic[Context]):
                 "content": {"type": "form", "form": chatData},         # string | Content | Content[] 支持字符串、单个Content对象或Content数组
                 "status": "sent"        # 使用枚举类型
             }
-
-            resp = self.agent.mainwin.top_gui.push_message_to_chat(chatId, msg_data)
+            app_ctx = AppContext()
+            mainwin = app_ctx.main_window
+            resp = mainwin.chat_service.push_message_to_chat(chatId, msg_data)
             # ipc_api.update_chats([msg])
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
@@ -775,8 +780,9 @@ class TaskRunner(Generic[Context]):
                 "status": "sent"        # 使用枚举类型
 
             }
-
-            resp = self.agent.mainwin.top_gui.push_message_to_chat(chatId, msg_data)
+            app_ctx = AppContext()
+            mainwin = app_ctx.main_window
+            resp = mainwin.chat_service.push_message_to_chat(chatId, msg_data)
             # ipc_api.update_chats([msg])
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
@@ -989,8 +995,8 @@ class TaskRunner(Generic[Context]):
                                         task_id = msg.params.metadata['msgId']
                                         logger.debug("chatId in the message", chatId)
 
-                                        hilData = sample_search_result0
-                                        hilData = sample_parameters_0
+                                        # hilData = sample_search_result0
+                                        # hilData = sample_parameters_0
                                         # hilData = sample_metrics_0
                                         # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
                                         # self.sendChatFormToGUI(self.agent, chatId, hilData)
@@ -1046,12 +1052,13 @@ class TaskRunner(Generic[Context]):
                         msg = self.chat_msg_queue.get_nowait()
                         logger.debug("chat queue message....", type(msg), msg)
                         task2run = self.find_chatter_tasks()
-                        logger.debug("matched chatter task....", task2run)
+                        task2run_details = str(task2run.to_dict())
+                        logger.debug("matched chatter task.... %s", (task2run_details[:100] + '...') if len(task2run_details) > 100 else task2run_details)
                         if task2run:
                             if justStarted:
                                 logger.debug("chatter task2run skill name", task2run.skill.name)
                                 task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg, None)
-                                logger.debug("interacted task2run init state", task2run.metadata["state"])
+                                logger.trace("interacted task2run init state", task2run.metadata["state"])
                                 logger.debug("ready to run the right task", task2run.name, type(msg), msg)
                                 response = task2run.stream_run()
                                 logger.debug("ineracted task run response:", response)
@@ -1097,8 +1104,8 @@ class TaskRunner(Generic[Context]):
                                     chatId = msg.params.metadata['chatId']
                                     task_id = msg.params.metadata['msgId']
                                     logger.debug("NI chatId in the message", chatId)
-                                    hilData = sample_search_result0
-                                    hilData = sample_parameters_0
+                                    # hilData = sample_search_result0
+                                    # hilData = sample_parameters_0
                                     self.sendChatMessageToGUI(self.agent, chatId, prompt)
                                     if interrupt_obj.value.get("qa_form_to_human", None):
                                         self.sendChatFormToGUI(self.agent, chatId, interrupt_obj.value.get["qa_form_to_human"])
