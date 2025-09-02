@@ -1,6 +1,8 @@
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import select
+
+from app_context import AppContext
 from .chats_db import Chat, Member, Message, Attachment, get_engine, get_session_factory, Base, ChatNotification
 from contextlib import contextmanager
 import threading
@@ -10,6 +12,7 @@ import json
 import uuid
 import time
 from .chat_utils import ContentSchema
+from utils.logger_helper import logger_helper as logger
 
 
 class SingletonMeta(type):
@@ -69,7 +72,7 @@ class ChatService(metaclass=SingletonMeta):
                 migrator.get_current_version()
                 migrator.upgrade_to_version('2.0.0', description='自动升级到2.0.0，添加chat_notification表')
             except Exception as e:
-                print(f"[DBMigration] 数据库升级失败: {e}")
+                logger.error(f"[DBMigration] 数据库升级失败: {e}")
         else:
             raise ValueError("Must provide db_path, engine or session")
 
@@ -107,7 +110,7 @@ class ChatService(metaclass=SingletonMeta):
                     if not service.query_chats_by_user():
                         service.import_demo_chats_from_json(demo_chats)
                 except Exception as e:
-                    print(f"[ChatService] 导入演示数据失败: {e}")
+                    logger.error(f"[ChatService] 导入演示数据失败: {e}")
         return service
 
     def create_chat(
@@ -223,7 +226,7 @@ class ChatService(metaclass=SingletonMeta):
         ext: dict = None,
         attachments: list = None
     ) -> Dict[str, Any]:
-        print(f"chat_service.add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
+        logger.debug(f"chat_service.add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
         """向会话添加消息及附件，必传 chat_id、role、content、senderId、createAt，返回标准化结构"""
         if not chatId or not role or content is None or not senderId or not createAt:
             return {
@@ -278,7 +281,7 @@ class ChatService(metaclass=SingletonMeta):
             chat.lastMsgTime = createAt
             # 新增消息未读，chat.unread +1
             chat.unread = (chat.unread or 0) + 1
-            print(f"chat.unread: {message}")
+            logger.debug(f"chat.unread: {message}")
             chat.messages.append(message)
             session.add(message)
             session.flush()
@@ -293,7 +296,7 @@ class ChatService(metaclass=SingletonMeta):
     def add_text_message(self, chatId: str, role: str, text: str, senderId: str, createAt: int = None, **kwargs):
         """添加纯文本消息的便捷方法"""
         content = ContentSchema.create_text(text)
-        print(f"chat_service.add_text_message: {chatId}, {role}, {text}, {content}, {senderId}, {createAt}, {kwargs}")
+        logger.debug(f"chat_service.add_text_message: {chatId}, {role}, {text}, {content}, {senderId}, {createAt}, {kwargs}")
         return self.add_message(
             chatId=chatId, 
             role=role, 
@@ -345,7 +348,7 @@ class ChatService(metaclass=SingletonMeta):
                                senderId: str = "system", createAt: int = None, **kwargs):
         """添加通知消息的便捷方法"""
         notification_content = ContentSchema.create_notification(title, content, level)
-        print(f"add_notification_message: {notification_content}")
+        logger.debug(f"add_notification_message: {notification_content}")
         return self.add_message(
             chatId=chatId, 
             role="system", 
@@ -452,7 +455,7 @@ class ChatService(metaclass=SingletonMeta):
                     )
                 imported_ids.append(ui_chat["id"])
             except Exception as e:
-                print(f"Error importing chat: {str(e)}")
+                logger.error(f"Error importing chat: {str(e)}")
                 continue
         return imported_ids
 
@@ -772,3 +775,101 @@ class ChatService(metaclass=SingletonMeta):
                 "data": chat.to_dict(),
                 "error": None
             }
+
+    def dispatch_add_message(self, chatId, args: dict) -> dict:
+        """根据 content.type 分发到 chat_service 的不同 add_xxx_message 方法"""
+        content = args.get('content')
+        chatId = chatId if chatId is not None else args.get('chatId')
+        role = args.get('role')
+        senderId = args.get('senderId')
+        createAt = args.get('createAt')
+        messageId = args.get('id')
+        status = args.get('status')
+        senderName = args.get('senderName')
+        time_ = args.get('time')
+        ext = args.get('ext')
+        attachments = args.get('attachments')
+
+        # Ensure createAt is an integer, not a list
+        if isinstance(createAt, list) and createAt:
+            createAt = createAt[0]
+        if isinstance(senderId, list) and senderId:
+            senderId = senderId[0]
+        if isinstance(senderName, list) and senderName:
+            senderName = senderName[0]
+        if isinstance(status, list) and status:
+            status = status[0]
+
+        # 类型分发
+        if isinstance(content, dict):
+            msg_type = content.get('type')
+            if msg_type == 'text':
+                return self.add_text_message(
+                    chatId=chatId, role=role, text=content.get('text', ''), senderId=senderId, createAt=createAt,
+                    id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            elif msg_type == 'form':
+                form = content.get('form', {})
+                return self.add_form_message(
+                    chatId=chatId, role=role, form=form, senderId=senderId,
+                    createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            elif msg_type == 'code':
+                code = content.get('code', {})
+                return self.add_code_message(
+                    chatId=chatId, role=role, code=code.get('value', ''), language=code.get('lang', 'python'),
+                    senderId=senderId, createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            elif msg_type == 'system':
+                system = content.get('system', {})
+                return self.add_system_message(
+                    chatId=chatId, text=system.get('text', ''), level=system.get('level', 'info'),
+                    senderId=senderId, createAt=createAt, id=messageId, status=status, ext=ext, attachments=attachments)
+            elif msg_type == 'notification':
+                notification = content.get('notification', {})
+                return self.add_notification_message(
+                    chatId=chatId, title=notification.get('title', ''), content=notification.get('content', ''),
+                    level=notification.get('level', 'info'), senderId=senderId, createAt=createAt, id=messageId, status=status, ext=ext, attachments=attachments)
+            elif msg_type == 'card':
+                card = content.get('card', {})
+                return self.add_card_message(
+                    chatId=chatId, role=role, title=card.get('title', ''), content=card.get('content', ''),
+                    actions=card.get('actions', []), senderId=senderId, createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            elif msg_type == 'markdown':
+                return self.add_markdown_message(
+                    chatId=chatId, role=role, markdown=content.get('markdown', ''), senderId=senderId, createAt=createAt,
+                    id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            elif msg_type == 'table':
+                table = content.get('table', {})
+                return self.add_table_message(
+                    chatId=chatId, role=role, headers=table.get('headers', []), rows=table.get('rows', []),
+                    senderId=senderId, createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+            else:
+                return self.add_message(
+                    chatId=chatId, role=role, content=content, senderId=senderId, createAt=createAt,
+                    id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+        else:
+            return self.add_text_message(
+                chatId=chatId, role=role, text=str(content), senderId=senderId, createAt=createAt,
+                id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
+
+    def push_message_to_chat(self, chatId, msg: dict):
+        logger.debug("push message to front", msg)
+        content = msg.get('content')
+        createAt = msg.get('createAt')
+        if isinstance(content, dict):
+            msg_type = content.get('type')
+        else:
+            msg_type = 'text'
+        db_result = self.dispatch_add_message(chatId, msg)
+        logger.info(f"push_message db_result: {db_result}")
+        # Push to frontend
+        app_ctx = AppContext()  
+        web_gui = app_ctx.web_gui
+        # Push actual data after database write
+        if db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type != "notification":
+            logger.debug("push_message db_result['data']:", db_result['data'])
+            web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
+        elif db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type == "notification":
+            uid = msg.get('id')
+            web_gui.get_ipc_api().push_chat_notification(chatId, content.get('notification', {}), True, createAt, uid)
+        else:
+            logger.error(f"message insert db failed{chatId}, {msg.get('id')}")
+            # web_gui.get_ipc_api().push_chat_message(chatId, msg)

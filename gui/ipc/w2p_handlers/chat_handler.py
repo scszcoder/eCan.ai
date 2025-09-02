@@ -9,12 +9,13 @@ import traceback
 from typing import Any, Dict, Optional
 import uuid
 from app_context import AppContext
+
+from utils.gui_dispatch import post_to_main_thread
 from gui.MainGUI import MainWindow
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
 from gui.ipc.registry import IPCHandlerRegistry
 from agent.chats.chat_service import ChatService
-import threading
 import tempfile
 from agent.chats.chat_utils import a2a_send_chat
 
@@ -55,69 +56,6 @@ def extract_and_validate_chat_args(params: dict) -> dict:
         'receiverName': receiverName
     }
 
-def dispatch_add_message(chat_service: ChatService, args: dict) -> dict:
-    """根据 content.type 分发到 chat_service 的不同 add_xxx_message 方法"""
-    content = args['content']
-    chatId = args['chatId']
-    role = args['role']
-    senderId = args['senderId']
-    createAt = args['createAt']
-    messageId = args['id']
-    status = args['status']
-    senderName = args['senderName']
-    time_ = args['time']
-    ext = args['ext']
-    attachments = args['attachments']
-    # 类型分发
-    if isinstance(content, dict):
-        msg_type = content.get('type')
-        if msg_type == 'text':
-            return chat_service.add_text_message(
-                chatId=chatId, role=role, text=content.get('text', ''), senderId=senderId, createAt=createAt,
-                id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-        elif msg_type == 'form':
-            form = content.get('form', {})
-            return chat_service.add_form_message(
-                chatId=chatId, role=role, form=form, senderId=senderId,
-                createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-        elif msg_type == 'code':
-            code = content.get('code', {})
-            return chat_service.add_code_message(
-                chatId=chatId, role=role, code=code.get('value', ''), language=code.get('lang', 'python'),
-                senderId=senderId, createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-        elif msg_type == 'system':
-            system = content.get('system', {})
-            return chat_service.add_system_message(
-                chatId=chatId, text=system.get('text', ''), level=system.get('level', 'info'),
-                senderId=senderId, createAt=createAt, id=messageId, status=status, ext=ext, attachments=attachments)
-        elif msg_type == 'notification':
-            notification = content.get('notification', {})
-            return chat_service.add_notification_message(
-                chatId=chatId, title=notification.get('title', ''), content=notification.get('content', ''),
-                level=notification.get('level', 'info'), senderId=senderId, createAt=createAt, id=messageId, status=status, ext=ext, attachments=attachments)
-        elif msg_type == 'card':
-            card = content.get('card', {})
-            return chat_service.add_card_message(
-                chatId=chatId, role=role, title=card.get('title', ''), content=card.get('content', ''),
-                actions=card.get('actions', []), senderId=senderId, createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-        elif msg_type == 'markdown':
-            return chat_service.add_markdown_message(
-                chatId=chatId, role=role, markdown=content.get('markdown', ''), senderId=senderId, createAt=createAt,
-                id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-        elif msg_type == 'table':
-            table = content.get('table', {})
-            return chat_service.add_table_message(
-                chatId=chatId, role=role, headers=table.get('headers', []), rows=table.get('rows', []),
-                senderId=senderId, createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-        else:
-            return chat_service.add_message(
-                chatId=chatId, role=role, content=content, senderId=senderId, createAt=createAt,
-                id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-    else:
-        return chat_service.add_text_message(
-            chatId=chatId, role=role, text=str(content), senderId=senderId, createAt=createAt,
-            id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
-
 # ===================== 主处理器 =====================
 @IPCHandlerRegistry.background_handler('send_chat')
 def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
@@ -131,11 +69,12 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         # 1. 参数提取与校验
         chat_args = extract_and_validate_chat_args(params)
         # 2. 类型分发并入库
-        result = dispatch_add_message(chat_service, chat_args)
+        chatId = chat_args['chatId']
+        result = chat_service.dispatch_add_message(chatId, chat_args)
         logger.info(f"add_message result: {result}")
         # 3. 回显/推送
         if ECHO_REPLY_ENABLED:
-            echo_and_push_message_async(chat_args['chatId'], chat_args)
+            echo_and_push_message_async(chatId, chat_args)
         else:
             request['params']['human'] = True
             a2a_send_chat(main_window, request)
@@ -145,15 +84,20 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         return create_error_response(request, 'SEND_CHAT_ERROR', str(e))
 
 # ===================== echo_and_push_message_async 优化版 =====================
-def echo_and_push_message_async(chatId, message):
+
+def _do_push_and_echo(chatId, message):
     """
-    异步推送 echo 消息和表单模板消息到 chat。
-    1. 先回显 echo 消息
-    2. 再自动推送表单模板消息
+    Helper function to construct and push messages.
+    This function is intended to be run on the main GUI thread via post_to_main_thread.
     """
     import copy
     import time
     import uuid
+    from app_context import AppContext
+
+    app_ctx = AppContext()
+    main_window: MainWindow = app_ctx.main_window
+    web_gui = app_ctx.web_gui
 
     def build_echo_message(main_window, message):
         """构造 echo 回显消息，自动处理角色、内容、附件等，确保所有必需字段齐全"""
@@ -221,6 +165,7 @@ def echo_and_push_message_async(chatId, message):
             if not echo_msg.get(f):
                 logger.error(f"echo_msg 缺少必需字段: {f}，内容: {echo_msg}")
                 return None
+        logger.debug("build echo messge", echo_msg)
         return echo_msg
 
     def build_form_message(form_template, base_msg=None, chatId=None):
@@ -250,141 +195,69 @@ def echo_and_push_message_async(chatId, message):
             'attachments': attachments or []
         }
 
-    def push_message(main_window, chatId, msg):
+    def push_message(main_window: MainWindow, chatId, msg):
         """类型分发，自动调用 chat_service.add_xxx_message，推送到前端，并记录数据库写入结果"""
         logger.info(f"push_message echo_msg: {msg}")
-        chat_service: ChatService = main_window.chat_service
-        content = msg.get('content')
-        role = msg.get('role')
-        senderId = msg.get('senderId')
-        createAt = msg.get('createAt')
-        senderName = msg.get('senderName')
-        status = msg.get('status')
-        ext = msg.get('ext')
-        attachments = msg.get('attachments')
-        # 类型分发
-        db_result = None
-        if isinstance(content, dict):
-            msg_type = content.get('type')
-            if msg_type == 'text':
-                db_result = chat_service.add_text_message(
-                    chatId=chatId, role=role, text=content.get('text', ''), senderId=senderId, createAt=createAt,
-                    senderName=senderName, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'form':
-                form = content.get('form', {})
-                db_result = chat_service.add_form_message(
-                    chatId=chatId, role=role, form=form, senderId=senderId,
-                    createAt=createAt, senderName=senderName, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'code':
-                code = content.get('code', {})
-                db_result = chat_service.add_code_message(
-                    chatId=chatId, role=role, code=code.get('value', ''), language=code.get('lang', 'python'),
-                    senderId=senderId, createAt=createAt, senderName=senderName, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'system':
-                system = content.get('system', {})
-                db_result = chat_service.add_system_message(
-                    chatId=chatId, text=system.get('text', ''), level=system.get('level', 'info'),
-                    senderId=senderId, createAt=createAt, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'notification':
-                notification = content.get('notification', {})
-                db_result = chat_service.add_notification_message(
-                    chatId=chatId, title=notification.get('title', ''), content=notification.get('content', ''),
-                    level=notification.get('level', 'info'), senderId=senderId, createAt=createAt, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'card':
-                card = content.get('card', {})
-                db_result = chat_service.add_card_message(
-                    chatId=chatId, role=role, title=card.get('title', ''), content=card.get('content', ''),
-                    actions=card.get('actions', []), senderId=senderId, createAt=createAt, senderName=senderName,
-                    status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'markdown':
-                db_result = chat_service.add_markdown_message(
-                    chatId=chatId, role=role, markdown=content.get('markdown', ''), senderId=senderId, createAt=createAt,
-                    senderName=senderName, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'table':
-                table = content.get('table', {})
-                db_result = chat_service.add_table_message(
-                    chatId=chatId, role=role, headers=table.get('headers', []), rows=table.get('rows', []),
-                    senderId=senderId, createAt=createAt, senderName=senderName, status=status, ext=ext, attachments=attachments)
-            else:
-                db_result = chat_service.add_message(
-                    chatId=chatId, role=role, content=content, senderId=senderId, createAt=createAt,
-                    senderName=senderName, status=status, ext=ext, attachments=attachments)
+        main_window.chat_service.push_message_to_chat(chatId, msg)
+
+    logger.debug("start do push echo message")
+    # 1. 构造并推送 echo 消息
+    echo_msg = build_echo_message(main_window, message)
+    if echo_msg: # 确保 echo_msg 不为 None
+        push_message(main_window, chatId, echo_msg)
+    # 2. 构造并推送表单模板消息
+    try:
+        template_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/mcu_config_form.json')
+        template_path = os.path.abspath(template_path)
+        with open(template_path, 'r', encoding='utf-8') as f:
+            form_template = json.load(f)
+        form_msg = build_form_message(form_template, base_msg=echo_msg, chatId=chatId)
+        push_message(main_window, chatId, form_msg)
+    except Exception as e:
+        logger.error(f"Failed to push form template message: {e}")
+    # 3. 构造并推送表单模板消息
+    try:
+        template_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/eval_system.json')
+        template_path = os.path.abspath(template_path)
+        with open(template_path, 'r', encoding='utf-8') as f:
+            form_template = json.load(f)
+        form_msg = build_form_message(form_template, base_msg=echo_msg, chatId=chatId)
+        push_message(main_window, chatId, form_msg)
+    except Exception as e:
+        logger.error(f"Failed to push form template message: {e}")
+    # 4. 构造并推送 agent notification 消息
+    try:
+        search_results_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/search_results.json')
+        search_results_path = os.path.abspath(search_results_path)
+        with open(search_results_path, 'r', encoding='utf-8') as f:
+            content = f.read()  # 直接读取原始 JSON 文本
+        # 新增：保存 content 到数据库
+        try:
+            content_dict = json.loads(content)
+        except Exception:
+            content_dict = {"raw": content}
+        chat_service = main_window.chat_service
+        result = chat_service.add_chat_notification(chatId, content_dict, int(time.time() * 1000), isRead=False)
+        if result and result.get('success') and result.get('data'):
+            notif_data = result['data']
+            isRead = notif_data.get('isRead', False)
+            content = notif_data.get('content', "")
+            timestamp = notif_data.get('timestamp', int(time.time() * 1000))
+            uid = notif_data.get('uid')
+            web_gui.get_ipc_api().push_chat_notification(chatId, content, isRead=isRead, timestamp=timestamp, uid=uid)
         else:
-            db_result = chat_service.add_text_message(
-                chatId=chatId, role=role, text=str(content), senderId=senderId, createAt=createAt,
-                senderName=senderName, status=status, ext=ext, attachments=attachments)
-        logger.info(f"push_message db_result: {db_result}")
-        # 推送到前端
-        app_ctx = AppContext()
-        web_gui = app_ctx.web_gui
-        # 推送写入数据库后的真实数据
-        if db_result and isinstance(db_result, dict) and 'data' in db_result:
-            web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
-        else:
-            logger.error(f"message insert db failed{chatId}, {msg.id}")
-            # web_gui.get_ipc_api().push_chat_message(chatId, msg)
+            logger.error(f"Failed to add chat notification to db: {result}")
+    except Exception as e:
+        logger.error(f"Failed to push agent notification: {e}")
 
-    def do_push():
-        """线程内执行推送逻辑"""
-        from app_context import AppContext
-        app_ctx = AppContext()
-        web_gui = app_ctx.web_gui
-        main_window: MainWindow = app_ctx.main_window
-        time.sleep(1)
-        # 1. 构造并推送 echo 消息
-        echo_msg = build_echo_message(main_window, message)
-        if echo_msg: # 确保 echo_msg 不为 None
-            push_message(main_window, chatId, echo_msg)
-        # 2. 构造并推送表单模板消息
-        try:
-            template_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/mcu_config_form.json')
-            template_path = os.path.abspath(template_path)
-            with open(template_path, 'r', encoding='utf-8') as f:
-                form_template = json.load(f)
-            form_msg = build_form_message(form_template, base_msg=echo_msg, chatId=chatId)
-            push_message(main_window, chatId, form_msg)
-        except Exception as e:
-            logger.error(f"Failed to push form template message: {e}")
-        # 3. 构造并推送表单模板消息
-        try:
-            template_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/eval_system.json')
-            template_path = os.path.abspath(template_path)
-            with open(template_path, 'r', encoding='utf-8') as f:
-                form_template = json.load(f)
-
-            print("=====start====") 
-            print(form_template) 
-            print("=====end======")  
-            form_msg = build_form_message(form_template, base_msg=echo_msg, chatId=chatId)
-            push_message(main_window, chatId, form_msg)
-        except Exception as e:
-            logger.error(f"Failed to push form template message: {e}")
-        # 4. 构造并推送 agent notification 消息
-        try:
-            search_results_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/search_results.json')
-            search_results_path = os.path.abspath(search_results_path)
-            with open(search_results_path, 'r', encoding='utf-8') as f:
-                content = f.read()  # 直接读取原始 JSON 文本
-            # 新增：保存 content 到数据库
-            try:
-                content_dict = json.loads(content)
-            except Exception:
-                content_dict = {"raw": content}
-            chat_service = main_window.chat_service
-            result = chat_service.add_chat_notification(chatId, content_dict, int(time.time() * 1000), isRead=False)
-            if result and result.get('success') and result.get('data'):
-                notif_data = result['data']
-                isRead = notif_data.get('isRead', False)
-                content = notif_data.get('content', "")
-                timestamp = notif_data.get('timestamp', int(time.time() * 1000))
-                uid = notif_data.get('uid')
-                web_gui.get_ipc_api().push_chat_notification(chatId, content, isRead=isRead, timestamp=timestamp, uid=uid)
-            else:
-                logger.error(f"Failed to add chat notification to db: {result}")
-        except Exception as e:
-            logger.error(f"Failed to push agent notification: {e}")
-
-    threading.Thread(target=do_push, daemon=True).start()
+def echo_and_push_message_async(chatId, message):
+    """
+    Schedules the message push logic to run on the main GUI thread after a 1-second delay.
+    This function is called from a background thread. It blocks the *current* worker thread for 1 second,
+    but does not block the GUI.
+    """
+    time.sleep(1)
+    post_to_main_thread(lambda: _do_push_and_echo(chatId, message))
 
 # ===================== 其他处理器（保持原有结构，可后续优化） =====================
 @IPCHandlerRegistry.handler('get_chats')
@@ -638,7 +511,6 @@ def handle_get_file_info(request: IPCRequest, params: Optional[dict]) -> IPCResp
             return create_error_response(request, 'FILE_NOT_FOUND', f'File not found: {file_path}')
         # 获取文件信息
         import mimetypes
-        import stat
         file_stat = os.stat(file_path)
         file_size = file_stat.st_size
         file_name = os.path.basename(file_path)
@@ -698,36 +570,19 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
             logger.debug("chat submit form result: %s", result)
             if not result.get('success'):
                 return create_error_response(request, 'CHAT_FORM_SUBMIT_ERROR', result.get('error', 'Unknown error'))
-            # TODO add call agent
-            if ECHO_REPLY_ENABLED:
-                chat_args = {
-                    'chatId': chatId,
-                    'role': "role",
-                    'content': "content",
-                    'senderId': "senderId",
-                    'createAt': 123456,
-                    'id': "messageId",
-                    'status': "status",
-                    'senderName': "senderName",
-                    'time': 123456,
-                    'ext': "ext",
-                    'attachments': [],
-                    'receiverId': "receiverId",
-                    'receiverName': "receiverName"
-                }
-                echo_and_push_message_async(chatId, chat_args)
-            else:
-                params["senderId"] = "b9a9bd0e29b94fe4aaf4542cba7f5a27"
-                params["senderName"] = "My Twin Agent"
-                params["role"] = "user"
-                params["createAt"] = int(time.time() * 1000)
-                params["status"] = "complete"
-                params["attachments"] = []
-                params["content"] = json.dumps(params.get("formData"))
-                form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=params["createAt"] )
-                print("a2a_send_chat form submit:", form_submit_req)
-                request['params']['human'] = True
-                a2a_send_chat(main_window, form_submit_req)
+            
+            params["senderId"] = "b9a9bd0e29b94fe4aaf4542cba7f5a27"
+            params["senderName"] = "My Twin Agent"
+            params["role"] = "user"
+            params["createAt"] = int(time.time() * 1000)
+            params["status"] = "complete"
+            params["attachments"] = []
+            params["content"] = json.dumps(params.get("formData"))
+            form_submit_req =IPCRequest(id="", type='request', method="form_submit", params=params, meta={}, timestamp=params["createAt"] )
+            print("a2a_send_chat form submit:", form_submit_req)
+            request['params']['human'] = True
+            a2a_send_chat(main_window, form_submit_req)
+
             return create_success_response(request, result.get('data'))
         else:
             # 如果没有 submit_form 方法，简单记录表单数据，可自定义扩展

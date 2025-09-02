@@ -8,6 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from agent.a2a.common.types import SendTaskRequest, TaskSendParams
 
 from agent.ec_skill import *
+from app_context import AppContext
 from utils.logger_helper import get_agent_by_id, logger_helper as logger
 
 # this is simply an parrot agent, no thinking, no intelligent, simply pipe human message to agent
@@ -25,7 +26,8 @@ def parrot(state: NodeState) -> NodeState:
     print("my twin parrot chatting...", state)
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
+    app_ctx = AppContext()
+    mainwin = app_ctx.main_window
     try:
         if human_message(state):
             # this is a human to agent chat message
@@ -97,7 +99,7 @@ def parrot(state: NodeState) -> NodeState:
             }
             print("supposed chat id:", state["messages"][1][0])
             print("pushing frontend message", frontend_message)
-            mainwin.top_gui.push_message_to_chat(state["messages"][1][0], frontend_message)
+            mainwin.chat_service.push_message_to_chat(state["messages"][1][0], frontend_message)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
     except Exception as e:
