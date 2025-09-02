@@ -311,6 +311,7 @@
       "download": "下载",
       "clickToView": "点击查看",
       "loading": "加载中...",
+      "noMore": "没有更多消息",
       "userCancelledSave": "用户取消了文件保存",
       "nativeDownloadFailed": "原生下载失败",
       "zoomIn": "放大",

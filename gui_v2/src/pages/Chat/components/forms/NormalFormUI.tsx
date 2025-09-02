@@ -17,9 +17,14 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   const [pendingSelectValue, setPendingSelectValue] = useState<Record<string, any>>({});
   const [selectValue, setSelectValue] = useState<Record<string, any>>({});
 
+  // Guard against undefined props.form or props.form.fields
+  // Support both fields and parametric_filters as form fields
+  const fields = Array.isArray(props.form?.fields) ? props.form.fields : 
+                 Array.isArray(props.form?.parametric_filters) ? props.form.parametric_filters : [];
+
   React.useEffect(() => {
     const init: Record<string, { label: string, value: any }[]> = {};
-    props.form.fields.forEach(field => {
+    fields.forEach(field => {
       if (field.type === 'select' && field.custom === true) {
         let opts = Array.isArray(field.options)
           ? field.options.map(opt => ({ label: t(opt.label) || String(opt.label), value: opt.value }))
@@ -32,7 +37,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
       }
     });
     setLocalOptions(init);
-  }, [props.form.fields]);
+  }, [fields]);
 
   React.useEffect(() => {
     Object.entries(pendingSelectValue).forEach(([fieldId, v]) => {
@@ -49,7 +54,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
 
   React.useEffect(() => {
     const init: Record<string, any> = {};
-    props.form.fields.forEach(field => {
+    fields.forEach(field => {
       if (field.type === 'select' && field.custom === true) {
         const v = field.selectedValue !== undefined ? field.selectedValue : field.defaultValue;
         if (v !== undefined && v !== null && v !== '') {
@@ -58,10 +63,10 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
       }
     });
     setSelectValue(init);
-  }, [props.form.fields]);
+  }, [fields]);
 
   const initialValues: Record<string, any> = {};
-  props.form.fields.forEach(field => {
+  fields.forEach(field => {
     let v = field.selectedValue !== undefined ? field.selectedValue : field.defaultValue;
     if (field.type === 'checkbox') {
       initialValues[field.id] = Array.isArray(v) ? v : v !== undefined && v !== null && v !== '' ? [v] : [];
@@ -99,7 +104,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   };
 
   const handleDoubleClick = (fieldId: string, currentValue?: string) => {
-    const field = props.form.fields.find(f => f.id === fieldId);
+    const field = fields.find(f => f.id === fieldId);
     if (field && field.custom === true) {
       setCustomInputMode(prev => ({ ...prev, [fieldId]: true }));
       setCustomInputValue(prev => ({ ...prev, [field.id]: currentValue || '' }));
@@ -121,7 +126,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   const handleSubmit: (values: Record<string, any>) => void = (values) => {
     const processedForm = {
       ...props.form,
-      fields: props.form.fields.map(field => ({
+      fields: fields.map(field => ({
         ...field,
         selectedValue: values[field.id],
         options: field.type === 'select' && field.custom === true
@@ -454,7 +459,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
         onSubmit={handleSubmit}
         style={{ width: '100%' }}
       >
-        {props.form.fields.map(renderField)}
+        {fields.map(renderField)}
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28, marginBottom: 8 }}>
           <Button
             htmlType="submit"

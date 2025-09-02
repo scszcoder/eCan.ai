@@ -293,6 +293,7 @@
       "download": "Download",
       "clickToView": "Click to view",
       "loading": "Loading...",
+      "noMore": "No more messages",
       "userCancelledSave": "User cancelled file save",
       "nativeDownloadFailed": "Native download failed",
       "zoomIn": "Zoom in",

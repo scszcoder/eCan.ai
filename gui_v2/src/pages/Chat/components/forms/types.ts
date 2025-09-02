@@ -12,7 +12,8 @@ export interface NormalForm {
   id: string;
   type: 'normal';
   title?: string;
-  fields: IFormField[];
+  fields?: IFormField[];
+  parametric_filters?: IFormField[];
   submit_text?: string;
 }
 
