@@ -20,7 +20,18 @@ def ecan_ai_api_query_components(mainwin, empty_components):
 
         response = send_query_components_request_to_cloud(session, token, empty_components, img_endpoint)
         logger.debug("send_query_components_request_to_cloud: respnose:", response)
-        filled_components = json.loads(response["body"])["data"]
+
+        # Check for errors in the response
+        if "errors" in response or "body" not in response:
+            logger.error(f"Error from cloud: {response.get('errors')}")
+            return []
+
+        body = json.loads(response["body"])
+        if body.get("result") == "error":
+            logger.error(f"Error from cloud lambda: {body.get('error')}")
+            return []
+
+        filled_components = body["data"]
         logger.debug("filled_components:", filled_components)
 
     except Exception as e:

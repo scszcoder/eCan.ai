@@ -68,7 +68,7 @@ class UnifiedBrowserManager:
 
                 self._setup_crawler_config(crawler_config)
                 self._file_system_path = file_system_path
-                print("crawler initialized.............")
+                logger.info("crawler initialized.............")
                 self._initialized = True
                 self._initialization_error = None
                 logger.info("✅ Unified browser manager initialized successfully")
@@ -167,11 +167,11 @@ class UnifiedBrowserManager:
 
     def _create_bu_agent(self):
         try:
-            print("create bu agent....")
+            logger.debug("create bu agent....")
             from browser_use import Agent, Controller
             from browser_use.browser import BrowserProfile, BrowserSession
             from browser_use.llm import ChatOpenAI
-            print("done import browser use....")
+            logger.debug("done import browser use....")
             BasicConfig = {
                 "openai_api_key": os.getenv("OPENAI_API_KEY"),
                 "chrome_path": "",
@@ -184,9 +184,9 @@ class UnifiedBrowserManager:
                 "product_phrase": "resistance loop band"
             }
             config = BasicConfig
-            print("done config....")
+            logger.debug("done config....")
             full_message = f'@{config["target_user"]} {config["message"]}'
-            print("done full message....")
+            logger.debug("done full message....")
             basic_task = f"""Navigate to Amazon and search a product.
     
                 Here are the specific steps:
@@ -200,9 +200,9 @@ class UnifiedBrowserManager:
                 - Wait for each element to load before interacting
                 - Make sure the search phrase is typed exactly as shown
                 """
-            print("done basic task....", basic_task)
+            logger.debug("done basic task....", basic_task)
             llm = ChatOpenAI(model=config["model"], api_key=config["openai_api_key"])
-            print("llm set....")
+            logger.debug("llm set....")
             browser_profile = BrowserProfile(
                 headless=config["headless"],
                 executable_path=config["chrome_path"],
@@ -214,9 +214,9 @@ class UnifiedBrowserManager:
                 user_data_dir='~/.config/browseruse/profiles/default',
                 # trace_path='./tmp/web_voyager_agent',
             )
-            print("browser profile set....", browser_profile)
+            logger.debug("browser profile set....", browser_profile)
             browser_session = BrowserSession(browser_profile=browser_profile)
-            print("browser session set....", browser_session)
+            logger.debug("browser session set....", browser_session)
             # Construct the full message with tag
             # Create the agent with detailed instructions
             agent = Agent(
@@ -226,7 +226,7 @@ class UnifiedBrowserManager:
                 validate_output=True,
                 enable_memory=False,
             )
-            print("browser agent set....", browser_session)
+            logger.debug("browser agent set....", browser_session)
             return agent
 
         except Exception as e:
@@ -261,7 +261,7 @@ class UnifiedBrowserManager:
                     pass
             try:
                 loop = asyncio.get_running_loop()
-                print(f"[UnifiedBrowserManager._do] loop={type(loop).__name__}")
+                logger.info(f"[UnifiedBrowserManager._do] loop={type(loop).__name__}")
             except Exception:
                 pass
             from browser_use import Agent

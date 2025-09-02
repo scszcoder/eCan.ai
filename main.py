@@ -191,6 +191,11 @@ try:
         ctx.set_config(app_settings)
         ctx.set_app_info(app_info)
 
+
+        # Initialize GUI dispatcher to ensure it's created on the main thread
+        from utils.gui_dispatch import init_gui_dispatch
+        init_gui_dispatch()
+
         # Set application icon
         progress_manager.update_progress(50, "Setting up application icons...")
         set_app_icon(app, logger)
@@ -247,7 +252,7 @@ try:
         logger.info("WebGUI instance created successfully")
 
         progress_manager.update_progress(80, "Setting up URL scheme handling...")
-        
+
         # Setup URL scheme handling
         try:
             from utils.url_scheme_handler import setup_url_scheme_handling
