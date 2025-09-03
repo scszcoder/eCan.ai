@@ -64,16 +64,16 @@ class WebDriverManager:
     async def _ensure_webdriver(self) -> bool:
         """Ensure matching webdriver is available, downloading if necessary."""
         try:
-            # Priority 1: Check for a user-configured, valid webdriver path first.
-            try:
-                from app_context import AppContext
-                ctx = AppContext()
-                if ctx.main_window and ctx.main_window.default_webdriver_path and os.path.exists(ctx.main_window.default_webdriver_path):
-                    logger.info(f"Using user-configured WebDriver: {ctx.main_window.default_webdriver_path}")
-                    self._webdriver_path = ctx.main_window.default_webdriver_path
-                    return True
-            except (ImportError, AttributeError) as e:
-                logger.warning(f"Could not check for user-configured WebDriver path: {e}")
+            # # Priority 1: Check for a user-configured, valid webdriver path first.
+            # try:
+            #     from app_context import AppContext
+            #     ctx = AppContext()
+            #     if ctx.main_window and ctx.main_window.default_webdriver_path and os.path.exists(ctx.main_window.default_webdriver_path):
+            #         logger.info(f"Using user-configured WebDriver: {ctx.main_window.default_webdriver_path}")
+            #         self._webdriver_path = ctx.main_window.default_webdriver_path
+            #         return True
+            # except (ImportError, AttributeError) as e:
+            #     logger.warning(f"Could not check for user-configured WebDriver path: {e}")
 
             # Priority 2: Check for an automatically cached webdriver.
             existing_driver = self._find_existing_webdriver()
