@@ -8,15 +8,12 @@ import os
 import platform
 import sys
 
-# Base URLs for Chrome for Testing
-CHROME_FOR_TESTING_BASE_URL = "https://registry.npmmirror.com/binary.html?path=chrome-for-testing/"
-CHROME_FOR_TESTING_DOWNLOAD_URL = "https://registry.npmmirror.com/-/binary/chrome-for-testing/"
 
-# Alternative download URLs (fallback) - Only working sources
-ALTERNATIVE_DOWNLOAD_URLS = [
-    "https://registry.npmmirror.com/-/binary/chrome-for-testing/",  # Fixed npmmirror URL (primary)
-    "https://storage.googleapis.com/chrome-for-testing-public/"     # Chrome for Testing Public (fallback)
-]
+# Official JSON endpoint for Chrome for Testing versions
+KNOWN_GOOD_VERSIONS_URL = "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
+
+# Fallback JSON endpoint from npmmirror
+KNOWN_GOOD_VERSIONS_URL_FALLBACK = "https://registry.npmmirror.com/-/binary/chrome-for-testing/"
 
 # SSL Configuration
 SSL_VERIFY = False  # Set to False to skip SSL certificate verification
@@ -25,7 +22,7 @@ SSL_CHECK_HOSTNAME = False  # Set to False to skip hostname verification
 # Platform mapping for webdriver downloads
 PLATFORM_MAP = {
     "win32": "win64",
-    "linux": "linux64", 
+    "linux": "linux64",
     "darwin": "mac-x64"
 }
 
@@ -66,15 +63,15 @@ def get_webdriver_dir() -> str:
     """Get webdriver storage directory using app_info paths"""
     try:
         from config.app_info import app_info
-        
+
         # Use app_info.appdata_path for consistent path management
         base_dir = os.path.join(app_info.appdata_path, "webdrivers")
-        
+
         # Ensure directory exists
         os.makedirs(base_dir, exist_ok=True)
-        
+
         return base_dir
-        
+
     except ImportError:
         # Fallback if app_info is not available
         if getattr(sys, 'frozen', False):
@@ -90,7 +87,7 @@ def get_webdriver_dir() -> str:
             # Development mode
             home_path = os.path.expanduser("~")
             base_dir = os.path.join(home_path, ".eCan", "webdrivers")
-        
+
         os.makedirs(base_dir, exist_ok=True)
         return base_dir
 

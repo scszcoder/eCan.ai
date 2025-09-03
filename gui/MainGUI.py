@@ -1645,68 +1645,27 @@ class MainWindow(QMainWindow):
             self.unified_browser_manager = None
 
     async def _start_webdriver_initialization(self):
-        """Start WebDriver automatic initialization"""
+        """Initializes the WebDriver using the simplified WebDriverManager."""
         try:
-            from gui.webdriver.initializer import start_webdriver_initialization, get_webdriver_initializer
-            
-            logger.info("🚀 Starting WebDriver automatic initialization...")
-            
-            # First check for cached WebDriver
-            if self._check_cached_webdriver():
-                logger.info("✅ Using cached WebDriver, no need to download")
-                return
-            
-            # Start async initialization for dynamic download
-            success = await start_webdriver_initialization()
-            
+            from gui.webdriver.manager import get_webdriver_manager
+
+            logger.info("🚀 Starting WebDriver initialization...")
+
+            # Get the manager instance
+            manager = await get_webdriver_manager()
+
+            # Initialize the manager. This is now a self-contained async process.
+            success = await manager.initialize()
+
             if success:
-                logger.info("✅ WebDriver automatic initialization started successfully")
-                
-                # Get initializer and add callbacks
-                initializer = await get_webdriver_initializer()
-                
-                # Add callback to update default_webdriver_path when ready
-                def on_webdriver_ready(status):
-                    if status and status.webdriver_path:
-                        self.default_webdriver_path = status.webdriver_path
-                        self._cached_webdriver_path = status.webdriver_path
-                        logger.info(f"🎯 WebDriver ready callback: Updated default_webdriver_path to {status.webdriver_path}")
-                
-                def on_webdriver_error(error_msg, status):
-                    logger.error(f"❌ WebDriver error callback: {error_msg}")
-                
-                def on_webdriver_progress(progress, status):
-                    logger.info(f"📊 WebDriver progress callback: {progress.get('progress', 0)}%")
-                
-                initializer.add_ready_callback(on_webdriver_ready)
-                initializer.add_error_callback(on_webdriver_error)
-                initializer.add_progress_callback(on_webdriver_progress)
-                
+                self.default_webdriver_path = await manager.get_webdriver_path()
+                self._cached_webdriver_path = self.default_webdriver_path
+                logger.info(f"✅ WebDriver initialization successful. Path: {self.default_webdriver_path}")
             else:
-                logger.error("❌ WebDriver automatic initialization startup failed")
-                
+                logger.error("❌ WebDriver initialization failed.")
+
         except Exception as e:
-            logger.error(f"WebDriver automatic initialization exception: {e}")
- 
-    def getWebDriverDownloadProgress(self):
-        """Get WebDriver download progress (compatibility method)"""
-        try:
-            from gui.webdriver.initializer import get_webdriver_initializer_sync
-            initializer = get_webdriver_initializer_sync()
-            return initializer.get_download_progress()
-        except Exception as e:
-            logger.error(f"Failed to get WebDriver download progress: {e}")
-            return None
-    
-    def isWebDriverDownloadComplete(self):
-        """Check if WebDriver download is complete (compatibility method)"""
-        try:
-            from gui.webdriver.initializer import get_webdriver_initializer_sync
-            initializer = get_webdriver_initializer_sync()
-            return initializer.is_ready()
-        except Exception as e:
-            logger.error(f"Failed to check WebDriver download status: {e}")
-            return False
+            logger.error(f"An exception occurred during WebDriver initialization: {e}")
 
     @property
     def async_crawler(self):
