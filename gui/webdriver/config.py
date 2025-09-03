@@ -28,17 +28,32 @@ PLATFORM_MAP = {
 }
 
 # Default Chrome version if detection fails
-DEFAULT_CHROME_VERSION = "120.0.6099.109"
+DEFAULT_CHROME_VERSION = "131.0.6778.85"
 
 # Chrome installation paths by platform
 CHROME_PATHS = {
     "Windows": [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe")
+        os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
+        # Additional paths for custom Chrome installations
+        r"C:\Program Files (x86)\Qoom\Chrome\chrome.exe",
+        r"C:\Program Files\Qoom\Chrome\chrome.exe",
+        # Edge as Chrome alternative
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        # Portable Chrome locations
+        os.path.expanduser(r"~\Desktop\Chrome\chrome.exe"),
+        os.path.expanduser(r"~\Downloads\Chrome\chrome.exe"),
     ],
     "Darwin": [
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        # Additional common macOS Chrome locations
+        os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        os.path.expanduser("~/Applications/Chromium.app/Contents/MacOS/Chromium"),
+        os.path.expanduser("~/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
     ],
     "Linux": [
         "google-chrome"
