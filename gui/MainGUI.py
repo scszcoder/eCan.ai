@@ -38,10 +38,10 @@ from os.path import exists
 import glob
 
 from PySide6.QtCore import QThreadPool, Qt, QEvent, QSize
-from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
+from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
-    QMessageBox, QFileDialog, QPlainTextEdit, QDialog
+    QMessageBox, QFileDialog, QDialog
 
 import importlib
 import importlib.util
@@ -123,7 +123,7 @@ ecb_data_homepath = getECBotDataHome()
 
 in_data_string = ""
 
-# Expander类已移除，改为直接使用QPlainTextEdit
+        # Expander类已移除，logConsole组件也已移除
 
 
 class AsyncInterface:
@@ -284,16 +284,7 @@ class MainWindow(QMainWindow):
         self.botsFingerPrintsReady = False
         self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
         self.default_webdriver = None
-        # 直接使用QPlainTextEdit，不再使用Expander
-        self.logConsole = QPlainTextEdit()
-        self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        self.logConsole.setReadOnly(True)
-        # 设置日志控制台的大小策略
-        self.logConsole.setMaximumHeight(200)  # 限制最大高度
-        self.logConsole.setMinimumHeight(100)  # 设置最小高度
-        # self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
-        self.logConsole.verticalScrollBar().valueChanged.connect(self.onScrollBarValueChanged)
-        self.isAutoScroll = False  # Default to no auto-scroll during initialization
+        # Log console removed - no longer needed
         logger.info("some vars init done1....")
 
         self.SkillManagerWin = SkillManagerWindow(self)
@@ -463,7 +454,7 @@ class MainWindow(QMainWindow):
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
         self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
         self.south_layout = QVBoxLayout()
-        self.south_layout.addWidget(self.logConsole)
+        # Log console widget removed from layout
         self.bottomButtonsLayout = QHBoxLayout()
         self.bottomButtonsLayout.addWidget(self.save_all_button)
         self.south_layout.addLayout(self.bottomButtonsLayout)
@@ -617,7 +608,7 @@ class MainWindow(QMainWindow):
 
         self.reportsShowAction = self._createReportsShowAction()
         self.reportsGenAction = self._createReportsGenAction()
-        self.reportsLogConsoleAction = self._createReportsLogConsoleAction()
+        # Log console action initialization removed
 
         self.skillNewAction = self._createSkillNewAction()
         self.skillManagerAction = self._createSkillManagerAction()
@@ -1500,15 +1491,7 @@ class MainWindow(QMainWindow):
 
         logger.info("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
 
-    def onScrollBarValueChanged(self, value):
-        """Monitor scrollbar changes to determine auto-scroll"""
-        scrollbar = self.logConsole.verticalScrollBar()
-        max_value = scrollbar.maximum()
-        # If scrollbar is near bottom (e.g., within one unit of bottom), set to auto-scroll
-        if (max_value - value) <= 1:
-            self.isAutoScroll = True
-        else:
-            self.isAutoScroll = False
+
 
     def addSkillRowsToSkillManager(self):
         self.skillManagerWin.addSkillRows(self.skills)
@@ -1613,10 +1596,7 @@ class MainWindow(QMainWindow):
             Qt.DownArrow if not checked else Qt.RightArrow
         )
 
-        if self.toggle_button.arrowType() == Qt.DownArrow:
-            self.logConsole.setVisible(True)
-        else:
-            self.logConsole.setVisible(False)
+        # Log console visibility control removed as log console is no longer used
 
     def _get_cpu_info_safely(self):
         """
@@ -1911,11 +1891,8 @@ class MainWindow(QMainWindow):
 
     def appendNetLogs(self, msgs):
         for msg in msgs:
-            self.logConsole.appendHtml(msg)
-            if self.isAutoScroll:
-                cursor = self.logConsole.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.End)
-                self.logConsole.setTextCursor(cursor)
+            # Log console removed - no longer appending network logs to GUI
+            pass
 
     def createLabel(self, text):
         label = QLabel(QApplication.translate("QLabel", text))
@@ -1971,7 +1948,7 @@ class MainWindow(QMainWindow):
         reports_menu.setFont(self.main_menu_font)
         reports_menu.addAction(self.reportsShowAction)
         reports_menu.addAction(self.reportsGenAction)
-        reports_menu.addAction(self.reportsLogConsoleAction)
+        # Log console action removed from reports menu
         menu_bar.addMenu(reports_menu)
 
         run_menu = QMenu(QApplication.translate("QMenu", "&Run"), self)
@@ -2285,12 +2262,7 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Generate"))
         return new_action
 
-    def _createReportsLogConsoleAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Log Console"))
-        new_action.triggered.connect(self.showLogs)
-        return new_action
+
 
     def _createSettingsGenAction(self):
         # File actions
@@ -2434,8 +2406,7 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.showAbout)
         return new_action
 
-    def showLogs(self):
-        self.netLogWin.show()
+
 
     def findIndex(self, list, element):
         try:
