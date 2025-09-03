@@ -23,7 +23,7 @@ SSL_CHECK_HOSTNAME = False  # Set to False to skip hostname verification
 PLATFORM_MAP = {
     "win32": "win64",
     "linux": "linux64",
-    "darwin": "mac-x64"
+    "darwin": "mac-arm64" if platform.machine() == "arm64" else "mac-x64"
 }
 
 # Default Chrome version if detection fails
@@ -56,7 +56,8 @@ PROJECT_WEBDRIVER_PATHS = [
     "chromedriver-win64/chromedriver.exe",
     "chromedriver-win64/chromedriver",
     "chromedriver-linux64/chromedriver",
-    "chromedriver-mac-x64/chromedriver"
+    "chromedriver-mac-x64/chromedriver",
+    "chromedriver-mac-arm64/chromedriver"
 ]
 
 def get_webdriver_dir() -> str:
