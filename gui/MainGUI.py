@@ -37,11 +37,11 @@ from _csv import reader
 from os.path import exists
 import glob
 
-from PySide6.QtCore import QThreadPool, QParallelAnimationGroup, Qt, QPropertyAnimation, QAbstractAnimation, QEvent, QSize
-from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel, QTextCursor
+from PySide6.QtCore import QThreadPool, Qt, QEvent, QSize
+from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel
 from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
     QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
-    QMessageBox, QFileDialog, QPlainTextEdit, QDialog
+    QMessageBox, QFileDialog, QDialog
 
 import importlib
 import importlib.util
@@ -123,83 +123,7 @@ ecb_data_homepath = getECBotDataHome()
 
 in_data_string = ""
 
-# adopted from web: https://stackoverflow.com/questions/32476006/how-to-make-an-expandable-collapsable-section-widget-in-qt
-class Expander(QWidget):
-    def __init__(self, parent=None, title='', animationDuration=300):
-        """
-        References:
-            # Adapted from PyQt4 version
-            https://stackoverflow.com/a/37927256/386398
-            # Adapted from c++ version
-            https://stackoverflow.com/a/37119983/386398
-        """
-        super().__init__(parent=parent)
-        self.animationDuration = animationDuration
-        self.toggleAnimation = QParallelAnimationGroup()
-        self.contentArea = QScrollArea()
-        self.headerLine = QFrame()
-        self.toggleButton = QToolButton()
-        self.mainLayout = QGridLayout()
-
-        toggleButton = self.toggleButton
-        toggleButton.setStyleSheet("QToolButton { border: none; }")
-        toggleButton.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        toggleButton.setArrowType(Qt.RightArrow)
-        toggleButton.setText(str(title))
-        toggleButton.setCheckable(True)
-        toggleButton.setChecked(False)
-
-        headerLine = self.headerLine
-        headerLine.setFrameShape(QFrame.HLine)
-        headerLine.setFrameShadow(QFrame.Sunken)
-        headerLine.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
-
-        self.contentArea.setStyleSheet("QScrollArea { background-color: white; border: none; }")
-        self.contentArea.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # start out collapsed
-        self.contentArea.setMaximumHeight(0)
-        self.contentArea.setMinimumHeight(0)
-        # let the entire widget grow and shrink with its content
-        toggleAnimation = self.toggleAnimation
-        toggleAnimation.addAnimation(QPropertyAnimation(self, b"minimumHeight"))
-        toggleAnimation.addAnimation(QPropertyAnimation(self, b"maximumHeight"))
-        toggleAnimation.addAnimation(QPropertyAnimation(self.contentArea, b"maximumHeight"))
-        # don't waste space
-        mainLayout = self.mainLayout
-        mainLayout.setVerticalSpacing(0)
-        mainLayout.setContentsMargins(0, 0, 0, 0)
-        row = 0
-        mainLayout.addWidget(self.toggleButton, row, 0, 1, 1, Qt.AlignLeft)
-        mainLayout.addWidget(self.headerLine, row, 2, 1, 1)
-        row += 1
-        mainLayout.addWidget(self.contentArea, row, 0, 1, 3)
-        self.setLayout(self.mainLayout)
-        self.toggleButton.clicked.connect(self.start_animation)
-
-    def start_animation(self, checked):
-        arrow_type = Qt.DownArrow if checked else Qt.RightArrow
-        direction = QAbstractAnimation.Forward if checked else QAbstractAnimation.Backward
-        self.toggleButton.setArrowType(arrow_type)
-        self.toggleAnimation.setDirection(direction)
-        self.toggleAnimation.start()
-
-
-
-    def setContentLayout(self, contentLayout):
-        # Not sure if this is equivalent to self.contentArea.destroy()
-        self.contentArea.destroy()
-        self.contentArea.setLayout(contentLayout)
-        collapsedHeight = self.sizeHint().height() - self.contentArea.maximumHeight()
-        contentHeight = contentLayout.sizeHint().height()
-        for i in range(self.toggleAnimation.animationCount()-1):
-            expandAnimation = self.toggleAnimation.animationAt(i)
-            expandAnimation.setDuration(self.animationDuration)
-            expandAnimation.setStartValue(collapsedHeight)
-            expandAnimation.setEndValue(collapsedHeight + contentHeight)
-        contentAnimation = self.toggleAnimation.animationAt(self.toggleAnimation.animationCount() - 1)
-        contentAnimation.setDuration(self.animationDuration)
-        contentAnimation.setStartValue(0)
-        contentAnimation.setEndValue(contentHeight)
+        # Expander类已移除，logConsole组件也已移除
 
 
 class AsyncInterface:
@@ -349,7 +273,6 @@ class MainWindow(QMainWindow):
         self.selected_mission_item = None
         self.BotNewWin = None
         self.missionWin = None
-        self.chatWin = None
         # self.newGui = BrowserWindow(self)
         # self.newGui.hide()  # Ensure window is created in background, not displayed
         # logger.info("newGui init done....")
@@ -361,27 +284,8 @@ class MainWindow(QMainWindow):
         self.botsFingerPrintsReady = False
         self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
         self.default_webdriver = None
-        self.logConsoleBox = Expander(self, QApplication.translate("QWidget", "Log Console:"))
-        self.logConsole = QPlainTextEdit()
-        self.logConsole.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        self.logConsole.setReadOnly(True)
-        # self.logConsole.verticalScrollBar().setValue(self.logConsole.verticalScrollBar().minimum())
-        self.logConsoleLayout = QVBoxLayout()
-        self.logConsole.verticalScrollBar().valueChanged.connect(self.onScrollBarValueChanged)
-        self.isAutoScroll = False  # Default to no auto-scroll during initialization
+        # Log console removed - no longer needed
         logger.info("some vars init done1....")
-        # self.toggle_button = QToolButton(
-        #     text="log console", checkable=True, checked=False
-        # )
-        # self.toggle_button.setStyleSheet("QToolButton { border: none; }")
-        # self.toggle_button.setToolButtonStyle(
-        #     Qt.ToolButtonTextBesideIcon
-        # )
-        # self.toggle_button.setArrowType(Qt.RightArrow)
-        # self.toggle_button.pressed.connect(self.on_tg_pressed)
-
-        self.logConsoleLayout.addWidget(self.logConsole)
-        self.logConsoleBox.setContentLayout(self.logConsoleLayout)
 
         self.SkillManagerWin = SkillManagerWindow(self)
         self.SkillManagerWin.hide()  # Ensure window is created in background, not displayed
@@ -550,7 +454,7 @@ class MainWindow(QMainWindow):
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
         self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
         self.south_layout = QVBoxLayout()
-        self.south_layout.addWidget(self.logConsoleBox)
+        # Log console widget removed from layout
         self.bottomButtonsLayout = QHBoxLayout()
         self.bottomButtonsLayout.addWidget(self.save_all_button)
         self.south_layout.addLayout(self.bottomButtonsLayout)
@@ -704,7 +608,7 @@ class MainWindow(QMainWindow):
 
         self.reportsShowAction = self._createReportsShowAction()
         self.reportsGenAction = self._createReportsGenAction()
-        self.reportsLogConsoleAction = self._createReportsLogConsoleAction()
+        # Log console action initialization removed
 
         self.skillNewAction = self._createSkillNewAction()
         self.skillManagerAction = self._createSkillManagerAction()
@@ -1587,15 +1491,7 @@ class MainWindow(QMainWindow):
 
         logger.info("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
 
-    def onScrollBarValueChanged(self, value):
-        """Monitor scrollbar changes to determine auto-scroll"""
-        scrollbar = self.logConsole.verticalScrollBar()
-        max_value = scrollbar.maximum()
-        # If scrollbar is near bottom (e.g., within one unit of bottom), set to auto-scroll
-        if (max_value - value) <= 1:
-            self.isAutoScroll = True
-        else:
-            self.isAutoScroll = False
+
 
     def addSkillRowsToSkillManager(self):
         self.skillManagerWin.addSkillRows(self.skills)
@@ -1700,10 +1596,7 @@ class MainWindow(QMainWindow):
             Qt.DownArrow if not checked else Qt.RightArrow
         )
 
-        if self.toggle_button.arrowType() == Qt.DownArrow:
-            self.logConsole.setVisible(True)
-        else:
-            self.logConsole.setVisible(False)
+        # Log console visibility control removed as log console is no longer used
 
     def _get_cpu_info_safely(self):
         """
@@ -1957,11 +1850,8 @@ class MainWindow(QMainWindow):
 
     def appendNetLogs(self, msgs):
         for msg in msgs:
-            self.logConsole.appendHtml(msg)
-            if self.isAutoScroll:
-                cursor = self.logConsole.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.End)
-                self.logConsole.setTextCursor(cursor)
+            # Log console removed - no longer appending network logs to GUI
+            pass
 
     def createLabel(self, text):
         label = QLabel(QApplication.translate("QLabel", text))
@@ -2017,7 +1907,7 @@ class MainWindow(QMainWindow):
         reports_menu.setFont(self.main_menu_font)
         reports_menu.addAction(self.reportsShowAction)
         reports_menu.addAction(self.reportsGenAction)
-        reports_menu.addAction(self.reportsLogConsoleAction)
+        # Log console action removed from reports menu
         menu_bar.addMenu(reports_menu)
 
         run_menu = QMenu(QApplication.translate("QMenu", "&Run"), self)
@@ -2331,12 +2221,7 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Generate"))
         return new_action
 
-    def _createReportsLogConsoleAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Log Console"))
-        new_action.triggered.connect(self.showLogs)
-        return new_action
+
 
     def _createSettingsGenAction(self):
         # File actions
@@ -2480,8 +2365,7 @@ class MainWindow(QMainWindow):
         new_action.triggered.connect(self.showAbout)
         return new_action
 
-    def showLogs(self):
-        self.netLogWin.show()
+
 
     def findIndex(self, list, element):
         try:
@@ -5978,14 +5862,11 @@ class MainWindow(QMainWindow):
             self.rcbotEditAction = self._createBotRCEditAction()
             self.rcbotCloneAction = self._createBotRCCloneAction()
             self.rcbotDeleteAction = self._createBotRCDeleteAction()
-            self.rcbotChatAction = self._createBotRCChatAction()
 
             self.popMenu.addAction(self.rcbotEditAction)
             self.popMenu.addAction(self.rcbotCloneAction)
             self.popMenu.addSeparator()
             self.popMenu.addAction(self.rcbotDeleteAction)
-            self.popMenu.addSeparator()
-            self.popMenu.addAction(self.rcbotChatAction)
 
             selected_act = self.popMenu.exec_(event.globalPos())
             if selected_act:
@@ -6000,8 +5881,6 @@ class MainWindow(QMainWindow):
                     self.cloneBot()
                 elif selected_act == self.rcbotDeleteAction:
                     self.deleteBot()
-                elif selected_act == self.rcbotChatAction:
-                    self.chatBot()
 
             return True
         elif event.type() == QEvent.ContextMenu and source is self.missionListView:
@@ -6118,23 +5997,7 @@ class MainWindow(QMainWindow):
 
         return super().eventFilter(source, event)
 
-    def chatBot(self):
-        # bring up the chat windows with this bot.
-        # File actions
-        if self.chatWin and self.chatWin.isVisible():
-            self.showMsg("populating Chat GUI............")
-            self.chatWin.select_contact(self.selected_bot_item.getBid())
-            self.chatWin.load_chat_history(self.selected_bot_item.getBid())
-        else:
-            self.showMsg("populating a newly created Chat GUI............")
-            from ChatGUIV2 import ChatDialog
-            if self.selected_bot_item:
-                self.chatWin = ChatDialog(self, self.selected_bot_item.getBid())
-                self.showMsg("done create win............"+str(self.selected_bot_item.getBid()))
-            else:
-                self.chatWin = ChatDialog(self, 0)
-                self.showMsg("done create win............commander")
-        self.chatWin.show()
+
 
     def _createCusMissionViewAction(self):
        new_action = QAction(self)
@@ -6426,11 +6289,7 @@ class MainWindow(QMainWindow):
         new_action.setText(QApplication.translate("QAction", "&Delete"))
         return new_action
 
-    def _createBotRCChatAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Chat"))
-        return new_action
+
 
     def _createVehicleViewAction(self):
        new_action = QAction(self)
@@ -9232,7 +9091,8 @@ class MainWindow(QMainWindow):
     # the message will be in the format of botid:send time stamp in yyyy:mm:dd hh:mm:ss format:msg in html format
     # from network the message will have chatmsg: prepend to the message.
     def update_chat_gui(self, rcvd_msg):
-        self.chatWin.updateDisplay(rcvd_msg)
+        # Chat GUI removed - no longer updating chat display
+        pass
 
     # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
     async def connectChat(self, chat_msg_queue):
@@ -9241,7 +9101,7 @@ class MainWindow(QMainWindow):
             if not chat_msg_queue.empty():
                 message = await chat_msg_queue.get()
                 self.showMsg(f"Rx Chat message from bot: {message}")
-                self.update_chat_gui(message)
+                # Chat GUI removed - no longer updating chat display
                 if self.host_role != "Staff Officer":
                     response = self.think_about_a_reponse(message)
                     self.c_send_chat(response)
@@ -9572,7 +9432,8 @@ class MainWindow(QMainWindow):
             # Convert intersection back to a list (optional)
             bids_on_this_vehicle = list(intersection)
 
-            self.chatWin.addActiveChatHis(self, False, bids_on_this_vehicle, full_txt)
+            # Chat GUI removed - no longer adding active chat history
+            pass
 
             if len(bids_on_this_vehicle) > 0:
                 # now send the message to local bots on this vehicle.
@@ -9598,7 +9459,8 @@ class MainWindow(QMainWindow):
         # deliver the message for the other bots. - allowed for inter-bot communication.
         if len(receivers) > 0:
             # now route message to everybody.
-            self.chatWin.addNetChatHis(sender, receivers, msg_text)
+            # Chat GUI removed - no longer adding network chat history
+            pass
 
     # note recipient could be a group ID.
     def receiveBotLogMessage(self, msg_text):
@@ -9610,7 +9472,8 @@ class MainWindow(QMainWindow):
         receivers = [0]
 
         # deliver the message for the other bots. - allowed for inter-bot communication.
-        self.chatWin.addNetChatHis(sender, receivers, msg_json["log_msg"])
+        # Chat GUI removed - no longer adding network chat history
+        pass
 
 
     async def send_file_to_platoon(self, platoon_link, file_type, file_name_full_path):
