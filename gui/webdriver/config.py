@@ -7,6 +7,7 @@ WebDriver configuration settings
 import os
 import platform
 import sys
+from utils.logger_helper import logger_helper as logger
 
 
 # Official JSON endpoint for Chrome for Testing versions
@@ -51,46 +52,22 @@ WEBDRIVER_NAMES = {
     "Linux": "chromedriver"
 }
 
-# Project directory webdriver paths
-PROJECT_WEBDRIVER_PATHS = [
-    "chromedriver-win64/chromedriver.exe",
-    "chromedriver-win64/chromedriver",
-    "chromedriver-linux64/chromedriver",
-    "chromedriver-mac-x64/chromedriver",
-    "chromedriver-mac-arm64/chromedriver"
-]
-
 def get_webdriver_dir() -> str:
     """Get webdriver storage directory using app_info paths"""
     try:
         from config.app_info import app_info
 
-        # Use app_info.appdata_path for consistent path management
-        base_dir = os.path.join(app_info.appdata_path, "webdrivers")
+        # Use app_info.app_home_path for consistent path management
+        base_dir = os.path.join(app_info.app_home_path, "webdrivers")
 
         # Ensure directory exists
         os.makedirs(base_dir, exist_ok=True)
 
         return base_dir
 
-    except ImportError:
-        # Fallback if app_info is not available
-        if getattr(sys, 'frozen', False):
-            # Running in PyInstaller bundle
-            if platform.system() == "Windows":
-                app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~\\AppData\\Local'))
-                base_dir = os.path.join(app_data, 'eCan', 'webdrivers')
-            elif platform.system() == "Darwin":
-                base_dir = os.path.join(os.path.expanduser('~/Library/Application Support/eCan/webdrivers'))
-            else:
-                base_dir = os.path.join(os.path.expanduser('~/.local/share/eCan/webdrivers'))
-        else:
-            # Development mode
-            home_path = os.path.expanduser("~")
-            base_dir = os.path.join(home_path, ".eCan", "webdrivers")
-
-        os.makedirs(base_dir, exist_ok=True)
-        return base_dir
+    except ImportError as e:
+        logger.error("get webdriver dir failed", str(e))
+        return None
 
 def get_cache_dir() -> str:
     """Get cache directory for WebDriver files"""

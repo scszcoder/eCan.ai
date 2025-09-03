@@ -398,9 +398,9 @@ class MainWindow(QMainWindow):
         self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
 
         logger.info("some vars init done3....")
-        self.showMsg("loaded general settings:" + json.dumps(self.general_settings))
-        self.showMsg("Debug Mode:" + str(self.debug_mode) + " Schedule Mode:" + str(self.schedule_mode))
-        self.showMsg("self.platform==================================================>" + self.platform)
+        logger.debug("loaded general settings:" + json.dumps(self.general_settings))
+        logger.debug("Debug Mode:" + str(self.debug_mode) + " Schedule Mode:" + str(self.schedule_mode))
+        logger.debug("self.platform==================================================>" + self.platform)
         if os.path.exists(self.ads_settings_file):
             with open(self.ads_settings_file, 'r') as ads_settings_f:
                 self.ads_settings = json.load(ads_settings_f)
@@ -426,10 +426,10 @@ class MainWindow(QMainWindow):
         self.personalities = ["Introvert", "Extrovert"]
 
 
-        self.showMsg("ADS SETTINGS:"+json.dumps(self.ads_settings))
-        self.showMsg("=========Done With Network Setup, Start Local DB Setup =========")
-        self.showMsg("HOME PATH is::" + self.homepath, "info")
-        self.showMsg(self.dbfile)
+        logger.debug("ADS SETTINGS:"+json.dumps(self.ads_settings))
+        logger.debug("=========Done With Network Setup, Start Local DB Setup =========")
+        logger.debug("HOME PATH is::" + self.homepath, "info")
+        logger.debug(self.dbfile)
         logger.info("some vars init done4....")
         if "Commander" in self.machine_role:
             engine = init_db(self.dbfile)
@@ -450,7 +450,7 @@ class MainWindow(QMainWindow):
         self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
         self.rpa_work_assigned_for_today = False
-        self.showMsg("=========Done With Local DB Setup, Start GUI Setup =========")
+        logger.debug("=========Done With Local DB Setup, Start GUI Setup =========")
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
         self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
         self.south_layout = QVBoxLayout()
@@ -848,7 +848,7 @@ class MainWindow(QMainWindow):
         self.websocket = None
         self.setWindowTitle("My E-Commerce Agents ("+self.user+") - "+self.machine_role)
         self.vehicleMonitor = VehicleMonitorWin(self)
-        self.showMsg("================= DONE with GUI Setup ==============================")
+        logger.debug("================= DONE with GUI Setup ==============================")
 
 
         self.todays_scheduled_task_groups = {}
@@ -861,7 +861,7 @@ class MainWindow(QMainWindow):
             logger.debug("vname:", v.getName(), "status:", v.getStatus(), )
 
         # get current wifi ssid and stores it.
-        self.showMsg("Checking Wifi on OS platform: "+self.platform)
+        logger.debug("Checking Wifi on OS platform: "+self.platform)
         wifi_info = None
         if self.platform == "win":
             try:
@@ -870,7 +870,6 @@ class MainWindow(QMainWindow):
                                                   timeout=10)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                 logger.warning(f"Failed to get WiFi info using netsh: {str(e)}")
-                print(f"WiFi detection failed: {str(e)}")
                 # Try alternative method for Windows
                 try:
                     # Get network interfaces (psutil is already imported globally)
@@ -941,7 +940,7 @@ class MainWindow(QMainWindow):
             self.default_wifi = ""
 
         self.SettingsWin = SettingsWidget(self)
-        self.showMsg("load local bots, mission, skills ")
+        logger.debug("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
             self.readVehicleJsonFile()
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
@@ -1658,8 +1657,16 @@ class MainWindow(QMainWindow):
             success = await manager.initialize()
 
             if success:
-                self.default_webdriver_path = await manager.get_webdriver_path()
-                self._cached_webdriver_path = self.default_webdriver_path
+                new_path = await manager.get_webdriver_path()
+                # If we found a new, valid path that is different from the one in settings, update and save.
+                if new_path and new_path != self.general_settings.get("default_webdriver_path"):
+                    logger.info(f"WebDriver path updated to: {new_path}. Saving settings...")
+                    self.default_webdriver_path = new_path
+                    self.general_settings["default_webdriver_path"] = new_path
+                    self.saveSettings()
+                else:
+                    self.default_webdriver_path = new_path # Ensure it's set even if not saved
+
                 logger.info(f"✅ WebDriver initialization successful. Path: {self.default_webdriver_path}")
             else:
                 logger.error("❌ WebDriver initialization failed.")
@@ -1712,51 +1719,6 @@ class MainWindow(QMainWindow):
 
     def getBrowserUseController(self):
         return self.browser_use_controller()
-
-    def getBrowserManagerStatus(self):
-        if hasattr(self, 'unified_browser_manager') and self.unified_browser_manager:
-            return self.unified_browser_manager.get_status()
-        return {'initialized': False}
-
-    def getWebDriverManagerStatus(self):
-        """Get WebDriver manager status (compatibility method)"""
-        try:
-            from gui.webdriver.initializer import get_webdriver_initializer_sync
-            initializer = get_webdriver_initializer_sync()
-            status = initializer.get_status()
-            if status:
-                return {
-                    'initialized': status.initialized,
-                    'webdriver_path': status.webdriver_path,
-                    'chrome_version': status.chrome_version
-                }
-        except Exception as e:
-            logger.error(f"Failed to get WebDriver manager status: {e}")
-        
-        return {'initialized': False, 'webdriver_path': None, 'chrome_version': None}
-    
-    def _check_cached_webdriver(self):
-        """Check for cached WebDriver and update default_webdriver_path if found"""
-        try:
-            from gui.webdriver.utils import find_existing_webdriver
-            from gui.webdriver.config import get_webdriver_dir
-            
-            # Check webdriver directory for existing files
-            webdriver_dir = get_webdriver_dir()
-            cached_path = find_existing_webdriver(webdriver_dir)
-            
-            if cached_path:
-                self.default_webdriver_path = cached_path
-                self._cached_webdriver_path = cached_path
-                logger.info(f"✅ Found cached WebDriver: {cached_path}")
-                return True
-            else:
-                logger.info("No cached WebDriver found, will download dynamically")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to check cached WebDriver: {e}")
-            return False
 
     def load_build_dom_tree_script(self):
         script = ""

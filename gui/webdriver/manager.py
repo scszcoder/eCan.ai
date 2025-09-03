@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any
 
 from utils.logger_helper import logger_helper as logger
 from .config import get_webdriver_dir
-from .utils import detect_chrome_version, find_existing_webdriver, find_project_webdriver
+from .utils import detect_chrome_version, find_existing_webdriver
 from .downloader import WebDriverDownloader
 
 
@@ -146,11 +146,6 @@ class WebDriverManager:
     def _find_existing_webdriver(self) -> Optional[str]:
         """Find existing webdriver"""
         try:
-            # Check project directory for webdriver
-            project_driver = find_project_webdriver()
-            if project_driver:
-                return project_driver
-            
             # Check webdriver directory
             return find_existing_webdriver(self._webdriver_dir)
             
