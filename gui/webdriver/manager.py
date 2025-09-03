@@ -42,8 +42,10 @@ class WebDriverManager:
                 # Ensure webdriver directory exists
                 os.makedirs(self._webdriver_dir, exist_ok=True)
                 
-                # Detect Chrome version
-                self._chrome_version = detect_chrome_version()
+                # Detect Chrome version in a separate thread to avoid blocking
+                logger.info("Detecting Chrome version...")
+                self._chrome_version = await asyncio.to_thread(detect_chrome_version)
+                logger.info(f"Detected Chrome version: {self._chrome_version}")
                 
                 # Find or download matching webdriver
                 if not await self._ensure_webdriver():
