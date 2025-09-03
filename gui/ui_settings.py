@@ -133,7 +133,7 @@ class SettingsWidget(QMainWindow):
             self.cancel_button = QPushButton("Cancel")
             self.text = QLabel("Hello World", alignment=Qt.AlignCenter)
 
-            self.layout = QFormLayout(self)
+            self.layout = QFormLayout()
 
             self.browser_path_label = QLabel("Browser Executable:", alignment=Qt.AlignLeft)
             self.browser_path_line_edit = QLineEdit()

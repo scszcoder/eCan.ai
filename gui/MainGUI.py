@@ -549,9 +549,9 @@ class MainWindow(QMainWindow):
         self.showMsg("=========Done With Local DB Setup, Start GUI Setup =========")
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
         self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
-        self.south_layout = QVBoxLayout(self)
+        self.south_layout = QVBoxLayout()
         self.south_layout.addWidget(self.logConsoleBox)
-        self.bottomButtonsLayout = QHBoxLayout(self)
+        self.bottomButtonsLayout = QHBoxLayout()
         self.bottomButtonsLayout.addWidget(self.save_all_button)
         self.south_layout.addLayout(self.bottomButtonsLayout)
         self.bottomButtonsLayout.addWidget(self.log_out_button)
@@ -564,17 +564,17 @@ class MainWindow(QMainWindow):
         self.menuFont = QFont('Arial', 10)
         self.mainWidget = QWidget()
         self.westScrollArea = QWidget()
-        self.westScrollLayout = QVBoxLayout(self)
+        self.westScrollLayout = QVBoxLayout()
         self.westScrollLabel = QLabel(QApplication.translate("QLabel", "Missions:"), alignment=Qt.AlignLeft)
         self.westScrollLabel.setFont(self.menuFont)
 
         self.centralScrollArea = QWidget()
-        self.centralScrollLayout = QVBoxLayout(self)
+        self.centralScrollLayout = QVBoxLayout()
         self.centralScrollLabel = QLabel(QApplication.translate("QLabel", "Bots:"), alignment=Qt.AlignLeft)
         self.centralScrollLabel.setFont(self.menuFont)
 
         self.east0ScrollArea = QWidget()
-        self.east0ScrollLayout = QVBoxLayout(self)
+        self.east0ScrollLayout = QVBoxLayout()
         if (self.machine_role == "Platoon"):
             self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Running Missions:"), alignment=Qt.AlignLeft)
         else:
@@ -582,7 +582,7 @@ class MainWindow(QMainWindow):
         self.east0ScrollLabel.setFont(self.menuFont)
 
         self.east1ScrollArea = QWidget()
-        self.east1ScrollLayout = QVBoxLayout(self)
+        self.east1ScrollLayout = QVBoxLayout()
 
         self.east1ScrollLabel = QLabel(QApplication.translate("QLabel", "Completed Missions:"), alignment=Qt.AlignLeft)
         self.east1ScrollLabel.setFont(self.menuFont)
@@ -602,7 +602,7 @@ class MainWindow(QMainWindow):
         self.mission_to_date_edit = QLineEdit()
         self.mission_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
 
-        self.mission_search_layout = QHBoxLayout(self)
+        self.mission_search_layout = QHBoxLayout()
         self.mission_search_edit = QLineEdit()
         self.mission_search_edit.setClearButtonEnabled(True)
         self.mission_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
@@ -630,7 +630,7 @@ class MainWindow(QMainWindow):
         self.bot_to_date_edit = QLineEdit()
         self.bot_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
 
-        self.bot_search_layout = QHBoxLayout(self)
+        self.bot_search_layout = QHBoxLayout()
         self.bot_search_edit = QLineEdit()
         self.bot_search_edit.setClearButtonEnabled(True)
         self.bot_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
@@ -840,7 +840,7 @@ class MainWindow(QMainWindow):
 
         #centralWidget.setPlainText("Central widget")
 
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignTop)
         self.centralSplitter = QSplitter(Qt.Horizontal)
         self.bottomSplitter = QSplitter(Qt.Vertical)
@@ -855,7 +855,7 @@ class MainWindow(QMainWindow):
         # layout.addWidget(label_n, BorderLayout.North)
         self.menuBar = self._createMenuBar()
         self.mbWidget = QWidget()
-        self.mbLayout = QVBoxLayout(self)
+        self.mbLayout = QVBoxLayout()
         #self.mbLayout.addWidget(menuBar)
         self.mbWidget.setLayout(self.mbLayout)
 
@@ -909,7 +909,7 @@ class MainWindow(QMainWindow):
         self.rpa_quit_dialog_layout.addWidget(self.rpa_quit_cancel_button)
 
         self.rpa_quit_dialog.setLayout(self.rpa_quit_dialog_layout)
-        self.rpa_quit_confirmation_future = asyncio.get_event_loop().create_future()
+        self.rpa_quit_confirmation_future = self.mainLoop.create_future()
 
         # finally start the network service
         # because if we don't know who the real boss is, there no point doing any networking.....
@@ -922,13 +922,13 @@ class MainWindow(QMainWindow):
             self.lan_task = self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
 
         def on_ok():
-            self.rpa_quit_confirmation_future = loop.create_future()
+            self.rpa_quit_confirmation_future = self.mainLoop.create_future()
             if not self.rpa_quit_confirmation_future.done():
                 self.rpa_quit_confirmation_future.set_result(True)
             self.rpa_quit_dialog.close()
 
         def on_cancel():
-            self.rpa_quit_confirmation_future = loop.create_future()
+            self.rpa_quit_confirmation_future = self.mainLoop.create_future()
             if not self.rpa_quit_confirmation_future.done():
                 self.rpa_quit_confirmation_future.set_result(False)
             self.rpa_quit_dialog.close()

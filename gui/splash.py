@@ -28,7 +28,7 @@ class ThemedSplashScreen(QWidget):
     """
 
     def __init__(self):
-        super().__init__(None, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        super().__init__(None, Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedSize(640, 400)
 
