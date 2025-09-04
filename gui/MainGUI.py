@@ -58,9 +58,9 @@ from bot.Cloud import send_dequeue_tasks_to_cloud, send_schedule_request_to_clou
 
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
 from bot.Logger import LOG_SWITCH_BOARD, log3
-from gui.MissionGUI import MissionNewWin
-from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
-from gui.ScheduleGUI import ScheduleWin
+from gui.MissionGUI import MissionManager
+from gui.PlatoonGUI import PlatoonManager
+from gui.ScheduleGUI import ScheduleManager
 from gui.SkillManagerGUI import SkillManager
 from gui.TrainGUI import TrainManager, ReminderManager
 from gui.VehicleMonitorGUI import VehicleMonitorManager
@@ -471,10 +471,8 @@ class MainWindow(QMainWindow):
 
         self.east0ScrollArea = QWidget()
         self.east0ScrollLayout = QVBoxLayout()
-        if (self.machine_role == "Platoon"):
-            self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Running Missions:"), alignment=Qt.AlignLeft)
-        else:
-            self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Vehicles:"), alignment=Qt.AlignLeft)
+        # Vehicle management is now handled through PlatoonManager
+        self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Running Missions:"), alignment=Qt.AlignLeft)
         self.east0ScrollLabel.setFont(self.menuFont)
 
         self.east1ScrollArea = QWidget()
@@ -646,9 +644,8 @@ class MainWindow(QMainWindow):
         self.runningMissionModel = QStandardItemModel(self.running_missionListView)
         self.running_mission = None
 
-        self.vehicleListView = PlatoonListView(self)
-        self.vehicleListView.installEventFilter(self)
-        self.runningVehicleModel = QStandardItemModel(self.vehicleListView)
+        # Note: Vehicle list view has been removed as PlatoonManager is now a data handler
+        # All vehicle-related GUI components are now handled through PlatoonManager
 
         # self.skillListView = SkillListView(self)
         # self.skillListView.installEventFilter(self)
@@ -690,12 +687,7 @@ class MainWindow(QMainWindow):
         self.running_missionListView.setSelectionMode(QListView.ExtendedSelection)
         self.running_missionListView.setSelectionBehavior(QListView.SelectRows)
 
-        self.vehicleListView.setModel(self.runningVehicleModel)
-        self.vehicleListView.setViewMode(QListView.ListMode)
-        self.vehicleListView.setIconSize(QSize(48, 48))
-        self.vehicleListView.setMovement(QListView.Snap)
-        self.vehicleListView.setSelectionMode(QListView.ExtendedSelection)
-        self.vehicleListView.setSelectionBehavior(QListView.SelectRows)
+        # Vehicle list view has been removed - vehicles are now managed through PlatoonManager
 
 
         self.completed_missionListView.setModel(self.completedMissionModel)
@@ -763,12 +755,9 @@ class MainWindow(QMainWindow):
         # layout.addWidget(self.westScroll, BorderLayout.West)
         #layout.addWidget(ic0, BorderLayout.West)
 
-        if (self.machine_role == "Platoon"):
-            self.east0Scroll.setWidget(self.running_missionListView)
-            label_e1 = self.createLabel("Running Missions")
-        else:
-            self.east0Scroll.setWidget(self.vehicleListView)
-            label_e1 = self.createLabel("Vehicles")
+        # Vehicle list view has been removed - always show running missions
+        self.east0Scroll.setWidget(self.running_missionListView)
+        label_e1 = self.createLabel("Running Missions")
         # layout.addWidget(self.east0Scroll, BorderLayout.East)
 
         self.east1Scroll.setWidget(self.completed_missionListView)
@@ -5272,9 +5261,9 @@ class MainWindow(QMainWindow):
                     newVehicle.setStatus("connecting")
                 self.saveVehicle(newVehicle)
                 self.vehicles.append(newVehicle)
-                self.runningVehicleModel.appendRow(newVehicle)
-                if self.platoonWin:
-                    self.platoonWin.updatePlatoonWinWithMostRecentlyAddedVehicle()
+                # Vehicle GUI model removed - vehicles managed through PlatoonManager
+                if hasattr(self, 'platoon_manager') and self.platoon_manager:
+                    self.platoon_manager.add_vehicle(newVehicle)
 
                 resultV = newVehicle
             else:
@@ -5328,7 +5317,9 @@ class MainWindow(QMainWindow):
             newVehicle.setStatus("running_idle")
             self.saveVehicle(newVehicle)
             self.vehicles.append(newVehicle)
-            self.runningVehicleModel.appendRow(newVehicle)
+            # Vehicle GUI model removed - vehicles managed through PlatoonManager
+            if hasattr(self, 'platoon_manager') and self.platoon_manager:
+                self.platoon_manager.add_vehicle(newVehicle)
 
         self.showMsg("adding already linked vehicles.....")
         for i in range(len(fieldLinks)):
@@ -5342,7 +5333,9 @@ class MainWindow(QMainWindow):
                 newVehicle.setVid(ip)
                 self.saveVehicle(newVehicle)
                 self.vehicles.append(newVehicle)
-                self.runningVehicleModel.appendRow(newVehicle)
+                # Vehicle GUI model removed - vehicles managed through PlatoonManager
+                if hasattr(self, 'platoon_manager') and self.platoon_manager:
+                    self.platoon_manager.add_vehicle(newVehicle)
 
     def saveVehicle(self, vehicle: VEHICLE):
         v = self.vehicle_service.find_vehicle_by_ip(vehicle.ip)
@@ -5423,7 +5416,7 @@ class MainWindow(QMainWindow):
         self.showMsg("tcp connections....."+json.dumps([flk["ip"] for flk in fieldLinks]))
 
         if len(idxs) == 0:
-            idxs = range(self.runningVehicleModel.rowCount())
+            idxs = range(len(fieldLinks))  # Use fieldLinks count instead of GUI model
 
         # if not self.tcpServer == None:
         if len(fieldLinks) > 0:
@@ -5528,7 +5521,9 @@ class MainWindow(QMainWindow):
                 new_v.setStatus("offline")      # always set to offline when load from file. will self correct as we update it later....
                 self.saveVehicle(new_v)
                 self.vehicles.append(new_v)
-                self.runningVehicleModel.appendRow(new_v)             # initially set to be offline state and will be updated later when network status is updated
+                # Vehicle GUI model removed - vehicles managed through PlatoonManager
+                if hasattr(self, 'platoon_manager') and self.platoon_manager:
+                    self.platoon_manager.add_vehicle(new_v)
             else:
                 if "test_disabled" in vjd:
                     foundV = self.getVehicleByName(vjd["name"])
@@ -5746,27 +5741,30 @@ class MainWindow(QMainWindow):
         #new_bot = EBBOT(self)
         #new_icon = QIcon((":file-open.svg"))
         #self.centralWidget.setText("<b>File > New</b> clicked")
-        self.scheduleWin = ScheduleWin()
+        self.schedule_manager = ScheduleManager()
         #self.BotNewWin.resize(400, 200)
-        self.scheduleWin.show()
+        # Note: ScheduleManager is now a data handler, not a GUI window
+        # You may need to implement a new GUI or use existing schedule display methods
 
     def newMissionView(self):
         if self.missionWin == None:
-            self.missionWin = MissionNewWin(self)
+            self.missionWin = MissionManager(self)
             self.missionWin.setOwner(self.owner)
-            #self.BotNewWin.resize(400, 200)
         else:
             self.missionWin.setMode("new")
 
-        self.missionWin.show()
+        # Note: MissionManager is now a data handler, not a GUI window
+        # You may need to implement a new GUI or use existing mission display methods
+        self.showMsg("Mission manager created for new mission")
 
     def newVehiclesView(self):
-        if self.platoonWin == None:
-            self.showMsg("creating platoon monitor window....")
-            self.platoonWin = PlatoonWindow(self, "init")
+        if self.platoon_manager == None:
+            self.showMsg("creating platoon manager....")
+            self.platoon_manager = PlatoonManager(self, "init")
         else:
-            self.showMsg("Shows existing windows...")
-        self.platoonWin.show()
+            self.showMsg("Shows existing platoon manager...")
+        # Note: PlatoonManager is now a data handler, not a GUI window
+        # You may need to implement a new GUI or use existing platoon display methods
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.ContextMenu and source is self.botListView:
@@ -5854,47 +5852,7 @@ class MainWindow(QMainWindow):
         elif (event.type() == QEvent.MouseButtonPress ) and source is self.missionListView:
             self.showMsg("CLICKED on mission:"+str(source.indexAt(event.pos()).row())+"selected row:"+str(self.missions))
         #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
-        elif event.type() == QEvent.ContextMenu and source is self.vehicleListView:
-            self.showMsg("vehicles RC menu....")
-            self.popMenu = QMenu(self)
-            self.pop_menu_font = QFont("Helvetica", 10)
-            self.popMenu.setFont(self.pop_menu_font)
-            self.vehicleViewAction = self._createVehicleViewAction()
-            self.popMenu.addAction(self.vehicleViewAction)
-            self.vehicleSetUpTeamAction = self._createVehicleSetUpTeamAction()
-            self.vehicleSetUpWorkScheduleAction = self._createVehicleSetUpWorkScheduleAction()
-            self.vehiclePingAction = self._createVehiclePingAction()
-            self.vehicleMonitorAction = self._createVehicleMonitorAction()
-
-            self.popMenu.addAction(self.vehicleSetUpTeamAction)
-            self.popMenu.addAction(self.vehicleSetUpWorkScheduleAction)
-            self.popMenu.addAction(self.vehiclePingAction)
-            self.popMenu.addAction(self.vehicleMonitorAction)
-
-            selected_act = self.popMenu.exec_(event.globalPos())
-            if selected_act:
-                selected_indexes = self.vehicleListView.selectedIndexes()
-                print("selected indexes:", selected_indexes)
-
-                self.selected_vehicle_row = source.indexAt(event.pos()).row()
-                self.selected_vehicle_item = self.runningVehicleModel.item(self.selected_vehicle_row)
-
-                if selected_act == self.vehicleSetUpTeamAction:
-                    print("vehicle setup team clicked....", self.selected_vehicle_item.getName())
-                    asyncio.run(self.vehicleSetupTeam(self.selected_vehicle_item))
-
-                elif selected_act == self.vehicleSetUpWorkScheduleAction:
-                    print("vehicle setup work schedule clicked....", self.selected_vehicle_item.getName())
-                    vname = self.selected_vehicle_item.getName()
-                    p_task_groups = self.unassigned_scheduled_task_groups[vname]
-                    asyncio.run(self.vehicleSetupWorkSchedule(self.selected_vehicle_item, p_task_groups))
-                elif selected_act == self.vehiclePingAction:
-                    print("vehicle ping clicked....", self.selected_vehicle_item.getName())
-                    self.vehiclePing(self.selected_vehicle_item)
-                elif selected_act == self.vehicleMonitorAction:
-                    if self.selected_vehicle_item:
-                        print("vehicle ping clicked....", self.selected_vehicle_item.getName())
-                    self.vehicleShowMonitor(self.selected_vehicle_item)
+        # Vehicle list view context menu removed - vehicles are now managed through PlatoonManager
 
         elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
             self.showMsg("completed mission RC menu....")
@@ -5962,16 +5920,16 @@ class MainWindow(QMainWindow):
     def editCusMission(self):
         # File actions
         if self.missionWin:
-            self.showMsg("populating mission GUI............")
+            self.showMsg("populating mission data............")
             self.missionWin.setMission(self.selected_cus_mission_item)
         else:
-            self.showMsg("populating a newly created mission GUI............")
-            self.missionWin = MissionNewWin(self)
-            self.showMsg("done create mission win............"+str(self.selected_cus_mission_item.getMid())+" skills:"+self.selected_cus_mission_item.getSkills())
+            self.showMsg("creating a new mission manager............")
+            self.missionWin = MissionManager(self)
+            self.showMsg("done create mission manager............"+str(self.selected_cus_mission_item.getMid())+" skills:"+self.selected_cus_mission_item.getSkills())
             self.missionWin.setMission(self.selected_cus_mission_item)
 
         self.missionWin.setMode("update")
-        self.missionWin.show()
+        # Note: MissionManager is now a data handler, not a GUI window
         self.showMsg("edit mission" + str(self.selected_mission_row))
 
 
@@ -6207,30 +6165,7 @@ class MainWindow(QMainWindow):
 
 
 
-    def _createVehicleViewAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&View"))
-       return new_action
-
-    def _createVehicleSetUpTeamAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Set Up Team"))
-       return new_action
-
-    def _createVehicleSetUpWorkScheduleAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Set Up Work Schedule"))
-       return new_action
-
-    def _createVehiclePingAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Ping"))
-       return new_action
-
-    def _createVehicleMonitorAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Monitor"))
-       return new_action
+    # Vehicle action creation methods removed - vehicles are now managed through PlatoonManager
 
 
     def editBot(self):
@@ -7350,8 +7285,8 @@ class MainWindow(QMainWindow):
                                     await self.processPlatoonMsgs(msg_parts[2], msg_parts[0])
                                 elif msg_parts[1] == "connection":
                                     print("received connection message: " + msg_parts[0] + " " + msg_parts[2])
-                                    if self.platoonWin is None:
-                                        self.platoonWin = PlatoonWindow(self, "conn")
+                                    if self.platoon_manager is None:
+                                        self.platoon_manager = PlatoonManager(self, "conn")
                                     addedV = self.addConnectingVehicle(msg_parts[2], msg_parts[0])
                                     # await asyncio.sleep(8)
                                     # if len(self.vehicles) > 0:
