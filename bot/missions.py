@@ -3,8 +3,6 @@ import traceback
 import shutil
 from datetime import datetime
 
-from PySide6.QtGui import QStandardItem, QIcon
-
 from bot.Logger import log3
 import tzlocal
 
@@ -533,7 +531,7 @@ class M_Pub_Attributes():
 # help --
 
 
-class EBMISSION(QStandardItem):
+class EBMISSION:
     def __init__(self, main_win):
         super().__init__()
         self.main_win = main_win
@@ -544,10 +542,6 @@ class EBMISSION(QStandardItem):
                                 "session": self.main_win.session,
                                 "token": self.main_win.get_auth_token(),
                                 "uid": self.main_win.uid}
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
-        self.icon = QIcon(main_win.file_resource.mission_icon_path)
-        self.setIcon(self.icon)
-        self.setFont(main_win.std_item_font)
         # self.destroyed.connect(lambda: print(f"{self} is being destroyed"))
         self.retry_records=[]
         self.failure_context = {}
@@ -555,20 +549,11 @@ class EBMISSION(QStandardItem):
     def __del__(self):
         print(f"EBMISSION {self.getMid()} is being deleted")
 
-    def updateIcon(self):
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":"+self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
-        self.icon = QIcon(self.main_win.file_resource.mission_icon_path)
-        self.setIcon(self.icon)
-
     def setFingerPrintProfile(self, axpf):
         self.privateAttributes.fingerprint_profile = axpf
 
     def getFingerPrintProfile(self):
         return self.privateAttributes.fingerprint_profile
-
-    def setMissionIcon(self, icon):
-        self.icon = icon
-        self.setIcon(self.icon)
 
     def getMid(self):
         return self.pubAttributes.missionId
@@ -581,7 +566,6 @@ class EBMISSION(QStandardItem):
 
     def setMid(self, mid):
         self.pubAttributes.missionId = mid
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def getTicket(self):
         return self.pubAttributes.ticket
@@ -612,7 +596,6 @@ class EBMISSION(QStandardItem):
 
     def setMtype(self, mtype):
         self.pubAttributes.ms_type = mtype
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def setBuyType(self, buy_type):
         self.pubAttributes.buy_type = buy_type
@@ -637,7 +620,6 @@ class EBMISSION(QStandardItem):
 
     def setBid(self, bid):
         self.pubAttributes.bot_id = bid
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def getStatus(self):
         return self.pubAttributes.status
@@ -1352,10 +1334,6 @@ class EBMISSION(QStandardItem):
 
     def loadNetRespJson(self, jd):
         self.pubAttributes.loadNetRespJson(jd)
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
-
-    def updateDisplay(self):
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadJson(self, jd):
         self.pubAttributes.loadJson(jd["pubAttributes"])
@@ -1448,7 +1426,6 @@ class EBMISSION(QStandardItem):
         self.setFingerPrintProfile(dj.get("fingerprint_profile", ""))
         self.setAsServer(dj.get("as_server", False))
         self.setReqFile(dj.get("original_req_file", ""))
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
     def loadBusinessesDBData(self, dj):
         mid = dj.get("mid", 0)
@@ -1482,7 +1459,6 @@ class EBMISSION(QStandardItem):
         self.setFollowSeller(dj.get("order_follow_seller", ""))
         self.setFollowPrice(dj.get("order_follow_price", 0.0))
         self.setReqFile(dj.get("order_source", ""))
-        self.setText('mission' + str(self.getMid()) + ":Bot" + str(self.getBid()) + ":" + self.pubAttributes.ms_type + ":"+self.pubAttributes.site)
 
 
     def loadAMZReqData(self,jd, reqFile):

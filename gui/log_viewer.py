@@ -7,16 +7,14 @@ Displays real-time and historical log information from logger_helper
 """
 
 import os
-import sys
 from datetime import datetime
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QPushButton, QTextEdit, QLabel, QComboBox,
-                               QCheckBox, QSplitter, QFileDialog, QMessageBox,
+                               QCheckBox, QFileDialog, QMessageBox,
                                QProgressBar, QStatusBar, QLineEdit)
-from PySide6.QtCore import QTimer, QThread, Signal, Qt, QFileSystemWatcher, QEvent
-from PySide6.QtGui import QFont, QTextCursor, QAction, QIcon
+from PySide6.QtCore import QThread, Signal, Qt, QEvent
+from PySide6.QtGui import QFont, QTextCursor, QAction
 from utils.logger_helper import logger_helper as logger
-from config.app_info import app_info
 from config.constants import APP_NAME
 
 
