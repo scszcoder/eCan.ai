@@ -57,12 +57,11 @@ from bot.Cloud import send_dequeue_tasks_to_cloud, send_schedule_request_to_clou
     send_update_vehicles_request_to_cloud
 
 from gui.FlowLayout import BotListView, MissionListView, DragPanel
-from gui.LoggerGUI import CommanderLogWin
 from bot.Logger import LOG_SWITCH_BOARD, log3
 from gui.MissionGUI import MissionNewWin
 from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
 from gui.ScheduleGUI import ScheduleWin
-from gui.SkillManagerGUI import SkillManagerWindow
+from gui.SkillManagerGUI import SkillManager
 from gui.TrainGUI import TrainNewWin, ReminderWin
 from gui.VehicleMonitorGUI import VehicleMonitorWin
 from bot.WorkSkill import WORKSKILL
@@ -273,10 +272,6 @@ class MainWindow(QMainWindow):
         self.selected_mission_item = None
         self.BotNewWin = None
         self.missionWin = None
-        # self.newGui = BrowserWindow(self)
-        # self.newGui.hide()  # Ensure window is created in background, not displayed
-        # logger.info("newGui init done....")
-        # LightRAG will be started after successful login; placeholder here
         self.lightrag_server = None
         self.trainNewSkillWin = None
         self.reminderWin = None
@@ -287,11 +282,8 @@ class MainWindow(QMainWindow):
         # Log console removed - no longer needed
         logger.info("some vars init done1....")
 
-        self.SkillManagerWin = SkillManagerWindow(self)
-        self.SkillManagerWin.hide()  # Ensure window is created in background, not displayed
+        self.skill_manager = SkillManager(self)
 
-        self.netLogWin = CommanderLogWin(self)
-        self.netLogWin.hide()  # Ensure window is created in background, not displayed
         self.machine_name = myname
         self.commander_name = ""
         self.system = platform.system()
@@ -1447,7 +1439,7 @@ class MainWindow(QMainWindow):
     # 4) build up skill_table (a look up table)
     def dailySkillsetUpdate(self):
         if self.general_settings.get("schedule_mode", "auto") != "test":
-            cloud_skills_results = self.SkillManagerWin.fetchMySkills()
+            cloud_skills_results = self.skill_manager.fetch_my_skills()
             logger.info("DAILY SKILL FETCH:", cloud_skills_results)
         else:
             cloud_skills_results = {"body": "{}"}
@@ -1477,10 +1469,9 @@ class MainWindow(QMainWindow):
             # if there is any conlict will use the cloud data as the true data.
             self.loadPublicSkills()
 
-            # now add to skill manager display
-            for skill in self.skills:
-                    # update skill manager display...
-                    self.SkillManagerWin.addSkillRows([skill])
+            # Note: SkillManager no longer handles GUI display
+            # Skills are now managed in the main skills list
+            # You may need to implement a new display method or use existing skill display
 
 
             # for sanity immediately re-generate psk files... and gather dependencies info so that when user creates a new mission
@@ -1493,7 +1484,10 @@ class MainWindow(QMainWindow):
 
 
     def addSkillRowsToSkillManager(self):
-        self.skillManagerWin.addSkillRows(self.skills)
+        # Note: SkillManager no longer handles GUI display
+        # Skills are now managed in the main skills list
+        # You may need to implement a new display method or use existing skill display
+        pass
 
     def regenSkillPSKs(self):
         for ski, sk in enumerate(self.skills):
@@ -1809,11 +1803,6 @@ class MainWindow(QMainWindow):
 
     def get_host_role(self):
         return self.host_role
-
-    def appendNetLogs(self, msgs):
-        for msg in msgs:
-            # Log console removed - no longer appending network logs to GUI
-            pass
 
     def createLabel(self, text):
         label = QLabel(QApplication.translate("QLabel", text))
@@ -2592,44 +2581,10 @@ class MainWindow(QMainWindow):
         return ex_stat
 
     def warn(self, msg, level="info"):
-        warnText = self.log_text_format(msg, level)
-        self.netLogWin.appendLogs([warnText])
-        self.appendNetLogs([warnText])
+        logger.warning(msg)
 
     def showMsg(self, msg, level="info"):
-        msg_text = self.log_text_format(msg, level)
-        self.appendNetLogs([msg_text])
-
-    def log_text_format(self, msg, level):
-        logTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        text_color = ""
-        if level == "error":
-            text_color = "color:#ff0000;"
-            logger.error(msg)
-        elif level == "warn":
-            text_color = "color:#ff8000;"
-            logger.warning(msg)
-        elif level == "info":
-            text_color = "color:#004800;"
-            logger.info(msg)
-        elif level == "debug":
-            text_color = "color:#00ffff;"
-            logger.debug(msg)
-
-        msg_text = """ 
-            <div style="display: flex; padding: 5pt;">
-                <span  style=" font-size:12pt; font-weight:450; margin-right: 40pt;"> 
-                    %s |
-                </span>
-                <span style=" font-size:12pt; font-weight:450; %s">
-                    %s
-                </span>
-                |
-                <span style=" font-size:12pt; font-weight:450; %s;">
-                    found %s
-                </span>
-            </div>""" % (logTime, text_color, level, text_color, msg)
-        return msg_text
+        logger.info(msg)
 
     def logDailySchedule(self, netSched):
         now = datetime.now()  # current date and time
@@ -6878,9 +6833,9 @@ class MainWindow(QMainWindow):
         nsk.setNetRespJsonData(nskjson)
 
     def showSkillManager(self):
-        if self.SkillManagerWin == None:
-            self.SkillManagerWin = SkillManagerWindow(self)
-        self.SkillManagerWin.show()
+        # Note: SkillManager is now a data handler, not a GUI window
+        # You may need to implement a new GUI or use existing skill display methods
+        self.showMsg("Skill Manager is now a data handler. Use skill_manager methods directly.")
 
     def uploadSkill(self):
         filename, _ = QFileDialog.getOpenFileName(
