@@ -3,6 +3,8 @@ import traceback
 from selenium.webdriver.common.by import By
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_agent_by_id, get_traceback
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException, WebDriverException
+from utils.logger_helper import get_agent_by_id, get_traceback
 
 def extract_categories_page(web_driver):
     try:
@@ -182,6 +184,116 @@ HEADLESS = True
 PAGELOAD_TIMEOUT = 45
 WAIT_TIMEOUT = 20
 
+ROW_SELECTOR = ".SearchResults-productRow, .ProductResults .ProductRow, .SearchResults .ProductRow"
+
+def _wait(driver, timeout: int = 30):
+    return WebDriverWait(driver, timeout, poll_frequency=0.25, ignored_exceptions=(StaleElementReferenceException,))
+
+
+def _visible(driver, css: str, timeout: int = 30):
+    return _wait(driver, timeout).until(EC.visibility_of_element_located((By.CSS_SELECTOR, css)))
+
+
+def _present(driver, css: str, timeout: int = 30):
+    return _wait(driver, timeout).until(EC.presence_of_element_located((By.CSS_SELECTOR, css)))
+
+
+def _visible_all(driver, css: str, timeout: int = 30):
+    return _wait(driver, timeout).until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, css)))
+
+
+def _safe_text(el) -> str:
+    try:
+        return el.text.strip()
+    except Exception:
+        return ""
+
+
+def _js(driver, script: str, *args):
+    return driver.execute_script(script, *args)
+
+
+def selenium_accept_cookies(driver):
+    # OneTrust common ID
+    try:
+        btn = driver.find_elements(By.CSS_SELECTOR, "#onetrust-accept-btn-handler")
+        if btn:
+            btn[0].click()
+            print("✅ Accepted cookies (OneTrust)")
+            time.sleep(0.2)
+            return
+    except Exception:
+        pass
+    # Generic accept button
+    try:
+        btns = driver.find_elements(By.XPATH, "//button[normalize-space()='Accept']")
+        if btns:
+            btns[0].click()
+            print("✅ Accepted cookies (generic)")
+            time.sleep(0.2)
+    except Exception:
+        pass
+
+
+def selenium_wait_for_results_container(driver, timeout_ms: int = 60000):
+    timeout = max(1, timeout_ms // 1000)
+    selectors = [
+        "#productSearchContainer, .SearchResults.ProductResults",
+        ".SearchResults.ProductResults",
+        ".SearchResults",
+        ".ProductResults",
+        ".SearchResults-productTable",
+    ]
+
+    # Strategy 1: try in current context
+    for sel in selectors:
+        try:
+            el = _visible(driver, sel, timeout=3)
+            if el:
+                return el
+        except Exception:
+            pass
+
+    # Strategy 2: probe iframes for the container
+    try:
+        frames = driver.find_elements(By.CSS_SELECTOR, "iframe, frame")
+    except Exception:
+        frames = []
+    for fr in frames[:10]:
+        try:
+            driver.switch_to.frame(fr)
+            for sel in selectors:
+                try:
+                    el = _visible(driver, sel, timeout=3)
+                    if el:
+                        print("[results_container] Found inside an iframe")
+                        return el
+                except Exception:
+                    pass
+            driver.switch_to.default_content()
+        except Exception:
+            try:
+                driver.switch_to.default_content()
+            except Exception:
+                pass
+
+    # Strategy 3: wait for any row to appear (some pages omit the wrapper selectors)
+    try:
+        _visible(driver, ROW_SELECTOR, timeout=timeout)
+        # Return the body or closest container to keep API consistent
+        try:
+            return driver.find_element(By.TAG_NAME, "body")
+        except Exception:
+            return driver
+    except Exception:
+        # Final attempt with presence instead of visibility
+        try:
+            _present(driver, ROW_SELECTOR, timeout=timeout)
+            return driver.find_element(By.TAG_NAME, "body")
+        except Exception:
+            # Propagate timeout with context
+            raise TimeoutException("Results container and rows not found within timeout")
+
 
 def clean_text(txt: str) -> str:
     return re.sub(r"\s+", " ", (txt or "").strip())
@@ -219,6 +331,55 @@ def setup_driver() -> webdriver.Chrome:
     driver.set_page_load_timeout(PAGELOAD_TIMEOUT)
     return driver
 
+
+def selenium_wait_for_page_load(driver):
+    try:
+        _wait(driver, 60).until(lambda d: d.execute_script("return document.readyState") == "complete")
+    except TimeoutException:
+        pass
+    selenium_accept_cookies(driver)
+
+
+
+def selenium_apply_parametric_filters(webdriver, pfs):
+    try:
+        selenium_wait_for_results_container(driver, timeout_ms=60000)
+    except TimeoutException:
+        print("⚠️ Results container not found yet; continuing")
+
+    # Ensure filter blocks present/visible if possible
+    try:
+        _present(driver, ".FilterContainer-filter--native", timeout=60)
+    except TimeoutException:
+        try:
+            _present(driver, ".FilterContainer-filter", timeout=60)
+        except TimeoutException:
+            print("⚠️ Filter blocks not found; proceeding anyway")
+
+    # Apply filters incrementally
+    print("ready to fill parametric filters")
+    for pf in pfs:
+        set_values = pf.get("setValues") or []
+        if not set_values:
+            continue
+        filter_name = pf.get("name", "")
+        css_name = pf.get("css_name")
+        for val in set_values:
+            try:
+                vals = selenium_pick_parameter(driver, filter_name, css_name, [val])
+                print(f"➡️ Selected values for {filter_name}: {vals}")
+                selenium_apply_now(driver)
+            except Exception as e:
+                print(f"❌ Failed to set {filter_name} to {val}: {e}")
+
+
+
+def selenium_extract_search_results(webdriver):
+    search_results = []
+
+
+
+    return search_results
 
 def click_if_exists(driver, by, selector, timeout=2):
     try:
@@ -438,6 +599,26 @@ def extract_search_results_table(driver):
         driver.quit()
 
 
+def digi_key_selenium_search_component(driver, pfs, site_url):
+    try:
+        selenium_wait_for_page_load(driver)
+
+        selenium_apply_parametric_filters(webdriver, pfs)
+
+        selenium_wait_for_results_container(driver)
+
+        results = selenium_extract_search_results(webdriver)
+
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorDigikeySeleniumSearchComponent")
+        results = []
+
+    return results
+
+
+
+
 if __name__ == "__main__":
-    extract_search_results_table()
+    driver = setup_driver()
+    extract_search_results_table(driver)
 
