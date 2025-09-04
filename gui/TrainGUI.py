@@ -10,19 +10,15 @@ import json
 import os
 import platform
 import queue
-import threading
 import time
 from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 
 import pyautogui
-import pyscreenshot as ImageGrab
 from pynput import keyboard, mouse
 
-from utils.logger_helper import logger_helper
-
-logger = logger_helper
+from utils.logger_helper import logger_helper as logger
 
 
 class TrainManager:

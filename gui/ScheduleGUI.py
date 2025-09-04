@@ -7,7 +7,7 @@ Handles scheduling operations without GUI components
 
 from datetime import datetime, date
 from typing import Dict, List, Any, Optional
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 
 
 class ScheduleManager:
@@ -39,7 +39,7 @@ class ScheduleManager:
             self.events[default_date2] = ["Alice's birthday"]
             
         except Exception as e:
-            logger_helper.error(f"Error initializing default events: {e}")
+            logger.error(f"Error initializing default events: {e}")
             
     def add_event(self, event_date: date, event_description: str) -> bool:
         """
@@ -57,11 +57,11 @@ class ScheduleManager:
                 self.events[event_date] = []
             
             self.events[event_date].append(event_description)
-            logger_helper.info(f"Event added: {event_description} on {event_date}")
+            logger.info(f"Event added: {event_description} on {event_date}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error adding event: {e}")
+            logger.error(f"Error adding event: {e}")
             return False
             
     def remove_event(self, event_date: date, event_description: str) -> bool:
@@ -84,14 +84,14 @@ class ScheduleManager:
                     if not self.events[event_date]:
                         del self.events[event_date]
                         
-                    logger_helper.info(f"Event removed: {event_description} from {event_date}")
+                    logger.info(f"Event removed: {event_description} from {event_date}")
                     return True
                     
-            logger_helper.warning(f"Event not found: {event_description} on {event_date}")
+            logger.warning(f"Event not found: {event_description} on {event_date}")
             return False
             
         except Exception as e:
-            logger_helper.error(f"Error removing event: {e}")
+            logger.error(f"Error removing event: {e}")
             return False
             
     def get_events_for_date(self, event_date: date) -> List[str]:
@@ -142,12 +142,12 @@ class ScheduleManager:
         try:
             if event_date in self.events:
                 del self.events[event_date]
-                logger_helper.info(f"All events cleared for {event_date}")
+                logger.info(f"All events cleared for {event_date}")
                 return True
             return False
             
         except Exception as e:
-            logger_helper.error(f"Error clearing events for date: {e}")
+            logger.error(f"Error clearing events for date: {e}")
             return False
             
     def clear_all_events(self) -> bool:
@@ -159,11 +159,11 @@ class ScheduleManager:
         """
         try:
             self.events.clear()
-            logger_helper.info("All events cleared")
+            logger.info("All events cleared")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error clearing all events: {e}")
+            logger.error(f"Error clearing all events: {e}")
             return False
             
     def add_schedule(self, schedule_id: str, schedule_data: Dict[str, Any]) -> bool:
@@ -179,11 +179,11 @@ class ScheduleManager:
         """
         try:
             self.schedules[schedule_id] = schedule_data
-            logger_helper.info(f"Schedule added: {schedule_id}")
+            logger.info(f"Schedule added: {schedule_id}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error adding schedule: {e}")
+            logger.error(f"Error adding schedule: {e}")
             return False
             
     def get_schedule(self, schedule_id: str) -> Optional[Dict[str, Any]]:
@@ -211,12 +211,12 @@ class ScheduleManager:
         try:
             if schedule_id in self.schedules:
                 del self.schedules[schedule_id]
-                logger_helper.info(f"Schedule removed: {schedule_id}")
+                logger.info(f"Schedule removed: {schedule_id}")
                 return True
             return False
             
         except Exception as e:
-            logger_helper.error(f"Error removing schedule: {e}")
+            logger.error(f"Error removing schedule: {e}")
             return False
             
     def add_recurring_task(self, task_id: str, task_data: Dict[str, Any]) -> bool:
@@ -232,11 +232,11 @@ class ScheduleManager:
         """
         try:
             self.recurring_tasks[task_id] = task_data
-            logger_helper.info(f"Recurring task added: {task_id}")
+            logger.info(f"Recurring task added: {task_id}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error adding recurring task: {e}")
+            logger.error(f"Error adding recurring task: {e}")
             return False
             
     def get_recurring_task(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -264,12 +264,12 @@ class ScheduleManager:
         try:
             if task_id in self.recurring_tasks:
                 del self.recurring_tasks[task_id]
-                logger_helper.info(f"Recurring task removed: {task_id}")
+                logger.info(f"Recurring task removed: {task_id}")
                 return True
             return False
             
         except Exception as e:
-            logger_helper.error(f"Error removing recurring task: {e}")
+            logger.error(f"Error removing recurring task: {e}")
             return False
             
     def add_notification(self, notification_data: Dict[str, Any]) -> bool:
@@ -288,11 +288,11 @@ class ScheduleManager:
             notification_data['timestamp'] = datetime.now().isoformat()
             
             self.notifications.append(notification_data)
-            logger_helper.info(f"Notification added: {notification_id}")
+            logger.info(f"Notification added: {notification_id}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error adding notification: {e}")
+            logger.error(f"Error adding notification: {e}")
             return False
             
     def get_notifications(self, limit: int = None) -> List[Dict[str, Any]]:
@@ -318,11 +318,11 @@ class ScheduleManager:
         """
         try:
             self.notifications.clear()
-            logger_helper.info("All notifications cleared")
+            logger.info("All notifications cleared")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error clearing notifications: {e}")
+            logger.error(f"Error clearing notifications: {e}")
             return False
             
     def get_schedule_summary(self) -> Dict[str, Any]:
@@ -340,7 +340,7 @@ class ScheduleManager:
             }
             
         except Exception as e:
-            logger_helper.error(f"Error getting schedule summary: {e}")
+            logger.error(f"Error getting schedule summary: {e}")
             return {}
             
     def export_schedule_data(self, filepath: str) -> bool:
@@ -368,11 +368,11 @@ class ScheduleManager:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
                 
-            logger_helper.info(f"Schedule data exported to: {filepath}")
+            logger.info(f"Schedule data exported to: {filepath}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error exporting schedule data: {e}")
+            logger.error(f"Error exporting schedule data: {e}")
             return False
             
     def import_schedule_data(self, filepath: str) -> bool:
@@ -399,7 +399,7 @@ class ScheduleManager:
                         event_date = datetime.strptime(date_str, '%Y-%m-%d').date()
                         self.events[event_date] = events
                     except ValueError:
-                        logger_helper.warning(f"Invalid date format: {date_str}")
+                        logger.warning(f"Invalid date format: {date_str}")
                         
             if 'schedules' in import_data:
                 self.schedules = import_data['schedules']
@@ -410,11 +410,11 @@ class ScheduleManager:
             if 'notifications' in import_data:
                 self.notifications = import_data['notifications']
                 
-            logger_helper.info(f"Schedule data imported from: {filepath}")
+            logger.info(f"Schedule data imported from: {filepath}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error importing schedule data: {e}")
+            logger.error(f"Error importing schedule data: {e}")
             return False
             
     def cleanup(self):
@@ -424,9 +424,9 @@ class ScheduleManager:
             self.schedules.clear()
             self.recurring_tasks.clear()
             self.clear_notifications()
-            logger_helper.info("ScheduleManager cleanup completed")
+            logger.info("ScheduleManager cleanup completed")
         except Exception as e:
-            logger_helper.error(f"Error during cleanup: {e}")
+            logger.error(f"Error during cleanup: {e}")
 
 
 # Legacy class name for backward compatibility

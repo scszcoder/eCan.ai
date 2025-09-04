@@ -5,10 +5,8 @@ Platoon Manager - Data and Business Logic Handler
 Handles platoon operations without GUI components
 """
 
-import json
-from datetime import datetime
-from typing import Dict, List, Any, Optional
-from utils.logger_helper import logger_helper
+from typing import List, Any
+from utils.logger_helper import logger_helper as logger
 
 
 class PlatoonManager:
@@ -50,10 +48,10 @@ class PlatoonManager:
             if hasattr(self.parent, 'fieldLinks'):
                 self.field_links = self.parent.fieldLinks.copy()
                 
-            logger_helper.info("Platoon data initialized")
+            logger.info("Platoon data initialized")
             
         except Exception as e:
-            logger_helper.error(f"Error initializing platoon data: {e}")
+            logger.error(f"Error initializing platoon data: {e}")
             
     def get_vehicles(self) -> List[Any]:
         """Get list of vehicles in platoon"""
@@ -64,11 +62,11 @@ class PlatoonManager:
         try:
             if vehicle not in self.vehicles:
                 self.vehicles.append(vehicle)
-                logger_helper.info(f"Vehicle added to platoon: {vehicle.getName()}")
+                logger.info(f"Vehicle added to platoon: {vehicle.getName()}")
                 return True
             return False
         except Exception as e:
-            logger_helper.error(f"Error adding vehicle: {e}")
+            logger.error(f"Error adding vehicle: {e}")
             return False
             
     def send_platoon_command(self, command: str, vehicle_indices: List[int], mission_ids: List[int]) -> bool:
@@ -76,10 +74,10 @@ class PlatoonManager:
         try:
             if hasattr(self.parent, 'sendPlatoonCommand'):
                 self.parent.sendPlatoonCommand(command, vehicle_indices, mission_ids)
-            logger_helper.info(f"Platoon command sent: {command}")
+            logger.info(f"Platoon command sent: {command}")
             return True
         except Exception as e:
-            logger_helper.error(f"Error sending platoon command: {e}")
+            logger.error(f"Error sending platoon command: {e}")
             return False
 
 

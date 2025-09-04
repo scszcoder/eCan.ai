@@ -3,7 +3,7 @@ import traceback
 import time
 
 from bot.missions import TIME_SLOT_MINS, EBMISSION
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 
 
 class MissionManager:
@@ -342,7 +342,7 @@ class MissionManager:
             self.loadSkills(mission)
 
         except Exception as e:
-            logger_helper.debug(f"Error setting mission: {e}")
+            logger.debug(f"Error setting mission: {e}")
             traceback.print_exc()
 
     # Data management methods

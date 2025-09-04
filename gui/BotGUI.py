@@ -5,7 +5,6 @@ Bot Manager - Data and Business Logic Handler
 Handles bot management operations without GUI components
 """
 
-import ast
 import json
 from typing import List, Dict, Any, Optional
 
