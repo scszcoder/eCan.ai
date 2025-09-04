@@ -61,8 +61,10 @@ def detect_chrome_version() -> str:
                         if chrome_exe_path and os.path.exists(chrome_exe_path):
                             try:
                                 # Use multiple flags to prevent browser from opening, especially on Windows
+                                # Use encoding='utf-8' and errors='ignore' to handle encoding issues on Windows
                                 version_output = subprocess.check_output([chrome_exe_path, "--headless", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--version"], 
-                                                                       stderr=subprocess.STDOUT, text=True, timeout=10)
+                                                                       stderr=subprocess.STDOUT, text=True, 
+                                                                       encoding='utf-8', errors='ignore', timeout=10)
                                 match = re.search(r"(\d+\.\d+\.\d+\.\d+)", version_output)
                                 if match:
                                     version = match.group(1)
@@ -105,8 +107,10 @@ def detect_chrome_version() -> str:
                 if os.path.exists(path):
                     try:
                         # Use --headless and --disable-gpu to prevent browser from opening
+                        # Use encoding='utf-8' and errors='ignore' to handle encoding issues on Windows
                         version_output = subprocess.check_output([path, "--headless", "--disable-gpu", "--version"], 
-                                                               stderr=subprocess.STDOUT, text=True, timeout=5)
+                                                               stderr=subprocess.STDOUT, text=True, 
+                                                               encoding='utf-8', errors='ignore', timeout=5)
                         # More flexible regex patterns that handle localized output
                         patterns = [
                             r"Google Chrome\s+(\d+\.\d+\.\d+\.\d+)",  # Standard format
@@ -130,8 +134,10 @@ def detect_chrome_version() -> str:
             for cmd in path_commands:
                 try:
                     # Use --headless and --disable-gpu to prevent browser from opening
+                    # Use encoding='utf-8' and errors='ignore' to handle encoding issues on Windows
                     version_output = subprocess.check_output([cmd, "--headless", "--disable-gpu", "--version"], 
-                                                           stderr=subprocess.STDOUT, text=True, timeout=5)
+                                                           stderr=subprocess.STDOUT, text=True, 
+                                                           encoding='utf-8', errors='ignore', timeout=5)
                     # More flexible regex patterns that handle localized output
                     patterns = [
                         r"Google Chrome\s+(\d+\.\d+\.\d+\.\d+)",  # Standard format
@@ -162,8 +168,10 @@ def detect_chrome_version() -> str:
                 if os.path.exists(path):
                     try:
                         # Use --headless and --disable-gpu to prevent browser from opening
+                        # Use encoding='utf-8' and errors='ignore' to handle encoding issues on Windows
                         version_output = subprocess.check_output([path, "--headless", "--disable-gpu", "--version"], 
-                                                               stderr=subprocess.STDOUT, text=True, timeout=5)
+                                                               stderr=subprocess.STDOUT, text=True, 
+                                                               encoding='utf-8', errors='ignore', timeout=5)
                         # More flexible regex patterns that handle localized output
                         patterns = [
                             r"Google Chrome\s+(\d+\.\d+\.\d+\.\d+)",  # Standard format
@@ -187,8 +195,10 @@ def detect_chrome_version() -> str:
             for cmd in path_commands:
                 try:
                     # Use --headless and --disable-gpu to prevent browser from opening
+                    # Use encoding='utf-8' and errors='ignore' to handle encoding issues on Windows
                     version_output = subprocess.check_output([cmd, "--headless", "--disable-gpu", "--version"], 
-                                                           stderr=subprocess.STDOUT, text=True, timeout=5)
+                                                           stderr=subprocess.STDOUT, text=True, 
+                                                           encoding='utf-8', errors='ignore', timeout=5)
                     # More flexible regex patterns that handle localized output
                     patterns = [
                         r"Google Chrome\s+(\d+\.\d+\.\d+\.\d+)",  # Standard format
@@ -260,3 +270,194 @@ def get_chrome_major_version(version: str) -> str:
         return version.split('.')[0]
     except (IndexError, AttributeError):
         return "120"  # Default major version
+
+def detect_webdriver_version(webdriver_path: str) -> Optional[str]:
+    """Detect the version of an existing webdriver executable"""
+    try:
+        if not os.path.exists(webdriver_path):
+            return None
+            
+        if not os.access(webdriver_path, os.X_OK):
+            return None
+            
+        # Try to get version using --version flag
+        try:
+            # Use encoding='utf-8' and errors='ignore' to handle encoding issues on Windows
+            version_output = subprocess.check_output([webdriver_path, "--version"], 
+                                                   stderr=subprocess.STDOUT, text=True, 
+                                                   encoding='utf-8', errors='ignore', timeout=10)
+            
+            # Parse version from output
+            # ChromeDriver output format: "ChromeDriver 120.0.6099.109 (a9f0a9632c)"
+            version_match = re.search(r"ChromeDriver\s+(\d+\.\d+\.\d+\.\d+)", version_output)
+            if version_match:
+                version = version_match.group(1)
+                logger.info(f"Detected WebDriver version {version} from: {webdriver_path}")
+                return version
+                
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+            
+        # Fallback: try to extract version from filename if it follows naming convention
+        # Example: chromedriver-120.0.6099.109.exe
+        filename = os.path.basename(webdriver_path)
+        filename_version_match = re.search(r"chromedriver[_-](\d+\.\d+\.\d+\.\d+)", filename)
+        if filename_version_match:
+            version = filename_version_match.group(1)
+            logger.info(f"Extracted WebDriver version {version} from filename: {filename}")
+            return version
+            
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error detecting WebDriver version: {e}")
+        return None
+
+def is_webdriver_compatible(webdriver_path: str, chrome_version: str) -> bool:
+    """
+    Check if the existing webdriver is compatible with the Chrome version.
+    
+    Args:
+        webdriver_path: Path to the webdriver executable
+        chrome_version: Chrome browser version string (e.g., "120.0.6099.109")
+        
+    Returns:
+        bool: True if compatible, False otherwise
+    """
+    try:
+        if not chrome_version:
+            logger.warning("Chrome version not provided, cannot check compatibility")
+            return False
+            
+        # Get webdriver version
+        webdriver_version = detect_webdriver_version(webdriver_path)
+        if not webdriver_version:
+            logger.warning(f"Could not detect WebDriver version from: {webdriver_path}")
+            return False
+            
+        # Extract major versions for comparison
+        chrome_major = get_chrome_major_version(chrome_version)
+        webdriver_major = get_chrome_major_version(webdriver_version)
+        
+        logger.info(f"Chrome major version: {chrome_major}, WebDriver major version: {webdriver_major}")
+        
+        # Check if major versions match (Chrome and ChromeDriver major versions should match)
+        if chrome_major == webdriver_major:
+            logger.info(f"✅ WebDriver version {webdriver_version} is compatible with Chrome version {chrome_version}")
+            return True
+        else:
+            logger.warning(f"❌ WebDriver version {webdriver_version} (major: {webdriver_major}) is NOT compatible with Chrome version {chrome_version} (major: {chrome_major})")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error checking WebDriver compatibility: {e}")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error checking WebDriver compatibility: {e}")
+        return False
+
+def find_compatible_webdriver(webdriver_dir: str, chrome_version: str) -> Optional[str]:
+    """
+    Find an existing webdriver that is compatible with the specified Chrome version.
+    
+    Args:
+        webdriver_dir: Directory to search for webdrivers
+        chrome_version: Chrome browser version string
+        
+    Returns:
+        Optional[str]: Path to compatible webdriver, or None if not found
+    """
+    try:
+        if not os.path.exists(webdriver_dir):
+            return None
+            
+        system = platform.system()
+        driver_name = "chromedriver.exe" if system == "Windows" else "chromedriver"
+        
+        # Search for webdrivers recursively
+        compatible_drivers = []
+        
+        for root, _, files in os.walk(webdriver_dir):
+            if driver_name in files:
+                driver_path = os.path.join(root, driver_name)
+                if os.path.exists(driver_path) and os.access(driver_path, os.X_OK):
+                    # Check compatibility
+                    if is_webdriver_compatible(driver_path, chrome_version):
+                        compatible_drivers.append(driver_path)
+                        
+        if compatible_drivers:
+            # Return the first compatible driver found
+            # You could implement more sophisticated selection logic here
+            # (e.g., prefer newer versions, prefer specific locations, etc.)
+            selected_driver = compatible_drivers[0]
+            logger.info(f"Found {len(compatible_drivers)} compatible WebDriver(s), using: {selected_driver}")
+            return selected_driver
+            
+        logger.info(f"No compatible WebDriver found for Chrome version {chrome_version}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error finding compatible WebDriver: {e}")
+        return None
+
+def should_download_webdriver(webdriver_dir: str, chrome_version: str) -> tuple[bool, Optional[str]]:
+    """
+    Determine if a webdriver download is needed.
+    
+    Args:
+        webdriver_dir: Directory to search for existing webdrivers
+        chrome_version: Chrome browser version string
+        
+    Returns:
+        tuple[bool, Optional[str]]: (needs_download, existing_driver_path)
+            - needs_download: True if download is needed, False if compatible driver exists
+            - existing_driver_path: Path to existing compatible driver, or None
+    """
+    try:
+        # First, try to find a compatible existing webdriver
+        existing_driver = find_compatible_webdriver(webdriver_dir, chrome_version)
+        
+        if existing_driver:
+            logger.info(f"✅ Compatible WebDriver found: {existing_driver}")
+            return False, existing_driver
+        else:
+            logger.info(f"❌ No compatible WebDriver found for Chrome version {chrome_version}")
+            return True, None
+            
+    except Exception as e:
+        logger.error(f"Error determining if WebDriver download is needed: {e}")
+        # If there's an error, assume we need to download
+        return True, None
+
+def check_webdriver_status_example():
+    """
+    Example function showing how to use the new WebDriver version detection functions.
+    This demonstrates the complete workflow for checking if a download is needed.
+    """
+    try:
+        from .config import get_webdriver_dir
+        
+        # Get the webdriver directory
+        webdriver_dir = get_webdriver_dir()
+        if not webdriver_dir:
+            logger.error("Could not determine webdriver directory")
+            return None, None
+            
+        # Detect Chrome version
+        chrome_version = detect_chrome_version()
+        logger.info(f"Detected Chrome version: {chrome_version}")
+        
+        # Check if we need to download a new webdriver
+        needs_download, existing_driver = should_download_webdriver(webdriver_dir, chrome_version)
+        
+        if needs_download:
+            logger.info("🔄 WebDriver download is needed")
+            return None, chrome_version
+        else:
+            logger.info("✅ Compatible WebDriver already exists")
+            return existing_driver, chrome_version
+            
+    except Exception as e:
+        logger.error(f"Error in webdriver status check: {e}")
+        return None, None
