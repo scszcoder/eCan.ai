@@ -6,14 +6,11 @@ Handles vehicle monitoring operations without GUI components
 """
 
 import json
-import time
-import random
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from bot.missions import TIME_SLOT_MINS, EBMISSION
 from gui.tool.MainGUITool import StaticResource
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 
 
 class VehicleMonitorManager:
@@ -96,7 +93,7 @@ class VehicleMonitorManager:
                 'last_seen': datetime.now().isoformat()
             }
         except Exception as e:
-            logger_helper.error(f"Error getting vehicle status: {e}")
+            logger.error(f"Error getting vehicle status: {e}")
             return {}
             
     def get_all_vehicles_status(self) -> List[Dict[str, Any]]:
@@ -118,18 +115,18 @@ class VehicleMonitorManager:
         if vehicle:
             self.selected_vehicle = vehicle
         elif not self.selected_vehicle:
-            logger_helper.warning("No vehicle selected for monitoring")
+            logger.warning("No vehicle selected for monitoring")
             return False
             
         self.is_monitoring = True
         self.monitoring_progress = 0
-        logger_helper.info(f"Started monitoring vehicle: {self.selected_vehicle.getName()}")
+        logger.info(f"Started monitoring vehicle: {self.selected_vehicle.getName()}")
         return True
         
     def stop_monitoring(self):
         """Stop monitoring current vehicle"""
         if self.selected_vehicle:
-            logger_helper.info(f"Stopped monitoring vehicle: {self.selected_vehicle.getName()}")
+            logger.info(f"Stopped monitoring vehicle: {self.selected_vehicle.getName()}")
         self.is_monitoring = False
         self.monitoring_progress = 0
         
@@ -202,7 +199,7 @@ class VehicleMonitorManager:
         """
         target_vehicle = vehicle or self.selected_vehicle
         if not target_vehicle:
-            logger_helper.warning("No vehicle selected for command")
+            logger.warning("No vehicle selected for command")
             return False
             
         try:
@@ -217,11 +214,11 @@ class VehicleMonitorManager:
             self.last_command_time = datetime.now()
             
             # TODO: Implement actual command sending logic
-            logger_helper.info(f"Command sent to {target_vehicle.getName()}: {command}")
+            logger.info(f"Command sent to {target_vehicle.getName()}: {command}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error sending command: {e}")
+            logger.error(f"Error sending command: {e}")
             return False
             
     def get_command_history(self, limit: int = None) -> List[Dict[str, Any]]:
@@ -249,7 +246,7 @@ class VehicleMonitorManager:
             self.add_log_message("Pause command sent", "info")
             return True
         except Exception as e:
-            logger_helper.error(f"Error sending pause command: {e}")
+            logger.error(f"Error sending pause command: {e}")
             return False
             
     def send_resume_command(self) -> bool:
@@ -259,7 +256,7 @@ class VehicleMonitorManager:
             self.add_log_message("Resume command sent", "info")
             return True
         except Exception as e:
-            logger_helper.error(f"Error sending resume command: {e}")
+            logger.error(f"Error sending resume command: {e}")
             return False
             
     def send_terminate_command(self) -> bool:
@@ -269,7 +266,7 @@ class VehicleMonitorManager:
             self.add_log_message("Terminate command sent", "info")
             return True
         except Exception as e:
-            logger_helper.error(f"Error sending terminate command: {e}")
+            logger.error(f"Error sending terminate command: {e}")
             return False
             
     def send_report_command(self) -> bool:
@@ -279,7 +276,7 @@ class VehicleMonitorManager:
             self.add_log_message("Report command sent", "info")
             return True
         except Exception as e:
-            logger_helper.error(f"Error sending report command: {e}")
+            logger.error(f"Error sending report command: {e}")
             return False
             
     def process_log_message(self, message: str) -> Dict[str, Any]:
@@ -302,7 +299,7 @@ class VehicleMonitorManager:
             return processed_msg
             
         except Exception as e:
-            logger_helper.error(f"Error processing log message: {e}")
+            logger.error(f"Error processing log message: {e}")
             return {
                 'timestamp': datetime.now().isoformat(),
                 'content': str(message),
@@ -336,7 +333,7 @@ class VehicleMonitorManager:
                 
             if msg_data.get('type') == "logs":
                 text_color = "color:#6000FF;"
-                logger_helper.debug("Processing log message...")
+                logger.debug("Processing log message...")
                 
                 # Decrypt message if needed
                 contents = msg_data.get('contents', '').replace('\\"', '"')
@@ -346,7 +343,7 @@ class VehicleMonitorManager:
                         decrypted_msg = self.mainwin.decrypt_string(ek, contents)
                         processed_content = decrypted_msg
                     except Exception as e:
-                        logger_helper.error(f"Error decrypting message: {e}")
+                        logger.error(f"Error decrypting message: {e}")
                         processed_content = contents
                 else:
                     processed_content = contents
@@ -364,7 +361,7 @@ class VehicleMonitorManager:
                     else:
                         processed_content = contents
                 except Exception as e:
-                    logger_helper.error(f"Error parsing message contents: {e}")
+                    logger.error(f"Error parsing message contents: {e}")
                     processed_content = contents
                     
             return {
@@ -376,7 +373,7 @@ class VehicleMonitorManager:
             }
             
         except Exception as e:
-            logger_helper.error(f"Error formatting message: {e}")
+            logger.error(f"Error formatting message: {e}")
             return {
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'content': f"Error formatting message: {str(e)}",
@@ -419,7 +416,7 @@ class VehicleMonitorManager:
             }
             
         except Exception as e:
-            logger_helper.error(f"Error getting vehicle statistics: {e}")
+            logger.error(f"Error getting vehicle statistics: {e}")
             return {}
             
     def export_monitoring_data(self, filepath: str) -> bool:
@@ -444,11 +441,11 @@ class VehicleMonitorManager:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
                 
-            logger_helper.info(f"Monitoring data exported to: {filepath}")
+            logger.info(f"Monitoring data exported to: {filepath}")
             return True
             
         except Exception as e:
-            logger_helper.error(f"Error exporting monitoring data: {e}")
+            logger.error(f"Error exporting monitoring data: {e}")
             return False
             
     def cleanup(self):
@@ -457,6 +454,6 @@ class VehicleMonitorManager:
             self.stop_monitoring()
             self.clear_log_messages()
             self.clear_command_history()
-            logger_helper.info("VehicleMonitorManager cleanup completed")
+            logger.info("VehicleMonitorManager cleanup completed")
         except Exception as e:
-            logger_helper.error(f"Error during cleanup: {e}")
+            logger.error(f"Error during cleanup: {e}")

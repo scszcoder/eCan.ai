@@ -470,86 +470,13 @@ class MainWindow:
         for v in self.vehicles:
             logger.debug("vname:", v.getName(), "status:", v.getStatus(), )
 
+        self.settings_manager: SettingsManager = SettingsManager(self)
         # get current wifi ssid and stores it.
         logger.debug("Checking Wifi on OS platform: "+self.platform)
-        wifi_info = None
-        if self.platform == "win":
-            try:
-                wifi_info = subprocess.check_output(['netsh', 'WLAN', 'show', 'interfaces'],
-                                                  stderr=subprocess.DEVNULL,
-                                                  timeout=10)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                logger.warning(f"Failed to get WiFi info using netsh: {str(e)}")
-                # Try alternative method for Windows
-                try:
-                    # Get network interfaces (psutil is already imported globally)
-                    interfaces = psutil.net_if_stats()
-                    wifi_interfaces = [name for name in interfaces.keys() if 'wi-fi' in name.lower() or 'wireless' in name.lower() or 'wlan' in name.lower()]
-                    if wifi_interfaces:
-                        logger.info(f"Found WiFi interfaces: {wifi_interfaces}")
-                        # Create a mock wifi_info to indicate WiFi is available but SSID unknown
-                        wifi_info = b"    SSID                   : Unknown\n"
-                    else:
-                        logger.info("No WiFi interfaces found")
-                        wifi_info = None
-                except Exception as e2:
-                    logger.warning(f"Alternative WiFi detection failed: {str(e2)}")
-                    wifi_info = None
-        elif self.platform == 'dar':
-            # Try to find the airport command
-            airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
-            if not os.path.exists(airport_path):
-                airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport'
+        self.wifis = self.settings_manager.get_wifi_networks()
+        self.default_wifi = self.settings_manager.get_default_wifi()
+        logger.info("default wifi is:" + self.default_wifi)
 
-            if os.path.exists(airport_path):
-                try:
-                    wifi_info = subprocess.check_output([airport_path, '-I'],
-                                                      stderr=subprocess.DEVNULL,
-                                                      timeout=10)
-                    # Convert macOS output to match Windows format
-                    if wifi_info:
-                        try:
-                            wifi_data = wifi_info.decode('utf-8')
-                            # Parse macOS output and format it like Windows
-                            formatted_output = ""
-                            for line in wifi_data.split('\n'):
-                                if ' SSID' in line:
-                                    # Extract SSID and format like Windows
-                                    ssid = line.split(':')[1].strip()
-                                    formatted_output += f"    SSID                   : {ssid}\n"
-                            wifi_info = formatted_output.encode('utf-8')
-                        except Exception as e:
-                            logger.warning(f"Error formatting WiFi info: {str(e)}")
-                            wifi_info = None
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
-                    logger.warning(f"Failed to get WiFi info using airport: {str(e)}")
-                    logger.warning(f"macOS WiFi detection failed: {str(e)}")
-                    wifi_info = None
-            else:
-                logger.warning("Airport command not found on macOS")
-                wifi_info = None
-
-        logger.info(f"wifi_info:{wifi_info}")
-        if wifi_info:
-            try:
-                wifi_data = wifi_info.decode('utf-8')
-            except UnicodeDecodeError:
-                for enc in ['utf-8', 'gbk', 'latin1']:
-                    try:
-                        wifi_data = wifi_info.decode(enc)
-                    except UnicodeDecodeError:
-                        pass
-            wifi_lines = wifi_data.split("\n")
-            ssidline = [l for l in wifi_lines if " SSID" in l]
-            if len(ssidline) == 1:
-                ssid = ssidline[0].split(":")[1].strip()
-                self.wifis.append(ssid)
-                self.default_wifi = self.wifis[0]
-        else:
-            logger.info("***wifi info is None!")
-            self.default_wifi = ""
-
-        self.settings_manager = SettingsManager(self)
         logger.debug("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
             self.readVehicleJsonFile()
@@ -577,8 +504,6 @@ class MainWindow:
             log3("missions loaded")
             self.dailySkillsetUpdate()
             log3("skills loaded")
-
-            # self.createNewMissionsFromOrdersXlsx()
 
         # Done with all UI stuff, now do the instruction set extension work.
         self.showMsg("set up rais extensions ")
@@ -696,7 +621,6 @@ class MainWindow:
             load_dotenv(env_path)
         else:
             logger.warning(f"\nNo .env file found at: {env_path}")
-
         
         self.llm = pick_llm(self.general_settings)
         self.agents = []
@@ -706,9 +630,7 @@ class MainWindow:
         logger.info("Building agent skills.....")
         asyncio.create_task(self.async_agents_init())
 
-
         # asyncio.run_coroutine_threadsafe(self.async_agents_init(), loop)
-
         # await asyncio.gather(peer_task, monitor_task, chat_task, rpa_task_future)
         loop = asyncio.get_event_loop()
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
@@ -2756,8 +2678,6 @@ class MainWindow:
         # self.showMsg("PSK JSON after address and update step::::: "+json.dumps(newPskJson))
         return new_idx, newPskJson
 
-
-
     # run one bot one time slot at a time，for 1 bot and 1 time slot, there should be only 1 mission running
     async def runRPA(self, worksTBD, rpa_msg_queue, monitor_msg_queue):
         global rpaConfig
@@ -4650,11 +4570,6 @@ class MainWindow:
                 botjson["status"]["fb_in1m"] = rows[1][i]
                 i = i + 1
 
-
-    def runAll(self):
-        # Logic for removing a bot, remove the data and remove the file.
-        self.showMsg("runn all")
-
     def scheduleCalendarView(self):
         # Logic for the bot-mission-scheduler
         # pop out a new windows for user to view and schedule the missions.
@@ -5886,32 +5801,6 @@ class MainWindow:
 
     def setOwner(self, owner):
         self.owner = owner
-
-    def runAll(self):
-        threadCount = QThreadPool.globalInstance().maxThreadCount()
-        self.label.setText(f"Running {threadCount} Threads")
-        pool = QThreadPool.globalInstance()
-        for i in range(threadCount):
-            # 2. Instantiate the subclass of QRunnable
-            #runnable = Runnable(i)
-            # 3. Call start()
-            #pool.start(runnable)
-            self.showMsg("run thread")
-
-    def editSettings(self):
-        # Note: SettingsManager is now a data handler, not a GUI window
-        # You may need to implement a new GUI or use existing settings display methods
-        if hasattr(self, 'settings_manager'):
-            # Load current settings from parent application
-            self.settings_manager.load_settings()
-            # You may need to implement a new GUI or use existing settings display methods
-
-    def manualRunAll(self):
-        txt_results = "{}"
-        ico_results = "{}"
-
-        for m in self.missions:
-            status = m.run()
 
     def get_vehicle_settings(self, forceful="false"):
         vsettings = {

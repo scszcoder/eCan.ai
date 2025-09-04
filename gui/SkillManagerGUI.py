@@ -10,7 +10,7 @@ import traceback
 from typing import List, Dict, Any, Optional
 
 from bot.Cloud import send_query_skills_request_to_cloud
-from bot.Logger import LOG_SWITCH_BOARD, log3
+from bot.Logger import log3
 
 
 class SkillManager:
