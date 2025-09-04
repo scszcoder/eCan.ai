@@ -27,10 +27,10 @@ def prep_search_parts_chatter_skill(agent, msg, current_state=None):
         attributes={
             "preliminary_info": [
                 {
-                    "part name": " anti-static bags",  # ✅ valid
+                    "part name": "LDO",  # ✅ valid
                     "oems": ["NA"],  # ✅ valid
                     "model_part_numbers": ["NA"],  # ✅ valid
-                    "applications_usage": "NA",  # ✅ valid
+                    "applications_usage": "12V to 3V usb hand warmer",  # ✅ valid
                     "usage_grade": "NA"  # ✅ valid
                 }
             ],
