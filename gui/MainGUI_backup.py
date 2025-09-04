@@ -9192,10 +9192,14 @@ class MainWindow(QMainWindow):
                 message = await monitor_msg_queue.get()
                 self.showMsg(f"RPA Monitor message: {message}")
                 if type(message) != str:
-                    if hasattr(self, 'vehicle_monitor'):
+                    print("wanlog message....", message)
+                    if self.vehicleMonitor:
                         # Note: VehicleMonitorManager is now a data handler, not a GUI window
-                        # You may need to implement a new method to handle log messages
-                        self.vehicle_monitor.add_log_message(json.dumps(message))
+        # You may need to implement a new method to handle log messages
+        if hasattr(self, 'vehicle_monitor'):
+            self.vehicle_monitor.add_log_message(json.dumps(message))
+                else:
+                    self.update_monitor_gui(message)
 
                 monitor_msg_queue.task_done()
 
