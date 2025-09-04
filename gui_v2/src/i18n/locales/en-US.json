@@ -22,6 +22,7 @@
     "ok": "OK",
     "add": "Add",
     "id": "ID",
+    "id": "ID",
     "name": "Name",
     "owner": "Owner",
     "gender": "Gender",
@@ -489,6 +490,8 @@
       "status": "Status",
       "lastRun": "Last Run",
       "id": "Task ID",
+      "name": "Task Name",
+      "namePlaceholder": "Enter task name",
       "scheduleDetails": "Schedule Details",
       "triggerLabel": "Trigger",
       "priorityLabel": "Priority",
@@ -497,6 +500,9 @@
       "scheduleStartTimeLabel": "Start Time",
       "scheduleEndTimeLabel": "End Time",
       "scheduleTimeoutLabel": "Timeout",
+      "ataskId": "ATask ID",
+      "newTaskName": "New Task",
+      "invalidJson": "Invalid JSON",
       "skill": {
         "TaskManagement": "Task Management",
         "DataAnalysis": "Data Analysis",
@@ -513,9 +519,11 @@
         "manual": "Manual"
       },
       "priority": {
+        "null": "None",
         "high": "High",
         "medium": "Medium",
-        "low": "Low"
+        "low": "Low",
+        "urgent": "Urgent"
       },
       "schedule": {
         "repeatType": {

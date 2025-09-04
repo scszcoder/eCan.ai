@@ -21,7 +21,7 @@ const DEFAULT_TASK = {
   id: '',
   name: '',
   description: '',
-  priority: 'medium',
+  priority: 'none',
   trigger: 'schedule',
   schedule: {
     repeat_type: 'none',
@@ -35,7 +35,7 @@ const DEFAULT_TASK = {
   metadata: {},
 };
 
-const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'];
+const PRIORITY_OPTIONS = ['none', 'low', 'medium', 'high', 'urgent'];
 const TRIGGER_OPTIONS = ['schedule', 'human chat', 'agent message'];
 const REPEAT_OPTIONS = [
   'none',
@@ -65,7 +65,37 @@ type ExtendedTask = Task & {
   metadata_text?: string; // stringified metadata for editing
 };
 
-export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew = false, onSave, onCancel }) => {
+// Helper to safely convert to dayjs object
+const toDayjs = (date: string | Date | null | undefined) => {
+  if (!date) return undefined;
+  // Handle custom date format "YYYY-MM-DD HH:mm:ss:SSS"
+  const customFormat = "YYYY-MM-DD HH:mm:ss:SSS";
+  let d = dayjs(date, customFormat, true); // Strict parsing
+  if (!d.isValid()) {
+    // Fallback to default parsing for standard formats like ISO 8601
+    d = dayjs(date);
+  }
+  return d.isValid() ? d : undefined;
+};
+
+export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as any, isNew = false, onSave, onCancel }) => {
+  // Pre-process the task data to ensure dates are valid Dayjs objects or undefined
+  const task = React.useMemo(() => {
+    if (!rawTask || Object.keys(rawTask).length === 0) {
+      return isNew ? DEFAULT_TASK : null;
+    }
+    const processedSchedule = {
+      ...((rawTask as any).schedule || {}),
+      start_date_time: toDayjs((rawTask as any).schedule?.start_date_time),
+      end_date_time: toDayjs((rawTask as any).schedule?.end_date_time),
+    };
+    return {
+      ...rawTask,
+      schedule: processedSchedule,
+      // Ensure priority is 'none' if it's null or undefined
+      priority: (rawTask as any).priority || 'none',
+    };
+  }, [rawTask, isNew]);
   const { t } = useTranslation();
   const username = useUserStore((s) => s.username) || '';
   const [form] = Form.useForm<ExtendedTask>();
@@ -74,27 +104,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew 
 
   React.useEffect(() => {
     if (task) {
-      const metaStr = task.metadata ? JSON.stringify(task.metadata, null, 2) : '';
+      const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
       form.setFieldsValue({
-        id: (task as any).id as any,
-        ataskid: (task as any).ataskid,
-        name: (task as any).name,
-        owner: (task as any).owner,
-        description: (task as any).description,
-        latest_version: (task as any).latest_version,
-        priority: (task as any).priority,
-        trigger: (task as any).trigger,
-        schedule: {
-          repeat_type: (task as any).schedule?.repeat_type,
-          repeat_number: (task as any).schedule?.repeat_number,
-          repeat_unit: (task as any).schedule?.repeat_unit,
-          start_date_time: (task as any).schedule?.start_date_time ? dayjs((task as any).schedule?.start_date_time) : undefined,
-          end_date_time: (task as any).schedule?.end_date_time ? dayjs((task as any).schedule?.end_date_time) : undefined,
-          time_out: (task as any).schedule?.time_out,
-        },
-        objectives: (task as any).objectives,
+        ...(task as any),
         metadata_text: metaStr,
-      } as any);
+      });
     } else {
       form.resetFields();
       setEditMode(false);
@@ -117,7 +131,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew 
       const payload: any = {
         id: (values as any).id,
         ataskid: (values as any).ataskid || undefined,
-        name: (values as any).name || 'New Task',
+        name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
         owner: username,
         description: (values as any).description || '',
         latest_version: (values as any).latest_version || '1.0.0',
@@ -162,15 +176,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew 
     }
   };
 
-  // Always show the form, even for new/empty tasks
-  const displayTask = isNew ? DEFAULT_TASK : (task || {});
+
 
   return (
     <div style={{ maxHeight: '100%', overflow: 'auto', padding: '16px' }}>
       <Form
         form={form}
         layout="vertical"
-        initialValues={displayTask}
+        initialValues={task || DEFAULT_TASK}
         onFinish={handleSave}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -188,12 +201,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew 
 
               <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
                 <Col span={12}>
-                  <Form.Item label="ID" name="id">
+                  <Form.Item label={t('common.id', 'ID')} name="id">
                     <Input readOnly />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="ATask ID" name="ataskid">
+                  <Form.Item label={t('pages.tasks.ataskId', 'ATask ID')} name="ataskid">
                     <Input readOnly />
                   </Form.Item>
                 </Col>
@@ -214,7 +227,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew 
                 </Col>
                 <Col span={12}>
                   <Form.Item label={t('pages.tasks.priorityLabel', 'Priority')} name="priority">
-                    <Select options={PRIORITY_OPTIONS.map(v => ({ value: v, label: v }))} />
+                    <Select
+                    allowClear
+                    onChange={(value) => {
+                      if (value === null || value === undefined) {
+                        form.setFieldsValue({ priority: 'none' });
+                      }
+                    }}
+                    options={PRIORITY_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.priority.${v}`, v) }))}
+                  />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -276,7 +297,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task = {} as any, isNew 
                           JSON.parse(value);
                           return Promise.resolve();
                         } catch (e) {
-                          return Promise.reject(new Error('Invalid JSON'));
+                          return Promise.reject(new Error(t('pages.tasks.invalidJson', 'Invalid JSON')));
                         }
                       }
                     }]}
