@@ -45,7 +45,7 @@ class MessageManager {
     }
     
     // 更新消息列表
-    this.messages.set(chatId, result.messages);
+    this.messages.set(chatId, sortMessagesByTime(result.messages));
     
     // 更新未读计数（如果需要）
     if (updateUnread) {
