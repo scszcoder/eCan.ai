@@ -2434,9 +2434,10 @@ class SkillGUI(QMainWindow):
 
                     result = send_add_skills_request_to_cloud(self.session, [new_skill], self.auth_token, self.parent.getWanApiEndpoint())
 
-                    # add skillManagerWin
+                    # add skill to skills list
                     self.parent.skills.add(new_skill)
-                    self.parent.addSkillRowsToSkillManager()
+                    # Note: SkillManager is now a data handler, not a GUI window
+                    # Skills are now managed in the main skills list
                 else:
                     this_skid = int(skd_data["sk_info"].get_skid())
                     this_skill = next((x for x in self.parent.skills if x.getSkid() == this_skid), None)

@@ -152,7 +152,8 @@ class MissionNewWin(QMainWindow):
         self.skillActionLabel = QLabel(QApplication.translate("QLabel", "<b style='color:red;'>Skill Action:</b>"),
                                        alignment=Qt.AlignLeft)
         self.skill_action_sel = QComboBox()
-        # self.skill_action_sel.setModel(self.main_win.SkillManagerWin.skillModel)
+        # Note: SkillManager is now a data handler, not a GUI window
+        # You may need to implement a new skill selection method
         self.styleDelegate = CustomDelegate(self.main_win)
 
         self.buildSkillSelList()
