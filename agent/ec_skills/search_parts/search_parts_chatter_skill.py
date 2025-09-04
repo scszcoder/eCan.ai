@@ -141,7 +141,7 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
 
 def has_parametric_filters(data):
     try:
-        return "parametric_filters" in data["tool_result"]["components"][0]["metadata"]
+        return "parametric_filters" in data["tool_result"]["components"][0]
     except (KeyError, IndexError, TypeError):
         return False
 
@@ -210,13 +210,13 @@ def examine_filled_specs_node(state):
     print("examine filled specs node.......", state)
     pf_exists = has_parametric_filters(state)
     if pf_exists:
-        parametric_filters = state["tool_result"]["components"][0]["metadata"]["parametric_filters"]
+        parametric_filters = state["tool_result"]["components"][0]["parametric_filters"]
         state["metadata"]["parametric_filters"] = parametric_filters
     else:
         parametric_filters = {}
 
     print("parametric_filters", parametric_filters)
-    if is_form_filled(parametric_filters[0]):
+    if is_form_filled(parametric_filters):
         print("parametric filters filled")
         state["condition"] = True
     else:
@@ -484,7 +484,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
                     components = meta_val
                 print("components:", components)
                 if isinstance(components, list) and components:
-                    parametric_filters = components[0].get('metadata', {}).get('parametric_filters', {})
+                    parametric_filters = components[0].get('parametric_filters', {})
                     if parametric_filters:
                         parametric_filter = parametric_filters[0]
                     else:
@@ -494,51 +494,53 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
                     parametric_filter = {}
 
                 print("about to send back parametric_filters:", parametric_filters)
-
+                print("about to send back parametric_filter:", parametric_filter)
                 print("state at the moment:", state)
-                parametric_filter = {
-                    "id": "mcu_config_form",
+                fe_parametric_filter = {
+                    "id": "technical_query_form",
                     "type": "normal",
-                    "title": "MCU 配置",
-                    "fields": [
-                        {
-                            "id": "core",
-                            "type": "select",
-                            "label": "MCU Core",
-                            "tooltip": "MCU Core Types",
-                            "options": [
-                                { "label": "ATmega328P", "value": "ATmega328P" },
-                                { "label": "ESP32", "value": "ESP32" },
-                                { "label": "STM32F103", "value": "STM32F103" },
-                                { "label": "PIC16F84A", "value": "PIC16F84A" },
-                                { "label": "Arduino Nano", "value": "Arduino Nano" }
-                            ],
-                            "defaultValue": "ESP32"
-                        },
-                        {
-                            "id": "factory",
-                            "type": "text",
-                            "label": "Factory",
-                            "tooltip": "Test field type text",
-                            "defaultValue": "ESP——32"
-                        },
-                        {
-                            "id": "voltage",
-                            "type": "select",
-                            "label": "Operating Voltage",
-                            "tooltip": "Operation Voltage Options",
-                            "options": [
-                                { "label": "3.3V", "value": "3.3V" },
-                                { "label": "5V", "value": "5V" },
-                                { "label": "12V", "value": "12V" }
-                            ],
-                            "defaultValue": "3.3V"
-                        }
-                    ]
+                    "title": components[0].get('title', 'Component under search'),
+                    "fields": parametric_filters
                 }
+                #     "fields": [
+                #         {
+                #             "id": "core",
+                #             "type": "select",
+                #             "label": "MCU Core",
+                #             "tooltip": "MCU Core Types",
+                #             "options": [
+                #                 { "label": "ATmega328P", "value": "ATmega328P" },
+                #                 { "label": "ESP32", "value": "ESP32" },
+                #                 { "label": "STM32F103", "value": "STM32F103" },
+                #                 { "label": "PIC16F84A", "value": "PIC16F84A" },
+                #                 { "label": "Arduino Nano", "value": "Arduino Nano" }
+                #             ],
+                #             "defaultValue": "ESP32"
+                #         },
+                #         {
+                #             "id": "factory",
+                #             "type": "text",
+                #             "label": "Factory",
+                #             "tooltip": "Test field type text",
+                #             "defaultValue": "ESP——32"
+                #         },
+                #         {
+                #             "id": "voltage",
+                #             "type": "select",
+                #             "label": "Operating Voltage",
+                #             "tooltip": "Operation Voltage Options",
+                #             "options": [
+                #                 { "label": "3.3V", "value": "3.3V" },
+                #                 { "label": "5V", "value": "5V" },
+                #                 { "label": "12V", "value": "12V" }
+                #             ],
+                #             "defaultValue": "3.3V"
+                #         }
+                #     ]
+                # }
                 state["result"] = {"llm_result": "Here is a parametric search filter form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
                 # needs to make sure this is the response prompt......state["result"]["llm_result"]
-                send_data_back2human("send_chat","form", parametric_filter, state)
+                send_data_back2human("send_chat","form", fe_parametric_filter, state)
         elif hasattr(tool_result, 'isError') and tool_result.isError:
             state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
         else:
@@ -699,16 +701,27 @@ async def browser_search_with_parametric_filters(mainwin, url, parametric_filter
     return result
 
 
-def run_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
+def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     agent_id = state["messages"][0]
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
-    print("run_search_node:", state)
+    print("run_local_search_node:", state)
     parametric_filters = state["attributes"].get("parametric_filters", {})
     # url = state["tool_input"]["url"]
     url = "https://www.digikey.com/en/products"
-    tool_result = run_async_in_sync(browser_search_with_parametric_filters(mainwin, url, parametric_filters))
+    state["tool_input"]["urls"] = [url]
+    async def run_tool_call():
+        return await mcp_call_tool("api_ecan_local_search_components", {"input": state["tool_input"]})
+
+    # Always use a dedicated local loop to avoid interfering with any global loop
+    # Run the async call safely from sync
+    tool_result = run_async_in_sync(run_tool_call())
+
+    # what we should get here is a dict of parametric search filters based on the preliminary
+    # component info, this should be passed to human for filling out and confirmation
+    print("query components completed:", type(tool_result), tool_result)
+
 
     # send self a message to trigger the real component search work-flow
     # state.attributes should look like this:
@@ -910,7 +923,7 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")
 
 
-        workflow.add_node("run_search", run_search_node)
+        workflow.add_node("run_search", run_local_search_node)
         workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
 
         workflow.add_node("show_results", show_results_node)

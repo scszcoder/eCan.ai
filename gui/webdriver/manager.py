@@ -45,6 +45,7 @@ class WebDriverManager:
                 # Detect Chrome version in a separate thread to avoid blocking
                 logger.info("Detecting Chrome version...")
                 self._chrome_version = await asyncio.to_thread(detect_chrome_version)
+                # self._chrome_version = detect_chrome_version()
                 logger.info(f"Detected Chrome version: {self._chrome_version}")
                 
                 # Find or download matching webdriver
