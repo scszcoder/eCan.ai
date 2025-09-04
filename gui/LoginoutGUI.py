@@ -112,11 +112,9 @@ class Login:
                 self.auth_manager, self.mainLoop, self.ip,
                 self.auth_manager.get_current_user(), ecbhomepath,
                 self.gui_net_msg_queue, self.auth_manager.get_role(),
-                schedule_mode, "en-US"  # Default language
+                schedule_mode
             )
 
-            self.main_win.setOwner(self.auth_manager.get_current_user())
-            self.main_win.hide()
             app_ctx.set_main_window(self.main_win)
 
             logger.info(f"Main window launched for user: {self.auth_manager.get_current_user()}")

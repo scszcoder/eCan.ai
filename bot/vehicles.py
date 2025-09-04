@@ -1,10 +1,7 @@
-from PySide6.QtGui import QStandardItem, QIcon
-from datetime import timedelta, datetime
-
-from numpy.ma.core import bitwise_or
+from datetime import datetime
 
 
-class VEHICLE(QStandardItem):
+class VEHICLE:
     def __init__(self, parent, name="x", ip="0.0.0.0"):
         super().__init__()
         self.parent = parent
@@ -14,10 +11,6 @@ class VEHICLE(QStandardItem):
         self.name = name
         self.ip = ip
         self.id = ""
-        self.setText('v-' + str(self.getName()))
-        self.icon = QIcon(parent.file_resource.offline_vehicle_icon_path)
-        self.setIcon(self.icon)
-        self.setFont(parent.std_item_font)
         self.status = "offline"
         self.last_update_time = datetime.strptime("1900-01-01 00:00:00", "%Y-%m-%d %H:%M:%S")
         self.mstats = []
@@ -45,14 +38,6 @@ class VEHICLE(QStandardItem):
     def setStatus(self, stat):
         self.status = stat
         self.last_update_time = datetime.now()
-        if "running" in stat:
-            if len(self.getBotIds()) < self.CAP:
-                self.icon = QIcon(self.parent.file_resource.online_vehicle_icon_path)
-            else:
-                self.icon = QIcon(self.parent.file_resource.warn_vehicle_icon_path)
-        else:
-            self.icon = QIcon(self.parent.file_resource.offline_vehicle_icon_path)
-        self.setIcon(self.icon)
 
     def getLastUpdateTime(self):
         return self.last_update_time

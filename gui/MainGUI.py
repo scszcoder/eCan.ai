@@ -3,6 +3,7 @@ import json
 import re
 import shutil
 from dotenv import load_dotenv
+from qasync import QEventLoop
 
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
@@ -11,8 +12,8 @@ from bot.missions import EBMISSION
 from common.models import VehicleModel
 from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread, stop_local_server
-from agent.mcp.local_client import (create_mcp_client, create_sse_client, create_streamable_http_client, local_mcp_list_tools, local_mcp_call_tool)
-from agent.mcp.config import mcp_http_base, mcp_sse_url
+from agent.mcp.local_client import local_mcp_list_tools
+from agent.mcp.config import mcp_http_base
 from agent.ec_skills.llm_utils.llm_utils import pick_llm
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
@@ -37,11 +38,7 @@ from _csv import reader
 from os.path import exists
 import glob
 
-from PySide6.QtCore import QThreadPool, Qt, QEvent, QSize
-from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel
-from PySide6.QtWidgets import QWidget, QFrame, QToolButton, QSizePolicy, \
-    QApplication, QPushButton, QLabel, QLineEdit, QMainWindow, QMenu, \
-    QMessageBox, QFileDialog, QDialog
+from PySide6.QtCore import QThreadPool, Qt
 
 import importlib
 import importlib.util
@@ -56,8 +53,7 @@ from bot.Cloud import send_dequeue_tasks_to_cloud, send_schedule_request_to_clou
     send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,\
     send_update_vehicles_request_to_cloud
 
-# QListView components removed - UI components no longer needed
-from bot.Logger import LOG_SWITCH_BOARD, log3
+from bot.Logger import log3
 from gui.MissionGUI import MissionManager
 from gui.PlatoonGUI import PlatoonManager
 from gui.ScheduleGUI import ScheduleManager
@@ -65,8 +61,8 @@ from gui.SkillManagerGUI import SkillManager
 from gui.TrainGUI import TrainManager, ReminderManager
 from gui.VehicleMonitorGUI import VehicleMonitorManager
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
-from bot.basicSkill import processExternalHook, symTab, STEP_GAP, setMissionInput, unzip_file, list_zip_file, getScreenSize
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt
+from bot.basicSkill import processExternalHook, symTab, STEP_GAP, setMissionInput, getScreenSize
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, ManagerTriggerTable
 from bot.inventories import INVENTORY
@@ -76,11 +72,10 @@ import openpyxl
 import tzlocal
 from datetime import datetime, timedelta, timezone
 import platform
-from pynput.mouse import Controller as MouseController
 from typing import List
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
-from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running, running_step_index
+from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running_step_index
 from gui.ui_settings import SettingsManager
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
@@ -92,8 +87,7 @@ from gui.encrypt import *
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
 import psutil
 # from gui.BrowserGUI import BrowserWindow
-from config.constants import API_DEV_MODE
-from langchain_openai import ChatOpenAI
+# Unused imports removed
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
 from agent.ec_agents.create_agent_tasks import create_agent_tasks
@@ -122,8 +116,6 @@ ecb_data_homepath = getECBotDataHome()
 
 in_data_string = ""
 
-        # Expander类已移除，logConsole组件也已移除
-
 
 class AsyncInterface:
     """ Class to handle async tasks within the Qt Event Loop. """
@@ -142,9 +134,11 @@ class AsyncInterface:
             self.queue.task_done()
 
 # class MainWindow(QWidget):
-class MainWindow(QMainWindow):
-    def __init__(self, auth_manager: AuthManager, mainloop, ip, user, homepath, gui_msg_queue, machine_role, schedule_mode, lang):
-        super().__init__()
+class MainWindow:
+    def __init__(self, auth_manager: AuthManager, mainloop, ip, 
+                 user, homepath, gui_msg_queue, machine_role, 
+                 schedule_mode):
+
         self.auth_manager = auth_manager  # Reference to auth manager for state and services
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
@@ -155,7 +149,6 @@ class MainWindow(QMainWindow):
         self.gui_manager_msg_queue = asyncio.Queue()
         self.virtual_cloud_task_queue = asyncio.Queue()
         self.gui_monitor_msg_queue = asyncio.Queue()
-        self.lang = lang
         self.tz = self.obtainTZ()
         self.file_resource = FileResource(self.homepath)
         self.DONE_WITH_TODAY = True
@@ -164,7 +157,7 @@ class MainWindow(QMainWindow):
         self.static_resource = StaticResource()
         self.all_ads_profiles_xls = "C:/AmazonSeller/SelfSwipe/test_all.xls"
         self.session = set_up_cloud()
-        self.mainLoop = mainloop
+        self.mainLoop: QEventLoop = mainloop
         self.threadPoolExecutor = concurrent.futures.ThreadPoolExecutor(max_workers=16)
         self.machine_role = machine_role
         if "Platoon" in self.machine_role:
@@ -182,6 +175,7 @@ class MainWindow(QMainWindow):
         self.todaysSchedule = {}
         self.schedule_mode = schedule_mode
         self.ip = ip
+        self.owner = user
         # Normalize user to a safe email-like value
         self.user = user if (user and isinstance(user, str) and "@" in user) else "unknown@local"
         # Build chat_id safely
@@ -224,12 +218,8 @@ class MainWindow(QMainWindow):
         version = platform.version()
         architecture = platform.architecture()[0]
         self.os_info = f"{system} {release} ({architecture}), Version: {version}"
-
         self.platform = platform.system().lower()[0:3]
-
         self.cpuinfo = self._get_cpu_info_safely()
-        logger.info(self.cpuinfo)
-
         self.processor = self.cpuinfo.get('brand_raw', 'Unknown Processor')
         self.cpu_cores = psutil.cpu_count(logical=False)  # Physical cores
         self.cpu_threads = psutil.cpu_count(logical=True)  # Logical cores (including hyper-threading)
@@ -239,7 +229,7 @@ class MainWindow(QMainWindow):
         self.virtual_memory = psutil.virtual_memory()
         self.total_memory = self.virtual_memory.total / (1024 ** 3)  # Convert bytes to GB
 
-        self.std_item_font = QFont('Arial', 10)
+        # Font removed - no longer needed for UI
         logger.info("cpu memory init done....")
         self.sellerInventoryJsonData = None
         self.botJsonData = None
@@ -255,10 +245,9 @@ class MainWindow(QMainWindow):
         self.bot_states = ["active", "disabled", "banned", "deleted"]
         self.todays_bot_profiles = []
         # self.readBotJsonFile()
-        self.vehicles = []                              # computers on LAN that can carry out bots's tasks.， basically tcp transports
-
+        self.vehicles = [] # computers on LAN that can carry out bots's tasks.， basically tcp transports
         self.bots = []
-        self.missions = []                              # mission 0 will always default to be the fetch schedule mission
+        self.missions = [] # mission 0 will always default to be the fetch schedule mission
         self.trMission = self.createTrialRunMission()
         self.skills = []
         self.missionsToday = []
@@ -439,221 +428,19 @@ class MainWindow(QMainWindow):
             self.vehicle_service = None
 
         logger.info("some vars init done5....")
-        self.owner = "NA"
         self.botRank = "soldier"  # this should be read from a file which is written during installation phase, user will select this during installation phase
         self.rpa_work_assigned_for_today = False
         logger.debug("=========Done With Local DB Setup, Start GUI Setup =========")
-        self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
-        self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
-        # southWidget and related layouts removed - UI components no longer needed
-        self.save_all_button.clicked.connect(self.saveAll)
-        self.log_out_button.clicked.connect(self.logout)
+        # UI buttons removed - no longer needed
 
-        self.menuFont = QFont('Arial', 10)
-        # mainWidget removed - UI components no longer needed
-        # westScrollArea removed - UI components no longer needed
-
-        # centralScrollArea removed - UI components no longer needed
-
-        # east0ScrollArea removed - UI components no longer needed
-
-        # east1ScrollArea removed - UI components no longer needed
-
-        # ScrollArea components removed - UI components no longer needed
-
-        self.search_mission_button = QPushButton(QApplication.translate("QPushButton", "Search"))
-        self.search_mission_button.clicked.connect(self.searchLocalMissions)
-
-        self.mission_from_date_label = QLabel(QApplication.translate("QLabel", "From:"), alignment=Qt.AlignLeft)
-        self.mission_from_date_edit = QLineEdit()
-        self.mission_from_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
-        self.mission_to_date_label = QLabel(QApplication.translate("QLabel", "To:"), alignment=Qt.AlignLeft)
-        self.mission_to_date_edit = QLineEdit()
-        self.mission_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
-
-        # mission_search_layout removed - UI components no longer needed
-        self.mission_search_edit = QLineEdit()
-        self.mission_search_edit.setClearButtonEnabled(True)
-        self.mission_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
-        self.mission_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
-        self.mission_search_edit.returnPressed.connect(self.search_mission_button.click)
-
-        # westScrollLayout removed - UI components no longer needed
-
-        self.search_bot_button = QPushButton(QApplication.translate("QPushButton", "Search"))
-        self.search_bot_button.clicked.connect(self.searchLocalBots)
-
-        self.bot_from_date_label = QLabel(QApplication.translate("QLabel", "From:"), alignment=Qt.AlignLeft)
-        self.bot_from_date_edit = QLineEdit()
-        self.bot_from_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
-        self.bot_to_date_label = QLabel(QApplication.translate("QLabel", "To:"), alignment=Qt.AlignLeft)
-        self.bot_to_date_edit = QLineEdit()
-        self.bot_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
-
-        # bot_search_layout removed - UI components no longer needed
-        self.bot_search_edit = QLineEdit()
-        self.bot_search_edit.setClearButtonEnabled(True)
-        self.bot_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
-        self.bot_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
-        self.bot_search_edit.returnPressed.connect(self.search_bot_button.click)
-
-        # centralScrollLayout removed - UI components no longer needed
-
-
-        # east0ScrollLayout and east1ScrollLayout removed - UI components no longer needed
-
-        # ScrollArea configuration removed - UI components no longer needed
-
-        #creating QActions
-        self.botNewAction = self._createBotNewAction()
-        self.botGetAction = self._createGetBotsAction()
-        self.botGetLocalAction = self._createGetLocalBotsAction()
-        self.saveAllAction = self._createSaveAllAction()
-        self.botDelAction = self._createBotDelAction()
-        self.botEditAction = self._createBotEditAction()
-        self.botCloneAction = self._createBotCloneAction()
-        self.botNewFromFileAction = self._createBotNewFromFileAction()
-        self.syncBotAccountsAction = self._syncBotAccountsAction()
-
-        self.missionNewAction = self._createMissionNewAction()
-        self.missionDelAction = self._createMissionDelAction()
-        self.missionEditAction = self._createMissionEditAction()
-        self.missionImportAction = self._createMissionImportAction()
-
-        self.settingsAccountAction = self._createSettingsAccountAction()
-        self.settingsEditAction = self._createSettingsEditAction()
-
-        self.runRunLocalWorksAction = self._createRunLocalWorkAction()
-        self.runRunAllAction = self._createRunRunAllAction()
-        self.runTestAllAction = self._createRunTestAllAction()
-
-        self.scheduleCalendarViewAction = self._createScheduleCalendarViewAction()
-        self.fetchScheduleAction = self._createFetchScheduleAction()
-
-        self.rescheduleAction = self._createRescheduleAction()
-        self.scheduleFromFileAction = self._createScheduleNewFromFileAction()
-
-        self.reportsShowAction = self._createReportsShowAction()
-        self.reportsGenAction = self._createReportsGenAction()
-        # Log console action initialization removed
-
-        self.skillNewAction = self._createSkillNewAction()
-        self.skillManagerAction = self._createSkillManagerAction()
-        self.skillDeleteAction = self._createSkillDeleteAction()
-        self.skillShowAction = self._createSkillShowAction()
-        self.skillUploadAction = self._createSkillUploadAction()
-
-        self.skillNewFromFileAction = self._createSkillNewFromFileAction()
-
-        self.toolsADSProfileConverterAction = self._createToolsADSProfileConverterAction()
-        self.toolsADSProfileBatchToSinglesAction = self._createToolsADSProfileBatchToSinglesAction()
-        self.toolsWanChatTestAction = self._createToolsWanChatTestAction()
-        self.toolsStopWaitUntilTestAction = self._createToolsStopWaitUntilTestAction()
-        self.toolsSimWanRequestAction = self._createToolsSimWanRequestAction()
-        self.toolsSyncFingerPrintRequestAction = self._createToolsSyncFingerPrintRequestAction()
-        self.toolsDailyHousekeepingAction = self._createToolsDailyHousekeepingAction()
-        self.toolsDailyTeamPrepAction = self._createToolsDailyTeamPrepAction()
-        self.toolsGatherFingerPrintsRequestAction = self._createToolsGatherFingerPrintsRequestAction()
-
-        self.helpUGAction = self._createHelpUGAction()
-        self.helpCommunityAction = self._createHelpCommunityAction()
-        self.helpMyAccountAction = self._createHelpMyAccountAction()
-        self.helpAboutAction = self._createHelpAboutAction()
-
-        # popMenu removed - UI components no longer needed
-
-        # QListView components removed - UI components no longer needed
-        # Bot, mission, and vehicle management now handled through data models only
+        # menuFont removed - no longer needed for UI
+        # Search UI components removed - no longer needed
+        # QActions removed - UI components no longer needed
         self.running_mission = None
 
-        self.mtvViewAction = self._createMTVViewAction()
-        # self.fieldMonitorAction = self._createFieldMonitorAction()
-        self.commandSendAction = self._createCommandSendAction()
-
-        # QListView configuration removed - UI components no longer needed
-
-        # self.skillListView.setModel(self.skillModel)
-        # skillListView removed - UI components no longer needed
-
-        # self.mission0 = EBMISSION(self)
-        # missionModel removed - UI components no longer needed
-        # self.missions.append(self.mission0)
-
-
-
-        # Vehicle list view has been removed - vehicles are now managed through PlatoonManager
-
-
-
-        # centralWidget removed - UI components no longer needed
-
-        if "Commander" not in self.machine_role:
-            self.botNewAction.setDisabled(True)
-            self.saveAllAction.setDisabled(True)
-            self.botDelAction.setDisabled(True)
-            self.botEditAction.setDisabled(True)
-            self.botCloneAction.setDisabled(True)
-            self.botNewFromFileAction.setDisabled(True)
-            self.syncBotAccountsAction.setDisabled(True)
-
-            self.missionNewAction.setDisabled(True)
-            self.missionDelAction.setDisabled(True)
-            self.missionEditAction.setDisabled(True)
-            self.missionImportAction.setDisabled(True)
-
-            self.skillNewAction.setDisabled(True)
-            self.skillDeleteAction.setDisabled(True)
-            self.skillShowAction.setDisabled(True)
-            self.skillUploadAction.setDisabled(True)
-
-            self.skillNewFromFileAction.setDisabled(True)
-
-        # server = HttpServer(self, self.session, self.get_auth_token())
-        # self.server_port = server.port
-
-        # centralScroll removed - UI components no longer needed
-
-
-        #centralWidget.setPlainText("Central widget")
-
-        # layout removed - UI components no longer needed
-        # Splitter components removed - UI components no longer needed
-
-
-
-        # Because BorderLayout doesn't call its super-class addWidget() it
-        # doesn't take ownership of the widgets until setLayout() is called.
-        # Therefore we keep a local reference to each label to prevent it being
-        # garbage collected too soon.
-        #label_n = self.createLabel("North")
-        # layout, menuBar, mbWidget, mbLayout removed - UI components no longer needed
-
-        label_w = self.createLabel("West")
-
-        # westScroll removed - UI components no longer needed
-        #layout.addWidget(ic0, BorderLayout.West)
-
-        # eastScrolls removed - UI components no longer needed
-        label_e1 = self.createLabel("Running Missions")
-        label_e2 = self.createLabel("Completed Missions")
-        # east1Scroll removed - UI components no longer needed
-
-        label_s = self.createLabel("South")
-
-        # Splitter addWidget calls removed - UI components no longer needed
-
-        # mbWidget removed - UI components no longer needed
-        # layout.addWidget removed - UI components no longer needed
-        # bottomSplitter removed - UI components no longer needed
-        # centralSplitter and south_layout removed - UI components no longer needed
+        # Action disabling code removed - QActions no longer exist
         logger.info("some vars init done6....")
-        self.rpa_quit_dialog = QDialog(self)
-        self.rpa_quit_dialog.setWindowTitle(QApplication.translate("QDialog", "Quit RPA Confirmation"))
-        # rpa_quit_dialog_layout removed - UI components no longer needed
-        self.rpa_quit_label = QLabel(QApplication.translate("QLabel", "Are you sure you want to quit?"))
-        self.rpa_quit_ok_button = QPushButton("OK")
-        self.rpa_quit_cancel_button = QPushButton("Cancel")
-        self.rpa_quit_confirmation_future = self.mainLoop.create_future()
+        # RPA quit dialog components removed - no longer needed
 
         # finally start the network service
         # because if we don't know who the real boss is, there no point doing any networking.....
@@ -665,27 +452,11 @@ class MainWindow(QMainWindow):
             logger.info("run platoon side networking...")
             self.lan_task = self.mainLoop.create_task(runPlatoonLAN(self, self.mainLoop))
 
-        def on_ok():
-            self.rpa_quit_confirmation_future = self.mainLoop.create_future()
-            if not self.rpa_quit_confirmation_future.done():
-                self.rpa_quit_confirmation_future.set_result(True)
-            self.rpa_quit_dialog.close()
+        # RPA quit dialog handlers removed - no longer needed
 
-        def on_cancel():
-            self.rpa_quit_confirmation_future = self.mainLoop.create_future()
-            if not self.rpa_quit_confirmation_future.done():
-                self.rpa_quit_confirmation_future.set_result(False)
-            self.rpa_quit_dialog.close()
-
-        self.rpa_quit_ok_button.clicked.connect(on_ok)
-        self.rpa_quit_cancel_button.clicked.connect(on_cancel)
-
-
-        # mainWidget removed - UI components no longer needed
         self.wan_connected = False
         self.wan_msg_subscribed = False
         self.websocket = None
-        self.setWindowTitle("My E-Commerce Agents ("+self.user+") - "+self.machine_role)
         self.vehicle_monitor = VehicleMonitorManager(self)
         logger.debug("================= DONE with GUI Setup ==============================")
 
@@ -899,25 +670,10 @@ class MainWindow(QMainWindow):
         # the message queue are
         self.monitor_task = asyncio.create_task(self.runRPAMonitor(self.gui_monitor_msg_queue))
         self.showMsg("spawned RPA Monitor task")
-
-
-
-        # self.gchat_task = asyncio.create_task(start_gradio_chat_in_background(self))
-        # self.gradio_thread = threading.Thread(target=launchChat, args=(self,), daemon=True)
-        # self.gradio_thread.start()
-
         self.showMsg("spawned runbot task")
-
-        # the message queue are
-        # asyncio.create_task(self.runbotworks(self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-        # self.showMsg("spawned runbot task")
 
         self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
         self.showMsg("spawned chat task")
-
-        # with ThreadPoolExecutor(max_workers=3) as self.executor:
-        #     self.rpa_task_future = asyncio.wrap_future(self.executor.submit(self.runbotworks, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-        #     self.showMsg("spawned RPA task")
 
         self.keyboard_task = asyncio.create_task(self.listen_for_hotkey())
 
@@ -925,11 +681,6 @@ class MainWindow(QMainWindow):
             # create a temporary file system using agent ID
             base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
             self.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
-
-        # FileSystem now accessed through unified browser manager
-        # Keep path settings for other purposes
-        # self.browser_use_file_system = FileSystem(self.browser_use_file_system_path)
-        
         # Load environment variables before initializing ChatOpenAI
         # For PyInstaller bundled app, try to load .env from the executable directory
         if getattr(sys, 'frozen', False):
@@ -960,28 +711,10 @@ class MainWindow(QMainWindow):
 
         # await asyncio.gather(peer_task, monitor_task, chat_task, rpa_task_future)
         loop = asyncio.get_event_loop()
-        # executor = ThreadPoolExecutor()
-        # asyncio.run_coroutine_threadsafe(self.run_async_tasks(loop, executor), loop)
-
-
-
         asyncio.run_coroutine_threadsafe(self.run_async_tasks(), loop)
-
-        # new_loop = asyncio.new_event_loop()
-        # print("created a new loop")
-
-
 
         self.saveSettings()
         logger.info("vehicles after init:", [v.getName() for v in self.vehicles])
-
-        # finally setup agents, note: local servers needs to be setup and running
-        # before this.
-        # self.llm = ChatOpenAI(model='gpt-4o')
-        # self.agents = []
-        # self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
-        # print("Building agent skills.....")
-        # asyncio.create_task(self.async_agents_init())
 
         # Initialize browser manager
         self.setupUnifiedBrowserManager()
@@ -1642,7 +1375,7 @@ class MainWindow(QMainWindow):
                 # self.rebuildHTML()
                 f.close()
         except IOError:
-            QMessageBox.information(self, f"Unable to open settings file {self.general_settings_file}")
+            logger.error(f"Unable to open settings file {self.general_settings_file}")
 
     def get_schedule_mode(self):
         return self.schedule_mode
@@ -1650,21 +1383,6 @@ class MainWindow(QMainWindow):
 
     def get_host_role(self):
         return self.host_role
-
-    def createLabel(self, text):
-        label = QLabel(QApplication.translate("QLabel", text))
-        label.setFrameStyle(QFrame.Box | QFrame.Raised)
-        return label
-
-    # _createMenuBar method removed - UI components no longer needed
-
-    def _createBotNewAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&New"))
-        new_action.triggered.connect(self.newBotView)
-
-        return new_action
 
 
     def setCommanderXPort(self, xport):
@@ -1710,355 +1428,6 @@ class MainWindow(QMainWindow):
         self.general_settings["localUserDB_host"] = ip
         self.general_settings["localUserDB_port"] = port
 
-    def _syncBotAccountsAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Sync Bot Accounts"))
-        new_action.triggered.connect(self.syncBotAccounts)
-        return new_action
-
-
-    def _createBotNewFromFileAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Import"))
-        new_action.triggered.connect(self.newBotFromFile)
-        return new_action
-
-    def _createGetBotsAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Load All Bots"))
-        new_action.triggered.connect(self.getAllBotsFromCloud)
-        # ew_action.connect(QAction.)
-
-        # new_action.connect(self.newBot)
-        # self.newAction.setIcon(QIcon(":file-new.svg"))
-        # self.openAction = QAction(QIcon(":file-open.svg"), "&Open...", self)
-        # self.saveAction = QAction(QIcon(":file-save.svg"), "&Save", self)
-        # self.exitAction = QAction("&Exit", self)
-        return new_action
-
-    def _createGetLocalBotsAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Load All Local Bots"))
-        new_action.triggered.connect(self.findAllBot)
-        return new_action
-
-    def _createSaveAllAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Save All"))
-        new_action.triggered.connect(self.saveAll)
-        return new_action
-
-    def _createBotDelAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Remove"))
-        new_action.triggered.connect(self.deleteBot)
-        return new_action
-
-    def _createBotEditAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Edit"))
-        return new_action
-
-    def _createBotCloneAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Clone"))
-        new_action.triggered.connect(self.cloneBot)
-        return new_action
-
-    def _createBotEnDisAbleAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Disable"))
-        return new_action
-
-    def _createMissionNewAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Create"))
-        new_action.triggered.connect(self.newMissionView)
-
-        return new_action
-
-    def _createMTVViewAction(self):
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Vehicles View"))
-        new_action.triggered.connect(self.newVehiclesView)
-
-        return new_action
-
-
-    def _createFieldMonitorAction(self):
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Field Monitor"))
-        #new_action.triggered.connect(self.newMissionView)
-
-        return new_action
-
-
-    def _createCommandSendAction(self):
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Send Command"))
-        # new_action.triggered.connect(lambda: self.sendToPlatoons("7000", None))
-        cmd = '{\"cmd\":\"reqStatusUpdate\", \"missions\":\"all\"}'
-        new_action.triggered.connect(lambda: self.sendToPlatoonsByRowIdxs([], cmd))
-
-        return new_action
-
-
-    def _createMissionDelAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Delete M"))
-        return new_action
-
-
-    def _createMissionImportAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Import"))
-        new_action.triggered.connect(self.newMissionFromFile)
-        return new_action
-
-    def _createMissionEditAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Edit"))
-        return new_action
-
-
-    def _createSettingsAccountAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Account"))
-        return new_action
-
-    def _createSettingsEditAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Edit"))
-        new_action.triggered.connect(self.editSettings)
-        return new_action
-
-
-    def _createRunRunAllAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Run All"))
-        new_action.triggered.connect(self.manualRunAll)
-        return new_action
-
-    def _createRunLocalWorkAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Run Local Work"))
-        new_action.triggered.connect(lambda: asyncio.create_task(self.runTodaysLocalWork()))
-        return new_action
-
-    def _createRunTestAllAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Run All Tests"))
-        new_action.triggered.connect(self.runAllTests)
-        return new_action
-
-
-    def _createScheduleCalendarViewAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Calendar View"))
-        new_action.triggered.connect(self.scheduleCalendarView)
-        return new_action
-
-
-    def _createFetchScheduleAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Fetch Schedules"))
-        new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings()))
-        return new_action
-
-
-    def _createRescheduleAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Reschedule"))
-        new_action.triggered.connect(lambda: self.fetchSchedule("", self.get_vehicle_settings("true"), True))
-        return new_action
-
-
-    def _createScheduleNewFromFileAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Test Schedules From File"))
-        new_action.triggered.connect(self.fetchScheduleFromFile)
-        return new_action
-
-    def _createReportsShowAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&View"))
-        return new_action
-
-    def _createReportsGenAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Generate"))
-        return new_action
-
-
-
-    def _createSettingsGenAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Generate"))
-        return new_action
-
-    # after click, should pop up a windows to ask user to choose from 3 options
-    # start from scratch, start from template, start by interactive show and learn tip bubble "most popular".
-    def _createSkillNewAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Create New"))
-            new_action.triggered.connect(self.trainNewSkill)
-            return new_action
-
-    def _createSkillManagerAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Manager"))
-            new_action.triggered.connect(self.showSkillManager)
-            return new_action
-
-    def _createSkillDeleteAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Delete"))
-            return new_action
-
-    def _createSkillShowAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Show All"))
-            return new_action
-
-    def _createSkillUploadAction(self):
-            # File actions
-            new_action = QAction(self)
-            new_action.setText(QApplication.translate("QAction", "&Upload Skill"))
-            new_action.triggered.connect(self.uploadSkill)
-            return new_action
-
-    def _createSkillNewFromFileAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Import"))
-        new_action.triggered.connect(self.newSkillFromFile)
-        return new_action
-
-
-    def _createToolsADSProfileConverterAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&ADS Profile Converter"))
-        new_action.triggered.connect(self.runADSProfileConverter)
-        return new_action
-
-    def _createToolsADSProfileBatchToSinglesAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&ADS Profile Batch To Singles"))
-        new_action.triggered.connect(self.runADSProfileBatchToSingles)
-        return new_action
-
-
-    def _createToolsWanChatTestAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Wan Chat Test"))
-        new_action.triggered.connect(self.wan_chat_test)
-        return new_action
-
-    def _createToolsStopWaitUntilTestAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Stop Wait Until Test"))
-        new_action.triggered.connect(self.stopWaitUntilTest)
-        return new_action
-
-    def _createToolsSimWanRequestAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Simulate Wan Request"))
-        new_action.triggered.connect(self.simWanRequest)
-        return new_action
-
-    def _createToolsSyncFingerPrintRequestAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Sync Finger Print Request(Manager Only)"))
-        new_action.triggered.connect(self.syncFingerPrintRequest)
-        return new_action
-
-    def _createToolsDailyHousekeepingAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Daily Housekeeping(Manager Only)"))
-        new_action.triggered.connect(self.dailyHousekeeping)
-        return new_action
-
-    def _createToolsDailyTeamPrepAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Daily Team Prep(Manager Only)"))
-        new_action.triggered.connect(self.dailyTeamPrep)
-        return new_action
-
-    def _createToolsGatherFingerPrintsRequestAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Gather Finger Prints Request(Platoon Only)"))
-        new_action.triggered.connect(self.gatherFingerPrints)
-        return new_action
-
-    def _createHelpUGAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&User Guide"))
-        new_action.triggered.connect(self.gotoUserGuide)
-        return new_action
-
-
-    def _createHelpCommunityAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Community"))
-        new_action.triggered.connect(self.gotoForum)
-        return new_action
-
-    def _createHelpMyAccountAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&My Account"))
-        new_action.triggered.connect(self.gotoMyAccount)
-        return new_action
-
-    def _createHelpAboutAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&About"))
-        new_action.triggered.connect(self.showAbout)
-        return new_action
-
-
-
     def findIndex(self, list, element):
         try:
             index_value = list.index(element)
@@ -2068,25 +1437,6 @@ class MainWindow(QMainWindow):
 
     def getDisplayResolution(self):
         return self.display_resolution
-
-    def test_scroll(self):
-        mouse = MouseController()
-        self.showMsg("testing scrolling....")
-        url = 'https://www.amazon.com/s?k=yoga+mats&crid=2Y3M8P4537BWF&sprefix=%2Caps%2C331&ref=nb_sb_ss_recent_1_0_recent'
-        webbrowser.open(url, new=0, autoraise=True)
-        time.sleep(8)
-        mouse.scroll(0, -25)
-        #pyautogui.scroll(-500)
-        # time.sleep(5)
-        # pyautogui.scroll(-500)
-        # time.sleep(5)
-        # pyautogui.scroll(500)
-        # time.sleep(5)
-        # pyautogui.scroll(500)
-        self.showMsg("done testing....")
-
-    def runAllTests(self):
-        self.showMsg("running all tests suits.")
 
     async def runTodaysLocalWork(self):
         # send a request to commander for today's scheduled work.
@@ -2131,7 +1481,7 @@ class MainWindow(QMainWindow):
             self.logDailySchedule(json.dumps(bodyobj))
         else:
             log3("WARN: empty obj", "fetchSchedule", self)
-            self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
+            self.warn("Warning: NO schedule generated.")
 
     # this is more for the convinence of isolated testing ....
     def reGenWorksForVehicle(self, vehicle):
@@ -2169,7 +1519,7 @@ class MainWindow(QMainWindow):
 
         else:
             log3("WARN: empty obj", "fetchSchedule", self)
-            self.warn(QApplication.translate("QMainWindow", "Warning: NO schedule generated."))
+            self.warn("Warning: NO schedule generated.")
 
 
     def addTestMissions(self, bodyobj):
@@ -2257,7 +1607,7 @@ class MainWindow(QMainWindow):
 
                     # self.handleCloudScheduledWorks(bodyobj)
                 else:
-                    self.warn(QApplication.translate("QMainWindow", "Warning: Empty Network Response."))
+                    self.warn("Warning: Empty Network Response.")
 
             if ((not todaysScheduleExists) or forceful) and (not self.debug_mode) and (self.schedule_mode == "auto"):
                 log3(f"saving schedule file {schedule_file}", "fetchSchedule", self)
@@ -2280,46 +1630,6 @@ class MainWindow(QMainWindow):
                 ex_stat = "ErrorFetchSchedule: traceback information not available:" + str(e)
             self.showMsg(ex_stat)
             return {}
-
-
-    def fetchScheduleFromFile(self):
-        try:
-            ex_stat = "Completed:0"
-            file = 'C:/temp/scheduleResultTest9D.json'  # ads ebay amz etsy sell test.
-            filename, _ = QFileDialog.getOpenFileName(
-                self,
-                QApplication.translate("QFileDialog", "Open Browser Test Setup File"),
-                '',
-                QApplication.translate("QFileDialog", "Setup Files (*.json)")
-            )
-            if os.path.exists(filename):
-                with open(filename, 'rb') as test_schedule_file:
-                    testSchedule = json.load(test_schedule_file)
-                    # self.rebuildHTML()
-                    test_schedule_file.close()
-
-                if "Commander" in self.machine_role:
-                    self.handleCloudScheduledWorks(testSchedule)
-                elif "Platoon" in self.machine_role:
-                    # put this into Platoon's commander message queue, the rest will be take care of by itself.
-                    asyncio.create_task(
-                        self.gui_net_msg_queue.put("192.168.0.8!net data!" + json.dumps(testSchedule)))
-
-            else:
-                self.warn(QApplication.translate("QMainWindow", "Warning: Test Vector File Not Found."))
-            # ni is already incremented by processExtract(), so simply return it.
-        except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorFetchScheduleFromFile:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorFetchScheduleFromFile: traceback information not available:" + str(e)
-            self.showMsg(ex_stat)
-
-        log3("done with fetch schedule from file:" + ex_stat, "fetchSchedule", self)
-        return ex_stat
 
     def warn(self, msg, level="info"):
         logger.warning(msg)
@@ -4353,72 +3663,12 @@ class MainWindow(QMainWindow):
         # (steps, mission, skill, mode="normal"):
         runResult = rpaRunAllSteps(task.todos, task_mission.parent_settings)
 
-
-    def runADSProfileConverter(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            QApplication.translate("QFileDialog", "Open ADS Profile File"),
-            '',
-            QApplication.translate("QFileDialog", "Text Files (*.txt)")
-        )
-
-        try:
-            if exists(filename):
-                print("file name:", filename)
-                convertTxtProfiles2DefaultXlsxProfiles([filename], self)
-
-
-        except IOError:
-            QMessageBox.information(self, "Unable to open/save file: %s" % filename)
-
-
-    def runADSProfileBatchToSingles(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            QApplication.translate("QFileDialog", "Open ADS Profile File"),
-            '',
-            QApplication.translate("QFileDialog", "Text Files (*.txt)")
-        )
-
-        try:
-            if exists(filename):
-                print("file name:", filename)
-                updateIndividualProfileFromBatchSavedTxt(self, filename)
-
-        except IOError:
-            QMessageBox.information(self, "Error", "Unable to open/save file: %s" % filename)
-
-
-
-
-    def showAbout(self):
-        msgBox = QMessageBox()
-        msgBox.setWindowTitle(QApplication.translate("QMessageBox", "ECBot About"))
-        msgBox.setText(QApplication.translate("QMessageBox", "MAIPPS LLC E-Commerce Bots. \n (V1.01 2024-10-11 AIPPS LLC) \n"))
-        # msgBox.setInformativeText("Do you want to save your changes?")
-        # msgBox.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
-        # msgBox.setDefaultButton(QMessageBox.Save)
-        ret = msgBox.exec()
-
-    def gotoUserGuide(self):
-        url="https://www.maipps.com"
-        webbrowser.open(url, new=0, autoraise=True)
-
-
-    def gotoForum(self):
-        url="https://www.maipps.com"
-        webbrowser.open(url, new=0, autoraise=True)
-
-    def gotoMyAccount(self):
-        url="https://www.maipps.com"
-        webbrowser.open(url, new=0, autoraise=True)
-
     def newBotView(self):
         # Logic for creating a new bot:
         # pop out a new windows for user to set parameters for a new bot.
         # at the moment, just add an icon.
         #new_bot = EBBOT(self)
-        #new_icon = QIcon((":file-open.svg"))
+        # Icon removed - no longer needed for UI
         #self.centralWidget.setText("<b>File > New</b> clicked")
         if self.bot_manager == None:
             self.bot_manager = BotManager(self)
@@ -4436,14 +3686,6 @@ class MainWindow(QMainWindow):
         # Note: TrainManager is now a data handler, not a GUI window
         # You may need to implement a new GUI or use existing skill display methods
         self.train_manager.set_cloud_credentials(self.session, self.get_auth_token())
-
-
-    def saveAll(self):
-        # Logic for creating a new bot:
-        self.saveBotJsonFile()
-        self.writeMissionJsonFile()
-        self.wirteSkillJsonFiles()
-        self.saveRunReports()
 
     def findAllBot(self):
         self.bot_service.find_all_bots()
@@ -4792,7 +4034,6 @@ class MainWindow(QMainWindow):
             else:
                 jbody = jresp["body"]
                 # now that delete is successfull, update local file as well.
-                # self.writeMissionJsonFile()
                 self.showMsg("JUST ADDED mission: "+str(len(jbody))+json.dumps(jbody))
 
                 # Note not all mission will be added, if the cloud scheduling algorithm could NOT
@@ -5217,34 +4458,6 @@ class MainWindow(QMainWindow):
             file.close()
 
 
-    def saveBotJsonFile(self):
-        if self.file_resource.BOTS_FILE == None:
-            filename, _ = QFileDialog.getSaveFileName(
-                self,
-                'Save Json File',
-                '',
-                "Json Files (*.json)"
-            )
-            self.file_resource.BOTS_FILE = filename
-
-        if self.file_resource.BOTS_FILE:
-            try:
-                botsdata = self.genBotsJson()
-                self.showMsg("BOTS_FILE: " + self.file_resource.BOTS_FILE)
-                with open(self.file_resource.BOTS_FILE, 'w') as jsonfile:
-                    json.dump(botsdata, jsonfile, indent=4)
-
-                jsonfile.close()
-                # self.rebuildHTML()
-            except IOError:
-                QMessageBox.information(
-                    self,
-                    "Unable to save file: %s" % filename
-                )
-        else:
-            self.showMsg("Bot file does NOT exist.")
-
-
     def readVehicleJsonFile(self):
         self.showMsg("Reading Vehicle Json File: "+self.VEHICLES_FILE)
         if exists(self.VEHICLES_FILE):
@@ -5277,15 +4490,6 @@ class MainWindow(QMainWindow):
                     foundV.setTestDisabled(vjd["test_disabled"])
 
     def saveVehiclesJsonFile(self):
-        if self.VEHICLES_FILE == None:
-            filename, _ = QFileDialog.getSaveFileName(
-                self,
-                'Save Json File',
-                '',
-                "Json Files (*.json)"
-            )
-            self.VEHICLES_FILE = filename
-
         if self.VEHICLES_FILE:
             try:
                 vehiclesdata = []
@@ -5299,10 +4503,7 @@ class MainWindow(QMainWindow):
                 jsonfile.close()
                 # self.rebuildHTML()
             except IOError:
-                QMessageBox.information(
-                    self,
-                    "Unable to save file: %s" % filename
-                )
+                logger.error(f"Unable to save file: {self.VEHICLES_FILE}")
         else:
             self.showMsg("Vehicles json file does NOT exist.")
 
@@ -5355,33 +4556,6 @@ class MainWindow(QMainWindow):
             with open(self.file_resource.MISSIONS_FILE, 'r') as file:
                 self.missionJsonData = json.load(file)
                 self.translateMissionsJson(self.missionJsonData)
-
-
-    def writeMissionJsonFile(self):
-        if self.file_resource.MISSIONS_FILE == None:
-            filename, _ = QFileDialog.getSaveFileName(
-                self,
-                'Save Json File',
-                '',
-                "Json Files (*.json)"
-            )
-            self.file_resource.MISSIONS_FILE = filename
-
-        if self.file_resource.MISSIONS_FILE and exists(self.file_resource.MISSIONS_FILE):
-            try:
-                missionsdata = self.genMissionsJson()
-                self.showMsg("MISSIONS_FILE:" + self.file_resource.MISSIONS_FILE)
-                with open(self.file_resource.MISSIONS_FILE, 'w') as jsonfile:
-                    json.dump(missionsdata, jsonfile, indent=4)
-
-                jsonfile.close()
-                # self.rebuildHTML()
-            except IOError:
-                QMessageBox.information(
-                    self,
-                    "Unable to save file: %s" % filename
-                )
-
 
     def readCSVFiles(self):
         # read files from the local disk and. bot file in csv file format.
@@ -5486,7 +4660,7 @@ class MainWindow(QMainWindow):
         # pop out a new windows for user to view and schedule the missions.
         # at the moment, just add an icon.
         #new_bot = EBBOT(self)
-        #new_icon = QIcon((":file-open.svg"))
+        # Icon removed - no longer needed for UI
         #self.centralWidget.setText("<b>File > New</b> clicked")
         self.schedule_manager = ScheduleManager()
         #self.BotNewWin.resize(400, 200)
@@ -5514,25 +4688,7 @@ class MainWindow(QMainWindow):
         # You may need to implement a new GUI or use existing platoon display methods
 
     def eventFilter(self, source, event):
-        # QListView event handling removed - UI components no longer needed
-        # Bot, mission, and vehicle management now handled through data models only
         return super().eventFilter(source, event)
-
-
-
-    # _createCusMissionViewAction removed - UI components no longer needed
-
-    # _createCusMissionEditAction removed - UI components no longer needed
-
-    # _createCusMissionCloneAction removed - UI components no longer needed
-
-    # _createCusMissionDeleteAction removed - UI components no longer needed
-
-    # _createCusMissionUpdateAction removed - UI components no longer needed
-
-    # _createRunMissionNowAction removed - UI components no longer needed
-
-    # _createMarkMissionCompletedAction removed - UI components no longer needed
 
     def editCusMission(self):
         # File actions
@@ -5558,35 +4714,19 @@ class MainWindow(QMainWindow):
         self.searchLocalMissions()
 
     def deleteCusMission(self):
-        # File actions
-        msgBox = QMessageBox()
-        msgBox.setText(QApplication.translate("QMessageBox", "The mission will be removed and won't be able recover from it.."))
-        msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this mission?"))
-        msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
-        msgBox.setDefaultButton(QMessageBox.Yes)
-        ret = msgBox.exec_()
+        # File actions - confirmation dialog removed, proceeding with deletion
+        logger.info("Deleting mission - confirmation dialog removed")
+        api_removes = []
 
-        if ret == QMessageBox.Yes:
-            api_removes = []
+        # QListView and missionModel removed - UI components no longer needed
+        # Mission deletion now handled through data models only
+        if len(self.missions):
+            for mission in self.missions:
+                api_removes.append({"id": mission.getMid(), "owner": "", "reason": ""})
 
-            # QListView and missionModel removed - UI components no longer needed
-            # Mission deletion now handled through data models only
-            if len(self.missions):
-                for mission in self.missions:
-                    api_removes.append({"id": mission.getMid(), "owner": "", "reason": ""})
+            # remove on the cloud side, local DB side, and MainGUI side
+            self.deleteMissionsWithJsons(False, api_removes)
 
-                # remove on the cloud side, local DB side, and MainGUI side
-                self.deleteMissionsWithJsons(False, api_removes)
-
-                    # self.writeMissionJsonFile()
-
-        # botModel removed - UI components no longer needed
-        #self.showMsg("delete bot" + str(self.selected_bot_row))
-
-    # delete from cloud side
-    # delete from local DB
-    # delete from in-memory data structure
-    # delete bots from GUI depends on the "del_gui" flag.
     # note: the mjs is in this format [{"id": mid, "owner": "", "reason": ""} .... ]
     def deleteMissionsWithJsons(self, del_gui, mjs):
         try:
@@ -5758,17 +4898,6 @@ class MainWindow(QMainWindow):
         if "Commander" in self.host_role:
             self.updateMissionsStatToCloud([amission])
 
-    # _createBotRCEditAction removed - UI components no longer needed
-
-    # _createBotRCCloneAction removed - UI components no longer needed
-
-    # _createBotRCDeleteAction removed - UI components no longer needed
-
-
-
-    # Vehicle action creation methods removed - vehicles are now managed through PlatoonManager
-
-
     def editBot(self):
         if self.bot_manager == None:
             self.bot_manager = BotManager(self)
@@ -5787,33 +4916,19 @@ class MainWindow(QMainWindow):
         self.searchLocalBots()
 
     def deleteBot(self):
-        # File actions
-        msgBox = QMessageBox()
-        msgBox.setText(QApplication.translate("QMessageBox", "The bot will be removed and won't be able recover from it.."))
-        msgBox.setInformativeText(QApplication.translate("QMessageBox", "Are you sure about deleting this bot?"))
-        msgBox.setStandardButtons(QMessageBox.Cancel | QMessageBox.Yes)
-        msgBox.setDefaultButton(QMessageBox.Yes)
-        ret = msgBox.exec_()
+        # File actions - confirmation dialog removed, proceeding with deletion
+        logger.info("Deleting bot - confirmation dialog removed")
+        api_removes = []
+        # items = [self.selected_bot_item]
+        # QListView and botModel removed - UI components no longer needed
+        # Bot deletion now handled through data models only
+        if len(self.bots):
+            for bot in self.bots:
+                api_removes.append({"id": bot.getBid(), "owner": "", "reason": ""})
 
-        if ret == QMessageBox.Yes:
-            api_removes = []
-            # items = [self.selected_bot_item]
-            # QListView and botModel removed - UI components no longer needed
-            # Bot deletion now handled through data models only
-            if len(self.bots):
-                for bot in self.bots:
-                    api_removes.append({"id": bot.getBid(), "owner": "", "reason": ""})
+            # remove on the cloud side, local side, MainGUI side.
+            self.deleteBotsWithJsons(False, api_removes)
 
-                # remove on the cloud side, local side, MainGUI side.
-                self.deleteBotsWithJsons(False, api_removes)
-
-                # self.saveBotJsonFile()
-
-
-    # delete from cloud side
-    # delete from local DB
-    # delete from in-memory data structure
-    # delete bots from GUI depends on the "del_gui" flag.
     # note: the bjs is in this format [{"id": bid, "owner": "", "reason": ""} .... ]
     def deleteBotsWithJsons(self, del_gui, bjs):
         try:
@@ -5943,16 +5058,6 @@ class MainWindow(QMainWindow):
 
         return runStat
 
-    def newBotFromFile(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            QApplication.translate("QFileDialog", "Open Bot Definition File"),
-            '',
-            QApplication.translate("QFileDialog", "Bot Files (*.json *.xlsx *.csv)")
-        )
-        log3("loading bots from a file..."+filename)
-        b1, addedBots = self.createBotsFromFilesOrJsData([filename])
-
     def createBotsFromFilesOrJsData(self, bfiles):
         try:
             bots_from_file = []
@@ -5972,10 +5077,9 @@ class MainWindow(QMainWindow):
                                             self.fillNewBotFullInfo(fb, new_bot)
                                             bots_from_file.append(new_bot)
                                     else:
-                                        self.warn(QApplication.translate("QMainWindow", "Warning: NO bots found in file."))
+                                        self.warn("Warning: NO bots found in file.")
                             except (FileNotFoundError, json.JSONDecodeError) as e:
-                                self.warn(QApplication.translate("QMainWindow",
-                                                                 f"Error opening or decoding JSON file: {filename} - {e}"))
+                                self.warn(f"Error opening or decoding JSON file: {filename} - {e}")
 
                         elif "xlsx" in filename:
                             try:
@@ -6011,10 +5115,9 @@ class MainWindow(QMainWindow):
                                     print(new_bot.genJson())
 
                             except FileNotFoundError as e:
-                                self.warn(QApplication.translate("QMainWindow", f"Excel file not found: {filename} - {e}"))
+                                self.warn(f"Excel file not found: {filename} - {e}")
                             except Exception as e:
-                                self.warn(
-                                    QApplication.translate("QMainWindow", f"Error processing Excel file: {filename} - {e}"))
+                                self.warn(f"Error processing Excel file: {filename} - {e}")
 
                         else:
                             self.showMsg("ERROR: bot files must either be in .json format or .xlsx format!")
@@ -6028,7 +5131,7 @@ class MainWindow(QMainWindow):
                         bots_from_file.append(new_bot)
 
                 else:
-                    self.warn(QApplication.translate("QMainWindow", "Warning: No file provided."))
+                    self.warn("No file provided.")
 
             if len(bots_from_file) > 0:
                 print("adding new bots to both cloud and local DB... update BID and Interests along the way since they're cloud generated.")
@@ -6118,18 +5221,6 @@ class MainWindow(QMainWindow):
         if local_missions:
             self.mission_service.insert_missions_batch_(local_missions)
 
-
-    def newMissionFromFile(self):
-        self.showMsg("loading missions from a file...")
-        api_missions = []
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            QApplication.translate("QFileDialog", "Open Mission Definition File"),
-            '',
-            QApplication.translate("QFileDialog", "Mission Files (*.json *.xlsx *.csv)")
-        )
-        self.createMissionsFromFile([filename])
-
     def createMissionsFromFilesOrJsData(self, mfiles):
         missionsJson = []
         mTypeTable = {
@@ -6182,7 +5273,7 @@ class MainWindow(QMainWindow):
                                     self.addMissionsToLocalDB(new_missions)
 
                         else:
-                            self.warn(QApplication.translate("QMainWindow", "Warning: NO missions found in file."))
+                            self.warn("NO missions found in file.")
 
                     elif "xlsx" in filename:
                         dataType = "businessXlsxFile"
@@ -6366,93 +5457,93 @@ class MainWindow(QMainWindow):
         # You may need to implement a new GUI or use existing skill display methods
         self.showMsg("Skill Manager is now a data handler. Use skill_manager methods directly.")
 
-    def uploadSkill(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            QApplication.translate("QFileDialog", "Upload Skill File"),
-            '',
-            QApplication.translate("QFileDialog", "Skill Json Files (*.json)")
-        )
-        if filename != "":
-            # ("body string:", uncompressed, "!", len(uncompressed), "::")
-            sk_dir = os.path.abspath(filename)
-            anchor_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/images"
-            scripts_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/scripts"
-            anchor_files = os.listdir(anchor_dir)
-            for af in anchor_files:
-                full_af_name = anchor_dir + "/" + af
-                jresp = upload_file(self.session, full_af_name, self.get_auth_token(),  self.getWanApiEndpoint(), "anchor")
+    # def uploadSkill(self):
+    #     filename, _ = QFileDialog.getOpenFileName(
+    #         self,
+    #         "Upload Skill File",
+    #         '',
+    #         "Skill Json Files (*.json)"
+    #     )
+    #     if filename != "":
+    #         # ("body string:", uncompressed, "!", len(uncompressed), "::")
+    #         sk_dir = os.path.abspath(filename)
+    #         anchor_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/images"
+    #         scripts_dir = sk_dir + "/" + os.path.basename(filename).split(".")[0] + "/scripts"
+    #         anchor_files = os.listdir(anchor_dir)
+    #         for af in anchor_files:
+    #             full_af_name = anchor_dir + "/" + af
+    #             jresp = upload_file(self.session, full_af_name, self.get_auth_token(),  self.getWanApiEndpoint(), "anchor")
 
-            csk_file = scripts_dir + "/" + os.path.basename(filename).split(".")[0] + ".csk"
-            jresp = upload_file(self.session, csk_file, self.get_auth_token(),  self.getWanApiEndpoint(), "csk")
+    #         csk_file = scripts_dir + "/" + os.path.basename(filename).split(".")[0] + ".csk"
+    #         jresp = upload_file(self.session, csk_file, self.get_auth_token(),  self.getWanApiEndpoint(), "csk")
 
 
-    def newSkillFromFile(self):
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            QApplication.translate("QFileDialog", "Open Skill File"),
-            '',
-            QApplication.translate("QFileDialog", "Skill Json Files (*.json)")
-        )
-        self.showMsg("loading skill from a file..."+filename)
-        if filename != "":
-            api_skills = []
-            try:
-                with open(filename, 'r') as new_skill_file:
-                    # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
-                    skill_json = json.load(new_skill_file)
-                    if skill_json:
-                        #add skills to the relavant data structure and add these bots to the cloud and local DB.
-                        # send_add_skills_to_cloud
-                        jresp = send_add_skills_request_to_cloud(self.session, [skill_json], self.get_auth_token(), self.getWanApiEndpoint())
+    # def newSkillFromFile(self):
+    #     filename, _ = QFileDialog.getOpenFileName(
+    #         self,
+    #         "Open Skill File",
+    #         '',
+    #         "Skill Json Files (*.json)"
+    #     )
+    #     self.showMsg("loading skill from a file..."+filename)
+    #     if filename != "":
+    #         api_skills = []
+    #         try:
+    #             with open(filename, 'r') as new_skill_file:
+    #                 # self.showMsg("body string:"+uncompressed+"!"+str(len(uncompressed))+"::")
+    #                 skill_json = json.load(new_skill_file)
+    #                 if skill_json:
+    #                     #add skills to the relavant data structure and add these bots to the cloud and local DB.
+    #                     # send_add_skills_to_cloud
+    #                     jresp = send_add_skills_request_to_cloud(self.session, [skill_json], self.get_auth_token(), self.getWanApiEndpoint())
 
-                        if "errorType" in jresp:
-                            screen_error = True
-                            self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
-                        else:
-                            self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
-                            jbody = jresp["body"]
-                            # now that add is successfull, update local file as well.
+    #                     if "errorType" in jresp:
+    #                         screen_error = True
+    #                         self.showMsg("ERROR Type: "+json.dumps(jresp["errorType"])+"ERROR Info: "+json.dumps(jresp["errorInfo"]))
+    #                     else:
+    #                         self.showMsg("jresp type: "+str(type(jresp))+" "+str(len(jresp["body"])))
+    #                         jbody = jresp["body"]
+    #                         # now that add is successfull, update local file as well.
 
-                            # now add bot to local DB.
+    #                         # now add bot to local DB.
 
-                            for i in range(len(jbody)):
-                                self.showMsg(str(i))
-                                new_skill = WORKSKILL(self, jbody[i]["name"])
-                                self.fillNewSkill(jbody[i], new_skill)
-                                self.skills.append(new_skill)
-                                # self.skillModel.appendRow(new_skill)
-                                api_skills.append({
-                                    "skid": new_skill.getSkid(),
-                                    "owner": new_skill.getOwner(),
-                                    "platform": new_skill.getPlatform(),
-                                    "app": new_skill.getApp(),
-                                    "applink": new_skill.getAppLink(),
-                                    "appargs": new_skill.getAppArgs(),
-                                    "site": new_skill.getSiteName(),
-                                    "sitelink": new_skill.getSite(),
-                                    "name": new_skill.getName(),
-                                    "path": new_skill.getPath(),
-                                    "main": new_skill.getMain(),
-                                    "createdon": new_skill.getCreatedOn(),
-                                    "extensions": "",
-                                    "runtime": new_skill.getRunTime(),
-                                    "price_model": new_skill.getPriceModel(),
-                                    "price": new_skill.getPrice(),
-                                    "privacy": new_skill.getPrivacy(),
-                                })
-                                self.skill_service.insert_skill(api_skills[i])
-                    else:
-                        self.warn(QApplication.translate("QMainWindow", "Warning: NO skills in the file."))
-            except Exception as e:
-                traceback_info = traceback.extract_tb(e.__traceback__)
-                # Extract the file name and line number from the last entry in the traceback
-                if traceback_info:
-                    ex_stat = "ErrorLoadSkillFile:" + traceback.format_exc() + " " + str(e)
-                else:
-                    ex_stat = "ErrorLoadSkillFile: traceback information not available:" + str(e)
-                logger.debug(ex_stat)
-                logger.debug(QApplication.translate("QMainWindow", "Warning: load skill file error."))
+    #                         for i in range(len(jbody)):
+    #                             self.showMsg(str(i))
+    #                             new_skill = WORKSKILL(self, jbody[i]["name"])
+    #                             self.fillNewSkill(jbody[i], new_skill)
+    #                             self.skills.append(new_skill)
+    #                             # self.skillModel.appendRow(new_skill)
+    #                             api_skills.append({
+    #                                 "skid": new_skill.getSkid(),
+    #                                 "owner": new_skill.getOwner(),
+    #                                 "platform": new_skill.getPlatform(),
+    #                                 "app": new_skill.getApp(),
+    #                                 "applink": new_skill.getAppLink(),
+    #                                 "appargs": new_skill.getAppArgs(),
+    #                                 "site": new_skill.getSiteName(),
+    #                                 "sitelink": new_skill.getSite(),
+    #                                 "name": new_skill.getName(),
+    #                                 "path": new_skill.getPath(),
+    #                                 "main": new_skill.getMain(),
+    #                                 "createdon": new_skill.getCreatedOn(),
+    #                                 "extensions": "",
+    #                                 "runtime": new_skill.getRunTime(),
+    #                                 "price_model": new_skill.getPriceModel(),
+    #                                 "price": new_skill.getPrice(),
+    #                                 "privacy": new_skill.getPrivacy(),
+    #                             })
+    #                             self.skill_service.insert_skill(api_skills[i])
+    #                 else:
+    #                     self.warn("NO skills in the file.")
+    #         except Exception as e:
+    #             traceback_info = traceback.extract_tb(e.__traceback__)
+    #             # Extract the file name and line number from the last entry in the traceback
+    #             if traceback_info:
+    #                 ex_stat = "ErrorLoadSkillFile:" + traceback.format_exc() + " " + str(e)
+    #             else:
+    #                 ex_stat = "ErrorLoadSkillFile: traceback information not available:" + str(e)
+    #             logger.debug(ex_stat)
+    #             logger.debug("load skill file error."))
 
     def find_dependencies(self, main_file, visited, dependencies):
         if main_file in visited:
@@ -6707,9 +5798,9 @@ class MainWindow(QMainWindow):
                 self.product_service.find_all_products()
 
             else:
-                self.warn(QApplication.translate("QMainWindow", "Warning: NO products found in file."))
+                self.warn("NO products found in file.")
         else:
-            self.warn(QApplication.translate("QMainWindow", "Warning: No tests products file"))
+            self.warn("No tests products file")
 
     # try load bots from local database, if nothing in th local DB, then
     # try to fetch bots from local json files (this is mostly for testing).
@@ -6731,7 +5822,6 @@ class MainWindow(QMainWindow):
                     self.addBotToVehicle(new_bot)
             else:
                 self.showMsg("WARNING: local bots DB empty!")
-                # self.newBotFromFile()
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -6773,7 +5863,6 @@ class MainWindow(QMainWindow):
                 self.missions.append(new_mission)
         else:
             self.showMsg("WARNING: local mission DB empty!")
-            # self.newMissionFromFile()
 
     def cuspas_to_diaplayable(self, a_mission):
         cuspas_parts = a_mission.getCusPAS().split(",")
@@ -7854,12 +6943,13 @@ class MainWindow(QMainWindow):
 
             # Try to update the mission icon safely
             try:
+                # Mission icons removed - no longer needed for UI
                 if "Completed" in found_mission.getStatus():
-                    found_mission.setMissionIcon(QIcon(self.file_resource.mission_success_icon_path))
+                    logger.info("Mission completed successfully")
                 else:
-                    found_mission.setMissionIcon(QIcon(self.file_resource.mission_failed_icon_path))
+                    logger.info("Mission failed or incomplete")
             except RuntimeError as e:
-                self.showMsg(f"Error setting mission icon: {str(e)}")
+                self.showMsg(f"Error processing mission status: {str(e)}")
                 continue  # Skip to the next mission if there's an error
 
             # missionModel and completedMissionModel removed - UI components no longer needed
@@ -8422,17 +7512,7 @@ class MainWindow(QMainWindow):
         else:
             return None
 
-    def searchLocalMissions(self):
-        self.showMsg("Searching local missions based on createdon date range and field parameters....")
-        data = self.mission_service.find_missions_by_search(self.mission_from_date_edit.text(), self.mission_to_date_edit.text(),self.mission_search_edit.text())
-        self.loadLocalMissions(data)
-
-    def searchLocalBots(self):
-        self.showMsg("Searching local bots based on createdon date range and field parameters....")
-        data = self.bot_service.find_bots_by_search(self.bot_from_date_edit.text(),
-                                                          self.bot_to_date_edit.text(),
-                                                          self.bot_search_edit.text())
-        self.loadLocalBots(data)
+    # Search functions removed - UI components no longer exist
 
 
     # build up a dictionary of bot - to be visited site list required by today's mission.
@@ -9478,12 +8558,6 @@ class MainWindow(QMainWindow):
 
         print("THINK RESP:", resp)
 
-    # if some kind of wait until step is running, this would stop the wait with a click.
-    def stopWaitUntilTest(self):
-        print("SETTING LABELS READY")
-        setLabelsReady()
-        setupExtSkillRunReportResultsTestData(self)
-
     # from ip find vehicle, and update its status, and
     def updateVehicleStatusToRunningIdle(self, ip):
         found_vehicles = [v for v in self.vehicles if v.getIP() == ip]
@@ -10446,7 +9520,7 @@ class MainWindow(QMainWindow):
         foundM = next((x for x in self.missions if x.getMid() == mids[0]), None)
 
         if foundM:
-            products = foundM.getTitle()
+            product = foundM.getTitle()
             qs = [{
                 "msgID": "1",
                 "user": "000",
@@ -10557,20 +9631,5 @@ class MainWindow(QMainWindow):
         i, runStat = processExternalHook(stepjson, 1)
         # print("hook result:", symTab["hook_result"])
         return runStat
-
-    def exit(self):
-        # skill all agents
-        for agent in self.agents:
-            agent.exit()
-
-        #close all windows.
-
-        #kill all tasks, process, threads.
-
-        #tear down networking.
-
-        # take care of any data needs to be saved.
-
-        log3("Good Bye")
 
 print("maingui loaded....................")

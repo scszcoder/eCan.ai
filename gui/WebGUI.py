@@ -6,19 +6,12 @@ import sys
 import os
 from gui.ipc.api import IPCAPI
 from gui.menu_manager import MenuManager
-from PySide6.QtGui import QPixmap  # Add this import
-from PySide6.QtGui import QIcon  # Add this import
-from PySide6.QtCore import Qt  # For high quality scaling
-
-from PySide6.QtWidgets import QApplication
 
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
 from gui.core.dev_tools_manager import DevToolsManager
 from app_context import AppContext
-from agent.chats.chat_service import ChatService
-import time
 
 
 # Configure logging to suppress macOS IMK warnings
