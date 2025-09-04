@@ -39,8 +39,8 @@ import glob
 
 from PySide6.QtCore import QThreadPool, Qt, QEvent, QSize
 from PySide6.QtGui import QFont, QIcon, QAction, QStandardItemModel
-from PySide6.QtWidgets import QMenuBar, QWidget, QScrollArea, QFrame, QToolButton, QGridLayout, QSizePolicy, \
-    QApplication, QVBoxLayout, QPushButton, QLabel, QLineEdit, QHBoxLayout, QListView, QSplitter, QMainWindow, QMenu, \
+from PySide6.QtWidgets import QWidget, QFrame, QToolButton, QSizePolicy, \
+    QApplication, QPushButton, QLabel, QLineEdit, QMainWindow, QMenu, \
     QMessageBox, QFileDialog, QDialog
 
 import importlib
@@ -56,7 +56,7 @@ from bot.Cloud import send_dequeue_tasks_to_cloud, send_schedule_request_to_clou
     send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,\
     send_update_vehicles_request_to_cloud
 
-from gui.FlowLayout import BotListView, MissionListView, DragPanel
+# QListView components removed - UI components no longer needed
 from bot.Logger import LOG_SWITCH_BOARD, log3
 from gui.MissionGUI import MissionManager
 from gui.PlatoonGUI import PlatoonManager
@@ -445,46 +445,21 @@ class MainWindow(QMainWindow):
         logger.debug("=========Done With Local DB Setup, Start GUI Setup =========")
         self.save_all_button = QPushButton(QApplication.translate("QPushButton", "Save All"))
         self.log_out_button = QPushButton(QApplication.translate("QPushButton", "Logout"))
-        self.south_layout = QVBoxLayout()
-        # Log console widget removed from layout
-        self.bottomButtonsLayout = QHBoxLayout()
-        self.bottomButtonsLayout.addWidget(self.save_all_button)
-        self.south_layout.addLayout(self.bottomButtonsLayout)
-        self.bottomButtonsLayout.addWidget(self.log_out_button)
+        # southWidget and related layouts removed - UI components no longer needed
         self.save_all_button.clicked.connect(self.saveAll)
         self.log_out_button.clicked.connect(self.logout)
 
-        self.southWidget = QWidget()
-        self.southWidget.setLayout(self.south_layout)
-
         self.menuFont = QFont('Arial', 10)
-        self.mainWidget = QWidget()
-        self.westScrollArea = QWidget()
-        self.westScrollLayout = QVBoxLayout()
-        self.westScrollLabel = QLabel(QApplication.translate("QLabel", "Missions:"), alignment=Qt.AlignLeft)
-        self.westScrollLabel.setFont(self.menuFont)
+        # mainWidget removed - UI components no longer needed
+        # westScrollArea removed - UI components no longer needed
 
-        self.centralScrollArea = QWidget()
-        self.centralScrollLayout = QVBoxLayout()
-        self.centralScrollLabel = QLabel(QApplication.translate("QLabel", "Bots:"), alignment=Qt.AlignLeft)
-        self.centralScrollLabel.setFont(self.menuFont)
+        # centralScrollArea removed - UI components no longer needed
 
-        self.east0ScrollArea = QWidget()
-        self.east0ScrollLayout = QVBoxLayout()
-        # Vehicle management is now handled through PlatoonManager
-        self.east0ScrollLabel = QLabel(QApplication.translate("QLabel", "Running Missions:"), alignment=Qt.AlignLeft)
-        self.east0ScrollLabel.setFont(self.menuFont)
+        # east0ScrollArea removed - UI components no longer needed
 
-        self.east1ScrollArea = QWidget()
-        self.east1ScrollLayout = QVBoxLayout()
+        # east1ScrollArea removed - UI components no longer needed
 
-        self.east1ScrollLabel = QLabel(QApplication.translate("QLabel", "Completed Missions:"), alignment=Qt.AlignLeft)
-        self.east1ScrollLabel.setFont(self.menuFont)
-
-        self.westScroll = QScrollArea()
-        self.centralScroll = QScrollArea()
-        self.east0Scroll = QScrollArea()
-        self.east1Scroll = QScrollArea()
+        # ScrollArea components removed - UI components no longer needed
 
         self.search_mission_button = QPushButton(QApplication.translate("QPushButton", "Search"))
         self.search_mission_button.clicked.connect(self.searchLocalMissions)
@@ -496,23 +471,14 @@ class MainWindow(QMainWindow):
         self.mission_to_date_edit = QLineEdit()
         self.mission_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
 
-        self.mission_search_layout = QHBoxLayout()
+        # mission_search_layout removed - UI components no longer needed
         self.mission_search_edit = QLineEdit()
         self.mission_search_edit.setClearButtonEnabled(True)
         self.mission_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
         self.mission_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
         self.mission_search_edit.returnPressed.connect(self.search_mission_button.click)
-        self.mission_search_layout.addWidget(self.mission_from_date_label)
-        self.mission_search_layout.addWidget(self.mission_from_date_edit)
-        self.mission_search_layout.addWidget(self.mission_to_date_label)
-        self.mission_search_layout.addWidget(self.mission_to_date_edit)
-        self.mission_search_layout.addWidget(self.mission_search_edit)
-        self.mission_search_layout.addWidget(self.search_mission_button)
 
-        self.westScrollLayout.addLayout(self.mission_search_layout)
-        self.westScrollLayout.addWidget(self.westScrollLabel)
-        self.westScrollLayout.addWidget(self.westScroll)
-        self.westScrollArea.setLayout(self.westScrollLayout)
+        # westScrollLayout removed - UI components no longer needed
 
         self.search_bot_button = QPushButton(QApplication.translate("QPushButton", "Search"))
         self.search_bot_button.clicked.connect(self.searchLocalBots)
@@ -524,48 +490,19 @@ class MainWindow(QMainWindow):
         self.bot_to_date_edit = QLineEdit()
         self.bot_to_date_edit.setPlaceholderText(QApplication.translate("QLineEdit", "YYYY-MM-DD"))
 
-        self.bot_search_layout = QHBoxLayout()
+        # bot_search_layout removed - UI components no longer needed
         self.bot_search_edit = QLineEdit()
         self.bot_search_edit.setClearButtonEnabled(True)
         self.bot_search_edit.addAction(QIcon(self.homepath + '/resource/images/icons/search1_80.png'), QLineEdit.LeadingPosition)
         self.bot_search_edit.setPlaceholderText(QApplication.translate("QLineEdit", "col:phrase"))
         self.bot_search_edit.returnPressed.connect(self.search_bot_button.click)
-        self.bot_search_layout.addWidget(self.bot_from_date_label)
-        self.bot_search_layout.addWidget(self.bot_from_date_edit)
-        self.bot_search_layout.addWidget(self.bot_to_date_label)
-        self.bot_search_layout.addWidget(self.bot_to_date_edit)
-        self.bot_search_layout.addWidget(self.bot_search_edit)
-        self.bot_search_layout.addWidget(self.search_bot_button)
 
-        self.centralScrollLayout.addLayout(self.bot_search_layout)
-        self.centralScrollLayout.addWidget(self.centralScrollLabel)
-        self.centralScrollLayout.addWidget(self.centralScroll)
-        self.centralScrollArea.setLayout(self.centralScrollLayout)
+        # centralScrollLayout removed - UI components no longer needed
 
 
-        self.east0ScrollLayout.addWidget(self.east0ScrollLabel)
-        self.east0ScrollLayout.addWidget(self.east0Scroll)
-        self.east0ScrollArea.setLayout(self.east0ScrollLayout)
+        # east0ScrollLayout and east1ScrollLayout removed - UI components no longer needed
 
-        self.east1ScrollLayout.addWidget(self.east1ScrollLabel)
-        self.east1ScrollLayout.addWidget(self.east1Scroll)
-        self.east1ScrollArea.setLayout(self.east1ScrollLayout)
-
-        self.westScroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.westScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.westScroll.setWidgetResizable(True)
-
-        self.centralScroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.centralScroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.centralScroll.setWidgetResizable(True)
-
-        self.east0Scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.east0Scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.east0Scroll.setWidgetResizable(True)
-
-        self.east1Scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.east1Scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.east1Scroll.setWidgetResizable(True)
+        # ScrollArea configuration removed - UI components no longer needed
 
         #creating QActions
         self.botNewAction = self._createBotNewAction()
@@ -623,80 +560,32 @@ class MainWindow(QMainWindow):
         self.helpMyAccountAction = self._createHelpMyAccountAction()
         self.helpAboutAction = self._createHelpAboutAction()
 
-        self.popMenu = QMenu(self)
-        self.pop_menu_font = QFont("Helvetica", 10)
-        self.popMenu.setFont(self.pop_menu_font)
+        # popMenu removed - UI components no longer needed
 
-        self.popMenu.addAction(QAction(QApplication.translate("QAction", "&Edit"), self))
-        self.popMenu.addAction(QAction(QApplication.translate("QAction", "&Clone"), self))
-        self.popMenu.addSeparator()
-        self.popMenu.addAction(QAction(QApplication.translate("QAction", "&Delete"), self))
-
-        self.botListView = BotListView(self)
-        self.botListView.installEventFilter(self)
-        self.botModel = QStandardItemModel(self.botListView)
-
-        self.missionListView = MissionListView(self)
-        self.missionListView.installEventFilter(self)
-        self.missionModel = QStandardItemModel(self.missionListView)
-
-        self.running_missionListView = MissionListView()
-        self.runningMissionModel = QStandardItemModel(self.running_missionListView)
+        # QListView components removed - UI components no longer needed
+        # Bot, mission, and vehicle management now handled through data models only
         self.running_mission = None
-
-        # Note: Vehicle list view has been removed as PlatoonManager is now a data handler
-        # All vehicle-related GUI components are now handled through PlatoonManager
-
-        # self.skillListView = SkillListView(self)
-        # self.skillListView.installEventFilter(self)
-        # self.skillModel = QStandardItemModel(self.skillListView)
-
-        self.completed_missionListView = MissionListView()
-        self.completed_missionListView.installEventFilter(self)
-        self.completedMissionModel = QStandardItemModel(self.completed_missionListView)
 
         self.mtvViewAction = self._createMTVViewAction()
         # self.fieldMonitorAction = self._createFieldMonitorAction()
         self.commandSendAction = self._createCommandSendAction()
 
-        # Apply the model to the list view
-        self.botListView.setModel(self.botModel)
-        self.botListView.setViewMode(QListView.IconMode)
-        self.botListView.setMovement(QListView.Snap)
-        self.botListView.setSelectionMode(QListView.ExtendedSelection)
-        self.botListView.setSelectionBehavior(QListView.SelectRows)
+        # QListView configuration removed - UI components no longer needed
 
         # self.skillListView.setModel(self.skillModel)
-        # self.skillListView.setViewMode(QListView.IconMode)
-        # self.skillListView.setMovement(QListView.Snap)
+        # skillListView removed - UI components no longer needed
 
         # self.mission0 = EBMISSION(self)
-        # self.missionModel.appendRow(self.mission0)
+        # missionModel removed - UI components no longer needed
         # self.missions.append(self.mission0)
 
-        self.missionListView.setModel(self.missionModel)
-        self.missionListView.setViewMode(QListView.ListMode)
-        self.missionListView.setMovement(QListView.Snap)
-        # self.missionListView.setSelectionMode(QListView.MultiSelection)
-        self.missionListView.setSelectionMode(QListView.ExtendedSelection)
-        self.missionListView.setSelectionBehavior(QListView.SelectRows)
 
-        self.running_missionListView.setModel(self.runningMissionModel)
-        self.running_missionListView.setViewMode(QListView.ListMode)
-        self.running_missionListView.setMovement(QListView.Snap)
-        self.running_missionListView.setSelectionMode(QListView.ExtendedSelection)
-        self.running_missionListView.setSelectionBehavior(QListView.SelectRows)
 
         # Vehicle list view has been removed - vehicles are now managed through PlatoonManager
 
 
-        self.completed_missionListView.setModel(self.completedMissionModel)
-        self.completed_missionListView.setViewMode(QListView.ListMode)
-        self.completed_missionListView.setMovement(QListView.Snap)
-        self.completed_missionListView.setSelectionMode(QListView.ExtendedSelection)
-        self.completed_missionListView.setSelectionBehavior(QListView.SelectRows)
 
-        centralWidget = DragPanel()
+        # centralWidget removed - UI components no longer needed
 
         if "Commander" not in self.machine_role:
             self.botNewAction.setDisabled(True)
@@ -722,16 +611,13 @@ class MainWindow(QMainWindow):
         # server = HttpServer(self, self.session, self.get_auth_token())
         # self.server_port = server.port
 
-        # centralWidget.addBot(self.botListView)
-        self.centralScroll.setWidget(self.botListView)
+        # centralScroll removed - UI components no longer needed
 
 
         #centralWidget.setPlainText("Central widget")
 
-        layout = QVBoxLayout()
-        layout.setAlignment(Qt.AlignTop)
-        self.centralSplitter = QSplitter(Qt.Horizontal)
-        self.bottomSplitter = QSplitter(Qt.Vertical)
+        # layout removed - UI components no longer needed
+        # Splitter components removed - UI components no longer needed
 
 
 
@@ -740,60 +626,33 @@ class MainWindow(QMainWindow):
         # Therefore we keep a local reference to each label to prevent it being
         # garbage collected too soon.
         #label_n = self.createLabel("North")
-        # layout.addWidget(label_n, BorderLayout.North)
-        self.menuBar = self._createMenuBar()
-        self.mbWidget = QWidget()
-        self.mbLayout = QVBoxLayout()
-        #self.mbLayout.addWidget(menuBar)
-        self.mbWidget.setLayout(self.mbLayout)
-
-        # layout.addWidget(menuBar, BorderLayout.North)
+        # layout, menuBar, mbWidget, mbLayout removed - UI components no longer needed
 
         label_w = self.createLabel("West")
 
-        self.westScroll.setWidget(self.missionListView)
-        # layout.addWidget(self.westScroll, BorderLayout.West)
+        # westScroll removed - UI components no longer needed
         #layout.addWidget(ic0, BorderLayout.West)
 
-        # Vehicle list view has been removed - always show running missions
-        self.east0Scroll.setWidget(self.running_missionListView)
+        # eastScrolls removed - UI components no longer needed
         label_e1 = self.createLabel("Running Missions")
-        # layout.addWidget(self.east0Scroll, BorderLayout.East)
-
-        self.east1Scroll.setWidget(self.completed_missionListView)
         label_e2 = self.createLabel("Completed Missions")
-        # layout.addWidget(self.east1Scroll, BorderLayout.East)
+        # east1Scroll removed - UI components no longer needed
 
         label_s = self.createLabel("South")
 
-        self.centralSplitter.addWidget(self.westScrollArea)
-        self.centralSplitter.addWidget(self.centralScrollArea)
-        self.centralSplitter.addWidget(self.east0ScrollArea)
-        self.centralSplitter.addWidget(self.east1ScrollArea)
+        # Splitter addWidget calls removed - UI components no longer needed
 
-        self.bottomSplitter.addWidget(self.centralSplitter)
-        self.bottomSplitter.addWidget(self.southWidget)
-
-        #layout.addWidget(self.mbWidget)
-        layout.addWidget(self.menuBar)
-        layout.addWidget(self.bottomSplitter)
-        #layout.addWidget(self.centralSplitter)
-        #layout.addLayout(self.south_layout)
+        # mbWidget removed - UI components no longer needed
+        # layout.addWidget removed - UI components no longer needed
+        # bottomSplitter removed - UI components no longer needed
+        # centralSplitter and south_layout removed - UI components no longer needed
         logger.info("some vars init done6....")
         self.rpa_quit_dialog = QDialog(self)
         self.rpa_quit_dialog.setWindowTitle(QApplication.translate("QDialog", "Quit RPA Confirmation"))
-        self.rpa_quit_dialog_layout = QHBoxLayout()
-
+        # rpa_quit_dialog_layout removed - UI components no longer needed
         self.rpa_quit_label = QLabel(QApplication.translate("QLabel", "Are you sure you want to quit?"))
-        self.rpa_quit_dialog_layout.addWidget(self.rpa_quit_label)
-
         self.rpa_quit_ok_button = QPushButton("OK")
         self.rpa_quit_cancel_button = QPushButton("Cancel")
-
-        self.rpa_quit_dialog_layout.addWidget(self.rpa_quit_ok_button)
-        self.rpa_quit_dialog_layout.addWidget(self.rpa_quit_cancel_button)
-
-        self.rpa_quit_dialog.setLayout(self.rpa_quit_dialog_layout)
         self.rpa_quit_confirmation_future = self.mainLoop.create_future()
 
         # finally start the network service
@@ -822,8 +681,7 @@ class MainWindow(QMainWindow):
         self.rpa_quit_cancel_button.clicked.connect(on_cancel)
 
 
-        self.mainWidget.setLayout(layout)
-        self.setCentralWidget(self.mainWidget)
+        # mainWidget removed - UI components no longer needed
         self.wan_connected = False
         self.wan_msg_subscribed = False
         self.websocket = None
@@ -1798,113 +1656,7 @@ class MainWindow(QMainWindow):
         label.setFrameStyle(QFrame.Box | QFrame.Raised)
         return label
 
-    def _createMenuBar(self):
-        self.showMsg("MAIN Creating Menu Bar")
-        self.main_menu_bar_font = QFont("Helvetica", 12)
-        self.main_menu_font = QFont("Helvetica", 10)
-
-        menu_bar = QMenuBar()
-        menu_bar.setFont(self.main_menu_bar_font)
-        # Creating menus using a QMenu object
-
-        bot_menu = QMenu(QApplication.translate("QMenu", "&Bots"), self)
-        bot_menu.setFont(self.main_menu_font)
-
-        bot_menu.addAction(self.botNewAction)
-        bot_menu.addAction(self.botGetAction)
-        bot_menu.addAction(self.botGetLocalAction)
-        bot_menu.addAction(self.botEditAction)
-        bot_menu.addAction(self.botCloneAction)
-        bot_menu.addAction(self.botDelAction)
-        bot_menu.addAction(self.botNewFromFileAction)
-        bot_menu.addAction(self.syncBotAccountsAction)
-        menu_bar.addMenu(bot_menu)
-
-        mission_menu = QMenu(QApplication.translate("QMenu", "&Missions"), self)
-        mission_menu.setFont(self.main_menu_font)
-        mission_menu.addAction(self.missionNewAction)
-        mission_menu.addAction(self.missionImportAction)
-        mission_menu.addAction(self.missionEditAction)
-        mission_menu.addAction(self.missionDelAction)
-        menu_bar.addMenu(mission_menu)
-
-        platoon_menu = QMenu(QApplication.translate("QMenu", "&Platoons"), self)
-        platoon_menu.setFont(self.main_menu_font)
-        platoon_menu.addAction(self.mtvViewAction)
-        # platoon_menu.addAction(self.fieldMonitorAction)
-        platoon_menu.addAction(self.commandSendAction)
-        menu_bar.addMenu(platoon_menu)
-
-        settings_menu = QMenu(QApplication.translate("QMenu", "&Settings"), self)
-        settings_menu.setFont(self.main_menu_font)
-        # settings_menu.addAction(self.settingsAccountAction)
-        #settings_menu.addAction(self.settingsImportAction)
-        settings_menu.addAction(self.settingsEditAction)
-        #settings_menu.addAction(self.settingsDelAction)
-        menu_bar.addMenu(settings_menu)
-
-        reports_menu = QMenu(QApplication.translate("QMenu", "&Reports"), self)
-        reports_menu.setFont(self.main_menu_font)
-        reports_menu.addAction(self.reportsShowAction)
-        reports_menu.addAction(self.reportsGenAction)
-        # Log console action removed from reports menu
-        menu_bar.addMenu(reports_menu)
-
-        run_menu = QMenu(QApplication.translate("QMenu", "&Run"), self)
-        run_menu.setFont(self.main_menu_font)
-        run_menu.addAction(self.runRunLocalWorksAction)
-        run_menu.addAction(self.runRunAllAction)
-        run_menu.addAction(self.runTestAllAction)
-        menu_bar.addMenu(run_menu)
-
-        schedule_menu = QMenu(QApplication.translate("QMenu", "&Schedule"), self)
-        schedule_menu.setFont(self.main_menu_font)
-        schedule_menu.addAction(self.fetchScheduleAction)
-        schedule_menu.addAction(self.scheduleCalendarViewAction)
-        schedule_menu.addAction(self.scheduleFromFileAction)
-        schedule_menu.addAction(self.rescheduleAction)
-        schedule_menu.setFont(self.main_menu_font)
-        menu_bar.addMenu(schedule_menu)
-
-        skill_menu = QMenu(QApplication.translate("QMenu", "&Skills"), self)
-        skill_menu.setFont(self.main_menu_font)
-        skill_menu.addAction(self.skillNewAction)
-        skill_menu.addAction(self.skillManagerAction)
-        # skill_menu.addAction(self.skillDeleteAction)
-        # skill_menu.addAction(self.skillShowAction)
-        # skill_menu.addAction(self.skillUploadAction)
-
-        skill_menu.addAction(self.skillNewFromFileAction)
-        menu_bar.addMenu(skill_menu)
-
-
-        tools_menu = QMenu(QApplication.translate("QMenu", "&Tools"), self)
-        tools_menu.setFont(self.main_menu_font)
-        tools_menu.addAction(self.toolsADSProfileConverterAction)
-        tools_menu.addAction(self.toolsADSProfileBatchToSinglesAction)
-        tools_menu.addAction(self.toolsWanChatTestAction)
-        tools_menu.addAction(self.toolsStopWaitUntilTestAction)
-        tools_menu.addAction(self.toolsSimWanRequestAction)
-        tools_menu.addAction(self.toolsSyncFingerPrintRequestAction)
-        tools_menu.addAction(self.toolsDailyHousekeepingAction)
-        tools_menu.addAction(self.toolsDailyTeamPrepAction)
-        tools_menu.addAction(self.toolsGatherFingerPrintsRequestAction)
-
-        menu_bar.addMenu(tools_menu)
-
-
-        help_menu = QMenu(QApplication.translate("QMenu", "&Help"), self)
-        help_menu.setFont(self.main_menu_font)
-        help_menu.addAction(self.helpUGAction)
-        help_menu.addAction(self.helpCommunityAction)
-        help_menu.addAction(self.helpMyAccountAction)
-
-        help_menu.addAction(self.helpAboutAction)
-        menu_bar.addMenu(help_menu)
-        # Creating menus using a title
-        #editMenu = menuBar.addMenu("&Edit")
-        #helpMenu = menuBar.addMenu("&Help")
-        return menu_bar
+    # _createMenuBar method removed - UI components no longer needed
 
     def _createBotNewAction(self):
         # File actions
@@ -2427,7 +2179,7 @@ class MainWindow(QMainWindow):
             self.setPrivateAttributesBasedOnPast(new_mission)
             new_mission.updateDisplay()
             self.missions.append(new_mission)
-            self.missionModel.appendRow(new_mission)
+            # missionModel removed - UI components no longer needed
 
     # this function fetches schedule and assign work based on fetch schedule results...
     def fetchSchedule(self, ts_name, settings, forceful=False):
@@ -2681,7 +2433,7 @@ class MainWindow(QMainWindow):
                 self.setPrivateAttributesBasedOnPast(new_mission)
                 new_mission.updateDisplay()
                 self.missions.append(new_mission)
-                self.missionModel.appendRow(new_mission)
+                # missionModel removed - UI components no longer needed
                 log3("adding mission.... "+str(new_mission.getRetry()), "fetchSchedule", self)
                 true_newly_added.append(new_mission)
                 newAdded.append(new_mission)
@@ -3241,7 +2993,7 @@ class MainWindow(QMainWindow):
                 original_buy_mission = EBMISSION(self)
                 original_buy_mission.loadDBData(db_data)
                 self.missions.append(original_buy_mission)
-                self.missionModel.appendRow(original_buy_mission)
+                # missionModel removed - UI components no longer needed
             else:
                 original_buy_mission = None
 
@@ -4854,10 +4606,9 @@ class MainWindow(QMainWindow):
                 new_bots[i].setBid(resp_rec["bid"])
                 new_bots[i].setInterests(resp_rec["interests"])
                 self.bots.append(new_bots[i])
-                self.botModel.appendRow(new_bots[i])
+                # botModel removed - UI components no longer needed
                 self.updateBotRelatedVehicles(new_bots[i])
-            self.selected_bot_row = self.botModel.rowCount() - 1
-            self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+            # botModel removed - UI components no longer needed
             # now add bots to local DB.
             if not self.debug_mode:
                 self.bot_service.insert_bots_batch(jbody, api_bots)
@@ -5056,7 +4807,7 @@ class MainWindow(QMainWindow):
                         new_mission.setEstimatedRunTime(jbody[i]["runtime"])
                         new_mission.setEsd(jbody[i]["esd"])
                         self.missions.append(new_mission)
-                        self.missionModel.appendRow(new_mission)
+                        # missionModel removed - UI components no longer needed
                         addedNewMissions.append(new_mission)
                 if not self.debug_mode:
                     api_missions = []
@@ -5210,9 +4961,7 @@ class MainWindow(QMainWindow):
                 self.newBot.loadJson(bjs)
                 self.newBot.updateIcon()
                 self.bots.append(self.newBot)
-                self.botModel.appendRow(self.newBot)
-                self.selected_bot_row = self.botModel.rowCount() - 1
-                self.selected_bot_item = self.botModel.item(self.selected_bot_row)
+                # botModel removed - UI components no longer needed
                 bot_profile_name = self.my_ecb_data_homepath + "/ads_profiles/"+bjs["privateProfile"]["email"].split("@")[0]+".txt"
                 if bot_profile_name not in self.todays_bot_profiles:
                     self.todays_bot_profiles.append(bot_profile_name)
@@ -5223,9 +4972,7 @@ class MainWindow(QMainWindow):
                 self.newMission.loadJson(mjs)
                 self.newMission.updateIcon()
                 self.missions.append(self.newMission)
-                self.missionModel.appendRow(self.newMission)
-                self.selected_mission_row = self.missionModel.rowCount() - 1
-                self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
+                # missionModel removed - UI components no longer needed
 
         for skjs in skillsJson:
             if int(skjs["skid"]) not in existinSkids:
@@ -5767,155 +5514,25 @@ class MainWindow(QMainWindow):
         # You may need to implement a new GUI or use existing platoon display methods
 
     def eventFilter(self, source, event):
-        if event.type() == QEvent.ContextMenu and source is self.botListView:
-            #self.showMsg("bot RC menu....")
-            self.popMenu = QMenu(self)
-            self.pop_menu_font = QFont("Helvetica", 10)
-            self.popMenu.setFont(self.pop_menu_font)
-
-            self.rcbotEditAction = self._createBotRCEditAction()
-            self.rcbotCloneAction = self._createBotRCCloneAction()
-            self.rcbotDeleteAction = self._createBotRCDeleteAction()
-
-            self.popMenu.addAction(self.rcbotEditAction)
-            self.popMenu.addAction(self.rcbotCloneAction)
-            self.popMenu.addSeparator()
-            self.popMenu.addAction(self.rcbotDeleteAction)
-
-            selected_act = self.popMenu.exec_(event.globalPos())
-            if selected_act:
-                selected_indexes = self.botListView.selectedIndexes()
-                print("selected indexes:", selected_indexes)
-
-                self.selected_bot_row = source.indexAt(event.pos()).row()
-                self.selected_bot_item = self.botModel.item(self.selected_bot_row)
-                if selected_act == self.rcbotEditAction:
-                    self.editBot()
-                elif selected_act == self.rcbotCloneAction:
-                    self.cloneBot()
-                elif selected_act == self.rcbotDeleteAction:
-                    self.deleteBot()
-
-            return True
-        elif event.type() == QEvent.ContextMenu and source is self.missionListView:
-            self.showMsg("mission RC menu....")
-            self.popMenu = QMenu(self)
-            self.pop_menu_font = QFont("Helvetica", 10)
-            self.popMenu.setFont(self.pop_menu_font)
-            self.cusMissionEditAction = self._createCusMissionEditAction()
-            self.cusMissionCloneAction = self._createCusMissionCloneAction()
-            self.cusMissionDeleteAction = self._createCusMissionDeleteAction()
-            self.cusMissionUpdateAction = self._createCusMissionUpdateAction()
-            self.cusMissionRunAction = self._createRunMissionNowAction()
-            self.cusMissionMarkCompletedAction = self._createMarkMissionCompletedAction()
-
-            self.popMenu.addAction(self.cusMissionEditAction)
-            self.popMenu.addAction(self.cusMissionCloneAction)
-            self.popMenu.addSeparator()
-            self.popMenu.addAction(self.cusMissionDeleteAction)
-            self.popMenu.addSeparator()
-            self.popMenu.addAction(self.cusMissionUpdateAction)
-            self.popMenu.addSeparator()
-            self.popMenu.addAction(self.cusMissionRunAction)
-            self.popMenu.addAction(self.cusMissionMarkCompletedAction)
-
-            selected_act = self.popMenu.exec_(event.globalPos())
-            if selected_act:
-                selected_indexes = self.missionListView.selectedIndexes()
-                print("selected indexes:", selected_indexes)
-
-                self.selected_mission_row = source.indexAt(event.pos()).row()
-                self.selected_cus_mission_item = self.missionModel.item(self.selected_mission_row)
-
-                if selected_act == self.cusMissionEditAction:
-                    print("edit mission clicked....")
-                    self.editCusMission()
-                elif selected_act == self.cusMissionCloneAction:
-                    self.cloneCusMission()
-                elif selected_act == self.cusMissionDeleteAction:
-                    self.deleteCusMission()
-                elif selected_act == self.cusMissionUpdateAction:
-                    self.updateCusMissionStatus(self.selected_cus_mission_item)
-                elif selected_act == self.cusMissionRunAction:
-                    # print("selected_mission_row: ", self.selected_mission_row)
-                    # print("selected_cus_mission_item: ", self.selected_cus_mission_item)
-                    asyncio.create_task(self.runCusMissionNow(self.selected_cus_mission_item, self.gui_rpa_msg_queue, self.gui_monitor_msg_queue))
-                elif selected_act == self.cusMissionMarkCompletedAction:
-                    # print("selected_mission_row: ", self.selected_mission_row)
-                    # print("selected_cus_mission_item: ", self.selected_cus_mission_item)
-                    asyncio.create_task(self.markCusMissionCompleted(self.selected_cus_mission_item))
-
-            return True
-        elif (event.type() == QEvent.MouseButtonPress ) and source is self.botListView:
-            self.showMsg("CLICKED on bot:"+str(source.indexAt(event.pos()).row()))
-        #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
-        elif (event.type() == QEvent.MouseButtonPress ) and source is self.missionListView:
-            self.showMsg("CLICKED on mission:"+str(source.indexAt(event.pos()).row())+"selected row:"+str(self.missions))
-        #     self.showMsg("unknwn.... RC menu...."+source+" EVENT: "+json.dumps(event))
-        # Vehicle list view context menu removed - vehicles are now managed through PlatoonManager
-
-        elif event.type() == QEvent.ContextMenu and source is self.completed_missionListView:
-            self.showMsg("completed mission RC menu....")
-            self.popMenu = QMenu(self)
-            self.pop_menu_font = QFont("Helvetica", 10)
-            self.popMenu.setFont(self.pop_menu_font)
-            self.cusMissionViewAction = self._createCusMissionViewAction()
-            self.popMenu.addAction(self.cusMissionViewAction)
-
-            selected_act = self.popMenu.exec_(event.globalPos())
-            if selected_act:
-                self.selected_mission_row = source.indexAt(event.pos()).row()
-                self.selected_cus_mission_item = self.completedMissionModel.item(self.selected_mission_row)
-                if selected_act == self.cusMissionViewAction:
-                    self.editCusMission()
-
+        # QListView event handling removed - UI components no longer needed
+        # Bot, mission, and vehicle management now handled through data models only
         return super().eventFilter(source, event)
 
 
 
-    def _createCusMissionViewAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&View"))
-       return new_action
+    # _createCusMissionViewAction removed - UI components no longer needed
 
-    def _createCusMissionEditAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Edit"))
-       return new_action
+    # _createCusMissionEditAction removed - UI components no longer needed
 
-    def _createCusMissionCloneAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Clone"))
-        return new_action
+    # _createCusMissionCloneAction removed - UI components no longer needed
 
-    def _createCusMissionDeleteAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Delete"))
-        return new_action
+    # _createCusMissionDeleteAction removed - UI components no longer needed
 
-    def _createCusMissionUpdateAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Update Status"))
-        return new_action
+    # _createCusMissionUpdateAction removed - UI components no longer needed
 
-    def _createRunMissionNowAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Run Now"))
-        # new_action.triggered.connect(self.runCusMissionNowSync)
+    # _createRunMissionNowAction removed - UI components no longer needed
 
-        return new_action
-
-    def _createMarkMissionCompletedAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Mark Completed"))
-        # new_action.triggered.connect(self.markCusMissionCompletedSync)
-
-        return new_action
+    # _createMarkMissionCompletedAction removed - UI components no longer needed
 
     def editCusMission(self):
         # File actions
@@ -5952,23 +5569,18 @@ class MainWindow(QMainWindow):
         if ret == QMessageBox.Yes:
             api_removes = []
 
-            items = [self.missionModel.itemFromIndex(idx) for idx in self.missionListView.selectedIndexes()]
-            if len(items):
-                for item in items:
-                    # remove file first, then the item in the model.
-                    # shutil.rmtree(temp_page_dir)
-                    # os.remove(full_temp_page)
-
-                    # remove the local data and GUI.
-                    self.missionModel.removeRow(item.row())
-                    api_removes.append({"id": item.getMid(), "owner": "", "reason": ""})
+            # QListView and missionModel removed - UI components no longer needed
+            # Mission deletion now handled through data models only
+            if len(self.missions):
+                for mission in self.missions:
+                    api_removes.append({"id": mission.getMid(), "owner": "", "reason": ""})
 
                 # remove on the cloud side, local DB side, and MainGUI side
                 self.deleteMissionsWithJsons(False, api_removes)
 
                     # self.writeMissionJsonFile()
 
-        #self.botModel.removeRow(self.selected_bot_row)
+        # botModel removed - UI components no longer needed
         #self.showMsg("delete bot" + str(self.selected_bot_row))
 
     # delete from cloud side
@@ -6146,22 +5758,11 @@ class MainWindow(QMainWindow):
         if "Commander" in self.host_role:
             self.updateMissionsStatToCloud([amission])
 
-    def _createBotRCEditAction(self):
-       new_action = QAction(self)
-       new_action.setText(QApplication.translate("QAction", "&Edit"))
-       return new_action
+    # _createBotRCEditAction removed - UI components no longer needed
 
-    def _createBotRCCloneAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Clone"))
-        return new_action
+    # _createBotRCCloneAction removed - UI components no longer needed
 
-    def _createBotRCDeleteAction(self):
-        # File actions
-        new_action = QAction(self)
-        new_action.setText(QApplication.translate("QAction", "&Delete"))
-        return new_action
+    # _createBotRCDeleteAction removed - UI components no longer needed
 
 
 
@@ -6197,17 +5798,11 @@ class MainWindow(QMainWindow):
         if ret == QMessageBox.Yes:
             api_removes = []
             # items = [self.selected_bot_item]
-            items = [self.botModel.itemFromIndex(idx) for idx in self.botListView.selectedIndexes()]
-
-            if len(items):
-                for item in items:
-                    # remove file first, then the item in the model.
-                    # shutil.rmtree(temp_page_dir)
-                    # os.remove(full_temp_page)
-
-                    # remove the local data and GUI.
-                    self.botModel.removeRow(item.row())
-                    api_removes.append({"id": item.getBid(), "owner": "", "reason": ""})
+            # QListView and botModel removed - UI components no longer needed
+            # Bot deletion now handled through data models only
+            if len(self.bots):
+                for bot in self.bots:
+                    api_removes.append({"id": bot.getBid(), "owner": "", "reason": ""})
 
                 # remove on the cloud side, local side, MainGUI side.
                 self.deleteBotsWithJsons(False, api_removes)
@@ -6580,7 +6175,7 @@ class MainWindow(QMainWindow):
                                     new_mission.loadJson(filebmissions)
                                     self.fillNewMissionFromCloud(jbody[i], new_mission)
                                     self.missions.append(new_mission)
-                                    self.missionModel.appendRow(new_mission)
+                                    # missionModel removed - UI components no longer needed
                                     new_missions.append(new_mission)
 
                                 if not self.debug_mode:
@@ -6758,8 +6353,7 @@ class MainWindow(QMainWindow):
 
                 #add to local data structure
                 self.missions = self.missions + new_buy_missions
-                for new_buy in new_buy_missions:
-                    self.missionModel.appendRow(new_buy)
+                # missionModel removed - UI components no longer needed
 
         return new_buy_missions
 
@@ -7125,7 +6719,7 @@ class MainWindow(QMainWindow):
             self.showMsg("get local bots from DB::" + json.dumps(dict_results))
             if len(db_data) != 0:
                 self.bots = []
-                self.botModel.clear()
+                # botModel removed - UI components no longer needed
                 for row in db_data:
                     self.showMsg("loading a bot: "+json.dumps(row.to_dict()))
                     new_bot = EBBOT(self)
@@ -7133,9 +6727,6 @@ class MainWindow(QMainWindow):
                     print("hello????")
                     new_bot.updateDisplay()
                     self.bots.append(new_bot)
-                    self.botModel.appendRow(new_bot)
-                    self.selected_bot_row = self.botModel.rowCount() - 1
-                    self.selected_bot_item = self.botModel.item(self.selected_bot_row)
 
                     self.addBotToVehicle(new_bot)
             else:
@@ -7171,7 +6762,7 @@ class MainWindow(QMainWindow):
         # self.showMsg("get local missions from db::" + json.dumps(dict_results))
         if len(db_data) != 0:
             self.missions = []
-            self.missionModel.clear()
+            # missionModel removed - UI components no longer needed
             for row in db_data:
                 # self.showMsg("loading a mission: "+json.dumps(row.to_dict()))
                 new_mission = EBMISSION(self)
@@ -7180,9 +6771,6 @@ class MainWindow(QMainWindow):
                 self.cuspas_to_diaplayable(new_mission)
                 new_mission.updateDisplay()
                 self.missions.append(new_mission)
-                self.missionModel.appendRow(new_mission)
-                self.selected_mission_row = self.missionModel.rowCount() - 1
-                self.selected_mission_item = self.missionModel.item(self.selected_mission_row)
         else:
             self.showMsg("WARNING: local mission DB empty!")
             # self.newMissionFromFile()
@@ -8274,20 +7862,8 @@ class MainWindow(QMainWindow):
                 self.showMsg(f"Error setting mission icon: {str(e)}")
                 continue  # Skip to the next mission if there's an error
 
-            # Safely handle the removal from missionModel and addition to completedMissionModel
-            try:
-                for item in self.missionModel.findItems(
-                        'mission' + str(found_mission.getMid()) + ":Bot" + str(found_mission.getBid()) + ":" +
-                        found_mission.pubAttributes.ms_type + ":" + found_mission.pubAttributes.site):
-                    # Clone the item before removing it from missionModel
-                    cloned_item = item.clone()
-                    self.completedMissionModel.appendRow(cloned_item)
-
-                    # Remove the original item from missionModel safely
-                    self.missionModel.removeRow(item.row())
-
-            except Exception as e:
-                self.showMsg(f"Error moving mission from missionModel to completedMissionModel: {str(e)}")
+            # missionModel and completedMissionModel removed - UI components no longer needed
+            # Mission completion now handled through data models only
 
 
     def genMissionStatusReport(self, mids, test_mode=True):
