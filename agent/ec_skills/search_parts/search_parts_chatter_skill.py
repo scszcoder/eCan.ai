@@ -499,7 +499,7 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
                 fe_parametric_filter = {
                     "id": "technical_query_form",
                     "type": "normal",
-                    "title": components[0].get('title', 'Component under search'),
+                    "title": components[0].get('title', 'Component under search') if components else 'Component under search',
                     "fields": parametric_filters
                 }
                 #     "fields": [
