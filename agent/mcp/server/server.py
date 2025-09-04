@@ -21,6 +21,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from sympy.stats.rv import sample_iter_subs
 
 from agent.mcp.server.tool_schemas import *
 import json
@@ -46,7 +47,7 @@ from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components, api_ecan_ai_get_nodes_prompts, api_ecan_ai_ocr_read_screen
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
-
+from agent.mcp.server.scrapers.selenium_search_component import selenium_search_component
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
@@ -916,19 +917,17 @@ def page_scroll(web_driver, mainwin):
     logger.debug("Page is ready for DOM analysis.")
 
 
-async def os_connect_to_adspower(mainwin, args):
-    webdriver_path = mainwin.default_webdriver_path
-
-    logger.debug(f"initial state: {args}")
+def connect_to_adspower(mainwin, url):
     try:
-        url = args['input']["url"]
+        webdriver_path = mainwin.default_webdriver_path
         # global ads_config, local_api_key, local_api_port, sk_work_settings
         ads_port = mainwin.ads_settings.get('ads_port', 0)
         ads_api_key = mainwin.ads_settings.get('ads_api_key', '')
         ads_chrome_version = mainwin.ads_settings.get('chrome_version', '')
         scraper_email = mainwin.ads_settings.get("default_scraper_email", "")
         web_driver_options = ""
-        logger.debug(f'check_browser_and_drivers: ads_port: {ads_port}, ads_api_key: {ads_api_key}, ads_chrome_version: {ads_chrome_version}')
+        logger.debug(
+            f'check_browser_and_drivers: ads_port: {ads_port}, ads_api_key: {ads_api_key}, ads_chrome_version: {ads_chrome_version}')
         profiles = queryAdspowerProfile(ads_api_key, ads_port)
         loaded_profiles = {}
         for profile in profiles:
@@ -953,6 +952,19 @@ async def os_connect_to_adspower(mainwin, args):
             webdriver.get(url)  # Replace with the new URL
             logger.info("opened URL: " + url)
             time.sleep(5)
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorConnectToAdspower")
+        logger.debug(err_trace)
+        webdriver = None
+
+    return webdriver
+
+async def os_connect_to_adspower(mainwin, args):
+    logger.debug(f"initial state: {args}")
+    try:
+        webdriver = connect_to_adspower(mainwin, args['input']["url"])
+        if webdriver:
             page_scroll(mainwin, webdriver)
 
             script = mainwin.load_build_dom_tree_script()
@@ -1388,6 +1400,61 @@ async def api_ecan_ai_query_components(mainwin, args):
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+def search_site_using_pf_with_ads(webdriver, pf, site_url):
+    try:
+        search_results =[]
+
+        search_results = selenium_search_component(webdriver, pf, site_url)
+
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorSearchSiteWithPF")
+        logger.debug(err_trace)
+        search_results = []
+    return search_results
+
+
+def calc_scores(fom_form, search_results):
+    try:
+        for result_item in search_results:
+            #calculate score for each item
+            result_item['score'] = 0.0
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorCalcScores")
+        logger.debug(err_trace)
+
+
+
+
+async def api_ecan_local_search_components(mainwin, args):
+    logger.debug(f"initial state: {args}")
+    try:
+        url = args['input']["urls"][0]
+        webdriver = connect_to_adspower(mainwin, url)
+        if webdriver:
+            log_user = mainwin.user.replace("@", "_").replace(".", "_")
+            pfs = args['input']['parametric_filters']
+            sites = args['input']['sites']
+
+            search_results = []
+            for pf in pfs:
+                for site in sites:
+                    site_url = site['url']
+                    site_results = search_site_using_pf_with_ads(webdriver, pf, site_url)
+                    search_results = search_results + site_results
+
+
+            calc_scores(fom_form, search_results)
+            sorted_search_results = sorted(search_results, key=lambda x: x['score'], reverse=True)
+            msg = "completed rpa operator report work results"
+            result = TextContent(type="text", text=msg)
+            result.meta = sorted_search_results
+            return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 

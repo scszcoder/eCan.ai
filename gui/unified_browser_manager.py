@@ -276,7 +276,7 @@ class UnifiedBrowserManager:
                 4. Press Enter and wait for results
             """
 
-            llm = ChatOpenAI(model='gpt-4o', api_key=os.getenv("OPENAI_API_KEY"))
+            llm = ChatOpenAI(model='gpt-5-mini', api_key=os.getenv("OPENAI_API_KEY"))
             browser_profile = BrowserProfile(
                 headless=False,
                 executable_path='',
