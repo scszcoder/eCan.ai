@@ -155,8 +155,10 @@ class SkillManager:
     def open_skill(self, skill: Any):
         """Open a skill for editing"""
         self.mainwin.showMsg("opening skill....")
-        if hasattr(self.mainwin, 'trainNewSkillWin'):
-            self.mainwin.trainNewSkillWin.show()
+        if hasattr(self.mainwin, 'train_manager'):
+                # Note: TrainManager is now a data handler, not a GUI window
+            # You may need to implement a new GUI or use existing skill display methods
+            self.mainwin.showMsg("TrainManager is now a data handler. Use train_manager methods directly.")
             
     def copy_skill(self, skill: Any):
         """Copy a skill"""

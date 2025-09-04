@@ -62,7 +62,7 @@ from gui.MissionGUI import MissionNewWin
 from gui.PlatoonGUI import PlatoonListView, PlatoonWindow
 from gui.ScheduleGUI import ScheduleWin
 from gui.SkillManagerGUI import SkillManager
-from gui.TrainGUI import TrainNewWin, ReminderWin
+from gui.TrainGUI import TrainManager, ReminderManager
 from gui.VehicleMonitorGUI import VehicleMonitorWin
 from bot.WorkSkill import WORKSKILL
 from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt, genAdsProfileBatchs
@@ -273,8 +273,8 @@ class MainWindow(QMainWindow):
         self.BotNewWin = None
         self.missionWin = None
         self.lightrag_server = None
-        self.trainNewSkillWin = None
-        self.reminderWin = None
+        self.train_manager = None
+        self.reminder_manager = None
         self.platoonWin = None
         self.botsFingerPrintsReady = False
         self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
@@ -4687,15 +4687,13 @@ class MainWindow(QMainWindow):
 
 
     def trainNewSkill(self):
-        if self.trainNewSkillWin == None:
-            self.trainNewSkillWin = TrainNewWin(self)
-            self.reminderWin = ReminderWin(self)
+        if self.train_manager == None:
+            self.train_manager = TrainManager(self)
+            self.reminder_manager = ReminderManager(self)
         self.showMsg("train new skill....")
-        #self.trainNewSkillWin.resize(200, 200)
-        self.trainNewSkillWin.show()
-        #rem = ReminderWin(self)
-        #rem.show()
-        self.trainNewSkillWin.set_cloud(self.session, self.get_auth_token())
+        # Note: TrainManager is now a data handler, not a GUI window
+        # You may need to implement a new GUI or use existing skill display methods
+        self.train_manager.set_cloud_credentials(self.session, self.get_auth_token())
 
 
     def saveAll(self):
