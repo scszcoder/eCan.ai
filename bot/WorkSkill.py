@@ -215,7 +215,6 @@ class WORKSKILL(QStandardItem):
         self.homepath = parent.homepath
         self.price_model = ""
         self.path = skdir
-        print("skill home path::"+self.path)
         self.psk_file = ""
         self.csk_file = ""
         self.privacy = "public"

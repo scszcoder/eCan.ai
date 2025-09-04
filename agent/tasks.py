@@ -719,34 +719,40 @@ class TaskRunner(Generic[Context]):
 
     def sendChatMessageToGUI(self, sender_agent, chatId, msg):
         print("sendChatMessageToGUI::", msg)
-        
+
+        message_text = ""
+        if isinstance(msg, dict):
+            message_text = msg.get('llm_result', str(msg))
+        elif isinstance(msg, str):
+            message_text = msg
+        else:
+            message_text = str(msg)
+
+        target_chat_id = chatId[0] if isinstance(chatId, list) else chatId
+
         try:
-            if isinstance(msg, str):
-                mid = str(uuid.uuid4())
-                msg_data = {
-                    "role": 'agent',
-                    "id":  mid,
-                    "senderId": sender_agent.card.id,
-                    "senderName": sender_agent.card.name,
-                    "createAt": int(time.time() * 1000),
-                    "content": {"type": "text", "text": msg},         # string | Content | Content[] 支持字符串、单个Content对象或Content数组
-                    "status": "sent"        # 使用枚举类型
-                }
+            mid = str(uuid.uuid4())
+            msg_data = {
+                "role": 'agent',
+                "id": mid,
+                "senderId": sender_agent.card.id,
+                "senderName": sender_agent.card.name,
+                "createAt": int(time.time() * 1000),
+                "content": {"type": "text", "text": message_text},
+                "status": "sent"
+            }
 
-                app_ctx = AppContext()
-                mainwin = app_ctx.main_window
-                resp = mainwin.chat_service.push_message_to_chat(chatId, msg_data)
+            app_ctx = AppContext()
+            mainwin = app_ctx.main_window
+            mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
 
-            else:
-                msg = "WARNING: Chat is supposed to be a string!"
-                print(msg)
-            # ipc_api.update_chats([msg])
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
-            print(f"{ex_stat}")
+            logger.error(f"{ex_stat}")
 
     def sendChatFormToGUI(self, sender_agent, chatId, chatData):
-        print("sendChatFormToGUI::", chatData)
+        logger.debug("sendChatFormToGUI::", chatData)
+        target_chat_id = chatId[0] if isinstance(chatId, list) else chatId
         try:
             mid = str(uuid.uuid4())
             msg_data = {
@@ -755,19 +761,19 @@ class TaskRunner(Generic[Context]):
                 "senderId": sender_agent.card.id,
                 "senderName": sender_agent.card.name,
                 "createAt": int(time.time() * 1000),
-                "content": {"type": "form", "form": chatData},         # string | Content | Content[] 支持字符串、单个Content对象或Content数组
-                "status": "sent"        # 使用枚举类型
+                "content": {"type": "form", "form": chatData},
+                "status": "sent"
             }
             app_ctx = AppContext()
             mainwin = app_ctx.main_window
-            resp = mainwin.chat_service.push_message_to_chat(chatId, msg_data)
-            # ipc_api.update_chats([msg])
+            mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
-            print(f"{ex_stat}")
+            logger.error(f"{ex_stat}")
 
     def sendChatNotificationToGUI(self, sender_agent, chatId, chatData):
-        print("sendChatNotificationToGUI::", chatData)
+        logger.debug("sendChatNotificationToGUI::", chatData)
+        target_chat_id = chatId[0] if isinstance(chatId, list) else chatId
         try:
             mid = str(uuid.uuid4())
             msg_data = {
@@ -776,17 +782,15 @@ class TaskRunner(Generic[Context]):
                 "senderId": sender_agent.card.id,
                 "senderName": sender_agent.card.name,
                 "createAt": int(time.time() * 1000),
-                "content": {"type": "notification", "notification": chatData},         # string | Content | Content[] 支持字符串、单个Content对象或Content数组
-                "status": "sent"        # 使用枚举类型
-
+                "content": {"type": "notification", "notification": chatData},
+                "status": "sent"
             }
             app_ctx = AppContext()
             mainwin = app_ctx.main_window
-            resp = mainwin.chat_service.push_message_to_chat(chatId, msg_data)
-            # ipc_api.update_chats([msg])
+            mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
-            print(f"{ex_stat}")
+            logger.error(f"{ex_stat}")
 
 
     def find_chatter_tasks(self):
