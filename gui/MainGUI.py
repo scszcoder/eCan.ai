@@ -14,7 +14,7 @@ from bot.ebbot import EBBOT
 from bot.missions import EBMISSION
 from common.models import VehicleModel
 from gui.LocalServer import start_local_server_in_thread, stop_local_server
-from agent.mcp.local_client import local_mcp_list_tools
+from agent.mcp.local_client import mcp_client_manager
 from agent.mcp.config import mcp_http_base
 from agent.ec_skills.llm_utils.llm_utils import pick_llm
 
@@ -722,21 +722,13 @@ class MainWindow:
             # Server is ready, start initializing MCP client and agents
             logger.info("🔄 Starting MCP client and agent initialization...")
 
-            # result = await self.initialize_mcp()
-            # print("initialize_mcp.....result:", result)
-            # self.mcp_client = await create_mcp_client()
             url = mcp_http_base()  # streamable HTTP base (no trailing slash)
-            # sse_url = mcp_sse_url()  # if using SSE
-            # self.mcp_client_manager = Streamable_HTTP_Manager(url)
-            # self.mcp_client = await self.mcp_client_manager.session()
-            # self.mcp_client = await SSEManager.get(url).session()
-            # self.mcp_client = await create_sse_client()
             logger.info("MCP client created....")
 
             # Get MCP tools list - using standard MCP client
             try:
                 logger.info("📋 Listing MCP tools...")
-                tl_result = await local_mcp_list_tools(url)
+                tl_result = await mcp_client_manager.list_tools(url)
 
                 # Handle ListToolsResult object
                 if hasattr(tl_result, 'tools'):
@@ -930,7 +922,7 @@ class MainWindow:
     def dailySkillsetUpdate(self):
         if self.general_settings.get("schedule_mode", "auto") != "test":
             cloud_skills_results = self.skill_manager.fetch_my_skills()
-            logger.info("DAILY SKILL FETCH:", cloud_skills_results)
+            logger.trace("DAILY SKILL FETCH:", cloud_skills_results)
         else:
             cloud_skills_results = {"body": "{}"}
         existing_skids = [sk.getSkid() for sk in self.skills]
@@ -939,12 +931,12 @@ class MainWindow:
         if 'body' in cloud_skills_results:
             # self.showMsg("db_skills_results:::::"+json.dumps(db_skills_results))
             cloud_skills = json.loads(cloud_skills_results["body"])
-            self.showMsg("Cloud side skills fetched:" + str(len(cloud_skills)))
+            logger.info("Cloud side skills fetched:" + str(len(cloud_skills)))
 
             # convert json to WORKSKILL object.
             for cloud_skill in cloud_skills:
                 if cloud_skill["skid"] not in existing_skids:
-                    self.showMsg("db skill:" + json.dumps(cloud_skill))
+                    logger.trace("db skill:" + json.dumps(cloud_skill))
                     cloud_work_skill = WORKSKILL(self, cloud_skill["name"])
                     cloud_work_skill.loadJson(cloud_skill)
 
@@ -952,7 +944,7 @@ class MainWindow:
                     self.skills.append(cloud_work_skill)
 
             # this will handle all skill bundled into software itself.
-            self.showMsg("load local private skills")
+            logger.info("load local private skills")
             self.loadLocalPrivateSkills()
 
             # read public skills from local json files and merge with what's just read from the cloud.
@@ -969,7 +961,7 @@ class MainWindow:
             logger.info("SKIDS to be regenerated:", [sk.getSkid() for sk in self.skills])
             self.regenSkillPSKs()
 
-        logger.info("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
+        logger.trace("after daily sync SKIDS:", [sk.getSkid() for sk in self.skills])
 
 
 
@@ -3627,10 +3619,6 @@ class MainWindow:
         # Stop local Starlette server (uvicorn) and join thread
         try:
             stop_local_server()
-            th = getattr(self, 'local_server_thread', None)
-            if th and th.is_alive():
-                # Give it a moment to exit
-                th.join(timeout=3)
         except Exception as e:
             logger.warning(f"Error stopping local server: {e}")
 
@@ -5546,7 +5534,7 @@ class MainWindow:
                 if file.endswith(".json"):
                     file_path = os.path.join(root, file)
                     skill_def_files.append(file_path)
-                    logger.debug("load all public skill definition json file:" + file + "::" + file_path)
+                    logger.trace("load all public skill definition json file:" + file + "::" + file_path)
 
         # self.showMsg("local skill files: "+json.dumps(skill_def_files))
 
@@ -5554,11 +5542,11 @@ class MainWindow:
         existing_skids = [sk.getSkid() for sk in self.skills]
         logger.info("existing public skids:", existing_skids)
         for file_path in skill_def_files:
-            logger.debug("working on:", file_path)
+            logger.trace("working on:", file_path)
             with open(file_path) as json_file:
                 sk_data = json.load(json_file)
                 json_file.close()
-                self.showMsg("loading public skill f: " + str(sk_data["skid"]) + " " + file_path)
+                logger.trace("loading public skill f: " + str(sk_data["skid"]) + " " + file_path)
                 if sk_data["skid"] not in existing_skids:
                     new_skill = WORKSKILL(self, sk_data["name"], sk_data["path"])
                     new_skill.loadJson(sk_data)
@@ -5603,7 +5591,7 @@ class MainWindow:
             # if json exists, use json to guide what to do
             existing_skids = [sk.getSkid() for sk in self.skills]
             for file_path in skill_def_files:
-                logger.debug("working on:", file_path)
+                logger.trace("working on:", file_path)
                 with open(file_path) as json_file:
                     sk_data = json.load(json_file)
                     json_file.close()

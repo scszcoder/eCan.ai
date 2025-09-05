@@ -443,9 +443,9 @@ def set_app_icon(app, logger=None):
         logger.debug(f"Checking {len(icon_candidates)} icon candidates:")
     for i, candidate in enumerate(icon_candidates):
         exists = os.path.exists(candidate)
-        if logger:
-            logger.debug(f"{i+1}. {candidate} - {'EXISTS' if exists else 'NOT FOUND'}")
-            logger.info(f"Icon candidate {i+1}: {candidate} - {'found' if exists else 'not found'}")
+        # if logger:
+        #     logger.debug(f"{i+1}. {candidate} - {'EXISTS' if exists else 'NOT FOUND'}")
+        #     logger.info(f"Icon candidate {i+1}: {candidate} - {'found' if exists else 'not found'}")
         if exists and icon_path is None:
             icon_path = candidate
 
