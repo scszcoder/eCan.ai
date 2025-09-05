@@ -179,6 +179,8 @@ class ManagedTask(Task):
 
         # Support Command inputs (e.g., Command(resume=...)) and normal state runs
         if isinstance(in_msg, Command):
+            # in_args = self.metadata.get("state", {})
+            # agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
             agen = self.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
         else:
             in_args = self.metadata.get("state", {})
@@ -1091,8 +1093,9 @@ class TaskRunner(Generic[Context]):
                                 logger.debug(f"interacted {task2run.skill.name} no longer initial run", msg)
                                 task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, msg, task2run.metadata["state"])
                                 logger.debug("NI interacted task2run current state", task2run.metadata["state"])
-                                logger.debug("NI interacted task2run current response", response)
                                 resume_payload = self._build_resume_payload(msg)
+                                logger.debug("NI resume payload", resume_payload)
+
                                 response = task2run.stream_run(Command(resume=resume_payload), stream_mode="updates")
                                 logger.debug("NI interacted  task resume response:", response)
                                 step = response.get('step') or {}

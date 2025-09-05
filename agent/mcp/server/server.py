@@ -48,7 +48,7 @@ from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_component
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
 from agent.mcp.server.scrapers.selenium_search_component import selenium_search_component
-from agent.mcp.server.scrapers.eval_util import calculate_score
+from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
@@ -1406,7 +1406,7 @@ async def api_ecan_ai_query_components(mainwin, args):
 
 
 async def api_ecan_local_search_components(mainwin, args):
-    logger.debug(f"initial state: {args}")
+    logger.debug(f"api_ecan_local_search_components initial state: {args}")
     try:
         url = args['input']["urls"][0]
         webdriver = connect_to_adspower(mainwin, url)
@@ -1414,7 +1414,10 @@ async def api_ecan_local_search_components(mainwin, args):
             log_user = mainwin.user.replace("@", "_").replace(".", "_")
             pfs = args['input']['parametric_filters']
             sites = args['input']['sites']
-            fom_form = args['input']['fom_form']
+            fom_form = args['input'].get('fom_form', {})
+            if not fom_form:
+                fom_form = get_default_fom_form()
+
             max_n_results = args['input']['max_n_results']
 
             search_results = []
@@ -1522,7 +1525,8 @@ tool_function_mapping = {
         "api_ecan_ai_get_nodes_prompts": api_ecan_ai_get_nodes_prompts,
         "api_ecan_ai_ocr_read_screen": api_ecan_ai_ocr_read_screen,
         "api_ecan_ai_cloud_search": api_ecan_ai_cloud_search,
-        "mouse_act_on_screen": mouse_act_on_screen
+        "mouse_act_on_screen": mouse_act_on_screen,
+        "api_ecan_local_search_components": api_ecan_local_search_components
     }
 
 def set_server_main_win(mw):

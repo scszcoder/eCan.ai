@@ -186,11 +186,11 @@ def build_agent_mcp_tools_schemas():
                             "description": "coordinates of [x, y]",
                         },
                         "post_move_delay": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait some seconds after mouse move to the location",
                         },
                         "post_click_delay": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait some seconds after mouse click",
                         }
                     },
@@ -217,7 +217,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "coordinates of [x, y]",
                         },
                         "post_wait": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait number of seconds after movement",
                         }
                     },
@@ -252,7 +252,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "time interval in seconds (could be fractional) between pick up and drop off",
                         },
                         "post_wait": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait number of seconds after post movement",
                         }
                     },
@@ -279,11 +279,11 @@ def build_agent_mcp_tools_schemas():
                             "description": "either up or down",
                         },
                         "duration": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "amount of mouse wheel scroll units",
                         },
                         "post_wait": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait number of seconds after post movement",
                         }
                     },
@@ -314,7 +314,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "amount of time interval in seconds(can be fractional number) between key strokes",
                         },
                         "post_wait": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait number of seconds after post movement",
                         }
                     },
@@ -341,7 +341,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "list of keys to be keyed in, for example ['ctrl', 'x']",
                         },
                         "post_wait": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait number of seconds after post movement",
                         }
                     }
@@ -368,7 +368,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "the text on the button to where the mouse will be pressed and held down",
                         },
                         "duration": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "press and hold for this number of seconds before releasing",
                         }
                     }
@@ -391,7 +391,7 @@ def build_agent_mcp_tools_schemas():
                     "required": ["seconds"],  # url is required *inside* input
                     "properties": {
                         "seconds": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "URL of the web page to open",
                         }
                     },
@@ -436,7 +436,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "name of the element",
                         },
                         "timeout": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "max wait time(seconds) to find element on the page",
                         }
                     },
@@ -467,7 +467,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "name of the element",
                         },
                         "timeout": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "max wait time(seconds) to find element on the page",
                         }
                     },
@@ -499,7 +499,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "name of the element",
                         },
                         "timeout": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "max wait time(seconds) to find element on the page",
                         }
                     },
@@ -531,7 +531,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "name of the element",
                         },
                         "timeout": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "max wait time(seconds) to find element on the page",
                         }
                     },
@@ -563,7 +563,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "name of the element",
                         },
                         "timeout": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "max wait time(seconds) to find element on the page",
                         }
                     },
@@ -599,11 +599,11 @@ def build_agent_mcp_tools_schemas():
                             "description": "text of the web element",
                         },
                         "nth": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "nth element of the list of elements of same type and same name",
                         },
                         "timeout": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "max wait time(seconds) to find element on the page",
                         }
                     },
@@ -631,11 +631,11 @@ def build_agent_mcp_tools_schemas():
                             "description": "scroll direction of either up or down",
                         },
                         "amount": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "number of scroll units",
                         },
                         "post_wait": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "max wait time(seconds) to find element on the page",
                         }
                     },
@@ -1122,7 +1122,7 @@ def build_agent_mcp_tools_schemas():
                             "description": "name of the wifi access point.",
                         },
                         "post_wait": {
-                            "type": "int",
+                            "type": "integer",
                             "description": "wait number of seconds after attempting to open the url site",
                         }
                     },
@@ -1512,5 +1512,54 @@ def build_agent_mcp_tools_schemas():
     )
 
     add_tool_schema(tool_schema)
+
+
+    tool_schema = types.Tool(
+        name="api_ecan_local_search_components",
+        description="run API to search components locally from this computer.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["urls", "parametric_filters", "fom_form", "max_n_results"],
+                    "properties": {
+                        "urls": {
+                            "type": "array",
+                            "description": "list of dict that contains url link to search sites",
+                            "items": {
+                                "type": "object",
+                                "required": ["url"],
+                                "properties": {
+                                    "url": {"type": "string", "description": "base url for a search site"}
+                                }
+                            }
+                        },
+                        "components": {
+                            "type": "array",
+                            "description": "optional: list of components with basic attributes.",
+                            "items": {"type": "object"}
+                        },
+                        "parametric_filters": {
+                            "type": "object",
+                            "description": "parametric filters to be used in search.",
+                        },
+                        "fom_form": {
+                            "type": "object",
+                            "description": "figure of merit data to be used in ranking search results.",
+                        },
+                        "max_n_results": {
+                            "type": "integer",
+                            "description": "max number of results to return.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
 
     return tool_schemas
