@@ -22,12 +22,19 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   const fields = Array.isArray(props.form?.fields) ? props.form.fields : 
                  Array.isArray(props.form?.parametric_filters) ? props.form.parametric_filters : [];
 
+  // Helper: read options from either 'options' or 'OPTIONS'
+  const getFieldOptions = (field: any) => {
+    const raw = field?.options ?? field?.OPTIONS;
+    return Array.isArray(raw) ? raw : [];
+  };
+
   React.useEffect(() => {
     const init: Record<string, { label: string, value: any }[]> = {};
     fields.forEach(field => {
-      if (field.type === 'select' && field.custom === true) {
-        let opts = Array.isArray(field.options)
-          ? field.options.map(opt => ({ label: t(opt.label) || String(opt.label), value: opt.value }))
+      if ((field.type === 'select' || field.type === 'pull_down') && field.custom === true) {
+        const baseOpts = getFieldOptions(field);
+        let opts = Array.isArray(baseOpts)
+          ? baseOpts.map(opt => ({ label: t(opt.label) || String(opt.label), value: opt.value }))
           : [];
         const v = field.selectedValue !== undefined ? field.selectedValue : field.defaultValue;
         if (opts.length === 0 && v !== undefined && v !== null && v !== '') {
@@ -55,7 +62,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   React.useEffect(() => {
     const init: Record<string, any> = {};
     fields.forEach(field => {
-      if (field.type === 'select' && field.custom === true) {
+      if ((field.type === 'select'  || field.type === 'pull_down')&& field.custom === true) {
         const v = field.selectedValue !== undefined ? field.selectedValue : field.defaultValue;
         if (v !== undefined && v !== null && v !== '') {
           init[field.id] = v;
@@ -126,13 +133,18 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   const handleSubmit: (values: Record<string, any>) => void = (values) => {
     const processedForm = {
       ...props.form,
-      fields: fields.map(field => ({
-        ...field,
-        selectedValue: values[field.id],
-        options: field.type === 'select' && field.custom === true
+      fields: fields.map(field => {
+        const optionsKey = field.hasOwnProperty('options') ? 'options' : (field.hasOwnProperty('OPTIONS') ? 'OPTIONS' : 'options');
+        const originalOptions = getFieldOptions(field);
+        const nextOptions = (field.type === 'select' || field.type === 'pull_down') && field.custom === true
           ? (localOptions[field.id] || [])
-          : field.options
-      }))
+          : originalOptions;
+        return {
+          ...field,
+          selectedValue: values[field.id],
+          [optionsKey]: nextOptions
+        };
+      })
     };
     props.onFormSubmit?.(props.form.id, values, props.chatId, props.messageId, processedForm);
   };
@@ -146,9 +158,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
     const isCustom = field.custom === true;
     const options = isCustom
       ? (localOptions[field.id] || [])
-      : (Array.isArray(field.options)
-          ? field.options.map((opt: { label: string; value: string | number }) => ({ label: t(opt.label) || String(opt.label), value: opt.value }))
-          : []);
+      : (getFieldOptions(field).map((opt: { label: string; value: string | number }) => ({ label: t(opt.label) || String(opt.label), value: opt.value })));
     const labelNode = (
       <label className="semi-form-field-label">
         {required && <span className="semi-form-field-label-asterisk">*</span>}
@@ -482,4 +492,4 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   );
 };
 
-export default NormalFormUI; 
+export default NormalFormUI;

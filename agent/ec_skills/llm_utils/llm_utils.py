@@ -342,3 +342,16 @@ def run_async_in_worker_thread(awaitable_or_factory):
     if "error" in error_holder:
         raise error_holder["error"]
     return result_holder.get("result")
+
+
+def try_parse_json(s: str):
+    """
+    If `s` is valid JSON, return the parsed object.
+    Otherwise, return the original string.
+    """
+    if not isinstance(s, str):
+        return s  # not a string, leave it alone
+    try:
+        return json.loads(s)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return s
