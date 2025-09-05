@@ -38,8 +38,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         username = data['username']
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get agents successful for user: {username}")
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         agents = main_window.agents
 
         resultJS = {

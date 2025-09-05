@@ -25,6 +25,7 @@ import requests
 import io
 
 from ping3 import ping
+from app_context import AppContext
 from bot.Cloud import send_query_chat_request_to_cloud8, upload_file, req_cloud_read_screen, upload_file8, req_cloud_read_screen8, \
     send_query_chat_request_to_cloud, wanSendRequestSolvePuzzle, wanSendConfirmSolvePuzzle, \
     send_run_ext_skill_request_to_cloud, send_report_run_ext_skill_status_request_to_cloud, \
@@ -6772,7 +6773,7 @@ def processECBUpdateMissions(step, i):
 def processECBDeleteMissions(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainwin = utils.logger_helper.login.get_mainwin()
+    mainWin = AppContext.main_window
 
     try:
         symTab[step["flag"]] = True
@@ -6854,7 +6855,7 @@ def processECBDispatchTroops(step, i, mission):
 def processECBCollectBotProfiles(step, i):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = utils.logger_helper.login.get_mainwin()
+    mainWin = AppContext.main_window
 
     try:
         symTab[step["flag"]] = True
@@ -6874,7 +6875,7 @@ def processECBCollectBotProfiles(step, i):
 def processLogCrossNetwork(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = utils.logger_helper.login.get_mainwin()
+    mainWin = AppContext.main_window
 
     try:
         symTab[step["flag"]] = True
@@ -6897,7 +6898,7 @@ def processLogCrossNetwork(step, i, mission):
 def processLog(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = utils.logger_helper.login.get_mainwin()
+    mainWin = AppContext.main_window
 
     try:
         symTab[step["flag"]] = True
@@ -6919,7 +6920,7 @@ def processLog(step, i, mission):
 async def processLogCrossNetwork8(step, i, mission):
     ex_stat = DEFAULT_RUN_STATUS
     global symTab
-    mainWin = utils.logger_helper.login.get_mainwin()
+    mainWin = AppContext.main_window
 
     try:
         symTab[step["flag"]] = True

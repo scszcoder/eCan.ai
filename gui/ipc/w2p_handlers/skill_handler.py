@@ -24,8 +24,7 @@ def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
     """
     try:
         logger.debug(f"Get skills handler called with request: {request}")
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         skills = main_window.agent_skills
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])

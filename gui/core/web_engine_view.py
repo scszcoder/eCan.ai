@@ -15,7 +15,7 @@ from typing import Optional, Callable, Any, Dict, Union
 from pathlib import Path
 import os
 import shutil
-import webbrowser
+
 
 class CustomWebEnginePage(QWebEnginePage):
     def __init__(self, profile=None, parent=None):
@@ -43,6 +43,7 @@ class CustomWebEnginePage(QWebEnginePage):
         ):
             logger.info(f"External link detected: {url_str}")
             try:
+                import webbrowser
                 webbrowser.open(url_str)
                 logger.info(f"Successfully opened external link in system browser: {url_str}")
                 return False  # 阻止在 WebEngine 中打开

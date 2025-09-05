@@ -81,7 +81,7 @@ from bot.seleniumScrapeAmzShop import genWinChromeAMZWebdriverFullfillOrdersSkil
 from bot.seleniumScrapeAmz import genStepAMZBrowserScrapePL
 from bot.hrSkill import genWinChromeECBHrRecruitSkill, genWinChromeECBHrLayoffSkill
 from bot.browserAmzBuyerSkill import genWinADSAMZBrowserBuyProductSkill
-from utils.logger_helper import login
+from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 
 
@@ -283,7 +283,7 @@ PUBLIC = {
     "genStepECBCollectBotProfiles": genStepECBCollectBotProfiles,
     # done exposing all methods.....now expose data structure defs.
     "selfName": "PUBLIC",
-    "loginMain": login,
+    "loginMain": AppContext.login,
     # "mainwin": login.main_win,
     "OrderedProduct": OrderedProduct,
     "ORDER": ORDER,

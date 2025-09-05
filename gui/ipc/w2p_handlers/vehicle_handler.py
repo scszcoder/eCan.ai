@@ -22,8 +22,7 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     """
     try:
         logger.debug(f"Get vehicles handler called with request: {request}")
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         vehicles = main_window.vehicles
 
         logger.info(f"get vehicles successful。")

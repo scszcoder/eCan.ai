@@ -63,7 +63,7 @@ def genWinChromeECBHrRecruitSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=AppContext.login", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
 
@@ -171,7 +171,7 @@ def genWinChromeECBHrLayoffSkill(worksettings, stepN, theme):
         this_step, step_words = genStepCreateData("obj", "params", "NA", None, this_step)
         psk_words = psk_words + step_words
 
-        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login", "", "in_line", "", this_step)
+        this_step, step_words = genStepCallExtern("import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=AppContext.login", "", "in_line", "", this_step)
         psk_words = psk_words + step_words
 
 

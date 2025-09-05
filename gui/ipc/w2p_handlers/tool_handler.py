@@ -40,8 +40,7 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get tools successful for user: {username}")
 
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         resultJS = {
             'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
@@ -93,8 +92,7 @@ def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"create tools successful for user: {username}")
 
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         resultJS = {
             'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
@@ -147,8 +145,7 @@ def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"delete tools successful for user: {username}")
 
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         resultJS = {
             'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],

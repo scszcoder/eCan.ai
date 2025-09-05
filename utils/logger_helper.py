@@ -22,8 +22,6 @@ def trace(self, message, *args, **kws):
 logging.Logger.trace = trace
 # ====== END ======
 
-login = None
-
 
 class LoggerHelper:
     _instance = None
@@ -283,8 +281,7 @@ def get_agent_by_id(agent_id):
     Returns None if main window or agents are not yet initialized.
     """
     try:
-        app_ctx = AppContext()
-        main_window = getattr(app_ctx, 'main_window', None)
+        main_window = AppContext.main_window
         if not main_window:
             return None
         agents = getattr(main_window, 'agents', []) or []

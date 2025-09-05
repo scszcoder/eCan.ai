@@ -33,7 +33,6 @@ from agent.ec_skills.browser_use_for_ai.browser_use_extension import (
 )
 import shutil
 from bot.basicSkill import readRandomWindow8, takeScreenShot, carveOutImage, maskOutImage, saveImageToFile, mousePressAndHold, mousePressAndHoldOnScreenWord
-from utils.logger_helper import login
 from bot.seleniumSkill import *
 from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 
@@ -92,8 +91,7 @@ async def list_tools() -> list[types.Tool]:
 
 @meca_mcp_server.call_tool()
 async def unified_tool_handler(tool_name, args):
-    ctx = AppContext()
-    login = ctx.login
+    login = AppContext.login
     try:
         tool_func = tool_function_mapping[tool_name]
         # very key make sure each tool_func returns: [ContentBlock]
@@ -118,8 +116,7 @@ async def unified_tool_handler(tool_name, args):
                 )
 
 # async def unified_tool_handler(tool_name, args):
-#     ctx = AppContext()
-#     login = ctx.login
+#     login = AppContext.login
 #     # 获取用户名和密码
 #     if tool_name in tool_function_mapping:
 #         try:
