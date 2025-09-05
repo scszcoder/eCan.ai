@@ -3,9 +3,8 @@ from utils.logger_helper import logger_helper as logger
 from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
-import asyncio
 
-from gui.MainGUI import MainWindow
+# from gui.MainGUI import MainWindow
 from auth.auth_manager import AuthManager
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
@@ -30,8 +29,6 @@ class Login:
         self.xport = None
         self.ip = commanderIP
         self.main_win = None
-        self.gui_net_msg_queue = asyncio.Queue()
-        self.mainLoop = None
 
         logger.info("Login controller initialized")
 
@@ -70,11 +67,6 @@ class Login:
             logger.error(f"Google login failed: {result['error']}")
             return False, result['error'], {}
 
-    # Public interface methods
-    def get_gui_msg_queue(self):
-        """Get GUI message queue."""
-        return self.gui_net_msg_queue
-
     def set_xport(self, xport):
         """Set commander export port."""
         self.xport = xport
@@ -105,29 +97,20 @@ class Login:
     def _launch_main_window(self, schedule_mode: str):
         """Launch the main application window after successful login."""
         try:
-            app_ctx = AppContext()
-
-            # Pass the auth_manager to the main window for state access.
+            from gui.MainGUI import MainWindow
             self.main_win = MainWindow(
-                self.auth_manager, self.mainLoop, self.ip,
+                self.auth_manager, AppContext.main_loop, self.ip,
                 self.auth_manager.get_current_user(), ecbhomepath,
-                self.gui_net_msg_queue, self.auth_manager.get_role(),
-                schedule_mode, "en-US"  # Default language
+                self.auth_manager.get_role(), schedule_mode
             )
 
-            self.main_win.setOwner(self.auth_manager.get_current_user())
-            self.main_win.hide()
-            app_ctx.set_main_window(self.main_win)
+            AppContext().set_main_window(self.main_win)
 
             logger.info(f"Main window launched for user: {self.auth_manager.get_current_user()}")
 
         except Exception as e:
             logger.error(f"Error launching main window: {e}")
             raise
-
-    def setLoop(self, loop):
-        """Set the main event loop."""
-        self.mainLoop = loop
 
     def getCurrentUser(self):
         """Get current logged in user."""

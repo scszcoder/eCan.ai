@@ -1,6 +1,21 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Settings Manager - Data and Business Logic Handler
+Handles application settings and configuration without GUI components
+"""
+
 import sys
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget, QPushButton, QMainWindow, QFormLayout, QLineEdit, QCheckBox, QLabel, QComboBox, QApplication
+import subprocess
+import re
+import time
+import traceback
+import platform
+import os
+from typing import List, Dict, Any, Optional
+from utils.logger_helper import logger_helper as logger
+
+# Platform-specific imports
 if sys.platform == "win32":
     import win32print
     import pywintypes
@@ -9,31 +24,11 @@ else:
     win32print = None
     pywintypes = None
     win32serviceutil = None
-import subprocess
-import re
-import time
-import traceback
-import platform
-import os
-from utils.logger_helper import logger_helper as logger
 
-# select webbrowser - exe path
-# select auto run time.
-# select repeat pattern.
-# select tasks to run. (gen & print label, respond to offer, cancel order, sell similiar)
-# select proxy (radio)
-# specify products.(product number) to exclude.
-# specify label type (default - cheapest)
-# specify offer turn-down criteria
-
-
-# app = QtGui.QApplication(sys.argv)
-#
-# locale = getdefaultlocale()
-#
-# translator = QTranslator(app)
-# translator.load('/usr/share/my_app/tr/qt_%s.qm' % locale[0])
-# app.installTranslator(translator)
+if sys.platform == "darwin":
+    from CoreWLAN import CWInterface
+else:
+    CWInterface = None
 
 def ensure_spooler_running():
     """Ensure printing backend is running on the current platform.
@@ -56,6 +51,7 @@ def ensure_spooler_running():
     else:
         return
 
+
 def ensure_cups_running():
     """Ensure printing backend is running on the current platform.
 
@@ -73,6 +69,7 @@ def ensure_cups_running():
             pass
     else:
         return
+
 
 def win_list_printers(server: str | None = None, level: int = 2):
     """
@@ -113,221 +110,527 @@ def mac_list_printers():
             printers.append(printer_name)
     return printers
 
-class SettingsWidget(QMainWindow):
+def _run_wifi_command(command_type: str) -> Optional[str]:
+    """
+    Run a platform-specific WiFi command and return the output.
+    This function is now only intended for Windows, as macOS uses CoreWLAN.
+    """
+    logger.debug("Executing _run_wifi_command (version 2025-09-05-A)")
+    system = platform.system()
+    if system != 'Windows':
+        logger.debug(f"No command-line implementation for WiFi operation on platform: {system}")
+        return None
+
+    command: List[str] = []
+    try:
+        if command_type == 'status':
+            command = ["netsh", "wlan", "show", "interfaces"]
+        elif command_type == 'scan':
+            command = ["netsh", "wlan", "show", "networks"]
+
+        if not command:
+            logger.warning(f"Unsupported command type for WiFi operation on Windows: {command_type}")
+            return None
+
+        result = subprocess.run(
+            command, capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=15
+        )
+
+        logger.debug(f"WiFi command '{' '.join(command)}' finished with return code: {result.returncode}")
+        if result.stdout:
+            logger.debug(f"WiFi command stdout:\n{result.stdout}")
+        if result.stderr:
+            logger.debug(f"WiFi command stderr:\n{result.stderr}")
+
+        if result.returncode != 0:
+            logger.warning(f"WiFi command '{' '.join(command)}' exited with a non-zero status code.")
+            return None
+
+        return result.stdout
+
+    except FileNotFoundError as e:
+        logger.warning(f"Could not execute WiFi command '{' '.join(command)}': {e}")
+    except subprocess.TimeoutExpired:
+        logger.warning(f"WiFi command '{' '.join(command)}' timed out after 15 seconds.")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while running WiFi command: {e}")
+
+    return None
+
+def get_default_wifi_ssid() -> Optional[str]:
+    """
+    Get the SSID of the currently connected WiFi network.
+
+    Returns:
+        The SSID as a string, or None if not connected or not found.
+    """
+    if platform.system() == 'Darwin' and CWInterface is not None:
+        logger.debug("Getting default WiFi SSID using CoreWLAN on macOS.")
+        try:
+            # Get the names of all supported Wi-Fi interfaces
+            interface_names = CWInterface.supportedInterfaces()
+            # Iterate through all supported Wi-Fi interfaces to find the one that is connected
+            for name in interface_names:
+                iface = CWInterface.interfaceWithName_(name)
+                logger.debug(f"Checking interface: {name}, iface object is not None: {iface is not None} (version 2025-09-05-B)")
+                if iface:
+                    ssid = iface.ssid()
+                    if ssid:
+                        return ssid
+            return None # No connected interface found
+        except Exception as e:
+            logger.error(f"Could not get default WiFi SSID using CoreWLAN: {e}")
+            return None
+    else:
+        # Fallback to command-line for other platforms
+        logger.debug("Getting default WiFi SSID using command-line method.")
+        output = _run_wifi_command('status')
+        if not output:
+            return None
+
+        for line in output.split('\n'):
+            if "SSID" in line and ":" in line:
+                ssid = line.split(":")[1].strip()
+                if ssid:
+                    return ssid
+
+    return None
+
+class SettingsManager:
+    """
+    Settings Manager class that handles application settings and configuration
+    without GUI components
+    """
+
     def __init__(self, parent):
-        super(SettingsWidget, self).__init__(parent)
+        """
+        Initialize SettingsManager
+
+        Args:
+            parent: Reference to parent application
+        """
         self.parent = parent
-        self.hello = ["Hallo Welt", "Hei maailma", "Hola Mundo", "Привет мир"]
-        # self.
+
+        # Settings state
         self.commander_run = False
         self.overcapcity_warning = True
         self.overcapcity_force = True
-        # Ensure printers attribute always exists to avoid AttributeError if enumeration fails
+        self.auto_schedule_mode = False
+        self.browser_path = ""
+        self.num_vehicles = 0
+
+        # Hardware configuration
         self.printers = []
+        self.wifi_list = []
+        self.default_printer = ""
+        self.default_wifi = ""
+
+        # Initialize hardware detection
         try:
             self.list_wifi_networks()
             self.list_printers()
-
-            self.mainWidget = QWidget()
-            self.save_button = QPushButton("Save")
-            self.cancel_button = QPushButton("Cancel")
-            self.text = QLabel("Hello World", alignment=Qt.AlignCenter)
-
-            self.layout = QFormLayout()
-
-            self.browser_path_label = QLabel("Browser Executable:", alignment=Qt.AlignLeft)
-            self.browser_path_line_edit = QLineEdit()
-            self.browser_path_line_edit.setPlaceholderText("input full path here")
-
-            default_printer = self.parent.get_default_printer()
-            self.printer_label = QLabel("Printer:", alignment=Qt.AlignLeft)
-            self.printer_line_edit = QLineEdit()
-            self.printer_select = QComboBox()
-            if self.printers:
-                # Extract printer names safely
-                printer_names = []
-                for p in self.printers:
-                    if isinstance(p, dict) and 'pPrinterName' in p:
-                        printer_names.append(p['pPrinterName'])
-                    elif isinstance(p, (list, tuple)) and len(p) > 2:
-                        printer_names.append(p[2])
-                    elif isinstance(p, (list, tuple)) and len(p) > 0:
-                        printer_names.append(str(p[0]))
-                    else:
-                        printer_names.append(str(p))
-
-                for role in printer_names:
-                    self.printer_select.addItem(QApplication.translate("QComboBox", role))
-
-                found_idx = next((i for i, name in enumerate(printer_names) if name == default_printer), -1)
-                logger.info("finding default printer", found_idx, default_printer, "among:", printer_names)
-                if found_idx >= 0:
-                    self.printer_select.setCurrentIndex(found_idx)
-                else:
-                    # If default not found, select first available
-                    self.printer_select.setCurrentIndex(0)
-                    self.default_printer = self.printer_select.currentText()
-            else:
-                # No printers available; show a disabled placeholder
-                placeholder = QApplication.translate("QComboBox", "No printers available")
-                self.printer_select.addItem(placeholder)
-                self.printer_select.setEnabled(False)
-                self.default_printer = ""
-
-            self.printer_select.currentIndexChanged.connect(self.on_printer_selected)
-
-            default_wifi = self.parent.get_default_wifi()
-            self.wifi_label = QLabel("WiFi:", alignment=Qt.AlignLeft)
-            self.wifi_select = QComboBox()
-            self.wifi_line_edit = QLineEdit()
-            self.wifi_pw_label = QLabel("WiFi:", alignment=Qt.AlignLeft)
-            self.wifi_pw_line_edit = QLineEdit()
-            for wifi in self.parent.wifis:
-                self.wifi_select.addItem(QApplication.translate("QComboBox", wifi))
-
-            found_idx = next((i for i, w in enumerate(self.parent.wifis) if w == default_wifi), -1)
-            logger.info("finding default wifi", found_idx, default_wifi, "among:", self.parent.wifis)
-            if found_idx >= 0:
-                self.wifi_select.setCurrentIndex(found_idx)
-            else:
-                self.wifi_select.setCurrentIndex(0)  # commander will be set if file based machine role is unknown
-                self.default_wifi = self.wifi_select.currentText()
-
-            self.wifi_select.currentIndexChanged.connect(self.on_wifi_selected)
-
-            self.auto_schedule_cb = QCheckBox("Auto Schedule Mode")
-
-            self.commander_run_cb = QCheckBox("Commander Self Run Tasks")
-            self.overcapcity_warning_cb = QCheckBox("Warning If Over-capacity")
-            self.overcapcity_force_cb = QCheckBox("Force Commander To Run If Over-capacity")
-
-            self.num_vehicle_label = QLabel("Number Of Vehicles:")
-            self.num_vehicle_text = QLineEdit()
-
-            # self.layout.addWidget(self.text)
-            self.layout.addRow(self.printer_label, self.printer_select)
-            self.layout.addRow(self.wifi_label, self.wifi_select)
-            self.layout.addRow(self.browser_path_label, self.browser_path_line_edit)
-            self.layout.addRow(self.num_vehicle_label, self.num_vehicle_text)
-            self.layout.addRow(self.auto_schedule_cb)
-            self.layout.addRow(self.commander_run_cb)
-            self.layout.addRow(self.overcapcity_warning_cb)
-            self.layout.addRow(self.overcapcity_force_cb)
-            self.layout.addRow(self.cancel_button, self.save_button)
-
-            self.cancel_button.clicked.connect(self.close)
-            self.save_button.clicked.connect(self.save_settings)
-
-
-            self.mainWidget.setLayout(self.layout)
-            self.setCentralWidget(self.mainWidget)
+            self.default_wifi = get_default_wifi_ssid() or ""
         except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorSettingsWidgetInit:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorSettingsWidgetInit: traceback information not available:" + str(e)
-            logger.error(ex_stat)
-    def save_settings(self):
-        self.commander_run = (self.commander_run_cb.checkState() == Qt.Checked)
-        self.overcapcity_warning = (self.overcapcity_warning_cb.checkState() == Qt.Checked)
-        self.overcapcity_force = (self.overcapcity_force_cb.checkState() == Qt.Checked)
-        self.parent.set_schedule_mode("auto" if self.auto_schedule_cb.checkState() == Qt.Checked else "manual")
-        self.parent.set_default_wifi(self.wifi_select.currentText())
-        self.parent.set_default_printer(self.printer_select.currentText())
-        self.parent.saveSettings()
-        self.close()
+            logger.error(f"Error initializing SettingsManager: {e}")
 
-    def list_printers(self):
+    def get_commander_run(self) -> bool:
+        """Get commander self-run setting"""
+        return self.commander_run
+
+    def set_commander_run(self, value: bool):
+        """Set commander self-run setting"""
+        self.commander_run = value
+
+    def get_overcapcity_warning(self) -> bool:
+        """Get over-capacity warning setting"""
+        return self.overcapcity_warning
+
+    def set_overcapcity_warning(self, value: bool):
+        """Set over-capacity warning setting"""
+        self.overcapcity_warning = value
+
+    def get_overcapcity_force(self) -> bool:
+        """Get over-capacity force setting"""
+        return self.overcapcity_force
+
+    def set_overcapcity_force(self, value: bool):
+        """Set over-capacity force setting"""
+        self.overcapcity_force = value
+
+    def get_auto_schedule_mode(self) -> bool:
+        """Get auto schedule mode setting"""
+        return self.auto_schedule_mode
+
+    def set_auto_schedule_mode(self, value: bool):
+        """Set auto schedule mode setting"""
+        self.auto_schedule_mode = value
+
+    def get_browser_path(self) -> str:
+        """Get browser executable path"""
+        return self.browser_path
+
+    def set_browser_path(self, path: str):
+        """Set browser executable path"""
+        self.browser_path = path
+
+    def get_num_vehicles(self) -> int:
+        """Get number of vehicles setting"""
+        return self.num_vehicles
+
+    def set_num_vehicles(self, num: int):
+        """Set number of vehicles setting"""
+        try:
+            self.num_vehicles = int(num)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid number of vehicles: {num}")
+            self.num_vehicles = 0
+
+    def get_default_printer(self) -> str:
+        """Get default printer setting"""
+        return self.default_printer
+
+    def set_default_printer(self, printer: str):
+        """Set default printer setting"""
+        self.default_printer = printer
+
+    def get_default_wifi(self) -> str:
+        """Get default WiFi setting"""
+        return self.default_wifi
+
+    def set_default_wifi(self, wifi: str):
+        """Set default WiFi setting"""
+        self.default_wifi = wifi
+
+    def get_printers(self) -> List[Any]:
+        """Get list of available printers"""
+        return self.printers.copy()
+
+    def get_wifi_networks(self) -> List[str]:
+        """Get list of available WiFi networks"""
+        return self.wifi_list.copy()
+
+    def get_all_settings(self) -> Dict[str, Any]:
+        """Get all current settings as a dictionary"""
+        return {
+            'commander_run': self.commander_run,
+            'overcapcity_warning': self.overcapcity_warning,
+            'overcapcity_force': self.overcapcity_force,
+            'auto_schedule_mode': self.auto_schedule_mode,
+            'browser_path': self.browser_path,
+            'num_vehicles': self.num_vehicles,
+            'default_printer': self.default_printer,
+            'default_wifi': self.default_wifi,
+            'available_printers': self.get_printer_names(),
+            'available_wifi_networks': self.wifi_list
+        }
+
+    def set_all_settings(self, settings: Dict[str, Any]):
+        """Set all settings from a dictionary"""
+        try:
+            if 'commander_run' in settings:
+                self.set_commander_run(settings['commander_run'])
+            if 'overcapcity_warning' in settings:
+                self.set_overcapcity_warning(settings['overcapcity_warning'])
+            if 'overcapcity_force' in settings:
+                self.set_overcapcity_force(settings['overcapcity_force'])
+            if 'auto_schedule_mode' in settings:
+                self.set_auto_schedule_mode(settings['auto_schedule_mode'])
+            if 'browser_path' in settings:
+                self.set_browser_path(settings['browser_path'])
+            if 'num_vehicles' in settings:
+                self.set_num_vehicles(settings['num_vehicles'])
+            if 'default_printer' in settings:
+                self.set_default_printer(settings['default_printer'])
+            if 'default_wifi' in settings:
+                self.set_default_wifi(settings['default_wifi'])
+
+            logger.info("All settings updated successfully")
+
+        except Exception as e:
+            logger.error(f"Error setting all settings: {e}")
+
+    def save_settings(self) -> bool:
+        """
+        Save current settings to parent application
+
+        Returns:
+            True if settings saved successfully, False otherwise
+        """
+        try:
+            # Update parent application settings
+            if hasattr(self.parent, 'set_schedule_mode'):
+                schedule_mode = "auto" if self.auto_schedule_mode else "manual"
+                self.parent.set_schedule_mode(schedule_mode)
+
+            if hasattr(self.parent, 'set_default_wifi'):
+                self.parent.set_default_wifi(self.default_wifi)
+
+            if hasattr(self.parent, 'set_default_printer'):
+                self.parent.set_default_printer(self.default_printer)
+
+            if hasattr(self.parent, 'saveSettings'):
+                self.parent.saveSettings()
+
+            logger.info("Settings saved successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            return False
+
+    def load_settings(self) -> bool:
+        """
+        Load settings from parent application
+
+        Returns:
+            True if settings loaded successfully, False otherwise
+        """
+        try:
+            # Load settings from parent if available
+            if hasattr(self.parent, 'get_default_printer'):
+                self.default_printer = self.parent.get_default_printer()
+
+            if hasattr(self.parent, 'get_default_wifi'):
+                self.default_wifi = self.parent.get_default_wifi()
+
+            logger.info("Settings loaded successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error loading settings: {e}")
+            return False
+
+    def list_printers(self) -> bool:
+        """
+        Detect and list available printers
+
+        Returns:
+            True if printers detected successfully, False otherwise
+        """
         try:
             if platform.system() == 'Windows':
-                # flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
-                # printers = win32print.EnumPrinters(flags, None, 2)
                 ensure_spooler_running()
                 self.printers = win_list_printers()
-            else:  # macOS
-                ensure_cups_running
+            elif platform.system() == 'Darwin':  # macOS
+                ensure_cups_running()
                 self.printers = mac_list_printers()
-                
+            else:
+                # Linux or other platforms
+                self.printers = []
+
             # Extract printer names safely for logging
-            printer_names = []
-            for p in self.printers:
-                if isinstance(p, dict) and 'pPrinterName' in p:
-                    printer_names.append(p['pPrinterName'])  # Windows dictionary format
-                elif isinstance(p, (list, tuple)) and len(p) > 2:
-                    printer_names.append(p[2])  # Standard tuple format
-                elif isinstance(p, (list, tuple)) and len(p) > 0:
-                    printer_names.append(str(p[0]))  # Fallback to first element
-                else:
-                    printer_names.append(str(p))  # Fallback to string representation
-            logger.info("Printers: " + str(printer_names))
+            printer_names = self.get_printer_names()
+            logger.info(f"Printers detected: {printer_names}")
+            return True
+
         except Exception as e:
-            # Get the traceback information
-            traceback_info = traceback.extract_tb(e.__traceback__)
-            # Extract the file name and line number from the last entry in the traceback
-            if traceback_info:
-                ex_stat = "ErrorListPrinters:" + traceback.format_exc() + " " + str(e)
-            else:
-                ex_stat = "ErrorListPrinters: traceback information not available:" + str(e)
-            logger.error(ex_stat)
-            # Ensure printers is defined even on failure
+            logger.error(f"Error listing printers: {e}")
             self.printers = []
+            return False
 
-    def list_wifi_networks(self):
-        for i in range(3):  # Try scanning multiple times
-            # Run the command to list available Wi-Fi networks
-            if platform.system() == 'Windows':
-                result = subprocess.run(["netsh", "wlan", "show", "networks"], capture_output=True, text=True)
-            else:  # macOS
-                # First try to find the airport command
-                airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
-                if not os.path.exists(airport_path):
-                    airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport'
-                
-                if os.path.exists(airport_path):
-                    # Run airport command to scan for networks
-                    result = subprocess.run([airport_path, '-s'], capture_output=True, text=True)
-                    # Format output to match Windows netsh format
-                    lines = result.stdout.strip().split('\n')[1:]  # Skip header
-                    formatted_output = ""
-                    for i, line in enumerate(lines, 1):
-                        parts = line.split()
-                        if parts:
-                            formatted_output += f"SSID {i} : {parts[0]}\n"
-                    result.stdout = formatted_output
-                else:
-                    # Fallback to networksetup command
-                    result = subprocess.run(['networksetup', '-listpreferredwirelessnetworks', 'en0'], capture_output=True, text=True)
-                    # Format output to match Windows netsh format
-                    networks = [line.strip() for line in result.stdout.split('\n') if line.strip()]
-                    formatted_output = ""
-                    for i, network in enumerate(networks, 1):
-                        formatted_output += f"SSID {i} : {network}\n"
-                    result.stdout = formatted_output
-
-            # Output the result
-            networks_output = result.stdout
-
-            # Use regular expression to find all SSID lines and extract SSID names
-            ssid_list = re.findall(r"SSID \d+ : (.+)", networks_output)
-            if ssid_list:
-                logger.info("Available Wi-Fi Networks (Scan {}):".format(i + 1))
-                for ssid in ssid_list:
-                    logger.info(f"- {ssid}")
+    def get_printer_names(self) -> List[str]:
+        """Get list of printer names as strings"""
+        printer_names = []
+        for p in self.printers:
+            if isinstance(p, dict) and 'pPrinterName' in p:
+                printer_names.append(p['pPrinterName'])  # Windows dictionary format
+            elif isinstance(p, (list, tuple)) and len(p) > 2:
+                printer_names.append(p[2])  # Standard tuple format
+            elif isinstance(p, (list, tuple)) and len(p) > 0:
+                printer_names.append(str(p[0]))  # Fallback to first element
             else:
-                logger.warning("No Wi-Fi networks found.")
+                printer_names.append(str(p))  # Fallback to string representation
+        return printer_names
 
-        self.wifi_list = ssid_list
+    def list_wifi_networks(self) -> bool:
+        """
+        Detect and list available WiFi networks
 
-    def on_printer_selected(self):
-        logger.info("Index changed", self.printer_select.currentIndex())
-        self.default_printer = self.printer_select.currentText()
-        logger.info("new printer selected: "+self.default_printer)
+        Returns:
+            True if WiFi networks detected successfully, False otherwise
+        """
+        try:
+            ssid_list = []
+            if platform.system() == 'Darwin' and CWInterface is not None:
+                logger.debug("Scanning for WiFi networks using CoreWLAN on macOS.")
+                try:
+                    iface = CWInterface.interface()
+                    # The scan can be slow, so we don't repeat it in a loop like the command-line version
+                    nets, err = iface.scanForNetworksWithSSID_error_(None, None)
+                    if err:
+                        logger.error(f"CoreWLAN scan error: {err}")
+                        # Specific check for location services being disabled
+                        if 'CoreWLAN CWWiFiClient.h' in str(err) and 'kCWErrNotPermitted' in str(err):
+                             logger.error("Wi-Fi scan failed on macOS. This may be due to missing Location Services permissions for the application. Please check System Settings > Privacy & Security > Location Services.")
+                        return False
+                    if nets:
+                        for n in nets:
+                            ssid_list.append(n.ssid())
+                except Exception as e:
+                    logger.error(f"An unexpected error occurred during CoreWLAN scan: {e}")
+                    return False
+            else:
+                # Fallback to the command-line method for other platforms (Windows)
+                logger.debug("Scanning for WiFi networks using command-line method.")
+                for i in range(3):
+                    networks_output = _run_wifi_command('scan')
+                    if networks_output:
+                        if platform.system() == 'Windows':
+                            ssid_list = re.findall(r"SSID \d+ : (.+)", networks_output)
+                            if ssid_list:
+                                break # Found networks
+                    else:
+                        logger.warning(f"WiFi scan command returned no output (Scan {i + 1}).")
+                    time.sleep(1)
 
+            self.wifi_list = sorted(list(set(ssid_list)))
+            logger.info(f"Found {len(self.wifi_list)} WiFi networks.")
+            return len(self.wifi_list) > 0
 
-    def on_wifi_selected(self):
-        logger.info("Index changed", self.wifi_select.currentIndex())
-        self.default_wifi = self.wifi_select.currentText()
-        logger.info("new wifi selected: "+self.default_wifi)
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while listing WiFi networks: {e}")
+            self.wifi_list = []
+            return False
+
+    def validate_settings(self) -> Dict[str, Any]:
+        """
+        Validate current settings
+
+        Returns:
+            Dictionary with validation results
+        """
+        validation_results = {
+            'valid': True,
+            'errors': [],
+            'warnings': []
+        }
+
+        # Validate browser path
+        if self.browser_path and not os.path.exists(self.browser_path):
+            validation_results['valid'] = False
+            validation_results['errors'].append(f"Browser path does not exist: {self.browser_path}")
+
+        # Validate number of vehicles
+        if self.num_vehicles < 0:
+            validation_results['valid'] = False
+            validation_results['errors'].append("Number of vehicles cannot be negative")
+
+        # Validate default printer
+        if self.default_printer and self.default_printer not in self.get_printer_names():
+            validation_results['warnings'].append(f"Default printer not found in available printers: {self.default_printer}")
+
+        # Validate default WiFi
+        if self.default_wifi and self.default_wifi not in self.wifi_list:
+            validation_results['warnings'].append(f"Default WiFi not found in available networks: {self.default_wifi}")
+
+        return validation_results
+
+    def export_settings(self, filepath: str) -> bool:
+        """
+        Export settings to JSON file
+
+        Args:
+            filepath: Path to save JSON file
+
+        Returns:
+            True if exported successfully, False otherwise
+        """
+        try:
+            import json
+            export_data = {
+                'export_timestamp': time.time(),
+                'settings': self.get_all_settings(),
+                'validation': self.validate_settings()
+            }
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Settings exported to: {filepath}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error exporting settings: {e}")
+            return False
+
+    def import_settings(self, filepath: str) -> bool:
+        """
+        Import settings from JSON file
+
+        Args:
+            filepath: Path to load JSON file from
+
+        Returns:
+            True if imported successfully, False otherwise
+        """
+        try:
+            import json
+            with open(filepath, 'r', encoding='utf-8') as f:
+                import_data = json.load(f)
+
+            if 'settings' in import_data:
+                self.set_all_settings(import_data['settings'])
+                logger.info(f"Settings imported from: {filepath}")
+                return True
+            else:
+                logger.error("Invalid settings file format")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error importing settings: {e}")
+            return False
+
+    def reset_to_defaults(self):
+        """Reset all settings to default values"""
+        try:
+            self.commander_run = False
+            self.overcapcity_warning = True
+            self.overcapcity_force = True
+            self.auto_schedule_mode = False
+            self.browser_path = ""
+            self.num_vehicles = 0
+            self.default_printer = ""
+            self.default_wifi = ""
+
+            logger.info("Settings reset to defaults")
+
+        except Exception as e:
+            logger.error(f"Error resetting settings: {e}")
+
+    def get_hardware_info(self) -> Dict[str, Any]:
+        """Get comprehensive hardware information"""
+        try:
+            hardware_info = {
+                'platform': platform.system(),
+                'platform_version': platform.version(),
+                'machine': platform.machine(),
+                'processor': platform.processor(),
+                'available_printers': self.get_printer_names(),
+                'available_wifi_networks': self.wifi_list,
+                'default_printer': self.default_printer,
+                'default_wifi': self.default_wifi
+            }
+
+            # Add platform-specific information
+            if platform.system() == 'Windows':
+                hardware_info['windows_version'] = platform.win32_ver()
+            elif platform.system() == 'Darwin':
+                hardware_info['macos_version'] = platform.mac_ver()
+            elif platform.system() == 'Linux':
+                hardware_info['linux_distribution'] = platform.linux_distribution()
+
+            return hardware_info
+
+        except Exception as e:
+            logger.error(f"Error getting hardware info: {e}")
+            return {}
+
+    def cleanup(self):
+        """Clean up resources"""
+        try:
+            # Clear lists to free memory
+            self.printers.clear()
+            self.wifi_list.clear()
+            logger.info("SettingsManager cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")

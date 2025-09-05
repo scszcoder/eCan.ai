@@ -22,6 +22,7 @@
     "ok": "确定",
     "add": "添加",
     "id": "ID",
+    "id": "ID",
     "name": "姓名",
     "owner": "所有者",
     "gender": "性别",
@@ -507,6 +508,8 @@
       "status": "状态",
       "lastRun": "上次运行",
       "id": "任务ID",
+      "name": "任务名称",
+      "namePlaceholder": "请输入任务名称",
       "scheduleDetails": "调度详情",
       "triggerLabel": "触发器",
       "priorityLabel": "优先级",
@@ -515,6 +518,9 @@
       "scheduleStartTimeLabel": "开始时间",
       "scheduleEndTimeLabel": "结束时间",
       "scheduleTimeoutLabel": "超时时间",
+      "ataskId": "ATask ID",
+      "newTaskName": "新任务",
+      "invalidJson": "无效的JSON",
       "skill": {
         "TaskManagement": "任务管理",
         "DataAnalysis": "数据分析",
@@ -531,9 +537,11 @@
         "manual": "手动"
       },
       "priority": {
+        "null": "无",
         "high": "高",
         "medium": "中",
-        "low": "低"
+        "low": "低",
+        "urgent": "紧急"
       },
       "schedule": {
         "repeatType": {

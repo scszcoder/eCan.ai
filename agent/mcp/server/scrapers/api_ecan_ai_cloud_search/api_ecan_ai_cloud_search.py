@@ -1,7 +1,8 @@
 
 from typing import Dict, List, Tuple
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 import requests
 
 def api_ecan_ai_cloud_search():

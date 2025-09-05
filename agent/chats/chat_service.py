@@ -861,8 +861,7 @@ class ChatService(metaclass=SingletonMeta):
         db_result = self.dispatch_add_message(chatId, msg)
         logger.info(f"push_message db_result: {db_result}")
         # Push to frontend
-        app_ctx = AppContext()  
-        web_gui = app_ctx.web_gui
+        web_gui = AppContext.web_gui
         # Push actual data after database write
         if db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type != "notification":
             logger.debug("push_message db_result['data']:", db_result['data'])

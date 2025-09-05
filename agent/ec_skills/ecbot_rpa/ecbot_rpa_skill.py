@@ -22,7 +22,7 @@ from browser_use.agent.views import (
 )
 
 from agent.ec_skill import *
-from utils.logger_helper import get_agent_by_id
+from agent.agent_service import get_agent_by_id
 
 
 async def create_rpa_helper_skill(mainwin):

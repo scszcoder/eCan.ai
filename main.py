@@ -143,19 +143,11 @@ try:
     fix_pyinstaller_environment()
 
     # Import other necessary modules
-    progress_manager.update_progress(25, "Loading utility modules...")
-    import utils
-    progress_manager.update_progress(30, "Loading GUI components...")
+    progress_manager.update_progress(30, "Loading Login components...")
     from gui.LoginoutGUI import Login
+    progress_manager.update_progress(32, "Loading WebGUI components...")
     from gui.WebGUI import WebGUI
 
-    # Test modules (optional)
-    # Do not import test modules in production build
-    # try:
-    #     from tests.unittests import *
-    #     from tests.scraper_test import *
-    # except ImportError:
-    #     pass  # Ignore when test modules don't exist
 
     def main():
         """Main function"""
@@ -209,26 +201,8 @@ try:
 
         # Create login component
         progress_manager.update_progress(60, "Initializing login system...")
-        utils.logger_helper.login = Login()
-        ctx.set_login(utils.logger_helper.login)
-
-        # if utils.logger_helper.login.isCommander():
-        #     print("run as commander......")
-        #     utils.logger_helper.login.show()
-        #     loop.create_task(runCommanderLAN(utils.logger_helper.login))
-        #
-        #     loop.run_forever()
-        #
-        # else:
-        #     print("run as platoon...")
-        #     wait_window = WaitWindow()
-        #     # wait_window.show()
-        #     utils.logger_helper.login.show()
-        #     loop.create_task(runPlatoonLAN(utils.logger_helper.login, loop, wait_window))
-        #
-        #     loop.run_forever()
-
-        utils.logger_helper.login.setLoop(loop)
+        login = Login()
+        ctx.set_login(login)
         ctx.set_main_loop(loop)
 
         # Print current running mode

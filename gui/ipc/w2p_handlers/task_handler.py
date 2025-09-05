@@ -34,8 +34,7 @@ def handle_get_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 'INVALID_PARAMS',
                 error
             )
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         agents = main_window.agents
         all_tasks = []
         for agent in agents:
