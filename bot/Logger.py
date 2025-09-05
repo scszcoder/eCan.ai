@@ -3,6 +3,7 @@ from bot.envi import getECBotDataHome
 import os
 import asyncio
 import traceback
+from app_context import AppContext
 
 # con = sqlite3.connect("mylog.db")
 # cur = con.cursor()
@@ -140,8 +141,6 @@ LOG_SWITCH_BOARD = {
     "runmanagerworks": {"log": True, "py_console": True, "win_console": True, "range": "wan"}
 }
 
-# from utils.logger_helper import login
-import utils.logger_helper
 def getLogUser():
     global login
     return login.getCurrentUser().split(".")[0].replace("@", "_")
@@ -161,8 +160,8 @@ def log2File(gui_main, msg):
         log_user = gui_main.log_user
     else:
         # global login
-        if utils.logger_helper.login:
-            log_user = utils.logger_helper.login.getLogUser()
+        if AppContext.login:
+            log_user = AppContext.login.getLogUser()
             # print("LOG USER:" + log_user)
         else:
             log_user = "anonymous"

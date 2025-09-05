@@ -8,6 +8,7 @@ import socket
 import platform
 import base64
 
+from app_context import AppContext
 from config.app_info import app_info
 from config.app_settings import ecb_data_homepath
 import utils.logger_helper
@@ -279,8 +280,8 @@ class CommunicatorProtocol(asyncio.Protocol):
         dir_names = os.path.normpath(fdir).split(os.sep)
 
         if json_data["file_type"] == "ads profile":
-            if utils.logger_helper.login:
-                log_user = utils.logger_helper.login.getLogUser()
+            if AppContext.login:
+                log_user = AppContext.getLogUser()
             else:
                 log_user = 'anonymous'
             fullfdir = ecb_data_homepath + f"/{log_user}/ads_profiles/"

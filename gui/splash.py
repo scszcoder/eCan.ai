@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
 import os
 from datetime import datetime
 import sys
-import json
 
 try:
     from config.app_info import app_info

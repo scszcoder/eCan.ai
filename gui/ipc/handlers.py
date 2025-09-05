@@ -64,8 +64,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         # 获取用户名和密码
         username = data['username']
 
-        ctx = AppContext()
-        login:Login = ctx.login
+        login:Login = AppContext.login
         agents = login.main_win.agents
         all_tasks = []
         for agent in agents:
@@ -144,8 +143,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
 #         # 生成随机令牌
 #         token = str(uuid.uuid4()).replace('-', '')
 #         logger.info(f"Get vehicles successful for user: {username}")
-#         ctx = AppContext()
-#         login:Login = ctx.login
+#         login:Login = AppContext.login
 #         vehicles = login.main_win.vehicles
 
 #         resultJS = {
@@ -289,19 +287,17 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         tests = params.get('tests', [])
 
         results = []
-        ctx = AppContext()
-        login: Login = ctx.login
+        login: Login = AppContext.login
         agents = login.main_win.agents
 
-        web_gui = ctx.web_gui
+        web_gui = AppContext.web_gui
         for test in tests:
             test_id = test.get('test_id')
             test_args = test.get('args', {})
 
             # Process each test with its arguments
             if test_id == 'default_test':
-                ctx = AppContext()
-                login:Login = ctx.login
+                login: Login = AppContext.login
                 result = run_default_tests(web_gui, login.main_win)
             # Add other test cases as needed
             else:
@@ -446,9 +442,6 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse
             f"Error during stop tests: {str(e)}"
         )
 
-
-
-
 @IPCHandlerRegistry.handler('login_with_google')
 def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理停止测试项请求
@@ -462,8 +455,7 @@ def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCR
     """
     try:
         logger.debug(f"Login with google handler called with request: {request}")
-        ctx = AppContext()
-        login: Login = ctx.login
+        login: Login = AppContext.login
         result = login.login_google()
 
         # 生成随机令牌

@@ -1,5 +1,6 @@
 from bot.basicSkill import genStepHeader, genStepMouseClick, genStepStub, genStepKeyInput, genStepCallExtern, genStepWait, \
-    genStepExtractInfo, genStepTextInput, genStepSearchAnchorInfo, genStepCreateData, genStepCheckCondition
+    genStepExtractInfo, genStepTextInput, genStepSearchAnchorInfo, genStepCreateData, genStepCheckCondition,\
+    genStepECBFetchDailySchedule, genStepECBCollectBotProfiles, genStepExternalHook
 from bot.adsAPISkill import  genStepAPIADSCreateProfile
 from bot.seleniumSkill import *
 ADS_BATCH_SIZE = 2
@@ -1126,7 +1127,7 @@ def genWinADSGmailBrowserCreateAccountsSkill(worksettings, stepN, theme):
     psk_words = psk_words + step_words
 
     this_step, step_words = genStepCallExtern(
-        "import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=utils.logger_helper.login\nparams['test_mode']=False",
+        "import utils.logger_helper\nglobal params, symTab\nparams={}\nparams['symTab']=symTab\nparams['login']=AppContext.login\nparams['test_mode']=False",
         "", "in_line", "", this_step)
     psk_words = psk_words + step_words
 

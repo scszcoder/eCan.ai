@@ -33,14 +33,14 @@ from agent.ec_skills.browser_use_for_ai.browser_use_extension import (
 )
 import shutil
 from bot.basicSkill import readRandomWindow8, takeScreenShot, carveOutImage, maskOutImage, saveImageToFile, mousePressAndHold, mousePressAndHoldOnScreenWord
-from utils.logger_helper import login
 from bot.seleniumSkill import *
 from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 
 from agent.ec_skill import *
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from .event_store import InMemoryEventStore
 from collections import defaultdict
 from agent.ec_skills.dom.dom_utils import *
@@ -92,8 +92,7 @@ async def list_tools() -> list[types.Tool]:
 
 @meca_mcp_server.call_tool()
 async def unified_tool_handler(tool_name, args):
-    ctx = AppContext()
-    login = ctx.login
+    login = AppContext.login
     try:
         tool_func = tool_function_mapping[tool_name]
         # very key make sure each tool_func returns: [ContentBlock]
@@ -118,8 +117,7 @@ async def unified_tool_handler(tool_name, args):
                 )
 
 # async def unified_tool_handler(tool_name, args):
-#     ctx = AppContext()
-#     login = ctx.login
+#     login = AppContext.login
 #     # 获取用户名和密码
 #     if tool_name in tool_function_mapping:
 #         try:
@@ -525,7 +523,7 @@ async def in_browser_send_keys(mainwin, args):
         crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
-            browser_context = login.main_win.getBrowserContextById(args["context_id"])
+            browser_context = AppContext.main_window.getBrowserContextById(args["context_id"])
             browser = browser_context.browser
             page = await browser.get_current_page()
 

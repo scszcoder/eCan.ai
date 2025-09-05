@@ -3,7 +3,6 @@ import platform
 import json
 from datetime import datetime, date
 from bot.Logger import log3
-from PySide6.QtGui import QStandardItem, QIcon
 
 from common.models.bot import BotModel
 
@@ -558,9 +557,8 @@ class CircularMessageQueue:
 
 
 # a light weight twin of the EB_BOT
-class EBBOT_AGENT(QStandardItem):
+class EBBOT_AGENT:
     def __init__(self, parent):
-        super().__init__()
         self.parent = parent
         self.chat_histories = []
         self.bid = 0
@@ -597,46 +595,22 @@ class EBBOT_AGENT(QStandardItem):
             return []
 
 
-class EBBOT(QStandardItem):
+class EBBOT:
     def __init__(self, main_win):
-        super().__init__()
         self.main_win = main_win
         self.pubProfile = BOT_PUB_PROFILE()
         self.privateProfile = BOT_PRIVATE_PROFILE()
         self.settings = BOT_SETTINGS()
 
         self.ebType = "AMZ"
-        if len(self.getFn()) > 1:
-            self.icon_text = 'bot' + str(self.getBid()) + ":" + self.getFn()[
-                                                                :1] + " " + self.getLn() + ":" + self.getLocation()
-            self.setText(self.icon_text)
-        else:
-            self.icon_text = 'bot' + str(
-                self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
-            self.setText(self.icon_text)
-        self.setFont(self.main_win.std_item_font)
-        self.setBotIcon()
         self.seller_inventories = []
         self.msg_queue = asyncio.Queue()  # this is the messaging queue for the bot.
-
-    def updateIcon(self):
-        if len(self.getFn()) > 1:
-            self.icon_text = 'bot' + str(self.getBid()) + ":" + self.getFn()[
-                                                                :1] + " " + self.getLn() + ":" + self.getLocation()
-            self.setText(self.icon_text)
-        else:
-            self.icon_text = 'bot' + str(
-                self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation()
-            self.setText(self.icon_text)
-        self.setFont(self.main_win.std_item_font)
-        self.setBotIcon()
 
     def getMsgQ(self):
         return self.msg_queue
 
     def setEmail(self, em):
         self.privateProfile.email = em
-
 
     def setEPW(self, epw):
         self.privateProfile.email_pw = epw
@@ -652,22 +626,6 @@ class EBBOT(QStandardItem):
 
     def setBackEmailSite(self, site):
         self.backup_email_site = site
-
-    def setBotIcon(self):
-        if "manager" in self.pubProfile.roles.lower():
-            icon = self.main_win.file_resource.sell_bot_icon_path
-        elif "buy" in self.pubProfile.roles.lower():
-            icon = self.main_win.file_resource.buy_bot_icon_path
-        elif "sell" in self.pubProfile.roles.lower():
-            icon = self.main_win.file_resource.manager_bot_icon_path
-        else:
-            icon = self.main_win.file_resource.buy_bot_icon_path
-
-        self.icon = icon
-        self.setIcon(QIcon(icon))
-
-    def getBotIcon(self):
-        return self.icon
 
     def getBid(self):
         return self.pubProfile.bid
@@ -836,12 +794,6 @@ class EBBOT(QStandardItem):
 
     def setBid(self, bid):
         self.pubProfile.bid = bid
-        if len(self.getFn()) > 1:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
-        else:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def setOwner(self, owner):
         self.pubProfile.owner = owner
@@ -865,15 +817,6 @@ class EBBOT(QStandardItem):
         self.pubProfile.loadJson(nbJson["pubProfile"])
         self.privateProfile.loadJson(nbJson["privateProfile"])
         self.settings.loadJson(nbJson["settings"])
-        if len(self.getFn()) > 1:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
-        else:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
-
-        self.setBotIcon()
-
 
     def getVCCardFund(self):
         return self.privateProfile.vc_card_fund
@@ -913,12 +856,6 @@ class EBBOT(QStandardItem):
 
     def setNetRespJsonData(self, nrjd):
         self.pubProfile.loadNetRespJson(nrjd)
-        if len(self.getFn()) > 1:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
-        else:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def genJson(self):
         # log3("generating Json..........>>>>")
@@ -929,14 +866,6 @@ class EBBOT(QStandardItem):
         }
         # log3(json.dumps(jsd))
         return jsd
-
-    def updateDisplay(self):
-        if len(self.getFn()) > 1:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn()[:1] + " " + self.getLn() + ":" + self.getLocation())
-        else:
-            self.setText(
-                'bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
 
     def loadDBData(self, dbd: BotModel):
         self.pubProfile.setBid(dbd.botid)
@@ -964,10 +893,6 @@ class EBBOT(QStandardItem):
         self.privateProfile.setEBPW(dbd.ebpw)
         self.privateProfile.setCreateOn(dbd.createon)
         self.privateProfile.setBackEmailSite(dbd.backemail_site)
-        self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
-
-        self.setBotIcon()
-
 
     def loadXlsxData(self, dj):
         # location, roles, status, delDate, name, pseudoname, nickname, addr, shipaddr
@@ -992,6 +917,3 @@ class EBBOT(QStandardItem):
         self.privateProfile.setBackEmailPW(dj.get("Backup Email PW", ""))
         self.privateProfile.setEBPW(dj.get("Back PW", ""))
         self.privateProfile.setBackEmailSite(dj.get("BackEmailSite", ""))
-        self.setText('bot' + str(self.getBid()) + ":" + self.getFn() + " " + self.getLn() + ":" + self.getLocation())
-
-        self.setBotIcon()

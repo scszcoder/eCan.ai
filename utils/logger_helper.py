@@ -22,8 +22,6 @@ def trace(self, message, *args, **kws):
 logging.Logger.trace = trace
 # ====== END ======
 
-login = None
-
 
 class LoggerHelper:
     _instance = None
@@ -278,19 +276,6 @@ def get_log_path():
     return env_info['log_path']
 # ====== END ======
 
-def get_agent_by_id(agent_id):
-    """Safely fetch agent by id from the current main window.
-    Returns None if main window or agents are not yet initialized.
-    """
-    try:
-        app_ctx = AppContext()
-        main_window = getattr(app_ctx, 'main_window', None)
-        if not main_window:
-            return None
-        agents = getattr(main_window, 'agents', []) or []
-        return next((ag for ag in agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None)
-    except Exception:
-        return None
 
 def get_traceback(e, eType="Error"):
     traceback_info = traceback.extract_tb(e.__traceback__)

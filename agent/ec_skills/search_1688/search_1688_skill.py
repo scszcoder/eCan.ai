@@ -4,7 +4,7 @@ from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 from bot.seleniumSkill import execute_js_script
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from utils.logger_helper import get_agent_by_id
+from agent.agent_service import get_agent_by_id
 
 def check_browser_and_drivers(state: NodeState) -> NodeState:
     agent_id = state["messages"][0]

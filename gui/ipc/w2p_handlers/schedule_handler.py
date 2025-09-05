@@ -23,8 +23,7 @@ def handle_get_schedules(request: IPCRequest, params: Optional[Dict[str, Any]]) 
     try:
         logger.debug(f"Get Schedule handler called with request: {request}")
 
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         agents = main_window.agents
         all_tasks = []
         for agent in agents:

@@ -1,8 +1,6 @@
 import os
 from datetime import datetime
 
-from PySide6.QtGui import QStandardItem, QIcon
-
 from bot.Cloud import upload_file
 from bot.Logger import log3
 
@@ -12,7 +10,7 @@ from bot.Logger import log3
 #  described in json format, [{ "name" : anchor_name, "constraints" : {}...]
 #    special anchor_name: ulc, urc, llc, lrc, lb, rb, tb, bb which represent "upper left corner" "left bound" etc.
 #  constraints : { "xdir" : "within/beyond", "xtype" : "absolute/signed/abs percent/signed percent", "xval" : "10", "xunit":"pix/char height/char width/img size/win size/" .. y***
-class ANCHOR(QStandardItem):
+class ANCHOR:
     def __init__(self, aname, atype, homepath):
         super().__init__()
         self.name = aname
@@ -20,11 +18,8 @@ class ANCHOR(QStandardItem):
         self.refMethod = 'Absolute'
         self.imgPath = ""
         self.refs = []
-        self.setText('aname')
         self.homepath = homepath
         self.imgPath = ""
-        self.icon = QIcon(homepath+'/resource/anchor2-64.png')
-        self.setIcon(self.icon)
 
     def set_img(self, img_path):
         self.imgPath = ''
@@ -54,16 +49,13 @@ class ANCHOR(QStandardItem):
         return self.name
 
 # valid refMethod: "None", "Anchor Offset", "Anchor Bound", "Contains Anchor"
-class USER_INFO(QStandardItem):
+class USER_INFO:
     def __init__(self, aname, homepath):
         super().__init__()
         self.name = aname
         self.homepath = homepath
         self.type = "Phrase"     # or "nlines", "paragraph", "text" , BTW, phase ideally shall not exceed 3 words.
         self.n = 1
-        self.setText(aname)
-        self.icon = QIcon(homepath+'/resource/focus0-64.png')
-        self.setIcon(self.icon)
         self.content_text = ""
         self.contentbb = (0.0, 0.0, 0.0, 0.0)
         self.anchorbb = ("None", "None", "None", "None")
@@ -98,18 +90,13 @@ class USER_INFO(QStandardItem):
     def set_bb(self, tl, tr, bl, br):
         self.bb = (tl, tr, bl, br)
 
-class PROCEDURAL_STEP(QStandardItem):
+class PROCEDURAL_STEP:
     def __init__(self, homepath, sname="browse"):
         super().__init__()
         self.Name = sname
         self.homepath = homepath
         self.number = 0
-        self.setText(self.Name)
-        self.icon = QIcon(homepath+'/resource/step0-50.png')
-        self.setIcon(self.icon)
-
         self.dataName = ""
-
         self.loadData = ""
         self.saveData = ""
 
@@ -149,16 +136,13 @@ class PROCEDURAL_STEP(QStandardItem):
         self.extern = inext
 
 
-class PROCEDURAL_SKILL(QStandardItem):
+class PROCEDURAL_SKILL:
     def __init__(self, parent):
         super().__init__()
         self.pageName = "AMZ"
         self.homepath = parent.homepath
         self.steps = None
-        self.setText(self.pageName)
-        self.icon = QIcon(self.homepath+'/resource/skills-78.png')
         self.runStepsFile= ""
-        self.setIcon(self.icon)
         self.runConfig = None
         self.nameSpace = ""
         self.parent = parent
@@ -178,7 +162,7 @@ class PROCEDURAL_SKILL(QStandardItem):
         self.runStepsFile = jd.get("runStepsFile", "")
 
 
-class CLOUD_SKILL(QStandardItem):
+class CLOUD_SKILL:
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
@@ -201,13 +185,11 @@ class CLOUD_SKILL(QStandardItem):
         self.path = jd["path"]
 
 
-class WORKSKILL(QStandardItem):
+class WORKSKILL:
     def __init__(self, parent, skname, skdir="/resource/skills/public/"):
         super().__init__()
         self.parent = parent
         self.name = skname
-        self.setText(skname+"()")
-        self.setFont(parent.std_item_font)
         self.skid = 0
         self.owner = ""
         self.price = 0
@@ -215,7 +197,6 @@ class WORKSKILL(QStandardItem):
         self.homepath = parent.homepath
         self.price_model = ""
         self.path = skdir
-        print("skill home path::"+self.path)
         self.psk_file = ""
         self.csk_file = ""
         self.privacy = "public"
@@ -230,22 +211,11 @@ class WORKSKILL(QStandardItem):
         self.runtime = 1
         self.procedural_skill = PROCEDURAL_SKILL(parent)
         self.cloud_skill = CLOUD_SKILL(parent)
-        self.setText('Skill'+str(self.getSkid()))
-        self.icon = QIcon(parent.file_resource.skill_icon_path)
-        self.setIcon(self.icon)
         self.createdOn = datetime.today().strftime('%Y-%m-%d')
         self.description = "This skill does great automation."
         self.generator = ""
         self.version = "0.0.1"
-
-        self.setText(self.name)
-        self.icon = QIcon(self.homepath + '/resource/images/icons/skills_78.png')
-        self.setIcon(self.icon)
         self.dependencies = []
-
-    def updateIcon(self):
-        self.setText('Skill'+str(self.getSkid()))
-        self.icon = QIcon(self.parent.file_resource.skill_icon_path)
 
     def getDependencies(self):
         return self.dependencies
@@ -283,7 +253,6 @@ class WORKSKILL(QStandardItem):
 
     def setSkid(self, skid):
         self.skid = skid
-        self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
 
     def getPskFileName(self):
         return self.path + self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"/"+ self.name + ".psk"
@@ -399,15 +368,12 @@ class WORKSKILL(QStandardItem):
 
     def setPlatform(self, platform):
         self.platform = platform
-        self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
 
     def setSite(self, site):
         self.site = site
-        self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
 
     def setName(self, name):
         self.name = name
-        self.setText(self.platform + "_" + self.app + "_" + self.site_name + "_" + self.page + "_" + self.name + "(" + str(self.skid) + ")")
 
     def setRunTime(self, rt):
         self.runtime = rt
@@ -417,12 +383,7 @@ class WORKSKILL(QStandardItem):
 
     def setNetRespJsonData(self, nrjd):
         # self.pubAttributes.loadNetRespJson(nrjd)
-        self.setText('skill' + str(nrjd['skid']))
-
-    def setAppearance(self, qcolor, qfont):
-        if self.main == "T":
-            self.setForeground(qcolor)  # Blue color
-            self.setFont(qfont)
+        pass
 
     def loadJson(self, jd):
         self.name = jd.get("name", "")
@@ -434,7 +395,6 @@ class WORKSKILL(QStandardItem):
         self.site_name = jd.get("site_name", "amz")
         self.site = jd.get("site", "https://www.amazon.com")
         self.page = jd.get("page", "top")
-        self.setText(self.platform+"_"+self.app+"_"+self.site_name+"_"+self.page+"_"+self.name + "(" + str(self.skid) + ")")
         self.main = jd.get("main", False)
 
         self.privacy = jd.get("privacy", "public")
