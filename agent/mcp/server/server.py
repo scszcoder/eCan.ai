@@ -48,6 +48,7 @@ from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_component
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
 from agent.mcp.server.scrapers.selenium_search_component import selenium_search_component
+from agent.mcp.server.scrapers.eval_util import calculate_score
 
 server_main_win = None
 # logger = logging.getLogger(__name__)
@@ -1403,31 +1404,6 @@ async def api_ecan_ai_query_components(mainwin, args):
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
-def search_site_using_pf_with_ads(webdriver, pf, site_url):
-    try:
-        search_results =[]
-
-        search_results = selenium_search_component(webdriver, pf, site_url)
-
-
-    except Exception as e:
-        err_trace = get_traceback(e, "ErrorSearchSiteWithPF")
-        logger.debug(err_trace)
-        search_results = []
-    return search_results
-
-
-def calc_scores(fom_form, search_results):
-    try:
-        for result_item in search_results:
-            #calculate score for each item
-            result_item['score'] = 0.0
-    except Exception as e:
-        err_trace = get_traceback(e, "ErrorCalcScores")
-        logger.debug(err_trace)
-
-
-
 
 async def api_ecan_local_search_components(mainwin, args):
     logger.debug(f"initial state: {args}")
@@ -1438,17 +1414,23 @@ async def api_ecan_local_search_components(mainwin, args):
             log_user = mainwin.user.replace("@", "_").replace(".", "_")
             pfs = args['input']['parametric_filters']
             sites = args['input']['sites']
+            fom_form = args['input']['fom_form']
+            max_n_results = args['input']['max_n_results']
 
             search_results = []
             for pf in pfs:
                 for site in sites:
                     site_url = site['url']
-                    site_results = search_site_using_pf_with_ads(webdriver, pf, site_url)
-                    search_results = search_results + site_results
+                    site_results = selenium_search_component(webdriver, pf, site_url)
+                    search_results = search_results.extend(site_results)
 
+            calculate_score(fom_form, search_results)
 
-            calc_scores(fom_form, search_results)
             sorted_search_results = sorted(search_results, key=lambda x: x['score'], reverse=True)
+            n_results = min(max_n_results, len(sorted_search_results))
+            print("n_results: ", n_results, len(sorted_search_results), max_n_results)
+            sorted_search_results = sorted_search_results[:n_results]
+
             msg = "completed rpa operator report work results"
             result = TextContent(type="text", text=msg)
             result.meta = sorted_search_results
