@@ -25,6 +25,10 @@ else:
     pywintypes = None
     win32serviceutil = None
 
+if sys.platform == "darwin":
+    from CoreWLAN import CWInterface
+else:
+    CWInterface = None
 
 def ensure_spooler_running():
     """Ensure printing backend is running on the current platform.
@@ -109,46 +113,45 @@ def mac_list_printers():
 def _run_wifi_command(command_type: str) -> Optional[str]:
     """
     Run a platform-specific WiFi command and return the output.
-
-    Args:
-        command_type: 'scan' for available networks or 'status' for current connection.
-
-    Returns:
-        The command's stdout as a string, or None if the command fails.
+    This function is now only intended for Windows, as macOS uses CoreWLAN.
     """
+    logger.debug("Executing _run_wifi_command (version 2025-09-05-A)")
     system = platform.system()
+    if system != 'Windows':
+        logger.debug(f"No command-line implementation for WiFi operation on platform: {system}")
+        return None
+
     command: List[str] = []
-
     try:
-        if system == 'Windows':
-            if command_type == 'status':
-                command = ["netsh", "wlan", "show", "interfaces"]
-            elif command_type == 'scan':
-                command = ["netsh", "wlan", "show", "networks"]
-        elif system == 'Darwin':
-            airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
-            if not os.path.exists(airport_path):
-                airport_path = '/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport'
-
-            if os.path.exists(airport_path):
-                if command_type == 'status':
-                    command = [airport_path, '-I']
-                elif command_type == 'scan':
-                    command = [airport_path, '-s']
-            elif command_type == 'scan': # Fallback for scan if airport is not found
-                command = ['networksetup', '-listpreferredwirelessnetworks', 'en0']
+        if command_type == 'status':
+            command = ["netsh", "wlan", "show", "interfaces"]
+        elif command_type == 'scan':
+            command = ["netsh", "wlan", "show", "networks"]
 
         if not command:
-            logger.warning(f"Unsupported platform or command type for WiFi operation: {system}, {command_type}")
+            logger.warning(f"Unsupported command type for WiFi operation on Windows: {command_type}")
             return None
 
         result = subprocess.run(
-            command, capture_output=True, text=True, encoding='utf-8', errors='ignore', check=True
+            command, capture_output=True, text=True, encoding='utf-8', errors='ignore', timeout=15
         )
+
+        logger.debug(f"WiFi command '{' '.join(command)}' finished with return code: {result.returncode}")
+        if result.stdout:
+            logger.debug(f"WiFi command stdout:\n{result.stdout}")
+        if result.stderr:
+            logger.debug(f"WiFi command stderr:\n{result.stderr}")
+
+        if result.returncode != 0:
+            logger.warning(f"WiFi command '{' '.join(command)}' exited with a non-zero status code.")
+            return None
+
         return result.stdout
 
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+    except FileNotFoundError as e:
         logger.warning(f"Could not execute WiFi command '{' '.join(command)}': {e}")
+    except subprocess.TimeoutExpired:
+        logger.warning(f"WiFi command '{' '.join(command)}' timed out after 15 seconds.")
     except Exception as e:
         logger.error(f"An unexpected error occurred while running WiFi command: {e}")
 
@@ -161,15 +164,35 @@ def get_default_wifi_ssid() -> Optional[str]:
     Returns:
         The SSID as a string, or None if not connected or not found.
     """
-    output = _run_wifi_command('status')
-    if not output:
-        return None
+    if platform.system() == 'Darwin' and CWInterface is not None:
+        logger.debug("Getting default WiFi SSID using CoreWLAN on macOS.")
+        try:
+            # Get the names of all supported Wi-Fi interfaces
+            interface_names = CWInterface.supportedInterfaces()
+            # Iterate through all supported Wi-Fi interfaces to find the one that is connected
+            for name in interface_names:
+                iface = CWInterface.interfaceWithName_(name)
+                logger.debug(f"Checking interface: {name}, iface object is not None: {iface is not None} (version 2025-09-05-B)")
+                if iface:
+                    ssid = iface.ssid()
+                    if ssid:
+                        return ssid
+            return None # No connected interface found
+        except Exception as e:
+            logger.error(f"Could not get default WiFi SSID using CoreWLAN: {e}")
+            return None
+    else:
+        # Fallback to command-line for other platforms
+        logger.debug("Getting default WiFi SSID using command-line method.")
+        output = _run_wifi_command('status')
+        if not output:
+            return None
 
-    for line in output.split('\n'):
-        if "SSID" in line and ":" in line:
-            ssid = line.split(":")[1].strip()
-            if ssid:
-                return ssid
+        for line in output.split('\n'):
+            if "SSID" in line and ":" in line:
+                ssid = line.split(":")[1].strip()
+                if ssid:
+                    return ssid
 
     return None
 
@@ -428,32 +451,44 @@ class SettingsManager:
         """
         try:
             ssid_list = []
-            networks_output = None
+            if platform.system() == 'Darwin' and CWInterface is not None:
+                logger.debug("Scanning for WiFi networks using CoreWLAN on macOS.")
+                try:
+                    iface = CWInterface.interface()
+                    # The scan can be slow, so we don't repeat it in a loop like the command-line version
+                    nets, err = iface.scanForNetworksWithSSID_error_(None, None)
+                    if err:
+                        logger.error(f"CoreWLAN scan error: {err}")
+                        # Specific check for location services being disabled
+                        if 'CoreWLAN CWWiFiClient.h' in str(err) and 'kCWErrNotPermitted' in str(err):
+                             logger.error("Wi-Fi scan failed on macOS. This may be due to missing Location Services permissions for the application. Please check System Settings > Privacy & Security > Location Services.")
+                        return False
+                    if nets:
+                        for n in nets:
+                            ssid_list.append(n.ssid())
+                except Exception as e:
+                    logger.error(f"An unexpected error occurred during CoreWLAN scan: {e}")
+                    return False
+            else:
+                # Fallback to the command-line method for other platforms (Windows)
+                logger.debug("Scanning for WiFi networks using command-line method.")
+                for i in range(3):
+                    networks_output = _run_wifi_command('scan')
+                    if networks_output:
+                        if platform.system() == 'Windows':
+                            ssid_list = re.findall(r"SSID \d+ : (.+)", networks_output)
+                            if ssid_list:
+                                break # Found networks
+                    else:
+                        logger.warning(f"WiFi scan command returned no output (Scan {i + 1}).")
+                    time.sleep(1)
 
-            for i in range(3):  # Try scanning multiple times
-                networks_output = _run_wifi_command('scan')
-                if networks_output:
-                    # Use regular expression to find all SSID lines and extract SSID names
-                    ssid_list = re.findall(r"SSID \d+ : (.+)", networks_output)
-                    if not ssid_list and platform.system() == 'Darwin': # Handle different macOS outputs
-                        lines = networks_output.strip().split('\n')
-                        if lines and "SSID" in lines[0]: # Airport output
-                            lines = lines[1:] # Skip header
-                        ssid_list = [line.split()[0] for line in lines if line.strip()]
-
-                    if ssid_list:
-                        logger.info(f"Available Wi-Fi Networks (Scan {i + 1}):")
-                        for ssid in ssid_list:
-                            logger.info(f"- {ssid}")
-                        break  # Successfully found networks, no need to retry
-                else:
-                    logger.warning(f"No Wi-Fi networks found in scan {i + 1}.")
-
-            self.wifi_list = sorted(list(set(ssid_list))) # Store unique SSIDs
+            self.wifi_list = sorted(list(set(ssid_list)))
+            logger.info(f"Found {len(self.wifi_list)} WiFi networks.")
             return len(self.wifi_list) > 0
 
         except Exception as e:
-            logger.error(f"Error listing WiFi networks: {e}")
+            logger.error(f"An unexpected error occurred while listing WiFi networks: {e}")
             self.wifi_list = []
             return False
 
