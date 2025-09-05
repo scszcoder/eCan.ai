@@ -1,5 +1,5 @@
 from agent.ec_skill import NodeState
-
+from agent.ec_skills.llm_utils.llm_utils import try_parse_json
 
 # whatever attachments should have been saved, read, packaged into the right form by the human twin agent
 # and sent over via A2A, by the time we get them here, they'are already in the msg object
@@ -50,6 +50,15 @@ def prep_search_parts_chatter_skill(agent, msg, current_state=None):
     if not current_state:
         return init_state
     else:
+        data = try_parse_json(msg_txt)
+        if isinstance(data, dict):
+            if data.get("type", "") == "normal":
+                print("saving filled parametric filter form......")
+                current_state["attributes"]["filled_parametric_filter"] = data
+            elif data.get("type", "") == "score":
+                print("saving filled fom form......")
+                current_state["attributes"]["filled_fom_form"] = data
         current_state["attachments"] = attachments
         current_state["messages"].append(msg_txt)
+
         return current_state
