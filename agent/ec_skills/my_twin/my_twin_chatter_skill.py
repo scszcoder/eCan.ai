@@ -9,7 +9,8 @@ from agent.a2a.common.types import SendTaskRequest, TaskSendParams
 
 from agent.ec_skill import *
 from app_context import AppContext
-from utils.logger_helper import get_agent_by_id, logger_helper as logger
+from utils.logger_helper import logger_helper as logger
+from agent.agent_service import get_agent_by_id
 
 # this is simply an parrot agent, no thinking, no intelligent, simply pipe human message to agent
 # and pipe agent response back to human

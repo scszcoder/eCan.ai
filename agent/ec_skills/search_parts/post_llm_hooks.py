@@ -1,5 +1,6 @@
 from agent.ec_skill import *
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.ec_skills.llm_utils.llm_utils import *
 
 

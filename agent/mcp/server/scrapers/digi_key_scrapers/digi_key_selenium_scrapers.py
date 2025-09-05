@@ -2,9 +2,9 @@ import re
 import traceback
 from selenium.webdriver.common.by import By
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException, WebDriverException
-from utils.logger_helper import get_agent_by_id, get_traceback
+from agent.agent_service import get_agent_by_id
 
 def extract_categories_page(web_driver):
     try:

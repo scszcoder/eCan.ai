@@ -1,5 +1,6 @@
 from bot.basicSkill import genStepHeader, genStepMouseClick, genStepStub, genStepKeyInput, genStepCallExtern, genStepWait, \
-    genStepExtractInfo, genStepTextInput, genStepSearchAnchorInfo, genStepCreateData, genStepCheckCondition
+    genStepExtractInfo, genStepTextInput, genStepSearchAnchorInfo, genStepCreateData, genStepCheckCondition,\
+    genStepECBFetchDailySchedule, genStepECBCollectBotProfiles, genStepExternalHook
 from bot.adsAPISkill import  genStepAPIADSCreateProfile
 from bot.seleniumSkill import *
 ADS_BATCH_SIZE = 2

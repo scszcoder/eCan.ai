@@ -40,7 +40,8 @@ def get_a2a_server_url(mainwin):
     return url
 
 
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.ec_skill import *
 
 

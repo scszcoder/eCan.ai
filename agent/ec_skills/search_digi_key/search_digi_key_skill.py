@@ -6,7 +6,8 @@ from bot.seleniumSkill import execute_js_script
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
 import re
 
