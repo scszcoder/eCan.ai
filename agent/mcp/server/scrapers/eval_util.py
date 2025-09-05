@@ -360,3 +360,76 @@ def calculate_score(fom: Dict[str, Any], items: List[Dict[str, Any]], clamp: boo
     except Exception as e:
         err_trace = get_traceback(e, "ErrorCalculateScores")
         logger.debug(err_trace)
+
+
+def get_default_fom_form():
+    return {
+        "id": "eval_system_form",
+        "type": "score",
+        "title": "score system",
+        "components": [
+            {
+                "name": "price",
+                "type": "integer",
+                "raw_value": 125,
+                "target_value": 125,
+                "max_value": 150,
+                "min_value": 0,
+                "unit": "cents",
+                "tooltip": "unit price in cents, 1.25 is the target max price",
+                "score_formula": "80 + (125-price)",
+                "score_lut": {},
+                "weight": 0.3
+            },
+            {
+                "name": "availability",
+                "type": "integer",
+                "raw_value": 0,
+                "target_value": 0,
+                "max_value": 150,
+                "min_value": 0,
+                "unit": "days",
+                "tooltip": "nuber of days before the part is available",
+                "score_formula": "",
+                "score_lut": {
+                    "20": 100,
+                    "10": 80,
+                    "8": 60
+                },
+                "weight": 0.3
+            },
+            {
+                "name": "performance",
+                "type": "integer",
+                "raw_value": {
+                    "power": {
+                        "raw_value": 3,
+                        "target_value": 125,
+                        "type": "integer",
+                        "unit": "mA",
+                        "tooltip": "power consumption in mA",
+                        "score_formula": "80 + (5-current)",
+                        "score_lut": {},
+                        "weight": 0.7
+                    },
+                    "clock_rate": {
+                        "raw_value": 10,
+                        "target_value": 125,
+                        "max_value": 120,
+                        "min_value": 0,
+                        "type": "integer",
+                        "unit": "MHz",
+                        "tooltip": "max clock speed in MHz",
+                        "score_formula": "80 + (speed - 10)",
+                        "score_lut": {},
+                        "weight": 0.3
+                    }
+                },
+                "unit": "",
+                "tooltip": "technical performance",
+                "score_formula": "100 - 5*performance",
+                "score_lut": {},
+                "weight": 0.4
+            }
+        ]
+    }
