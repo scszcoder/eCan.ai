@@ -1,17 +1,11 @@
-import contextlib
-from collections.abc import AsyncIterator
-from typing import Any, Optional, Dict
 from starlette.types import Receive, Scope, Send
-from starlette.applications import Starlette
 from mcp.server.sse import SseServerTransport
-from selenium import webdriver
 import pyautogui
 from pynput.mouse import Controller
 import pygetwindow as gw
 import time
 import asyncio
-from typing import Optional, Tuple, TypeVar, cast
-import re
+from typing import TypeVar
 import subprocess
 from mcp.server.lowlevel import Server
 import traceback
@@ -21,16 +15,11 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from sympy.stats.rv import sample_iter_subs
 
 from agent.mcp.server.tool_schemas import *
 import json
 from dotenv import load_dotenv
-import logging
-from datetime import datetime
-from agent.ec_skills.browser_use_for_ai.browser_use_extension import (
-    Position,
-)
+
 import shutil
 from bot.basicSkill import readRandomWindow8, takeScreenShot, carveOutImage, maskOutImage, saveImageToFile, mousePressAndHold, mousePressAndHoldOnScreenWord
 from bot.seleniumSkill import *
@@ -40,9 +29,7 @@ from agent.ec_skill import *
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
-from agent.agent_service import get_agent_by_id
 from .event_store import InMemoryEventStore
-from collections import defaultdict
 from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_query_components, api_ecan_ai_get_nodes_prompts, api_ecan_ai_ocr_read_screen
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
@@ -51,7 +38,6 @@ from agent.mcp.server.scrapers.selenium_search_component import selenium_search_
 from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 
 server_main_win = None
-# logger = logging.getLogger(__name__)
 
 Context = TypeVar('Context')
 
@@ -1557,31 +1543,7 @@ async def handle_streamable_http(
 ) -> None:
     await session_manager.handle_request(scope, receive, send)
 
-@contextlib.asynccontextmanager
-async def lifespan(app: Starlette) -> AsyncIterator[None]:
-    """Context manager for managing session manager lifecycle."""
-    import sys
-    is_frozen = getattr(sys, 'frozen', False)  # 正常检测
 
-    # 统一的错误处理策略：总是尝试完整的 session_manager.run()，如果失败则继续运行
-    try:
-        async with session_manager.run():
-            if is_frozen:
-                logger.info("✅ Application started with StreamableHTTP session manager (PyInstaller mode)!")
-            else:
-                logger.info("✅ Application started with StreamableHTTP session manager!")
-            yield
-    except Exception as e:
-        logger.error(f"MCP session manager error: {e}")
-        import traceback
-        logger.debug(f"Session manager error traceback: {traceback.format_exc()}")
-
-        if is_frozen:
-            logger.warning("⚠️ PyInstaller environment: MCP session manager failed, continuing without it")
-        else:
-            logger.warning("⚠️ Development environment: MCP session manager failed, continuing without it")
-    finally:
-        logger.info("Application shutting down...")
 
 # async def handle_sse(scope, receive, send):
 #     logger.debug(">>> sse connected")

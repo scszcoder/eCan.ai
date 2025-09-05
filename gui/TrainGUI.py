@@ -15,8 +15,8 @@ from concurrent.futures.thread import ThreadPoolExecutor
 from datetime import datetime
 from typing import List, Dict, Any
 
-import pyautogui
-from pynput import keyboard, mouse
+
+
 
 from utils.logger_helper import logger_helper as logger
 
@@ -214,6 +214,7 @@ class TrainManager:
         Returns:
             False if recording should stop, True otherwise
         """
+        from pynput import keyboard
         logger.debug(f'{key} released')
         
         if key == keyboard.Key.esc:
@@ -274,6 +275,7 @@ class TrainManager:
             dy: Delta Y
             button: Button information
         """
+        import pyautogui
         self.steps += 1
         now = datetime.now()
         fname = self.temp_dir + option + "_step" + str(self.steps) + '_' + str(now.timestamp()) + ".png"
@@ -314,6 +316,7 @@ class TrainManager:
         
     async def start_listeners(self):
         """Start mouse and keyboard listeners"""
+        from pynput import mouse, keyboard
         if self.listeners_running:
             logger.warning("Listeners are already running.")
             return
