@@ -2,22 +2,21 @@ import ast
 import json
 import re
 import shutil
+import asyncio
 from dotenv import load_dotenv
 from qasync import QEventLoop
+from utils.time_util import TimeUtil
+print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 
 from agent.chats.chat_service import ChatService
 from agent.chats.chats_db import ECBOT_CHAT_DB
 from bot.ebbot import EBBOT
 from bot.missions import EBMISSION
 from common.models import VehicleModel
-from utils.time_util import TimeUtil
 from gui.LocalServer import start_local_server_in_thread, stop_local_server
 from agent.mcp.local_client import local_mcp_list_tools
 from agent.mcp.config import mcp_http_base
 from agent.ec_skills.llm_utils.llm_utils import pick_llm
-
-print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
-import asyncio
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -29,11 +28,8 @@ import copy
 import math
 import sys
 import os
-import os.path
 import random
-import subprocess
 import traceback
-import webbrowser
 from _csv import reader
 from os.path import exists
 import glob
@@ -80,14 +76,9 @@ from gui.ui_settings import SettingsManager
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper as logger
-# from tests.unittests import *  # removed from production build
-# from tests.agent_tests import *  # removed from production build
-import pandas as pd
 from gui.encrypt import *
 from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
 import psutil
-# from gui.BrowserGUI import BrowserWindow
-# Unused imports removed
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
 from agent.ec_agents.create_agent_tasks import create_agent_tasks
@@ -99,8 +90,6 @@ from agent.mcp.server.server import set_server_main_win
 from agent.ec_agents.build_agents import *
 from agent.tasks import TaskRunnerRegistry
 import concurrent.futures
-# from agent.mcp.sse_manager import SSEManager
-# from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 from gui.unified_browser_manager import get_unified_browser_manager
 from auth.auth_manager import AuthManager
 
@@ -5250,6 +5239,7 @@ class MainWindow:
 
     def process_original_xlsx_file(self, file_path):
         # Read the Excel file, skipping the first two rows
+        import pandas as pd
         df = pd.read_excel(file_path, skiprows=2)
 
         # Drop rows where all elements are NaN
@@ -5268,6 +5258,8 @@ class MainWindow:
     def update_original_xlsx_file(self, file_path, mission_data):
         # Read the Excel file, skipping the first two rows
         dir_path = os.path.dirname(file_path)
+        
+        import pandas as pd
         df = pd.read_excel(file_path, skiprows=2)
 
         # Drop rows where all elements are NaN
@@ -8794,6 +8786,7 @@ class MainWindow:
 
         # Load the Excel file
         log3("working on new order xlsx file:"+file_path)
+        import pandas as pd
         df = pd.read_excel(file_path, header=2, dtype=str)  # Start reading from the 3rd row
 
         df.rename(columns=header_to_db_column, inplace=True)
@@ -9520,4 +9513,4 @@ class MainWindow:
         # print("hook result:", symTab["hook_result"])
         return runStat
 
-print("maingui loaded....................")
+print(TimeUtil.formatted_now_with_ms() + " load MainGui all finished...")
