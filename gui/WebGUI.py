@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QMessageBox, QA
 from PySide6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QPixmap
 from PySide6.QtCore import Qt
 from typing import Optional
+from utils.time_util import TimeUtil
 import sys
 import os
 from gui.ipc.api import IPCAPI
@@ -10,7 +11,7 @@ from gui.menu_manager import MenuManager
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
-from gui.core.dev_tools_manager import DevToolsManager
+
 from app_context import AppContext
 
 
@@ -55,8 +56,8 @@ class WebGUI(QMainWindow):
         if self._progress_callback:
             self._progress_callback(78, "Setting up developer tools...")
 
-        # Create developer tools manager
-        self.dev_tools_manager = DevToolsManager(self)
+        # Developer tools manager will be created on-demand
+        self.dev_tools_manager = None
 
         if self._progress_callback:
             self._progress_callback(80, "Configuring window style...")
@@ -397,19 +398,37 @@ class WebGUI(QMainWindow):
         """Set up shortcuts"""
         # Developer tools shortcut
         self.dev_tools_shortcut = QShortcut(QKeySequence("F12"), self)
-        self.dev_tools_shortcut.activated.connect(self.dev_tools_manager.toggle)
-        
+        self.dev_tools_shortcut.activated.connect(self._toggle_dev_tools)
+
         # F5 reload
         reload_action = QAction(self)
         reload_action.setShortcut(QKeySequence('F5'))
         reload_action.triggered.connect(self.reload)
         self.addAction(reload_action)
-        
+
         # Ctrl+L clear logs
         clear_logs_action = QAction(self)
         clear_logs_action.setShortcut(QKeySequence('Ctrl+L'))
-        clear_logs_action.triggered.connect(self.dev_tools_manager.clear_all)
+        clear_logs_action.triggered.connect(self._clear_dev_tools_logs)
         self.addAction(clear_logs_action)
+
+    def _ensure_dev_tools_manager(self):
+        """Create DevToolsManager instance if it doesn't exist."""
+        if self.dev_tools_manager is None:
+            logger.info(f"[{TimeUtil.formatted_now_with_ms()}] Creating DevToolsManager on demand...")
+            from gui.core.dev_tools_manager import DevToolsManager
+            self.dev_tools_manager = DevToolsManager(self)
+            logger.info(f"[{TimeUtil.formatted_now_with_ms()}] DevToolsManager created.")
+
+    def _toggle_dev_tools(self):
+        """Toggle the developer tools panel."""
+        self._ensure_dev_tools_manager()
+        self.dev_tools_manager.toggle()
+
+    def _clear_dev_tools_logs(self):
+        """Clear logs in the developer tools panel."""
+        self._ensure_dev_tools_manager()
+        self.dev_tools_manager.clear_all()
 
     def self_confirm(self):
         logger.info("self confirming top web gui....")
@@ -925,10 +944,7 @@ class WebGUI(QMainWindow):
         else:
             self.showFullScreen()
 
-    def _toggle_dev_tools(self):
-        """Toggle developer tools"""
-        if hasattr(self, 'dev_tools_manager'):
-            self.dev_tools_manager.toggle_dev_tools()
+
 
 
 
