@@ -14,8 +14,21 @@ if TYPE_CHECKING:
     from gui.LoginoutGUI import Login
 
 
+class AppContextMeta(type):
+    """AppContext 的元类，支持类级别的属性访问"""
 
-class AppContext:
+    def __getattr__(cls, name):
+        """支持 AppContext.xxx 直接访问属性"""
+        if name.startswith('_'):
+            raise AttributeError(f"'{cls.__name__}' object has no attribute '{name}'")
+
+        instance = cls.get_instance()
+        if hasattr(instance, name):
+            return getattr(instance, name)
+        return None
+
+
+class AppContext(metaclass=AppContextMeta):
     _instance = None
 
     def __new__(cls):
@@ -40,6 +53,20 @@ class AppContext:
         self.login: Optional[Login] = None  # 登录实例
         self.playwright_browsers_path: Optional[str] = None    # Playwright 浏览器路径
         # ... 其他全局对象
+
+    @classmethod
+    def get_instance(cls):
+        """获取单例实例"""
+        if not cls._instance:
+            cls._instance = cls()
+        return cls._instance
+
+    def __getattr__(self, name):
+        """实例级别的属性访问"""
+        if name.startswith('_'):
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+        # 如果属性不存在，返回 None（避免抛出异常）
+        return None
 
     def set_app(self, app: QApplication):
         self.app = app
@@ -81,4 +108,50 @@ class AppContext:
         """Set URL scheme handler"""
         self.url_scheme_handler = handler
 
-    # 你可以继续添加更多 set/get 方法 
+    # 类方法支持 - 可以直接使用 AppContext.get_xxx() 访问
+    @classmethod
+    def get_app(cls):
+        """获取 QApplication 实例"""
+        return cls.get_instance().app
+
+    @classmethod
+    def get_logger(cls):
+        """获取日志器实例"""
+        return cls.get_instance().logger
+
+    @classmethod
+    def get_config(cls):
+        """获取配置实例"""
+        return cls.get_instance().config
+
+    @classmethod
+    def get_main_window(cls):
+        """获取主窗口实例"""
+        return cls.get_instance().main_window
+
+    @classmethod
+    def get_web_gui(cls):
+        """获取 Web GUI 实例"""
+        return cls.get_instance().web_gui
+
+    @classmethod
+    def get_app_info(cls):
+        """获取应用信息实例"""
+        return cls.get_instance().app_info
+
+    @classmethod
+    def get_main_loop(cls):
+        """获取主循环实例"""
+        return cls.get_instance().main_loop
+
+    @classmethod
+    def get_login(cls):
+        """获取登录实例"""
+        return cls.get_instance().login
+
+    @classmethod
+    def get_thread_pool(cls):
+        """获取线程池实例"""
+        return cls.get_instance().thread_pool
+
+    # 你可以继续添加更多 set/get 方法

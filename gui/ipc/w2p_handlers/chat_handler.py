@@ -63,8 +63,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
     处理发送聊天消息，类型分发调用 chat_service.add_xxx_message，支持多内容类型。
     """
     try:
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service: ChatService = main_window.chat_service
         # 1. 参数提取与校验
         chat_args = extract_and_validate_chat_args(params)
@@ -95,9 +94,8 @@ def _do_push_and_echo(chatId, message):
     import uuid
     from app_context import AppContext
 
-    app_ctx = AppContext()
-    main_window: MainWindow = app_ctx.main_window
-    web_gui = app_ctx.web_gui
+    main_window: MainWindow = AppContext.main_window
+    web_gui = AppContext.web_gui
 
     def build_echo_message(main_window, message):
         """构造 echo 回显消息，自动处理角色、内容、附件等，确保所有必需字段齐全"""
@@ -269,8 +267,7 @@ def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse
         logger.debug(f"get chats handler called with request: {request}")
         userId = params.get('userId')
         deep = params.get('deep', False)
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         result = chat_service.query_chats_by_user(userId=userId, deep=deep)
         return create_success_response(request, result)
@@ -285,8 +282,7 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
     """
     logger.debug(f"create chat handler called with request: {request}")
     try:
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         # 拆分参数
         members = params['members']
@@ -329,8 +325,7 @@ def handle_get_chat_messages(request: IPCRequest, params: Optional[dict]) -> IPC
         limit = params.get('limit', 20)
         offset = params.get('offset', 0)
         reverse = params.get('reverse', False)
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         result = chat_service.query_messages_by_chat(chatId=chatId, limit=limit, offset=offset, reverse=reverse)
         return create_success_response(request, result)
@@ -345,8 +340,7 @@ def handle_delete_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
     """
     try:
         chatId = params.get('chatId')
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         result = chat_service.delete_chat(chatId=chatId)
         return create_success_response(request, result)
@@ -362,8 +356,7 @@ def handle_mark_message_as_read(request: IPCRequest, params: Optional[dict]) -> 
     try:
         messageIds = params.get('messageIds')
         userId = params.get('userId')
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         result = chat_service.mark_message_as_read(messageIds=messageIds, userId=userId)
         return create_success_response(request, result)
@@ -385,8 +378,7 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
         # 生成唯一文件名，防止冲突
         ext = os.path.splitext(name)[1]
         unique_name = f"{uuid.uuid4().hex}{ext}"
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         # 使用 main_window.temp_dir 而不是 tempfile.gettempdir()
         file_path = os.path.join(main_window.temp_dir, unique_name)
         # 确保目录存在
@@ -437,8 +429,7 @@ def handle_get_file_content(request: IPCRequest, params: Optional[dict]) -> IPCR
             file_path = file_path.replace('pyqtfile://', '')
         # 安全检查：确保文件路径在允许的目录内
         temp_dir = tempfile.gettempdir()
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         allowed_dir = main_window.temp_dir if hasattr(main_window, 'temp_dir') else temp_dir
         # 规范化路径并检查安全性
         file_path = os.path.abspath(file_path)
@@ -497,8 +488,7 @@ def handle_get_file_info(request: IPCRequest, params: Optional[dict]) -> IPCResp
             file_path = file_path.replace('pyqtfile://', '')
         # 安全检查：确保文件路径在允许的目录内
         temp_dir = tempfile.gettempdir()
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         allowed_dir = main_window.temp_dir if hasattr(main_window, 'temp_dir') else temp_dir
         # 规范化路径并检查安全性
         file_path = os.path.abspath(file_path)
@@ -561,8 +551,7 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
         if not chatId or not messageId or not formId or formData is None:
             logger.error("chat form submit invalid params")
             return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId, formId, formData 必填')
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service: ChatService = main_window.chat_service
         # 假设 chat_service 有 submit_form 方法，否则可自定义处理
         if hasattr(chat_service, 'submit_form'):
@@ -609,8 +598,7 @@ def handle_delete_message(request: IPCRequest, params: Optional[dict]) -> IPCRes
         messageId = params.get('messageId')
         if not chatId or not messageId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId 必填')
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         result = chat_service.delete_message(chatId=chatId, messageId=messageId)
         logger.debug("chat delete message  result: %s", result)
@@ -634,8 +622,7 @@ def handle_get_chat_notifications(request: IPCRequest, params: Optional[dict]) -
         if not chatId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId 必填')
             
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         result = chat_service.query_chat_notifications(
             chatId=chatId, 
@@ -657,8 +644,7 @@ def handle_clean_chat_unread(request: IPCRequest, params: Optional[dict]) -> IPC
         chatId = params.get('chatId')
         if not chatId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId 必填')
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         chat_service = main_window.chat_service
         # 假设 chat_service 有 set_chat_unread 方法，否则直接更新 chat 的 unread 字段
         if hasattr(chat_service, 'set_chat_unread'):

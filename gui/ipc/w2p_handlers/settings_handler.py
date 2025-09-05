@@ -41,8 +41,7 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get settings successful for user: {username}")
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.main_window
         settings = main_window.general_settings
         resultJS = {
             'token': token,

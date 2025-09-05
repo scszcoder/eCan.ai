@@ -26,8 +26,7 @@ def parrot(state: NodeState) -> NodeState:
     print("my twin parrot chatting...", state)
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
-    app_ctx = AppContext()
-    mainwin = app_ctx.main_window
+    mainwin = AppContext.main_window
     try:
         if human_message(state):
             # this is a human to agent chat message

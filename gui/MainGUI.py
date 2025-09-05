@@ -136,15 +136,14 @@ class AsyncInterface:
 # class MainWindow(QWidget):
 class MainWindow:
     def __init__(self, auth_manager: AuthManager, mainloop, ip, 
-                 user, homepath, gui_msg_queue, machine_role, 
-                 schedule_mode):
+                 user, homepath, machine_role, schedule_mode):
 
         self.auth_manager = auth_manager  # Reference to auth manager for state and services
         if homepath[len(homepath)-1] == "/":
             self.homepath = homepath[:len(homepath)-1]
         else:
             self.homepath = homepath
-        self.gui_net_msg_queue = gui_msg_queue
+        self.gui_net_msg_queue = asyncio.Queue()
         self.gui_rpa_msg_queue = asyncio.Queue()
         self.gui_manager_msg_queue = asyncio.Queue()
         self.virtual_cloud_task_queue = asyncio.Queue()

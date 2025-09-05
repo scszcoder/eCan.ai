@@ -742,8 +742,7 @@ class TaskRunner(Generic[Context]):
                 "status": "sent"
             }
 
-            app_ctx = AppContext()
-            mainwin = app_ctx.main_window
+            mainwin = AppContext.main_window
             mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
 
         except Exception as e:
@@ -764,8 +763,7 @@ class TaskRunner(Generic[Context]):
                 "content": {"type": "form", "form": chatData},
                 "status": "sent"
             }
-            app_ctx = AppContext()
-            mainwin = app_ctx.main_window
+            mainwin = AppContext.main_window
             mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
@@ -785,8 +783,7 @@ class TaskRunner(Generic[Context]):
                 "content": {"type": "notification", "notification": chatData},
                 "status": "sent"
             }
-            app_ctx = AppContext()
-            mainwin = app_ctx.main_window
+            mainwin = AppContext.main_window
             mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
