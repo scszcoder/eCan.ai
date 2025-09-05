@@ -1542,7 +1542,7 @@ def build_agent_mcp_tools_schemas():
                             "items": {"type": "object"}
                         },
                         "parametric_filters": {
-                            "type": "object",
+                            "type": "array",
                             "description": "parametric filters to be used in search.",
                         },
                         "fom_form": {

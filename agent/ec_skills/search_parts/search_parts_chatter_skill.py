@@ -710,6 +710,8 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     state["tool_input"]["parametric_filters"] = parametric_filters
     state["tool_input"]["fom_form"] = {}            # this will force the tool to use default fom
     state["tool_input"]["max_n_results"] = 8
+
+    logger.debug(f"tool input::{state['tool_input']}")
     async def run_tool_call():
         return await mcp_call_tool("api_ecan_local_search_components", {"input": state["tool_input"]})
 
@@ -805,7 +807,7 @@ async def create_search_parts_chatter_skill(mainwin):
 
         workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0", THIS_SKILL_NAME, OWNER))
 
-        workflow.set_entry_point("query_component_specs")
+        # workflow.set_entry_point("query_component_specs")
         workflow.add_node("query_component_specs", query_component_specs_node)
 
         workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "pend_for_next_human_msg0"])
@@ -835,9 +837,9 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_conditional_edges("confirm_FOM", is_FOM_filled, ["run_search", "pend_for_next_human_msg2"])
         workflow.add_edge("pend_for_next_human_msg2", "confirm_FOM")
 
-
         workflow.add_node("run_search", run_local_search_node)
         workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
+        workflow.set_entry_point("run_search")
 
         workflow.add_node("show_results", show_results_node)
         # workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])

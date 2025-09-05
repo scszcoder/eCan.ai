@@ -8,6 +8,7 @@ def selenium_search_component(webdriver, pf, site_urls):
         all_results = []
         for site_url in site_urls:
             if "digikey" in site_url:
+                logger.debug("searching digikey")
                 results = digi_key_selenium_search_component(webdriver, pf, site_url)
                 all_results.extend(results)
     except Exception as e:
