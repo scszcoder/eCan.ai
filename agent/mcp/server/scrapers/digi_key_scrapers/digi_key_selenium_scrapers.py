@@ -601,13 +601,16 @@ def extract_search_results_table(driver):
 
 def digi_key_selenium_search_component(driver, pfs, site_url):
     try:
+        logger.debug("digi_key_selenium_search_component... accessing driver")
         selenium_wait_for_page_load(driver)
-
+        logger.debug(f"applying pfs: {pfs}")
         selenium_apply_parametric_filters(webdriver, pfs)
 
+        logger.debug(f"waiting for search results to show up completely......")
         selenium_wait_for_results_container(driver)
-
+        logger.debug(f"extracting search results......")
         results = selenium_extract_search_results(webdriver)
+        logger.debug(f"search results collected......{results}")
 
     except Exception as e:
         err_msg = get_traceback(e, "ErrorDigikeySeleniumSearchComponent")
