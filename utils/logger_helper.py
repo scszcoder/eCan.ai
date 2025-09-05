@@ -7,7 +7,6 @@ from logging.handlers import RotatingFileHandler
 import os
 import sys
 import io
-from app_context import AppContext
 from config.constants import APP_NAME
 from config.app_info import app_info
 import traceback
