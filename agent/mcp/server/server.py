@@ -39,7 +39,8 @@ from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
 from agent.ec_skill import *
 from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from .event_store import InMemoryEventStore
 from collections import defaultdict
 from agent.ec_skills.dom.dom_utils import *
@@ -522,7 +523,7 @@ async def in_browser_send_keys(mainwin, args):
         crawler = mainwin.getWebCrawler()
         if not crawler:
             web_driver = mainwin.getWebDriver()
-            browser_context = login.main_win.getBrowserContextById(args["context_id"])
+            browser_context = AppContext.main_window.getBrowserContextById(args["context_id"])
             browser = browser_context.browser
             page = await browser.get_current_page()
 

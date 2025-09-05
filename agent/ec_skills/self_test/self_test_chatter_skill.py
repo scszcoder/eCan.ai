@@ -28,8 +28,9 @@ from agent.chats.chat_utils import a2a_send_chat
 from agent.ec_skills.file_utils.file_utils import extract_file_text
 from bot.Logger import *
 from agent.ec_skill import *
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
+from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
 from agent.chats.tests.test_notifications import sample_metrics_0
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts

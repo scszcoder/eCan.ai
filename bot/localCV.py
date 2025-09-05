@@ -9,8 +9,9 @@ from textUtils import CLICKABLE, BLOCK, PARAGRAPH, LINE, WORD
 from concurrent.futures import ProcessPoolExecutor
 import json
 import numpy as np
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
+from agent.agent_service import get_agent_by_id
 
 
 class PythonObjectEncoder(json.JSONEncoder):

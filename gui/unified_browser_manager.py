@@ -12,14 +12,14 @@ import asyncio
 from threading import Lock
 
 from agent.playwright import get_playwright_manager
-from crawl4ai import BrowserConfig
 from browser_use.browser import BrowserSession
 from browser_use.controller.service import Controller as BrowserUseController
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.agent.service import Agent
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+from agent.agent_service import get_agent_by_id
 
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler

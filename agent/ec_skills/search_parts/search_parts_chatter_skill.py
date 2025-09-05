@@ -31,7 +31,8 @@ from agent.ec_skills.file_utils.file_utils import extract_file_text
 from bot.Logger import *
 from agent.ec_skill import *
 from agent.ec_skills.llm_hooks.llm_hooks import run_pre_llm_hook, run_post_llm_hook
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from utils.logger_helper import logger_helper as logger
 from agent.mcp.local_client import mcp_call_tool
 from agent.chats.tests.test_notifications import sample_metrics_0

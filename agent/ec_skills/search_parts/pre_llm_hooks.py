@@ -1,6 +1,7 @@
 from agent.ec_skill import  *
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.ec_skills.llm_utils.llm_utils import *
 
 # try to set up prompts right, with the right parameters

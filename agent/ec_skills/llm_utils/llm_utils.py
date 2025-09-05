@@ -3,7 +3,8 @@ import re
 from selenium.webdriver.support.expected_conditions import element_selection_state_to_be
 
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.ec_skill import *
 import json
 import base64
