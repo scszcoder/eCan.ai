@@ -27,6 +27,10 @@ class ThemedSplashScreen(QWidget):
     """
 
     def __init__(self):
+        # Initialize state variables first, before any other operations
+        self._is_deleted = False
+        self._center_timers = []  # Track centering timers for cleanup
+        
         # Use additional window flags for better Windows compatibility
         window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         super().__init__(None, window_flags)
@@ -200,43 +204,58 @@ class ThemedSplashScreen(QWidget):
 
     def _center_on_screen(self):
         """Center the splash screen on the primary screen with Windows-specific handling"""
-        screen = QApplication.primaryScreen()
-        if not screen:
+        # Check if object is still valid
+        if self._is_deleted or not hasattr(self, '_is_deleted'):
             return
-        
-        # Get screen geometry
-        sg = screen.availableGeometry()
-        
-        # Calculate center position
-        x = sg.center().x() - self.width() // 2
-        y = sg.center().y() - self.height() // 2
-        
-        # Ensure position is within screen bounds
-        x = max(sg.left(), min(x, sg.right() - self.width()))
-        y = max(sg.top(), min(y, sg.bottom() - self.height()))
-        
-        # Move the window
-        self.move(x, y)
-        
-        # Force update and ensure window is properly positioned
-        self.update()
-        QApplication.processEvents()
-        
-        # Windows-specific fix: ensure window stays centered
-        if sys.platform == 'win32':
-            self._windows_center_fix()
+            
+        try:
+            screen = QApplication.primaryScreen()
+            if not screen:
+                return
+            
+            # Get screen geometry
+            sg = screen.availableGeometry()
+            
+            # Calculate center position
+            x = sg.center().x() - self.width() // 2
+            y = sg.center().y() - self.height() // 2
+            
+            # Ensure position is within screen bounds
+            x = max(sg.left(), min(x, sg.right() - self.width()))
+            y = max(sg.top(), min(y, sg.bottom() - self.height()))
+            
+            # Move the window
+            self.move(x, y)
+            
+            # Force update and ensure window is properly positioned
+            self.update()
+            QApplication.processEvents()
+            
+            # Windows-specific fix: ensure window stays centered
+            if sys.platform == 'win32':
+                self._windows_center_fix()
+        except RuntimeError as e:
+            if "already deleted" in str(e):
+                self._is_deleted = True
+                return
+            raise
 
     def showEvent(self, event):
         """Override showEvent to ensure the window is always centered when shown"""
         super().showEvent(event)
         # Re-center the window after it's shown to ensure it's always in the center
         # Use multiple attempts to ensure proper centering on Windows
-        QTimer.singleShot(0, self._center_on_screen)
-        QTimer.singleShot(50, self._center_on_screen)  # Additional centering attempt
-        QTimer.singleShot(100, self._center_on_screen)  # Final centering attempt
+        if not self._is_deleted:
+            timer1 = QTimer.singleShot(0, self._center_on_screen)
+            timer2 = QTimer.singleShot(50, self._center_on_screen)  # Additional centering attempt
+            timer3 = QTimer.singleShot(100, self._center_on_screen)  # Final centering attempt
+            self._center_timers.extend([timer1, timer2, timer3])
 
     def _windows_center_fix(self):
         """Windows-specific fix to prevent splash screen from moving to top-left corner"""
+        if self._is_deleted:
+            return
+            
         try:
             # Force the window to stay in the center by re-applying window flags
             current_flags = self.windowFlags()
@@ -244,21 +263,36 @@ class ThemedSplashScreen(QWidget):
             self.show()
             
             # Re-center after showing
-            QTimer.singleShot(10, self._center_on_screen)
+            if not self._is_deleted:
+                timer = QTimer.singleShot(10, self._center_on_screen)
+                self._center_timers.append(timer)
         except Exception:
             pass
 
     def eventFilter(self, obj, event):
         """Event filter to handle Windows-specific window positioning issues"""
-        if sys.platform == 'win32' and obj == self:
-            if event.type() == QEvent.Move:
-                # If window is moved to top-left corner, re-center it
-                pos = self.pos()
-                if pos.x() < 50 and pos.y() < 50:  # Near top-left corner
-                    QTimer.singleShot(10, self._center_on_screen)
-            elif event.type() == QEvent.WindowStateChange:
-                # Re-center when window state changes
-                QTimer.singleShot(10, self._center_on_screen)
+        try:
+            # Check if we have the required attributes and object is valid
+            if (sys.platform == 'win32' and 
+                obj == self and 
+                hasattr(self, '_is_deleted') and 
+                not self._is_deleted):
+                
+                if event.type() == QEvent.Move:
+                    # If window is moved to top-left corner, re-center it
+                    pos = self.pos()
+                    if pos.x() < 50 and pos.y() < 50:  # Near top-left corner
+                        timer = QTimer.singleShot(10, self._center_on_screen)
+                        if hasattr(self, '_center_timers'):
+                            self._center_timers.append(timer)
+                elif event.type() == QEvent.WindowStateChange:
+                    # Re-center when window state changes
+                    timer = QTimer.singleShot(10, self._center_on_screen)
+                    if hasattr(self, '_center_timers'):
+                        self._center_timers.append(timer)
+        except Exception:
+            # If any error occurs, just pass through to parent
+            pass
         return super().eventFilter(obj, event)
 
     def _load_logo_pixmap(self):
@@ -438,8 +472,20 @@ class ThemedSplashScreen(QWidget):
     def _finalize_delete(self):
         try:
             self._progress_value = 100
+            self._is_deleted = True
+            # Clear all centering timers
+            self._clear_center_timers()
             # By now python thread should be finished via _on_py_finished
             self.deleteLater()
+        except Exception:
+            pass
+
+    def _clear_center_timers(self):
+        """Clear all centering timers to prevent memory leaks"""
+        try:
+            # Note: QTimer.singleShot returns None, so we can't actually stop them
+            # But we can clear our tracking list
+            self._center_timers.clear()
         except Exception:
             pass
 
@@ -468,6 +514,8 @@ class ThemedSplashScreen(QWidget):
 
     def closeEvent(self, event):
         try:
+            self._is_deleted = True
+            self._clear_center_timers()
             self._ensure_thread_stopped()
         except Exception:
             pass
@@ -475,6 +523,8 @@ class ThemedSplashScreen(QWidget):
 
     def __del__(self):
         try:
+            self._is_deleted = True
+            self._clear_center_timers()
             self._ensure_thread_stopped()
         except Exception:
             pass
@@ -641,9 +691,10 @@ def init_startup_splash():
         app.processEvents()
         
         # Additional Windows-specific centering
-        if sys.platform == 'win32':
-            QTimer.singleShot(200, splash._center_on_screen)
-            QTimer.singleShot(500, splash._center_on_screen)
+        if sys.platform == 'win32' and not splash._is_deleted:
+            timer1 = QTimer.singleShot(200, splash._center_on_screen)
+            timer2 = QTimer.singleShot(500, splash._center_on_screen)
+            splash._center_timers.extend([timer1, timer2])
         
         return splash
     except Exception:
