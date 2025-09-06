@@ -5,6 +5,8 @@ import traceback
 import asyncio
 import keyring
 import json
+import os
+import base64
 from os.path import exists
 
 from bot.envi import getECBotDataHome
@@ -304,33 +306,127 @@ class AuthManager:
         return "ecan_refresh"
 
     def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
+        """Store refresh token with fallback to file-based storage if keyring fails."""
+        # First, validate the refresh token
+        if not refresh_token or len(refresh_token.strip()) == 0:
+            logger.error("Cannot store empty refresh token")
+            return False
+            
+        # Check token size - Windows Credential Manager has limitations
+        if len(refresh_token) > 2560:  # Windows Credential Manager limit
+            logger.warning(f"Refresh token too large ({len(refresh_token)} chars), using file fallback")
+            return self._store_refresh_token_file(username, refresh_token)
+            
         try:
+            # Try to store in keyring first
             keyring.set_password(self._refresh_service(), username, refresh_token)
-            logger.info("store refresh token succesed")
+            logger.info("Refresh token stored successfully in keyring")
             return True
         except Exception as e:
-            logger.error(f"Failed to store refresh token: {e}")
-            return False
+            logger.warning(f"Failed to store refresh token in keyring: {e}")
+            logger.info("Falling back to file-based storage")
+            return self._store_refresh_token_file(username, refresh_token)
 
     def _get_refresh_token(self, username: str) -> tuple[bool, str]:
+        """Get refresh token from keyring or file fallback."""
         try:
+            # Try keyring first
             token = keyring.get_password(self._refresh_service(), username)
-            if token is None:
-                return False, "No refresh token found"
-            return True, token
+            if token is not None and len(token.strip()) > 0:
+                return True, token
         except Exception as e:
-            return False, str(e)
+            logger.debug(f"Failed to get refresh token from keyring: {e}")
+            
+        # Try file fallback
+        return self._get_refresh_token_file(username)
 
     def _delete_refresh_token(self, username: str) -> bool:
+        """Delete refresh token from both keyring and file storage."""
+        success = True
+        
+        # Delete from keyring
         try:
             # Some keyring backends may not implement delete_password; fallback to overwrite empty
             try:
                 keyring.delete_password(self._refresh_service(), username)  # type: ignore[attr-defined]
             except Exception:
                 keyring.set_password(self._refresh_service(), username, "")
+        except Exception as e:
+            logger.warning(f"Failed to delete refresh token from keyring: {e}")
+            success = False
+            
+        # Delete from file storage
+        try:
+            self._delete_refresh_token_file(username)
+        except Exception as e:
+            logger.warning(f"Failed to delete refresh token from file: {e}")
+            success = False
+            
+        return success
+
+    def _get_refresh_token_file_path(self, username: str) -> str:
+        """Get the file path for storing refresh token."""
+        # Create a safe filename from username
+        safe_username = base64.b64encode(username.encode('utf-8')).decode('ascii')
+        return os.path.join(self.ecb_data_homepath, f".rt_{safe_username}")
+
+    def _store_refresh_token_file(self, username: str, refresh_token: str) -> bool:
+        """Store refresh token in an encrypted file as fallback."""
+        try:
+            file_path = self._get_refresh_token_file_path(username)
+            
+            # Simple base64 encoding for basic obfuscation
+            encoded_token = base64.b64encode(refresh_token.encode('utf-8')).decode('ascii')
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
+            with open(file_path, 'w') as f:
+                f.write(encoded_token)
+            
+            # Set restrictive permissions (Windows)
+            try:
+                os.chmod(file_path, 0o600)
+            except Exception:
+                pass  # Permissions may not be supported on all systems
+                
+            logger.info("Refresh token stored successfully in file")
             return True
         except Exception as e:
-            logger.warning(f"Failed to delete refresh token: {e}")
+            logger.error(f"Failed to store refresh token in file: {e}")
+            return False
+
+    def _get_refresh_token_file(self, username: str) -> tuple[bool, str]:
+        """Get refresh token from file storage."""
+        try:
+            file_path = self._get_refresh_token_file_path(username)
+            
+            if not os.path.exists(file_path):
+                return False, "No refresh token file found"
+                
+            with open(file_path, 'r') as f:
+                encoded_token = f.read().strip()
+                
+            if not encoded_token:
+                return False, "Empty refresh token file"
+                
+            # Decode the token
+            refresh_token = base64.b64decode(encoded_token.encode('ascii')).decode('utf-8')
+            return True, refresh_token
+        except Exception as e:
+            logger.debug(f"Failed to get refresh token from file: {e}")
+            return False, str(e)
+
+    def _delete_refresh_token_file(self, username: str) -> bool:
+        """Delete refresh token file."""
+        try:
+            file_path = self._get_refresh_token_file_path(username)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.debug("Refresh token file deleted")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to delete refresh token file: {e}")
             return False
 
     def _set_saved_username(self, username: str) -> None:
