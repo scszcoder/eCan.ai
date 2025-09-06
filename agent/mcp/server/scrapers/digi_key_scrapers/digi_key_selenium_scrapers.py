@@ -1,10 +1,715 @@
-import re
-import traceback
-from selenium.webdriver.common.by import By
+import re, json, time, random, unicodedata, traceback
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException, WebDriverException
 from agent.agent_service import get_agent_by_id
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from typing import Any, Dict, Tuple, Union, Optional, List, Iterable, Callable
+from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.common.keys import Keys
+from contextlib import contextmanager
+from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+
+caps = DesiredCapabilities.CHROME.copy()
+caps["goog:loggingPrefs"] = {"performance": "ALL"}  # enable Network.* in get_log('performance')
+
+
+PX_STATE = ("PX_NONE", "PX_PRESENT", "PX_SILENT", "PX_CHALLENGE_SHOWN", "PX_BLOCK_PAGE")
+
+Locator = Tuple[str, str]
+_ITEMS_TRAIL = re.compile(r"\s*\d[\d,]*\s*Items\s*$", re.I)
+
+
+class PXGuardTrip(RuntimeError):
+    def __init__(self, msg, details=None):
+        super().__init__(msg)
+        self.details = details or {}
+
+def _try_js(driver, script, args=None, default=None):
+    try:
+        return driver.execute_script(script, *(args or []))
+    except Exception:
+        return default
+
+def _label_of(a):
+    """Visible label of the anchor without the trailing '#### Items' text."""
+    return _ITEMS_TRAIL.sub("", (a.text or "").strip())
+
+def _try_js(driver, script, args=None, default=None):
+    try:
+        return driver.execute_script(script, *(args or []))
+    except Exception:
+        return default
+
+def _has_px_dom(driver) -> Dict[str, Any]:
+    # Quick DOM probes (fast; avoid full page_source when possible)
+    challenge_node = _try_js(
+        driver,
+        "return document.querySelector('#px-captcha-wrapper, iframe[title*=\"Human verification\" i]) || null;"
+    )
+    block_title = (_try_js(driver, "return document.title || '';", default="") or "").strip()
+    meta_desc = _try_js(driver, "let m=document.querySelector('meta[name=description]'); return m?m.content:'';", default="") or ""
+    # Digi-Key block page fingerprints you pasted
+    digikey_logo = _try_js(driver, "return !!document.querySelector('img.px-captcha-logo[src*=\"mobile-robot-2.png\"]');", default=False)
+    human_css = _try_js(driver, "return !!document.querySelector('link[href*=\"humanSecurity\"]');", default=False)
+    header_text = _try_js(driver, "let el=document.querySelector('.px-captcha-header'); return el?el.textContent.trim():'';", default="") or ""
+    app_id = _try_js(driver, "return window._pxAppId || window._pxAppId2 || null;", default=None)
+
+    return {
+        "challenge_dom": bool(challenge_node),
+        "block_title": block_title,
+        "meta_desc": meta_desc,
+        "has_human_css": bool(human_css),
+        "has_digikey_block_logo": bool(digikey_logo),
+        "captcha_header_text": header_text,
+        "app_id": app_id,
+    }
+
+def _px_cookies(driver) -> List[str]:
+    names = []
+    try:
+        for c in driver.get_cookies():
+            n = c.get("name") or ""
+            if n.startswith("_px"):
+                names.append(n)
+    except Exception:
+        pass
+    return names
+
+def _px_net_in_logs(driver) -> Dict[str, Any]:
+    """
+    Optional: requires Chrome perf logging enabled.
+    Look for calls to first-party /lO2Z... endpoints or px-cloud.
+    """
+    hits, blocks = 0, 0
+    urls = []
+    try:
+        logs = driver.get_log("performance")  # needs caps set at driver init
+        for row in logs:
+            try:
+                msg = json.loads(row.get("message", "{}")).get("message", {})
+            except Exception:
+                continue
+            if msg.get("method") not in ("Network.requestWillBeSent", "Network.responseReceived"):
+                continue
+            params = msg.get("params", {})
+            url = (params.get("request", {}) or {}).get("url") or params.get("response", {}).get("url") or ""
+            if not url:
+                continue
+            if any(k in url for k in ("/captcha", "/xhr", "px-cloud.net", "/lO2Z")):
+                urls.append(url)
+                if msg.get("method") == "Network.responseReceived":
+                    status = (params.get("response", {}) or {}).get("status", 0)
+                    if status in (403, 429):
+                        blocks += 1
+                hits += 1
+    except Exception:
+        pass
+    return {"requests": hits, "blocklike": blocks, "sample_urls": urls[-5:]}
+
+def detect_px_state(driver) -> Dict[str, Any]:
+    """
+    Classify current PerimeterX/Human Security state on the page.
+    Returns { state, evidence:{...} }
+    """
+    dom = _has_px_dom(driver)
+    cookies = _px_cookies(driver)
+    net = _px_net_in_logs(driver)
+
+    # Determine state
+    title = dom["block_title"]
+    if (
+        "access to this page has been denied" in title.casefold()
+        or "px-captcha" in (dom["meta_desc"] or "").casefold()
+        or dom["has_human_css"]
+        or dom["has_digikey_block_logo"]
+        or "big fans of robots" in (dom["captcha_header_text"] or "").casefold()
+    ):
+        state = "PX_BLOCK_PAGE"
+    elif dom["challenge_dom"]:
+        state = "PX_CHALLENGE_SHOWN"
+    elif dom["app_id"] or cookies:
+        # Library present; if we also see network calls to px endpoints, mark "silent"
+        state = "PX_SILENT" if net["requests"] > 0 else "PX_PRESENT"
+    else:
+        state = "PX_NONE"
+
+    return {
+        "state": state,
+        "evidence": {
+            "title": title,
+            "meta_desc": dom["meta_desc"],
+            "app_id": dom["app_id"],
+            "cookies": cookies,
+            "net": net,
+        },
+    }
+
+def _after_any_action_px_guard(driver, *, tag: str = "", settle_ms: int = 250) -> dict:
+    """
+    Post-action guard:
+      - allow a short settle so overlays/redirects can render
+      - inspect PX state; on challenge/block -> raise PXGuardTrip
+    """
+    if settle_ms > 0:
+        time.sleep(settle_ms / 1000.0)
+
+    px = detect_px_state(driver)  # your richer state machine
+    state = px["state"]
+
+    if state in ("PX_CHALLENGE_SHOWN", "PX_BLOCK_PAGE"):
+        raise PXGuardTrip(
+            f"PX guard tripped after action '{tag}': {state}",
+            details=px
+        )
+    return px
+
+# tiny helper
+def slug(s: str) -> str:
+    return "".join(c.lower() if c.isalnum() else "-" for c in s).strip("-")
+
+
+def detect_px_block(driver: WebDriver) -> Dict[str, Any]:
+    """
+    Detects PerimeterX/Human Security 'Access to this page has been denied' pages.
+    Returns a dict with detection details.
+
+    Example return:
+    {
+        "blocked": True,
+        "provider": "PerimeterX / Human Security",
+        "signals": ["access-denied-title", "#px-captcha-wrapper present", "pxns script"],
+        "reference_id": "d77fbfd0-8a91-11f0-bc45-af3974abeccf",
+        "app_id": "PXlO2Z493J",
+    }
+    """
+    signals: list[str] = []
+    app_id = None
+    ref_id = None
+
+    # Grab page source early (works even if some JS fails)
+    try:
+        html = driver.page_source or ""
+    except Exception:
+        html = ""
+
+    logger.debug(f"got page html: {html}")
+    # 1) Title / text cues
+    try:
+        title = (driver.title or "").strip()
+    except Exception:
+        title = ""
+
+    if "Access to this page has been denied" in title or "Access to this page has been denied" in html:
+        signals.append("access-denied-title")
+
+    if 'meta name="description" content="px-captcha"' in html or "px-captcha" in html:
+        signals.append("meta-px-captcha")
+
+    # 2) DOM markers specific to this challenge
+    if re.search(r'id=["\']px-captcha-wrapper["\']', html):
+        signals.append("#px-captcha-wrapper present")
+
+    if re.search(r'<iframe[^>]+title=["\']Human verification challenge["\']', html, re.I):
+        signals.append("captcha-iframe")
+
+    if re.search(r'humanSecurity2\.css', html):
+        signals.append("humanSecurity2.css")
+
+    # 3) Known script URLs
+    if re.search(r'/pxns/(?:d\.js|c\.\d+\.js)', html):
+        signals.append("pxns script")
+
+    if re.search(r'captcha\.px-cloud\.net|/captcha\.js\?a=c', html):
+        signals.append("captcha script")
+
+    logger.debug(f"signals found: {signals}")
+    # 4) PerimeterX globals in window (if accessible)
+    try:
+        px = driver.execute_script(
+            "return {appId: window._pxAppId || null, uuid: window._pxUuid || null, vid: window._pxVid || null};"
+        ) or {}
+        logger.debug(f"px: {px}")
+        if px.get("appId"):
+            app_id = px.get("appId")
+            signals.append(f"_pxAppId={app_id}")
+        if px.get("uuid"):
+            ref_id = px.get("uuid")
+    except Exception:
+        pass
+    logger.debug(f"ref_id: {ref_id}")
+    # 5) Extract Reference ID from HTML fallback
+    if not ref_id:
+        m = re.search(r'Reference ID\s+([a-f0-9-]{20,})', html, re.I)
+        if m:
+            ref_id = m.group(1)
+
+    logger.debug(f"final signals: {ref_id} {signals}")
+    blocked = bool(signals)
+    if blocked:
+        driver.save_screenshot("digikey_blocked.png")
+
+    return {
+        "blocked": blocked,
+        "provider": "PerimeterX / Human Security" if blocked else None,
+        "signals": signals,
+        "reference_id": ref_id,
+        "app_id": app_id,
+    }
+
+
+class PXBlockDetected(RuntimeError):
+    def __init__(self, info: dict):
+        super().__init__(f"PerimeterX/HumanSecurity block detected: {info}")
+        self.info = info
+
+def _screenshot(driver, prefix="blocked", folder="snapshots"):
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    path = Path(folder) / f"{prefix}-{int(time.time())}.png"
+    try:
+        driver.save_screenshot(str(path))
+    except Exception:
+        pass
+    return path
+
+def assert_not_blocked(driver):
+    info = detect_px_block(driver)  # <-- your function
+    if info.get("blocked"):
+        shot = _screenshot(driver)
+        logger.error("PX blocked; ref=%s app=%s shot=%s signals=%s",
+                     info.get("reference_id"), info.get("app_id"), shot, info.get("signals"))
+        raise PXBlockDetected(info)
+
+@contextmanager
+def step(driver, name: str, *, settle_ms: int = 250, screenshot_cb=None):
+    """
+    Wrap any interaction in `with step(driver, "desc"):` so we always run the PX post-action guard.
+    On exceptions, we still run the guard to decide whether PX caused the failure.
+    """
+    try:
+        yield
+        # Normal success → check if PX popped right after the action
+        _after_any_action_px_guard(driver, tag=name, settle_ms=settle_ms)
+
+    except TimeoutException:
+        # A wait failed. Was it actually PX showing up?
+        try:
+            _after_any_action_px_guard(driver, tag=f"{name} [after Timeout]", settle_ms=0)
+        except PXGuardTrip as px:
+            if screenshot_cb:
+                screenshot_cb(f"px-trip__timeout__{name}")
+            raise
+        raise  # not PX-related, bubble up the original timeout
+
+    except (ElementClickInterceptedException, WebDriverException):
+        # Click got intercepted / generic Selenium err → check PX first
+        try:
+            _after_any_action_px_guard(driver, tag=f"{name} [after Selenium error]", settle_ms=0)
+        except PXGuardTrip:
+            if screenshot_cb:
+                screenshot_cb(f"px-trip__selenium__{name}")
+            raise
+        raise  # not PX, re-raise
+
+    except Exception:
+        # Any other error → still see if PX just landed
+        try:
+            _after_any_action_px_guard(driver, tag=f"{name} [after Exception]", settle_ms=0)
+        except PXGuardTrip:
+            if screenshot_cb:
+                screenshot_cb(f"px-trip__exception__{name}")
+            raise
+        raise
+
+# ---- Convenience wrappers for common actions ----
+def safe_get(driver, url: str, *, settle_ms: int = 250):
+    with step(driver, f"GET {url}", settle_ms=settle_ms):
+        driver.get(url)
+
+def safe_click(driver, el: WebElement, desc: str = "click", *, settle_ms: int = 250):
+    with step(driver, desc, settle_ms=settle_ms):
+        el.click()
+
+def _px_tick(driver, tag: str, *, settle_ms: int = 0):
+    """Lightweight mid-action PX check (optional)."""
+    _after_any_action_px_guard(driver, tag=tag, settle_ms=settle_ms)
+
+def safe_send_keys(driver,
+                   webelement: WebElement,
+                   keys,
+                   desc: str = "type",
+                   *,
+                   settle_ms: int = 200,
+                   guard_mid: bool = False):
+    with step(driver, desc, settle_ms=settle_ms):
+        webelement.send_keys(keys)
+        if guard_mid:
+            _px_tick(driver, f"{desc} [after send_keys]")
+
+def _resolve_element(driver,
+                     target: Union[WebElement, Locator],
+                     timeout: int = 10,
+                     clickable: bool = False) -> WebElement:
+    """Accepts a WebElement or a (By, locator) tuple and returns a visible element."""
+    if isinstance(target, tuple):
+        cond = EC.element_to_be_clickable(target) if clickable else EC.visibility_of_element_located(target)
+        return WebDriverWait(driver, timeout).until(cond)
+    return target
+
+def safe_scroll(driver,
+                to: str = "element",
+                element: Optional[Union[WebElement, Locator]] = None,
+                by: Optional[int] = None,
+                block: str = "center",
+                behavior: str = "smooth",
+                desc: str = "scroll",
+                *,
+                settle_ms: int = 150,
+                guard_mid: bool = False):
+    """
+    Scroll safely:
+      - to="element" with element=...
+      - to="top"/"bottom"
+      - or by=<pixels> (positive=down, negative=up)
+    """
+    with step(driver, desc, settle_ms=settle_ms):
+        # Helper to perform incremental scrolls for smooth visual motion
+        def _smooth_scroll_by(total_dy: float, steps: int = 20, delay: float = 0.03):
+            if steps < 1:
+                steps = 1
+            step_dy = total_dy / float(steps)
+            for _ in range(steps):
+                driver.execute_script("window.scrollBy(0, arguments[0]);", step_dy)
+                # allow layout to settle a frame
+                driver.execute_script("return window.requestAnimationFrame(() => {});")
+                time.sleep(delay)
+
+        # Smooth scrolling logic for different targets
+        if by is not None:
+            # Scroll by a specific offset in small increments
+            total = int(by)
+            steps = max(10, min(60, abs(total) // 100))  # more steps for larger distances
+            _smooth_scroll_by(total, steps=steps, delay=0.02)
+
+        elif to == "top":
+            current_y = driver.execute_script("return window.pageYOffset || document.documentElement.scrollTop || 0;") or 0
+            total = -float(current_y)
+            steps = max(20, min(80, int(abs(total) // 150)))
+            _smooth_scroll_by(total, steps=steps, delay=0.02)
+
+        elif to == "bottom":
+            current_y = driver.execute_script("return window.pageYOffset || document.documentElement.scrollTop || 0;") or 0
+            max_y = driver.execute_script(
+                "return Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;") or 0
+            total = float(max_y) - float(current_y)
+            steps = max(20, min(100, int(abs(total) // 150)))
+            _smooth_scroll_by(total, steps=steps, delay=0.02)
+
+        else:
+            # Scroll to the element's Y position smoothly
+            el = _resolve_element(driver, element or (By.TAG_NAME, "body"), timeout=10)
+            # Compute absolute Y we want to land at
+            target_top = driver.execute_script("return arguments[0].getBoundingClientRect().top;", el)
+            viewport_y = driver.execute_script("return window.pageYOffset || document.documentElement.scrollTop || 0;") or 0
+            inner_h = driver.execute_script("return window.innerHeight;") or 0
+
+            if block == "start":
+                target_y = viewport_y + float(target_top)
+            elif block == "end":
+                target_y = viewport_y + float(target_top) - (inner_h - 1)
+            else:  # center
+                target_y = viewport_y + float(target_top) - (inner_h / 2.0)
+
+            current_y = viewport_y
+            total = float(target_y) - float(current_y)
+            steps = max(20, min(80, int(abs(total) // 120)))
+            _smooth_scroll_by(total, steps=steps, delay=0.02)
+
+        # Final settle
+        driver.execute_script("return window.requestAnimationFrame(() => {});")
+        time.sleep(0.05)
+        if guard_mid:
+            _px_tick(driver, f"{desc} [after scroll]")
+
+def safe_input_text(driver,
+                    target: Union[WebElement, Locator],
+                    text: str,
+                    *,
+                    click_first: bool = True,
+                    clear: str = "auto",   # "auto" | "keys" | "js" | "none"
+                    method: str = "send_keys",  # "send_keys" | "js"
+                    per_char_delay: Optional[Tuple[float, float]] = None,  # (min,max) seconds
+                    desc: str = "type text",
+                    settle_ms: int = 250,
+                    guard_mid: bool = True) -> WebElement:
+    """
+    Types into inputs/contentEditable robustly.
+    - clear="auto": try .clear(), fall back to Ctrl+A+Del, then JS if needed.
+    - method="send_keys": normal typing (optionally human-like with per_char_delay).
+    - method="js": set value via JS + dispatch input/change events.
+    """
+    with step(driver, desc, settle_ms=settle_ms):
+        el = _resolve_element(driver, target, timeout=10, clickable=True)
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+
+        if click_first:
+            try:
+                el.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", el)
+            if guard_mid:
+                _px_tick(driver, f"{desc} [after click]")
+
+        # Clear
+        if clear != "none":
+            cleared = False
+            if clear in ("auto", "keys"):
+                try:
+                    el.clear()
+                    cleared = True
+                except Exception:
+                    pass
+                if not cleared:
+                    try:
+                        el.send_keys(Keys.CONTROL + "a", Keys.DELETE)
+                        cleared = True
+                    except Exception:
+                        pass
+            if not cleared and clear in ("auto", "js"):
+                try:
+                    driver.execute_script("""
+                        const el = arguments[0];
+                        if ('value' in el) el.value = '';
+                        if (el.isContentEditable) el.innerHTML = '';
+                        el.dispatchEvent(new Event('input', {bubbles: true}));
+                        el.dispatchEvent(new Event('change', {bubbles: true}));
+                    """, el)
+                except Exception:
+                    pass
+
+        # Input text
+        if method == "js":
+            driver.execute_script("""
+                const el = arguments[0], val = arguments[1];
+                if ('value' in el) el.value = val;
+                else if (el.isContentEditable) el.textContent = val;
+                el.dispatchEvent(new Event('input', {bubbles: true}));
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+            """, el, text)
+        else:
+            if per_char_delay:
+                lo, hi = per_char_delay
+                for ch in text:
+                    el.send_keys(ch)
+                    time.sleep(random.uniform(lo, hi))
+            else:
+                el.send_keys(text)
+
+        if guard_mid:
+            _px_tick(driver, f"{desc} [after input]")
+        return el  # chaining
+
+def safe_inject_js(driver,
+                   *,
+                   src: Optional[str] = None,
+                   inline: Optional[str] = None,
+                   script_id: Optional[str] = None,
+                   module: bool = False,
+                   timeout: int = 10,
+                   desc: str = "inject js",
+                   settle_ms: int = 0,
+                   guard_mid: bool = True):
+    """
+    Inject external script (src=...) and wait for load, or inject inline JS.
+    Idempotent if script_id is provided (skips if element already present).
+    """
+    if not src and not inline:
+        raise ValueError("Provide either src or inline JS to inject.")
+
+    with step(driver, desc, settle_ms=settle_ms):
+        # If already injected (by id), skip
+        if script_id:
+            exists = driver.execute_script("return !!document.getElementById(arguments[0]);", script_id)
+            if exists:
+                if guard_mid:
+                    _px_tick(driver, f"{desc} [already present]")
+                return True
+
+        if src:
+            ok = driver.execute_async_script("""
+                const [src, scriptId, isModule, cb, toMs] = arguments;
+                const done = (v) => cb(v);
+                if (scriptId && document.getElementById(scriptId)) { done(true); return; }
+                const s = document.createElement('script');
+                s.src = src;
+                if (scriptId) s.id = scriptId;
+                if (isModule) s.type = 'module';
+                let timer = setTimeout(() => { s.onload = s.onerror = null; done(false); }, toMs);
+                s.onload = () => { clearTimeout(timer); done(true); };
+                s.onerror = () => { clearTimeout(timer); done(false); };
+                (document.head || document.documentElement).appendChild(s);
+            """, src, script_id, bool(module), timeout * 1000)
+            if guard_mid:
+                _px_tick(driver, f"{desc} [after load]")
+            return bool(ok)
+        else:
+            # Inline JS (synchronous)
+            if script_id:
+                driver.execute_script("""
+                    const code = arguments[0], scriptId = arguments[1], isModule = arguments[2];
+                    if (scriptId && document.getElementById(scriptId)) return;
+                    const s = document.createElement('script');
+                    if (scriptId) s.id = scriptId;
+                    if (isModule) s.type = 'module';
+                    s.textContent = code;
+                    (document.head || document.documentElement).appendChild(s);
+                """, inline, script_id, bool(module))
+            else:
+                driver.execute_script(inline)
+            if guard_mid:
+                _px_tick(driver, f"{desc} [after inline]")
+            return True
+
+def safe_wait(driver,
+              target: Optional[Union[WebElement, Locator]] = None,
+              *,
+              condition: str = "visible",
+              timeout: int = 10,
+              poll: float = 0.2,
+              text: Optional[str] = None,        # for condition="text"
+              attribute: Optional[str] = None,   # for condition="attr"
+              value: Optional[str] = None,       # for condition="attr"
+              desc: Optional[str] = None,
+              settle_ms: int = 150,
+              guard_mid: bool = True):
+    """
+    General-purpose Selenium wait with PX guard.
+
+    condition:
+      - "present"      -> presence_of_element_located
+      - "visible"      -> visibility_of_element_located / visibility_of
+      - "clickable"    -> element_to_be_clickable (requires a locator OR enabled+displayed element)
+      - "invisible"    -> invisibility_of_element_located / visibility_of(el)==False
+      - "gone"         -> staleness_of(el) OR invisibility_of_element_located
+      - "text"         -> text_to_be_present_in_element(_located)  (requires 'text')
+      - "attr"         -> element attribute equals 'value'          (requires 'attribute' and 'value')
+
+    Returns:
+      - WebElement (for element-based conditions)
+      - True/False for boolean conditions ("invisible", "gone", "text", "attr")
+    """
+    d = desc or f"wait {condition}"
+    with step(driver, d, settle_ms=settle_ms):
+        wait = WebDriverWait(driver, timeout, poll_frequency=poll)
+
+        def resolve():
+            # Build an ExpectedCondition based on what we got
+            if condition == "present":
+                if isinstance(target, tuple):
+                    return wait.until(EC.presence_of_element_located(target))
+                # If given a WebElement, assume it's already present
+                return target
+
+            if condition == "visible":
+                if isinstance(target, tuple):
+                    return wait.until(EC.visibility_of_element_located(target))
+                return wait.until(EC.visibility_of(target))  # element
+
+            if condition == "clickable":
+                if isinstance(target, tuple):
+                    return wait.until(EC.element_to_be_clickable(target))
+                # For a WebElement, emulate: visible + enabled
+                return wait.until(lambda drv: (target.is_displayed() and target.is_enabled()) and target or False)
+
+            if condition == "invisible":
+                if isinstance(target, tuple):
+                    return wait.until(EC.invisibility_of_element_located(target))
+                # For a WebElement, invisible means not displayed
+                return wait.until(lambda drv: not target.is_displayed())
+
+            if condition == "gone":
+                if isinstance(target, tuple):
+                    return wait.until(EC.invisibility_of_element_located(target))
+                # For a WebElement, staleness is the safest "gone"
+                return wait.until(EC.staleness_of(target))
+
+            if condition == "text":
+                if text is None:
+                    raise ValueError("safe_wait(condition='text') requires 'text='.")
+                if isinstance(target, tuple):
+                    return wait.until(EC.text_to_be_present_in_element(target, text))
+                return wait.until(lambda drv: text in (target.text or ""))
+
+            if condition == "attr":
+                if attribute is None or value is None:
+                    raise ValueError("safe_wait(condition='attr') requires 'attribute=' and 'value='.")
+                if isinstance(target, tuple):
+                    return wait.until(lambda drv: (drv.find_element(*target).get_attribute(attribute) == value))
+                return wait.until(lambda drv: target.get_attribute(attribute) == value)
+
+            raise ValueError(f"Unknown condition: {condition!r}")
+
+        result = resolve()
+        if guard_mid:
+            _px_tick(driver, f"{d} [resolved]", settle_ms=0)
+        return result
+
+
+def safe_wait_js(driver,
+                 js_predicate: str,
+                 *args,
+                 timeout: int = 10,
+                 poll: float = 0.25,
+                 desc: str = "wait js",
+                 settle_ms: int = 150,
+                 guard_mid: bool = True):
+    """
+    Wait until a JS predicate returns truthy.
+    `js_predicate` should be an expression or function body that returns a value.
+
+    Example:
+      safe_wait_js(driver, "return document.readyState === 'complete'")
+      safe_wait_js(driver, "return window._done === true")
+      safe_wait_js(driver, "return (arguments[0] > 3)", 5)
+    """
+    with step(driver, desc, settle_ms=settle_ms):
+        wait = WebDriverWait(driver, timeout, poll_frequency=poll)
+        # Normalize to an IIFE that returns a value
+        code = js_predicate.strip()
+        if not code.lower().startswith("return"):
+            code = "return (" + code + ")"
+        result = wait.until(lambda drv: drv.execute_script(code, *args))
+        if guard_mid:
+            _px_tick(driver, f"{desc} [resolved]", settle_ms=0)
+        return result
+
+
+# example usage:
+# # 1) Scroll patterns
+# safe_scroll(driver, to="top")
+# safe_scroll(driver, to="bottom")
+# safe_scroll(driver, by=800)  # down 800px
+# safe_scroll(driver, element=(By.LINK_TEXT, "Wire Ducts, Raceways"))
+#
+# # 2) Type into a search box, with human-like typing
+# safe_input_text(driver, (By.CSS_SELECTOR, "input[name='keywords']"),
+#                 "barrel connector", per_char_delay=(0.03, 0.08))
+#
+# # 3) Set text via JS (for stubborn React inputs)
+# safe_input_text(driver, (By.CSS_SELECTOR, "#qty"), "12", method="js")
+#
+# # 4) Inject a helper library once
+# safe_inject_js(driver, src="https://example.com/helper.js", script_id="helper-js")
+#
+# # 5) Inject inline utility (idempotent)
+# safe_inject_js(driver, inline="""
+#   window._dbgLog = (...a) => console.log('[DBG]', ...a);
+# """, script_id="dbg-inline")
+# ====================== above all ai generated ======================
 
 def extract_categories_page(web_driver):
     try:
@@ -66,36 +771,163 @@ def extract_categories_dict(ul_elem):
             cats[name] = {'href': href, 'items': items}
     return cats
 
-def extract_common_options(web_driver):
-    common_blocks = web_driver.find_elements(By.CSS_SELECTOR, "div.tss-css-19wjlyw-commonFilterContainer")
-    common_options = {}
-    for block in common_blocks:
-        title = block.find_element(By.CSS_SELECTOR, ".tss-css-1pyh5um-title").text.strip()
-        options = []
-        labels = block.find_elements(By.CSS_SELECTOR, "label.MuiFormControlLabel-root")
-        for label in labels:
-            # Option visible text
-            text = label.find_element(By.CSS_SELECTOR,
-                                      "span[data-testid^='filter-'][data-testid$='-text-']").text.strip()
-            # Get key/value/etc. from label attributes
-            filter_key = label.get_attribute('data-filter-key')
-            filter_value = label.get_attribute('data-filter-value')
-            radio = label.get_attribute('data-radio')
-            common = label.get_attribute('data-common')
-            disabled = label.get_attribute('data-disabled')
-            title_attr = label.get_attribute('title')
-            option = {
-                "label": text,
-                "title": title_attr,
-                "filter_key": filter_key,
-                "filter_value": filter_value,
-                "radio": radio == "true",
-                "common": common == "true",
-                "disabled": disabled == "true"
-            }
-            options.append(option)
-        common_options[title] = options
-    return common_options
+
+def _best_match(anchors, phrase: str):
+    """Pick the best <a> whose visible label matches `phrase` (case-insensitive)."""
+    want = phrase.strip().casefold()
+    scored = []
+    for a in anchors:
+        try:
+            lbl = _label_of(a)  # uses (a.text or "").strip()
+        except StaleElementReferenceException:
+            continue  # skip stale nodes
+        low = lbl.casefold()
+        score = (
+            3 if low == want else
+            2 if low.startswith(want) else
+            1 if want in low else
+            0
+        )
+        if score:
+            scored.append((score, len(lbl), a, lbl))
+    if not scored:
+        return None, None
+    scored.sort(key=lambda t: (-t[0], t[1]))  # higher score, then shorter label
+    return scored[0][2], scored[0][3]         # (element, label)
+
+
+def describe_element(el, max_html=3000):
+    try:
+        label = _label_of(el)  # your helper strips trailing “Items”
+    except Exception:
+        label = (el.text or "").strip()
+    try:
+        href = el.get_attribute("href") or ""
+    except Exception:
+        href = ""
+    try:
+        cls = el.get_attribute("class") or ""
+    except Exception:
+        cls = ""
+    try:
+        outer = el.get_attribute("outerHTML") or ""
+        outer_short = (outer[:max_html] + "…") if len(outer) > max_html else outer
+    except Exception:
+        outer_short = ""
+    return f"label='{label}' href='{href}' class='{cls}' outerHTML='{outer_short}'"
+
+
+def format_elements(elems, max_items=10):
+    lines = []
+    # for i, el in enumerate(elems[:max_items]):
+    for i, el in enumerate(elems):
+        lines.append(f"[{i}] {describe_element(el)}")
+    # if len(elems) > max_items:
+    #     lines.append(f"... and {len(elems) - max_items} more")
+    #     for i, el in enumerate(elems[-max_items:]):
+    #         lines.append(f"[{i}] {describe_element(el)}")
+    return "\n".join(lines)
+
+
+def click_category_link_safe(driver, phrase: str, timeout: int = 20) -> bool:
+    """
+    Find and click a category/sub-category link by visible label using safe_* wrappers.
+    Returns True if navigation succeeded (click or direct href).
+    """
+    # Wait for any category container first
+    logger.debug(f"waiting for category container......")
+    locator = (By.CSS_SELECTOR, "div[class*='categoryContainer']")
+    safe_wait(driver, locator, condition="present", timeout=timeout, desc="wait category containers")
+
+    logger.debug(f"Found category container......")
+
+    viewport_height = driver.execute_script("return window.innerHeight;")
+
+    safe_scroll(driver, by=viewport_height*30)
+
+    # Scroll to the email input field at the bottom of the page.
+    # email_input_locator = (By.CSS_SELECTOR, 'input.footer-email-input[placeholder="Enter your email"]')
+    # safe_scroll(
+    #     driver,
+    #     to="element",
+    #     element=email_input_locator,
+    #     desc="scroll to footer email input"
+    # )
+
+    logger.debug(f"Scoll to bottom.....")
+
+    # Locate target anchor
+    with step(driver, f"locate link '{phrase}'"):
+        anchors = driver.find_elements(
+            By.XPATH,
+            "//div[contains(@class,'categoryContainer')]"
+            "//a[contains(@href,'/en/products/')]"
+        )
+        logger.debug(f"matching target {phrase}.{len(anchors)}.....{format_elements(anchors)}")
+        for anchor in anchors:
+            if "Regulator" in _label_of(anchor):
+                print("Regulator found!!!:", _label_of(anchor))
+
+        target, label = _best_match(anchors, phrase)
+
+        # Fallback: search across the whole page if not inside the containers
+        if not target:
+            logger.debug("target not found!!!")
+            anchors = driver.find_elements(By.XPATH, "//a[contains(@href,'/en/products/')]")
+            target, label = _best_match(anchors, phrase)
+
+        if not target:
+            logger.debug("2nd target not found!!!")
+            return False
+
+    logger.debug(f"Target found!!! {target} {label}")
+    # Bring into view
+    logger.debug("scrolling to target ......")
+    safe_scroll(driver, element=target, block="center", desc=f"scroll to '{label}'")
+
+    # Click (with JS & href fallbacks)
+    try:
+        logger.debug("clicking on target ......")
+        safe_click(driver, target, desc=f"click '{label}'")
+        return True
+    except Exception:
+        pass
+
+    # JS-click fallback
+    try:
+        with step(driver, f"JS click '{label}' fallback"):
+            logger.debug("JS clicking on target ......")
+            driver.execute_script("arguments[0].click();", target)
+        return True
+    except Exception:
+        pass
+
+    # Direct navigation as last resort
+    href = target.get_attribute("href")
+    if href:
+        logger.debug(f"directly go to target href......{href}")
+        safe_get(driver, href)
+        return True
+
+    return False
+
+def _norm(s: str) -> str:
+    """Loose, case/space-insensitive comparison key."""
+    if s is None:
+        return ""
+    s = unicodedata.normalize("NFKC", s)
+    s = s.casefold()
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _value_present_in_options(selected_value: str, options: List[Dict]) -> bool:
+    want = _norm(selected_value)
+    for opt in options or []:
+        # tolerate dicts that may lack 'value' and only have 'label'
+        val = opt.get("value") or opt.get("label")
+        if _norm(str(val)) == want:
+            return True
+    return False
 
 def extract_apply_all_button(web_driver):
     try:
@@ -110,56 +942,251 @@ def extract_apply_all_button(web_driver):
         apply_all = None  # Button not found
 
 
-def extract_search_parametric(web_driver):
-    parametric = {}
+# -----------------------------
+# DOM finders (robust to class churn)
+# -----------------------------
 
-    # Find all cards in the parametric filter section
-    cards = web_driver.find_elements(By.CSS_SELECTOR, 'div.div-card')
+def _find_filter_card(driver, header_text: str):
+    """
+    Return the root <div class='div-card'> for the filter with the given header text.
+    Tries exact match first, then contains().
+    """
+    want = header_text.strip()
+    # Quick wait for any filter grid/cards to exist
+    locator = (By.CSS_SELECTOR, "div.div-card")
+    safe_wait(driver, locator, condition="present", timeout=20, desc="wait filter cards")
 
-    for card in cards:
-        # Card title
+
+    # 1) Exact header match
+    xpath_exact = (
+        ".//div[contains(@class,'div-card')][.//div[contains(@class,'cardHeader') and normalize-space() = %s]]"
+    )
+    cards = driver.find_elements(By.XPATH, xpath_exact % repr(want))
+    if cards:
+        return cards[0]
+
+    # 2) Contains() fallback (case-insensitive via translate is messy; do two passes)
+    xpath_contains = (
+        ".//div[contains(@class,'div-card')][.//div[contains(@class,'cardHeader') and contains(normalize-space(), %s)]]"
+    )
+    cards = driver.find_elements(By.XPATH, xpath_contains % repr(want))
+    if cards:
+        return cards[0]
+
+    # 3) Last resort: scan all headers and compare normalized text in Python
+    for card in driver.find_elements(By.CSS_SELECTOR, "div.div-card"):
         try:
-            title = card.find_element(By.CSS_SELECTOR, '.tss-css-oy50zv-cardHeader').text.strip()
+            header = card.find_element(By.XPATH, ".//div[contains(@class,'cardHeader')]").text
+            if _norm(header) == _norm(want):
+                return card
         except Exception:
-            continue  # Skip if title not found
+            continue
+    return None
 
-        card_info = {}
+def _get_search_input(card):
+    """Return the 'Search Filter' input inside this card, if present."""
+    inputs = card.find_elements(By.XPATH, ".//input[@placeholder='Search Filter']")
+    return inputs[0] if inputs else None
 
-        # Check for min/max fields (range filter)
-        min_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="min"]')
-        max_inputs = card.find_elements(By.CSS_SELECTOR, 'input[data-filter-type="max"]')
-        select_units = card.find_elements(By.CSS_SELECTOR, 'select[data-filter-type="unit"]')
+def _get_scroll_outers(card):
+    """
+    Return (outer_scroll, inner_canvas) for the virtualized list.
+    outer_scroll has overflow:auto; inner_canvas has huge height.
+    """
+    outer = None
+    inner = None
+    # Prefer data-testid markers when present
+    try:
+        outer = card.find_element(By.XPATH, ".//div[@data-testid='filter-box-outer-ref']//div[contains(@style,'overflow: auto')]")
+    except Exception:
+        pass
+    if not outer:
+        # Generic fallback: the first descendant div with overflow: auto
+        outs = card.find_elements(By.XPATH, ".//div[contains(@style,'overflow: auto')]")
+        outer = outs[0] if outs else None
+    if outer:
+        try:
+            inner = outer.find_element(By.XPATH, ".//div[@data-testid='filter-box-inner-ref']")
+        except Exception:
+            # fallback: tallest child
+            nodes = outer.find_elements(By.XPATH, ".//div")
+            inner = max(nodes, key=lambda n: int(re.search(r"(\d+)", (n.value_of_css_property("height") or "0")).group(1)) if n else 0) if nodes else None
+    return outer, inner
 
-        if min_inputs or max_inputs:
-            # This card has a min/max filter
-            min_value = min_inputs[0].get_attribute("placeholder") if min_inputs else None
-            max_value = max_inputs[0].get_attribute("placeholder") if max_inputs else None
-            card_info["min_input_placeholder"] = min_value
-            card_info["max_input_placeholder"] = max_value
+def _visible_option_nodes(card):
+    """Return the current visible option <span> elements (the inner text node)."""
+    return card.find_elements(By.CSS_SELECTOR, "span.tss-css-1w97wf3-options > span")
 
-            if select_units:
-                options = [o.text for o in select_units[0].find_elements(By.TAG_NAME, "option")]
-                card_info["unit_options"] = options
-        else:
-            # Otherwise, collect checkbox or radio options
-            options = []
-            for opt_span in card.find_elements(By.CSS_SELECTOR, '[class*="tss-css-1w97wf3-options"]'):
-                opt_label = opt_span.text.strip()
-                if opt_label:  # Only non-empty
-                    options.append(opt_label)
-            # For some cards, labels might be under <label> elements
-            if not options:
-                for label in card.find_elements(By.CSS_SELECTOR, 'label'):
-                    opt = label.text.strip()
-                    if opt: options.append(opt)
-            card_info["options"] = options
+def _find_visible_option_by_text(card, target_text: str):
+    want = _norm(target_text)
+    for node in _visible_option_nodes(card):
+        if _norm(node.text) == want:
+            return node
+    return None
 
-        parametric[title] = card_info
+def _scroll_and_probe_for_option(driver, card, target_text: str, max_jumps: int = 80) -> Optional[object]:
+    """
+    Virtual-scroll the list to find an option by text. Uses safe_inject_js to scroll outer.
+    """
+    outer, inner = _get_scroll_outers(card)
+    if not outer:
+        # No virtual scroller? Just try visible options again.
+        return _find_visible_option_by_text(card, target_text)
 
-    return parametric
+    # Try from the top first
+    safe_inject_js(driver, "arguments[0].scrollTop = 0;", [outer], desc="scroll list top")
+    time.sleep(0.05)
+    found = _find_visible_option_by_text(card, target_text)
+    if found:
+        return found
 
-# pip install selenium webdriver-manager pandas
-# Optional: pip install pandas  (only if you want to also save xlsx)
+    # Compute scroll metrics via JS
+    scroll_h = safe_inject_js(driver, "return arguments[0].scrollHeight;", [outer], desc="get scrollHeight")
+    client_h = safe_inject_js(driver, "return arguments[0].clientHeight;", [outer], desc="get clientHeight")
+    if not scroll_h or not client_h:
+        # fallback brute check
+        for _ in range(12):
+            safe_inject_js(driver, "arguments[0].scrollTop += 200;", [outer], desc="scroll step")
+            time.sleep(0.05)
+            hit = _find_visible_option_by_text(card, target_text)
+            if hit:
+                return hit
+        return None
+
+    # Step proportionally (adaptive)
+    step = max(int(client_h * 0.8), 120)
+    pos = 0
+    for _ in range(max_jumps):
+        pos = min(pos + step, int(scroll_h) - int(client_h))
+        safe_inject_js(driver, "arguments[0].scrollTop = arguments[1];", [outer, pos], desc="scroll step abs")
+        time.sleep(0.05)
+        hit = _find_visible_option_by_text(card, target_text)
+        if hit:
+            return hit
+
+    # Try the very bottom once
+    safe_inject_js(driver, "arguments[0].scrollTop = arguments[0].scrollHeight;", [outer], desc="scroll bottom")
+    time.sleep(0.05)
+    return _find_visible_option_by_text(card, target_text)
+
+# -----------------------------
+# Core setter
+# -----------------------------
+
+def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20) -> bool:
+    """
+    Inside the filter card titled `header`, select option whose text == `value`.
+    Returns True if it clicks something (or it detects the option already active); False if not found.
+    """
+    with step(driver, f"filter '{header}' = '{value}'"):
+        card = _find_filter_card(driver, header)
+        if not card:
+            return False
+
+        # Bring card into view
+        safe_scroll(driver, element=card, block="center", desc=f"scroll to '{header}' card")
+
+        # Prefer the search box if present: it's fast and avoids virtual scroll
+        search = _get_search_input(card)
+        if search:
+            # Clear & type, then wait for options to refresh
+            safe_input_text(driver, search, value, clear=True, desc=f"type '{value}' in '{header}' search")
+            # wait for an option matching the value to be present
+            try:
+                safe_wait(
+                    driver,
+                    lambda: _find_visible_option_by_text(card, value) is not None,
+                    timeout=10,
+                    desc=f"wait option '{value}' visible in '{header}'"
+                )
+            except Exception:
+                # fall through to scroll if search didn't filter it in
+                pass
+
+        # If visible now, great; otherwise virtual-scroll
+        node = _find_visible_option_by_text(card, value) or _scroll_and_probe_for_option(driver, card, value)
+        if not node:
+            return False
+
+        # Scroll the option into view (within the card) & click
+        try:
+            safe_scroll(driver, element=node, block="center", desc=f"scroll option '{value}' into view")
+        except Exception:
+            pass
+
+        # Click the inner label span (more reliable than the container)
+        try:
+            safe_click(driver, node, desc=f"select '{value}' in '{header}'")
+            return True
+        except Exception:
+            # JS fallback
+            try:
+                safe_inject_js(driver, "arguments[0].click();", [node], desc=f"js click '{value}' in '{header}'")
+                return True
+            except Exception:
+                return False
+
+# -----------------------------
+# Public API
+# -----------------------------
+
+def apply_parametric_filters_safe(driver, filters: List[Dict], timeout: int = 20) -> List[Tuple[str, bool, str]]:
+    """
+    Apply a list of parametric filters:
+      each item like {
+        'label': 'Manufacturer',
+        'type': 'select',
+        'options': [{'label':'Altera','value':'Altera'}, ...],
+        'selectedValue': 'Altera'
+      }
+
+    For each filter item:
+      - if selectedValue is truthy AND is present in `options`, try to set it
+      - otherwise skip (return reason)
+    Returns a list of tuples: (label, applied_bool, reason)
+    """
+    results = []
+    for f in filters or []:
+        label = (f or {}).get("label") or ""
+        sel   = (f or {}).get("selectedValue")
+        opts  = (f or {}).get("options") or []
+
+        if not label:
+            results.append(("<missing label>", False, "no label"))
+            continue
+
+        if not sel:
+            results.append((label, False, "no selectedValue"))
+            continue
+
+        if not _value_present_in_options(str(sel), opts):
+            results.append((label, False, "selectedValue not in options (skipped)"))
+            continue
+
+        applied = _set_single_filter_value(driver, label, str(sel), timeout=timeout)
+        results.append((label, bool(applied), "ok" if applied else "option not found / not clickable"))
+
+        # After setting all filters, find and click the 'Apply All' button.
+        try:
+            logger.debug("Attempting to click 'Apply All' filters button...")
+            apply_button_selector = (By.CSS_SELECTOR, "button[data-testid='apply-all-button']")
+            apply_button = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable(apply_button_selector)
+            )
+            apply_button.click()
+            logger.debug("'Apply All' button clicked. Waiting for page to update.")
+            # Wait for the page to process the filters and reload the results.
+            selenium_wait_for_page_load(driver)
+        except TimeoutException:
+            logger.warning("'Apply All' button was not found or not clickable within the timeout period.")
+            # Depending on the desired behavior, you might want to handle this case differently.
+            # For now, we just log a warning and continue.
+            pass
+        except Exception as e:
+            logger.error(f"An error occurred while trying to click 'Apply All': {get_traceback(e)}")
+
+    return results
+
 
 import csv
 import re
@@ -181,24 +1208,24 @@ START_URL = "https://www.digikey.com/en/products/filter/programmable-logic-ics/6
 OUT_CSV = Path("digikey_results_dynamic_selenium.csv")
 MAX_PAGES = 1         # set >1 to paginate
 HEADLESS = True
-PAGELOAD_TIMEOUT = 45
-WAIT_TIMEOUT = 20
+PAGELOAD_TIMEOUT = 25
+WAIT_TIMEOUT = 10
 
 ROW_SELECTOR = ".SearchResults-productRow, .ProductResults .ProductRow, .SearchResults .ProductRow"
 
-def _wait(driver, timeout: int = 30):
+def _wait(driver, timeout: int = 10):
     return WebDriverWait(driver, timeout, poll_frequency=0.25, ignored_exceptions=(StaleElementReferenceException,))
 
 
-def _visible(driver, css: str, timeout: int = 30):
+def _visible(driver, css: str, timeout: int = 10):
     return _wait(driver, timeout).until(EC.visibility_of_element_located((By.CSS_SELECTOR, css)))
 
 
-def _present(driver, css: str, timeout: int = 30):
+def _present(driver, css: str, timeout: int = 10):
     return _wait(driver, timeout).until(EC.presence_of_element_located((By.CSS_SELECTOR, css)))
 
 
-def _visible_all(driver, css: str, timeout: int = 30):
+def _visible_all(driver, css: str, timeout: int = 10):
     return _wait(driver, timeout).until(EC.visibility_of_all_elements_located((By.CSS_SELECTOR, css)))
 
 
@@ -234,10 +1261,10 @@ def selenium_accept_cookies(driver):
     except Exception:
         pass
 
-
-def selenium_wait_for_results_container(driver, timeout_ms: int = 60000):
+def selenium_wait_for_results_container(driver, timeout_ms: int = 10000):
     timeout = max(1, timeout_ms // 1000)
     selectors = [
+        "div[data-testid='sb-container']",
         "#productSearchContainer, .SearchResults.ProductResults",
         ".SearchResults.ProductResults",
         ".SearchResults",
@@ -343,16 +1370,16 @@ def selenium_wait_for_page_load(driver):
 
 def selenium_apply_parametric_filters(webdriver, pfs):
     try:
-        selenium_wait_for_results_container(driver, timeout_ms=60000)
+        selenium_wait_for_results_container(driver, timeout_ms=10000)
     except TimeoutException:
         print("⚠️ Results container not found yet; continuing")
 
     # Ensure filter blocks present/visible if possible
     try:
-        _present(driver, ".FilterContainer-filter--native", timeout=60)
+        _present(driver, ".FilterContainer-filter--native", timeout=10)
     except TimeoutException:
         try:
-            _present(driver, ".FilterContainer-filter", timeout=60)
+            _present(driver, ".FilterContainer-filter", timeout=10)
         except TimeoutException:
             print("⚠️ Filter blocks not found; proceeding anyway")
 
@@ -375,11 +1402,14 @@ def selenium_apply_parametric_filters(webdriver, pfs):
 
 
 def selenium_extract_search_results(webdriver):
-    search_results = []
-
-
-
-    return search_results
+    try:
+        logger.debug("Parsing rows on current page...")
+        # The new helper function does all the work.
+        rows, _ = parse_rows_on_page(webdriver)
+        return rows
+    except Exception as e:
+        logger.error(f"Error during selenium_extract_search_results: {get_traceback(e)}")
+        return []
 
 def click_if_exists(driver, by, selector, timeout=2):
     try:
@@ -599,12 +1629,16 @@ def extract_search_results_table(driver):
         driver.quit()
 
 
-def digi_key_selenium_search_component(driver, pfs, site_url):
+def digi_key_selenium_search_component(driver, pfs, category_phrase):
     try:
         logger.debug("digi_key_selenium_search_component... accessing driver")
         selenium_wait_for_page_load(driver)
+        logger.debug(f"clicking on category phrase... {category_phrase}")
+        click_category_link_safe(driver, category_phrase)
+        logger.debug(f"wait for category page to full load...")
+        selenium_wait_for_page_load(driver)
         logger.debug(f"applying pfs: {pfs}")
-        selenium_apply_parametric_filters(webdriver, pfs)
+        results = apply_parametric_filters_safe(driver, pfs)
 
         logger.debug(f"waiting for search results to show up completely......")
         selenium_wait_for_results_container(driver)
@@ -624,4 +1658,3 @@ def digi_key_selenium_search_component(driver, pfs, site_url):
 if __name__ == "__main__":
     driver = setup_driver()
     extract_search_results_table(driver)
-

@@ -701,9 +701,9 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
     logger.debug(f"run_local_search_node: {state}")
-    parametric_filters = state["metadata"].get("parametric_filters", [])
+    parametric_filters = state["metadata"].get("parametric_filters", [[]])
     # url = state["tool_input"]["url"]
-    url = {"url": "https://www.digikey.com/en/products"}
+    url = {"url": "https://www.digikey.com/en/products", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
 
     # set up tool call input
     state["tool_input"]["urls"] = [url]

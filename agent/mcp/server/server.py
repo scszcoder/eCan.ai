@@ -707,7 +707,7 @@ async def in_browser_multi_actions(mainwin, args):
 
         result = [TextContent(type="text", text=msg)]
 
-        return [result]
+        return result
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserMultiCardAction")
@@ -763,7 +763,7 @@ async def mouse_move(mainwin, args):
 
         msg = "completed mouse move"
         result = [TextContent(type="text", text=msg)]
-        return [result]
+        return result
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorMouseMove")
@@ -926,6 +926,7 @@ def connect_to_adspower(mainwin, url):
 
         webdriver.switch_to.window(webdriver.window_handles[0])
         time.sleep(2)
+        logger.debug(f"openning URL: {url}")
         webdriver.execute_script(f"window.open('{url}', '_blank');")
         time.sleep(1)
         # Switch to the new tab
@@ -1392,24 +1393,27 @@ async def api_ecan_ai_query_components(mainwin, args):
 async def api_ecan_local_search_components(mainwin, args):
     logger.debug(f"api_ecan_local_search_components initial state: {args}")
     try:
-        url = args['input']["urls"][0]
+        url = args['input']["urls"][0]["url"]
+        logger.debug(f"conncting to ads power: {url}")
         webdriver = connect_to_adspower(mainwin, url)
         if webdriver:
+            logger.debug(f"conncted to ads power and webdriver: {args['input']['urls']}")
             log_user = mainwin.user.replace("@", "_").replace(".", "_")
             pfs = args['input']['parametric_filters']
-            sites = args['input']['sites']
+            sites = args['input']['urls']
             fom_form = args['input'].get('fom_form', {})
             if not fom_form:
                 fom_form = get_default_fom_form()
 
             max_n_results = args['input']['max_n_results']
-
+            logger.debug(f"parameters ready: {len(pfs)} {pfs}")
             search_results = []
             for pf in pfs:
                 for site in sites:
-                    site_url = site['url']
-                    site_results = selenium_search_component(webdriver, pf, site_url)
-                    search_results = search_results.extend(site_results)
+                    # Pass a list of URLs and the target category phrase to the selenium search helper
+                    site_results = selenium_search_component(webdriver, pf, site)
+                    # extend accumulates in place; do not assign the None return value
+                    search_results.extend(site_results)
 
             calculate_score(fom_form, search_results)
 
@@ -1420,7 +1424,8 @@ async def api_ecan_local_search_components(mainwin, args):
 
             msg = "completed rpa operator report work results"
             result = TextContent(type="text", text=msg)
-            result.meta = sorted_search_results
+            # meta must be a dictionary per MCP spec
+            result.meta = {"results": sorted_search_results, "count": len(sorted_search_results)}
             return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
@@ -1443,7 +1448,8 @@ async def api_ecan_ai_img2text_icons(mainwin, args):
 
         msg = "completed rpa operator report work results"
         result = TextContent(type="text", text=msg)
-        result.meta = screen_data
+        # meta must be a dictionary
+        result.meta = {"screen_data": screen_data}
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
