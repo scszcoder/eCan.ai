@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QThread, QObject, Signal, QRectF, QTimer
+from PySide6.QtCore import Qt, QThread, QObject, Signal, QRectF, QTimer, QEvent
 from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QConicalGradient
 from PySide6.QtWidgets import (
     QWidget,
@@ -27,9 +27,19 @@ class ThemedSplashScreen(QWidget):
     """
 
     def __init__(self):
-        super().__init__(None, Qt.FramelessWindowHint)
+        # Use additional window flags for better Windows compatibility
+        window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        super().__init__(None, window_flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedSize(640, 400)
+        
+        # Set window properties for better positioning
+        self.setWindowFlags(window_flags)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        
+        # Install event filter for Windows-specific handling
+        if sys.platform == 'win32':
+            self.installEventFilter(self)
 
         self._build_ui()
         self._center_on_screen()
@@ -189,20 +199,67 @@ class ThemedSplashScreen(QWidget):
         root.addWidget(container)
 
     def _center_on_screen(self):
+        """Center the splash screen on the primary screen with Windows-specific handling"""
         screen = QApplication.primaryScreen()
         if not screen:
             return
+        
+        # Get screen geometry
         sg = screen.availableGeometry()
-        self.move(
-            sg.center().x() - self.width() // 2,
-            sg.center().y() - self.height() // 2,
-        )
+        
+        # Calculate center position
+        x = sg.center().x() - self.width() // 2
+        y = sg.center().y() - self.height() // 2
+        
+        # Ensure position is within screen bounds
+        x = max(sg.left(), min(x, sg.right() - self.width()))
+        y = max(sg.top(), min(y, sg.bottom() - self.height()))
+        
+        # Move the window
+        self.move(x, y)
+        
+        # Force update and ensure window is properly positioned
+        self.update()
+        QApplication.processEvents()
+        
+        # Windows-specific fix: ensure window stays centered
+        if sys.platform == 'win32':
+            self._windows_center_fix()
 
     def showEvent(self, event):
         """Override showEvent to ensure the window is always centered when shown"""
         super().showEvent(event)
         # Re-center the window after it's shown to ensure it's always in the center
+        # Use multiple attempts to ensure proper centering on Windows
         QTimer.singleShot(0, self._center_on_screen)
+        QTimer.singleShot(50, self._center_on_screen)  # Additional centering attempt
+        QTimer.singleShot(100, self._center_on_screen)  # Final centering attempt
+
+    def _windows_center_fix(self):
+        """Windows-specific fix to prevent splash screen from moving to top-left corner"""
+        try:
+            # Force the window to stay in the center by re-applying window flags
+            current_flags = self.windowFlags()
+            self.setWindowFlags(current_flags)
+            self.show()
+            
+            # Re-center after showing
+            QTimer.singleShot(10, self._center_on_screen)
+        except Exception:
+            pass
+
+    def eventFilter(self, obj, event):
+        """Event filter to handle Windows-specific window positioning issues"""
+        if sys.platform == 'win32' and obj == self:
+            if event.type() == QEvent.Move:
+                # If window is moved to top-left corner, re-center it
+                pos = self.pos()
+                if pos.x() < 50 and pos.y() < 50:  # Near top-left corner
+                    QTimer.singleShot(10, self._center_on_screen)
+            elif event.type() == QEvent.WindowStateChange:
+                # Re-center when window state changes
+                QTimer.singleShot(10, self._center_on_screen)
+        return super().eventFilter(obj, event)
 
     def _load_logo_pixmap(self):
         # Prefer the specified logo path
@@ -578,9 +635,16 @@ def init_startup_splash():
         splash = ThemedSplashScreen()
         splash.show()
         app.processEvents()
+        
         # Ensure the splash is centered after showing and processing events
         splash._center_on_screen()
         app.processEvents()
+        
+        # Additional Windows-specific centering
+        if sys.platform == 'win32':
+            QTimer.singleShot(200, splash._center_on_screen)
+            QTimer.singleShot(500, splash._center_on_screen)
+        
         return splash
     except Exception:
         return None
