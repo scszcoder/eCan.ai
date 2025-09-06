@@ -8,8 +8,6 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from auth.auth_messages import auth_messages
 
-from auth.auth_config import AuthConfig
-
 from utils.logger_helper import logger_helper as logger
 
 COGNITO_ERROR_MAP = {

@@ -1,8 +1,9 @@
 import traceback
-from typing import Any, Optional, Dict
+from typing import TYPE_CHECKING, Any, Optional, Dict
 import uuid
 from app_context import AppContext
-from gui.MainGUI import MainWindow
+if TYPE_CHECKING:
+    from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response

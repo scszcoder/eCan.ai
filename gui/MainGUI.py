@@ -3,8 +3,14 @@ import json
 import re
 import shutil
 import asyncio
+import time
 from dotenv import load_dotenv
+import httpx
 from qasync import QEventLoop
+import requests
+from agent.ec_skills.llm_utils.llm_utils import pick_llm
+from agent.mcp.config import mcp_http_base
+from agent.mcp.mcp_utils import wait_until_server_ready
 from utils.time_util import TimeUtil
 print(TimeUtil.formatted_now_with_ms() + " load MainGui start...")
 
@@ -13,11 +19,7 @@ from agent.chats.chats_db import ECBOT_CHAT_DB
 from bot.ebbot import EBBOT
 from bot.missions import EBMISSION
 from common.models import VehicleModel
-from gui.LocalServer import start_local_server_in_thread, stop_local_server
-from agent.mcp.local_client import mcp_client_manager
-from agent.mcp.config import mcp_http_base
-from agent.ec_skills.llm_utils.llm_utils import pick_llm
-
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #0 finished...")
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.fernet import Fernet
@@ -34,8 +36,8 @@ from _csv import reader
 from os.path import exists
 import glob
 
-from PySide6.QtCore import QThreadPool, Qt
-
+from PySide6.QtCore import QThreadPool
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #1 finished...")
 import importlib
 import importlib.util
 from common.models import BotModel, MissionModel
@@ -48,7 +50,7 @@ from bot.Cloud import send_dequeue_tasks_to_cloud, send_schedule_request_to_clou
     send_update_bots_request_to_cloud, send_remove_bots_request_to_cloud, send_add_skills_request_to_cloud, \
     send_get_bots_request_to_cloud, send_query_chat_request_to_cloud, download_file, send_report_vehicles_to_cloud,\
     send_update_vehicles_request_to_cloud
-
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #2 finished...")
 from bot.Logger import log3
 from gui.MissionGUI import MissionManager
 from gui.PlatoonGUI import PlatoonManager
@@ -57,7 +59,7 @@ from gui.SkillManagerGUI import SkillManager
 from gui.TrainGUI import TrainManager, ReminderManager
 from gui.VehicleMonitorGUI import VehicleMonitorManager
 from bot.WorkSkill import WORKSKILL
-from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, convertTxtProfiles2DefaultXlsxProfiles, updateIndividualProfileFromBatchSavedTxt
+from bot.adsPowerSkill import formADSProfileBatchesFor1Vehicle, updateIndividualProfileFromBatchSavedTxt
 from bot.basicSkill import processExternalHook, symTab, STEP_GAP, setMissionInput, getScreenSize
 from bot.envi import getECBotDataHome
 from bot.genSkills import genSkillCode, getWorkRunSettings, setWorkSettingsSkill, SkillGeneratorTable, ManagerTriggerTable
@@ -69,6 +71,7 @@ import tzlocal
 from datetime import datetime, timedelta, timezone
 import platform
 from typing import List
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #3 finished...")
 
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running_step_index
@@ -77,21 +80,22 @@ from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper as logger
 from gui.encrypt import *
-from bot.labelSkill import handleExtLabelGenResults, setLabelsReady
+from bot.labelSkill import handleExtLabelGenResults
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #4 finished...")
 import psutil
 from agent.ec_skills.build_agent_skills import build_agent_skills
 from agent.ec_skills.save_agent_skills import save_agent_skills
 from agent.ec_agents.create_agent_tasks import create_agent_tasks
 from agent.ec_agents.build_agent_knowledges import build_agent_knowledges
 from agent.ec_agents.obtain_agent_tools import obtain_agent_tools
-from agent.ec_skill import *
+print(TimeUtil.formatted_now_with_ms() + " load MainGui #5 finished...")
 from agent.mcp.server.tool_schemas import build_agent_mcp_tools_schemas
-from agent.mcp.server.server import set_server_main_win
-from agent.ec_agents.build_agents import *
+from agent.ec_agents.build_agents import build_agents
 from agent.tasks import TaskRunnerRegistry
 import concurrent.futures
 from gui.unified_browser_manager import get_unified_browser_manager
 from auth.auth_manager import AuthManager
+from agent.mcp.local_client import mcp_client_manager
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -124,7 +128,7 @@ class AsyncInterface:
 
 # class MainWindow(QWidget):
 class MainWindow:
-    def __init__(self, auth_manager: AuthManager, mainloop, ip, 
+    def __init__(self, auth_manager: AuthManager, mainloop, ip,
                  user, homepath, machine_role, schedule_mode):
 
         self.auth_manager = auth_manager  # Reference to auth manager for state and services
@@ -557,6 +561,8 @@ class MainWindow:
                 logger.info("add fetch schedule to todo list....")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
+        from agent.mcp.server.server import set_server_main_win
+        from gui.LocalServer import start_local_server_in_thread
         # setup local web server including MCP server.
         os.environ["NO_PROXY"] = "localhost,127.0.0.1"
         set_server_main_win(self)
@@ -603,7 +609,7 @@ class MainWindow:
         else:
             # Running in normal Python environment
             env_path = '.env'
-        
+
         if os.path.exists(env_path):
             logger.info(f"\nLoading .env from: {env_path}")
             load_dotenv(env_path)
@@ -628,7 +634,7 @@ class MainWindow:
 
         # Initialize browser manager
         self.setupUnifiedBrowserManager()
-        
+
         # Start WebDriver initialization in background
         asyncio.create_task(self._start_webdriver_initialization())
 
@@ -667,7 +673,7 @@ class MainWindow:
     def stop_lightrag_server(self):
         self.lightrag_server.stop()
         self.lightrag_server = None
-    
+
     def get_auth_token(self):
         """Return a valid JWT for AppSync Authorization header.
         Prefer Cognito IdToken; fall back to AccessToken. Support multiple token shapes.
@@ -817,10 +823,6 @@ class MainWindow:
 
         # self.top_gui.update_all(self)
         # await self.test_a2a()
-
-    async def closeEvent(self, evt):
-        await self.mcp_client_manager.close()
-        await super().closeEvent(evt)
 
     def wait_for_server(self, agent, timeout: float = 10.0):
         url = agent.get_card().url+'/ping'
@@ -1064,14 +1066,6 @@ class MainWindow:
 
     def getCommanderName(self):
         return self.commander_name
-
-    def on_tg_pressed(self):
-        checked = self.toggle_button.isChecked()
-        self.toggle_button.setArrowType(
-            Qt.DownArrow if not checked else Qt.RightArrow
-        )
-
-        # Log console visibility control removed as log console is no longer used
 
     def _get_cpu_info_safely(self):
         """
@@ -2282,7 +2276,7 @@ class MainWindow:
         # tasks should already be sorted by botid,
         try:
             nsites = 0
-            
+
             v_groups = self.getUnassignedVehiclesByOS()                      #result will {"win": win_vs, "mac": mac_vs, "linux": linux_vs}
             # print some debug info.
             for key in v_groups:
@@ -2341,7 +2335,7 @@ class MainWindow:
                     del self.unassigned_scheduled_task_groups[vname]
 
                 tbd_unassigned = []
-                
+
             for vname in self.unassigned_reactive_task_groups:
                 log3("assignwork reactive checking vehicle: "+vname, "assignWork", self)
                 p_task_groups = self.unassigned_reactive_task_groups[vname]      # flattend per vehicle tasks.
@@ -2386,7 +2380,7 @@ class MainWindow:
                 log3("deleting alread assigned reactive task groups", "assignWork", self)
                 for vname in tbd_unassigned:
                     del self.unassigned_reactive_task_groups[vname]
-                    
+
         except Exception as e:
             # Get the traceback information
             traceback_info = traceback.extract_tb(e.__traceback__)
@@ -3601,26 +3595,28 @@ class MainWindow:
             self.mainLoop.create_task(self._async_cleanup_and_logout())
         except Exception as e:
             logger.warning(f"Failed to schedule async cleanup: {e}")
-            # Fallback: at least close window
-            try:
-                self.close()
-            except Exception:
-                pass
 
     async def _async_cleanup_and_logout(self):
         """Asynchronously cleanup background tasks, servers, and resources, then logout."""
         # Stop LightRAG server
         try:
-            if getattr(self, 'lightrag_server', None):
-                self.stop_lightrag_server()
+            self.stop_lightrag_server()
         except Exception as e:
             logger.warning(f"Error stopping LightRAG server: {e}")
 
         # Stop local Starlette server (uvicorn) and join thread
         try:
+            from gui.LocalServer import stop_local_server
             stop_local_server()
         except Exception as e:
             logger.warning(f"Error stopping local server: {e}")
+
+
+        # Close MCP client manager session
+        try:
+            await mcp_client_manager.close()
+        except Exception as e:
+            logger.warning(f"Error closing MCP client manager: {e}")
 
         # Close websocket if present
         try:
@@ -3660,41 +3656,30 @@ class MainWindow:
             except Exception:
                 pass
 
+        # for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task):
+        #     if not task.done():
+        #         task.cancel()
+
         # Shut down ThreadPoolExecutor
         try:
-            if getattr(self, 'threadPoolExecutor', None):
-                self.threadPoolExecutor.shutdown(wait=False, cancel_futures=True)
+            self.threadPoolExecutor.shutdown(wait=False, cancel_futures=True)
         except Exception as e:
             logger.debug(f"Error shutting down ThreadPoolExecutor: {e}")
 
         # Drain/stop Qt thread pool if used
         try:
-            if getattr(self, 'threadPool', None):
-                # Wait for queued runnables to finish quickly
-                self.threadPool.waitForDone(1000)  # 1s timeout
+            # Wait for queued runnables to finish quickly
+            self.threadPool.waitForDone(1000)  # 1s timeout
         except Exception as e:
             logger.debug(f"Error waiting for QThreadPool: {e}")
 
-        # Close MCP client manager if present
-        try:
-            mgr = getattr(self, 'mcp_client_manager', None)
-            if mgr and hasattr(mgr, 'close'):
-                await mgr.close()
-        except Exception as e:
-            logger.debug(f"Error closing MCP client manager: {e}")
-
         # Finally, call auth logout and close window
         try:
-            if hasattr(self, 'auth_manager') and self.auth_manager:
-                self.auth_manager.logout()
+            self.auth_manager.logout()
         except Exception as e:
             logger.debug(f"Auth logout error: {e}")
 
-        self.showMsg("logged out........")
-        try:
-            self.close()
-        except Exception:
-            pass
+        logger.info("logged out........")
 
 
     def addNewBots(self, new_bots):
@@ -5246,7 +5231,7 @@ class MainWindow:
     def update_original_xlsx_file(self, file_path, mission_data):
         # Read the Excel file, skipping the first two rows
         dir_path = os.path.dirname(file_path)
-        
+
         import pandas as pd
         df = pd.read_excel(file_path, skiprows=2)
 
@@ -5476,9 +5461,6 @@ class MainWindow:
                         if dependency_file not in dependencies:
                             dependencies.add(dependency_file)
                             self.find_dependencies(dependency_file, visited, dependencies)
-
-
-
         # self.platform+"_"+self.App()+"_"+self.site_name+"_"+self.page+"_"+self.name is the output string format
 
     def analyzeMainSkillDependencies(self, main_psk):
@@ -7336,17 +7318,6 @@ class MainWindow:
 
         return FETCH_ROUTINE
 
-
-    def closeEvent(self, event):
-        self.showMsg('Main window close....')
-        # for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task, self.wan_msg_task):
-        for task in (self.peer_task, self.monitor_task, self.chat_task, self.rpa_task, self.wan_sub_task):
-
-            if not task.done():
-                task.cancel()
-
-        event.accept()
-
     def createTrialRunMission(self):
         trMission = EBMISSION(self)
         trMission.setMid(20231225)
@@ -9042,7 +9013,7 @@ class MainWindow:
 
         return fit
 
-        
+
     def genBotVehicle(self, bot):
         # fill the least filled vehicle first.
         fitV = ""

@@ -1,15 +1,15 @@
-from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import *
-from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import *
-from agent.ec_skills.search_1688.search_1688_skill import *
-from agent.ec_skills.search_1688.search_1688_chatter_skill import *
-from agent.ec_skills.search_digi_key.search_digi_key_skill import *
-from agent.ec_skills.search_parts.search_parts_skill import *
-from agent.ec_skills.search_parts.search_parts_chatter_skill import *
-
-from agent.ec_skills.my_twin.my_twin_chatter_skill import *
+import traceback
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
+from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill, create_rpa_operator_chatter_skill, create_rpa_supervisor_chatter_skill, create_rpa_supervisor_scheduling_chatter_skill
+from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill, create_rpa_operator_skill, create_rpa_supervisor_scheduling_skill, create_rpa_supervisor_skill
+from agent.ec_skills.my_twin.my_twin_chatter_skill import create_my_twin_chatter_skill
+from agent.ec_skills.search_1688.search_1688_skill import create_search_1688_skill
+from agent.ec_skills.search_digi_key.search_digi_key_skill import create_search_digi_key_skill
+from agent.ec_skills.search_parts.search_parts_chatter_skill import create_search_parts_chatter_skill
+from agent.ec_skills.search_parts.search_parts_skill import create_search_parts_skill
 from agent.ec_skills.self_test.self_test_skill import create_self_test_skill
 from agent.ec_skills.self_test.self_test_chatter_skill import create_self_test_chatter_skill
+from agent.mcp.server.tool_schemas import tool_schemas
 from utils.logger_helper import logger_helper as logger
 
 async def build_agent_skills(mainwin, skill_path=""):

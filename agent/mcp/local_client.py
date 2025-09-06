@@ -73,6 +73,19 @@ class MCPClientManager:
                 logger.error(f"Ephemeral session tool call failed for '{tool_name}': {e}")
                 raise
         return result
+    
+    async def close(self):
+        """Closes the underlying persistent HTTP session manager."""
+        logger.info("Closing persistent MCP client session...")
+        try:
+            # The manager is a singleton; get the instance and close it.
+            url = mcp_http_base()
+            manager_instance = Streamable_HTTP_Manager.get(url)
+            await manager_instance.close()
+            logger.info("✅ MCP client session closed successfully.")
+        except Exception as e:
+            logger.error(f"❌ Failed to close MCP client session: {e}")
+
 
 
 # Create a singleton instance for managing MCP client operations

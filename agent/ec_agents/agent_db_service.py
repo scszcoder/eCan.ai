@@ -1,18 +1,10 @@
-from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy import select
-from agent.chats.chats_db import Chat, Member, Message, Attachment, get_engine, get_session_factory, Base, ChatNotification
+from sqlalchemy.orm import  sessionmaker
+from agent.chats.chats_db import get_engine, get_session_factory, Base
 from agent.ec_skills.agent_skills_db import DBAgentSkill
 from agent.ec_agents.agent_db import DBAgent, DBAgentTool, DBAgentTask, DBAgentKnowledge
 from agent.chats.chat_service import SingletonMeta
 
 from contextlib import contextmanager
-import threading
-import weakref
-import os
-import json
-import uuid
-import time
 from sqlalchemy.exc import SQLAlchemyError
 import re
 

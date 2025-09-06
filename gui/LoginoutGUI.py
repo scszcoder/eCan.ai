@@ -4,7 +4,6 @@ from utils.time_util import TimeUtil
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
 
-# from gui.MainGUI import MainWindow
 from auth.auth_manager import AuthManager
 from config.app_info import app_info
 from bot.envi import getECBotDataHome
@@ -23,6 +22,7 @@ class Login:
 
     def __init__(self):
         # Initialize the authentication manager which handles all logic and state
+        logger.info("Login controller initialized start")
         self.auth_manager = AuthManager()
 
         # Application state (unrelated to auth)
@@ -30,7 +30,7 @@ class Login:
         self.ip = commanderIP
         self.main_win = None
 
-        logger.info("Login controller initialized")
+        logger.info("Login controller initialized end")
 
 
     # Handler methods for UI callbacks, now simplified to delegate to AuthManager

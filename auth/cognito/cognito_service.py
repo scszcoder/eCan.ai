@@ -12,8 +12,15 @@ from auth.auth_config import AuthConfig
 class CognitoService:
 
     def __init__(self):
-        self.cognito_client = boto3.client('cognito-idp', region_name=AuthConfig.COGNITO.REGION)
-        self.jwks = self._get_jwks()
+        self.cognito_client = None
+        self.jwks = None
+
+    def _get_cognito_client(self):
+        if not self.cognito_client:
+            self.cognito_client = boto3.client('cognito-idp', region_name=AuthConfig.COGNITO.REGION)
+        else:
+            logger.warning("cognito client is None!!!")
+        return self.cognito_client
 
     def _get_jwks(self):
         # In a production environment, this should be cached.
@@ -24,12 +31,14 @@ class CognitoService:
             return response.json()['keys']
         except requests.exceptions.RequestException as e:
             # In a real app, you'd want to log this error.
-            print(f"Error fetching JWKS: {e}")
+            logger.error(f"Error fetching JWKS: {e}")
             return None
 
     def verify_token(self, token: str, token_use: str = 'access'):
         if not self.jwks:
-            return {'success': False, 'error': 'JWKS not available'}
+            self.jwks = self._get_jwks()
+            if not self.jwks:
+                return {'success': False, 'error': 'JWKS not available'}
 
         try:
             unverified_header = jwt.get_unverified_header(token)
