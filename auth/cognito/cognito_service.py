@@ -18,8 +18,7 @@ class CognitoService:
     def _get_cognito_client(self):
         if not self.cognito_client:
             self.cognito_client = boto3.client('cognito-idp', region_name=AuthConfig.COGNITO.REGION)
-        else:
-            logger.warning("cognito client is None!!!")
+
         return self.cognito_client
 
     def _get_jwks(self):
@@ -72,7 +71,8 @@ class CognitoService:
 
     def sign_up(self, username, password):
         try:
-            response = self.cognito_client.sign_up(
+            client = self._get_cognito_client()
+            response = client.sign_up(
                 ClientId=AuthConfig.COGNITO.CLIENT_ID,
                 Username=username,
                 Password=password,
@@ -84,7 +84,8 @@ class CognitoService:
 
     def confirm_sign_up(self, username, confirmation_code):
         try:
-            response = self.cognito_client.confirm_sign_up(
+            client = self._get_cognito_client()
+            response = client.confirm_sign_up(
                 ClientId=AuthConfig.COGNITO.CLIENT_ID,
                 Username=username,
                 ConfirmationCode=confirmation_code
@@ -95,12 +96,14 @@ class CognitoService:
 
     def login(self, username, password):
         try:
+            # Ensure we have a valid cognito client
+            client = self._get_cognito_client()
             aws_srp = AWSSRP(
                 username=username,
                 password=password,
                 pool_id=AuthConfig.COGNITO.USER_POOL_ID,
                 client_id=AuthConfig.COGNITO.CLIENT_ID,
-                client=self.cognito_client
+                client=client
             )
             tokens = aws_srp.authenticate_user()
             return {'success': True, 'data': tokens}
@@ -172,7 +175,8 @@ class CognitoService:
 
     def forgot_password(self, username):
         try:
-            response = self.cognito_client.forgot_password(
+            client = self._get_cognito_client()
+            response = client.forgot_password(
                 ClientId=AuthConfig.COGNITO.CLIENT_ID,
                 Username=username
             )
@@ -182,7 +186,8 @@ class CognitoService:
 
     def confirm_forgot_password(self, username, confirmation_code, new_password):
         try:
-            response = self.cognito_client.confirm_forgot_password(
+            client = self._get_cognito_client()
+            response = client.confirm_forgot_password(
                 ClientId=AuthConfig.COGNITO.CLIENT_ID,
                 Username=username,
                 ConfirmationCode=confirmation_code,
@@ -197,7 +202,8 @@ class CognitoService:
     def refresh_tokens(self, refresh_token):
         """Refresh tokens using the refresh token."""
         try:
-            response = self.cognito_client.initiate_auth(
+            client = self._get_cognito_client()
+            response = client.initiate_auth(
                 ClientId=AuthConfig.COGNITO.CLIENT_ID,
                 AuthFlow='REFRESH_TOKEN_AUTH',
                 AuthParameters={'REFRESH_TOKEN': refresh_token}

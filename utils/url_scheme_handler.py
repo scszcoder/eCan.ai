@@ -125,39 +125,81 @@ class URLSchemeRegistrar:
         """Register URL scheme in Windows registry"""
         try:
             import winreg
+            import ctypes
             
-            # Get application executable path
-            if getattr(sys, 'frozen', False):
-                app_path = sys.executable
-            else:
-                app_path = os.path.abspath(sys.argv[0])
+            def is_admin():
+                try:
+                    return ctypes.windll.shell32.IsUserAnAdmin()
+                except:
+                    return False
             
-            # Create the protocol key
-            key = winreg.CreateKey(winreg.HKEY_CLASSES_ROOT, "ecan")
-            winreg.SetValue(key, "", winreg.REG_SZ, "URL:eCan Protocol")
-            winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+            app_path = os.path.abspath(sys.executable)
+            app_name = "eCan"
+            registered = False
             
-            # Set the default icon
-            icon_key = winreg.CreateKey(key, "DefaultIcon")
-            icon_path = os.path.join(os.path.dirname(app_path), "eCan.ico")
-            if os.path.exists(icon_path):
-                winreg.SetValue(icon_key, "", winreg.REG_SZ, f"{icon_path},0")
-            else:
-                winreg.SetValue(icon_key, "", winreg.REG_SZ, f"{app_path},0")
+            # First try with HKCU (Current User) - doesn't require admin
+            try:
+                with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Software\Classes\ecan", 0, 
+                                     winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY) as key:
+                    winreg.SetValue(key, "", winreg.REG_SZ, f"URL:{app_name} Protocol")
+                    winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+                    
+                    with winreg.CreateKeyEx(key, "shell\open\command", 0, 
+                                         winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY) as cmd_key:
+                        winreg.SetValue(cmd_key, "", winreg.REG_SZ, f'"{app_path}" "%1"')
+                    
+                    # Set default icon if available
+                    icon_path = os.path.join(os.path.dirname(app_path), "eCan.ico")
+                    if os.path.exists(icon_path):
+                        with winreg.CreateKeyEx(key, "DefaultIcon", 0, 
+                                             winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY) as icon_key:
+                            winreg.SetValue(icon_key, "", winreg.REG_SZ, f'"{icon_path}",0')
+                
+                logger.info("URL scheme registered in HKCU successfully")
+                registered = True
+                
+            except Exception as e:
+                logger.warning(f"Failed to register URL scheme in HKCU: {e}")
             
-            # Set the command to execute
-            command_key = winreg.CreateKey(key, "shell\\open\\command")
-            winreg.SetValue(command_key, "", winreg.REG_SZ, f'"{app_path}" "%1"')
-            
-            winreg.CloseKey(command_key)
-            winreg.CloseKey(icon_key)
-            winreg.CloseKey(key)
-            
-            logger.info("Windows URL scheme registered successfully")
-            return True
-            
+            # If not registered and running as admin, try HKLM
+            if not registered and is_admin():
+                try:
+                    # Open or create HKLM key
+                    key = winreg.CreateKeyEx(winreg.HKEY_LOCAL_MACHINE, "Software\\Classes\\ecan", 0, 
+                                          winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+                    try:
+                        winreg.SetValue(key, "", winreg.REG_SZ, f"URL:{app_name} Protocol")
+                        winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+                        
+                        # Set command
+                        cmd_key = winreg.CreateKeyEx(key, "shell\\open\\command", 0, 
+                                                  winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+                        winreg.SetValue(cmd_key, "", winreg.REG_SZ, f'"{app_path}" "%1"')
+                        winreg.CloseKey(cmd_key)
+                        
+                        # Set icon if available
+                        icon_path = os.path.join(os.path.dirname(app_path), "eCan.ico")
+                        if os.path.exists(icon_path):
+                            icon_key = winreg.CreateKeyEx(key, "DefaultIcon", 0, 
+                                                       winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY)
+                            winreg.SetValue(icon_key, "", winreg.REG_SZ, f'"{icon_path}",0')
+                            winreg.CloseKey(icon_key)
+                        
+                        logger.info("Windows URL scheme registered in HKLM successfully")
+                        return True
+                        
+                    finally:
+                        winreg.CloseKey(key)
+                        
+                except Exception as e:
+                    logger.error(f"Failed to register URL scheme in HKLM: {e}")
+                    return False
+            elif not registered:
+                logger.warning("URL scheme registration requires admin privileges. Some features may be limited.")
+                return False
+                    
         except Exception as e:
-            logger.error(f"Failed to register Windows URL scheme: {e}")
+            logger.error(f"Unexpected error during URL scheme registration: {e}")
             return False
     
     @staticmethod
