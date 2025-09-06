@@ -23,6 +23,7 @@ from browser_use.agent.views import (
 
 from agent.ec_skill import *
 from agent.agent_service import get_agent_by_id
+from telemetry.views import AgentStepTelemetryEvent
 
 
 async def create_rpa_helper_skill(mainwin):
@@ -609,7 +610,7 @@ async def in_browser_scrape_content(state: NodeState) -> NodeState:
 
         if state:
             metadata = StepMetadata(
-                step_number=self.state.n_steps,
+                step_number=state.n_steps,
                 step_start_time=step_start_time,
                 step_end_time=step_end_time,
                 input_tokens=tokens,

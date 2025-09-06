@@ -6,12 +6,13 @@ import json
 import os
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 import uuid
 from app_context import AppContext
 
 from utils.gui_dispatch import post_to_main_thread
-from gui.MainGUI import MainWindow
+if TYPE_CHECKING:
+    from gui.MainGUI import MainWindow
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
 from gui.ipc.registry import IPCHandlerRegistry
