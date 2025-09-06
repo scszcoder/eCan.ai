@@ -1,6 +1,6 @@
 import boto3
 from botocore.exceptions import ClientError
-from pycognito import AWSSRP
+
 
 import requests
 from jose import jwt
@@ -96,17 +96,16 @@ class CognitoService:
 
     def login(self, username, password):
         try:
-            # Ensure we have a valid cognito client
             client = self._get_cognito_client()
-            aws_srp = AWSSRP(
-                username=username,
-                password=password,
-                pool_id=AuthConfig.COGNITO.USER_POOL_ID,
-                client_id=AuthConfig.COGNITO.CLIENT_ID,
-                client=client
+            response = client.initiate_auth(
+                ClientId=AuthConfig.COGNITO.CLIENT_ID,
+                AuthFlow='USER_PASSWORD_AUTH',
+                AuthParameters={
+                    'USERNAME': username,
+                    'PASSWORD': password
+                }
             )
-            tokens = aws_srp.authenticate_user()
-            return {'success': True, 'data': tokens}
+            return {'success': True, 'data': response['AuthenticationResult']}
         except ClientError as e:
             return {'success': False, 'error': e.response['Error']['Code']}
 

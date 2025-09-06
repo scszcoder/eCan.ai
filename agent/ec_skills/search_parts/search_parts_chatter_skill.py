@@ -395,16 +395,18 @@ def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
             form = []
             notification = {}
 
+        llm_result = state.get("result", {}).get("llm_result", "")
+
         agent_response_message = {
             "id": str(uuid.uuid4()),
             "chat": {
-                "input": state["result"]["llm_result"],
+                "input": llm_result,
                 "attachments": [],
-                "messages": [self_agent.card.id, chat_id, msg_id, "", state["result"]["llm_result"]],
+                "messages": [self_agent.card.id, chat_id, msg_id, "", llm_result],
             },
             "params": {
-                "content": state["result"]["llm_result"],
-                "attachments": state["attachments"],
+                "content": llm_result,
+                "attachments": state.get("attachments", []),
                 "metadata": {
                     "mtype": msg_type,  #send_task or send_chat
                     "dtype": dtype, # "text", "code", "form", "notification", "card

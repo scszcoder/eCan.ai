@@ -233,7 +233,7 @@ class MainWindow:
             os.makedirs(self.ads_profile_dir)
 
         self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
-        self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "batch_method": "min batches", "ads_port": 0, "ads_api_key": ""}
+        self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "batch_method": "min batches", "ads_port": 50325, "ads_api_key": ""}
         self.bot_states = ["active", "disabled", "banned", "deleted"]
         self.todays_bot_profiles = []
         # self.readBotJsonFile()

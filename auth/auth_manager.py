@@ -75,6 +75,8 @@ class AuthManager:
                 rt = (self.tokens.get('RefreshToken') or self.tokens.get('refresh_token'))
                 if rt:
                     self._store_refresh_token(username, rt)
+                else:
+                    logger.error("auth manager refresh token is None")
                 self.start_refresh_task()  # Start the background refresh task
                 logger.info(f"AuthManager: Login successful for {username}")
                 return {'success': True}
@@ -157,7 +159,8 @@ class AuthManager:
                 refresh_token = self.tokens.get('RefreshToken')
                 if refresh_token and self.current_user:
                     self._store_refresh_token(self.current_user, refresh_token)
-
+                else:
+                    logger.error("auth manager refresh token is None")
                 # Step 8: Start the background token refresh task to maintain a long-lived session.
                 self.start_refresh_task()
                 logger.info(f"AuthManager: Google login successful for {self.current_user}")
@@ -303,6 +306,7 @@ class AuthManager:
     def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
         try:
             keyring.set_password(self._refresh_service(), username, refresh_token)
+            logger.info("store refresh token succesed")
             return True
         except Exception as e:
             logger.error(f"Failed to store refresh token: {e}")
@@ -408,6 +412,10 @@ class AuthManager:
     def start_refresh_task(self):
         """Starts the background token refresh task."""
         if self.refresh_task is None or self.refresh_task.done():
+            if not self.tokens or not self.tokens.get('RefreshToken'):
+                logger.warning("AuthManager: start_refresh_task called without a refresh token. Task not started.")
+                return
+
             logger.info("AuthManager: Starting token refresh task.")
             try:
                 self.refresh_task = asyncio.create_task(self._token_refresh_loop())
