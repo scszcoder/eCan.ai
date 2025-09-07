@@ -5,12 +5,12 @@ import importlib
 # Simulated function registry to map node types to actual Python functions.
 # You need to populate this in your real implementation
 function_registry = {
-    "llm": build_mcptool_calling_node,
+    "llm": build_llm_node,
     "basic": build_basic_node,
     "api": build_api_node,
     "loop": build_loop_node,
     "condition": build_condition_node,
-    "tool": build_mcptool_calling_node,
+    "tool": build_mcp_tool_calling_node,
     "group": lambda state: state,
     "default": build_debug_node,
 }
