@@ -1708,12 +1708,12 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase):
     try:
         logger.debug("digi_key_selenium_search_component... accessing driver")
         selenium_wait_for_page_load(driver)
-        # logger.debug(f"clicking on category phrase... {category_phrase}")
-        # click_category_link_safe(driver, category_phrase)
-        # logger.debug(f"wait for category page to full load...")
-        # selenium_wait_for_page_load(driver)
+        logger.debug(f"clicking on category phrase... {category_phrase}")
+        click_category_link_safe(driver, category_phrase)
+        logger.debug(f"wait for category page to full load...")
+        selenium_wait_for_page_load(driver)
         logger.debug(f"applying pfs: {pfs}")
-        results = apply_parametric_filters_safe(driver, pfs)
+        applied_pfs = apply_parametric_filters_safe(driver, pfs)
 
         logger.debug(f"waiting for search results to show up completely......")
         # selenium_wait_for_results_container(driver)
@@ -1722,12 +1722,13 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase):
         logger.debug(f"done big scroll......")
 
         logger.debug(f"extracting search results......")
-        results = selenium_extract_search_results(driver)
-        logger.debug(f"search results collected......{results}")
+        components_results = selenium_extract_search_results(driver)
+        logger.debug(f"search results collected......{components_results}")
+        results = {"status": "success", "components": components_results}
 
     except Exception as e:
         err_msg = get_traceback(e, "ErrorDigikeySeleniumSearchComponent")
-        results = []
+        results = {"status": "failed", "error": err_msg, "components": []}
 
     return results
 

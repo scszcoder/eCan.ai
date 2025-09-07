@@ -271,6 +271,278 @@ def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IP
         )
 
 
+@IPCHandlerRegistry.handler('run_skill')
+def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get start skill run handler called with request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Start skill run successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in run skill handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during start skill run: {str(e)}"
+        )
+
+@IPCHandlerRegistry.handler('cancel_run_skill')
+def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get cancel skill run called with request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Cancelling skill run successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in cancel skill run handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during cancelling skill run: {str(e)}"
+        )
+
+@IPCHandlerRegistry.handler('pause_run_skill')
+def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get pause skill run request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Get pause skill run successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in pausing skill run handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during pausing skill run: {str(e)}"
+        )
+
+@IPCHandlerRegistry.handler('run_skill')
+def handle_resume_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get resume skill run called with request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Resume skill run successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in resume skill run handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during resuming skill run: {str(e)}"
+        )
+
+@IPCHandlerRegistry.handler('step_run_skill')
+def handle_step_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get single step skill run called with request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'single step skill run successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in single step skill run handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error single stepping skill run: {str(e)}"
+        )
+
+@IPCHandlerRegistry.handler('set_skill_breakpoints')
+def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get setting skill breakpoints with request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Setting skill breakpoints successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in setting skill breakpoints handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during setting skill breakpoints: {str(e)}"
+        )
+
+@IPCHandlerRegistry.handler('clear_skill_breakpoints')
+def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get clearing skill breakpoints with request: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'clear skill breakpoints successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in get available tests handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during clearning skill breakpoints: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('request_skill_state')
+def handle_request_skill_state(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"Get current skill run state: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Request skill state successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in getting skill state handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during getting current skill state: {str(e)}"
+        )
+
+@IPCHandlerRegistry.handler('inject_skill_state')
+def handle_inject_skill_state(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"injecting skill state: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        return create_success_response(request, {
+            'token': token,
+            "tests": ["test1", "test2", "test3"],
+            'message': 'Get available tests successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in inject skill state handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during injecting skill state: {str(e)}"
+        )
+
+
 @IPCHandlerRegistry.handler('run_tests')
 def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理跑测试请求

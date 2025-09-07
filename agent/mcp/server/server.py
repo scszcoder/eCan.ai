@@ -1415,10 +1415,16 @@ async def api_ecan_local_search_components(mainwin, args):
             search_results = []
             for pf in pfs:
                 for site in sites:
-                    # Pass a list of URLs and the target category phrase to the selenium search helper
-                    site_results = selenium_search_component(webdriver, pf, site)
-                    # extend accumulates in place; do not assign the None return value
-                    search_results.extend(site_results)
+                    try:
+                        # Pass a list of URLs and the target category phrase to the selenium search helper
+                        site_results = selenium_search_component(webdriver, pf, site)
+                        # extend accumulates in place; do not assign the None return value
+                        search_results.extend(site_results)
+                    except Exception as e:
+                        # record error and continue
+                        err_trace = get_traceback(e, "ErrorSeleniumSiteSearchComponent")
+                        logger.error(err_trace)
+                        continue
 
             calculate_score(fom_form, search_results)
 
@@ -1433,7 +1439,7 @@ async def api_ecan_local_search_components(mainwin, args):
             result.meta = {"results": sorted_search_results, "count": len(sorted_search_results)}
             return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorAPIECANAIImg2TextIcons")
+        err_trace = get_traceback(e, "ErrorAPIECANAILocalSearchComponents")
         logger.debug(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
