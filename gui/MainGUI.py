@@ -821,9 +821,6 @@ class MainWindow:
             error_msg = f"Agent initialization failed: {str(e)}"
             self.showMsg(error_msg)
 
-        # self.top_gui.update_all(self)
-        # await self.test_a2a()
-
     def wait_for_server(self, agent, timeout: float = 10.0):
         url = agent.get_card().url+'/ping'
         logger.info("agent card url:", url)

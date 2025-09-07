@@ -115,7 +115,7 @@ class WebEngineView(QWebEngineView):
         self._channel: Optional[QWebChannel] = None
         self._ipc_wc_service: Optional[IPCWCService] = None
         self._webchannel_script: Optional[QWebEngineScript] = None
-        self.gui_top = parent
+
         # 1. 初始化引擎
         self.init_engine()
         

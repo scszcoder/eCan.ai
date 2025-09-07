@@ -5,7 +5,6 @@ from typing import Optional
 from utils.time_util import TimeUtil
 import sys
 import os
-from gui.ipc.api import IPCAPI
 from gui.menu_manager import MenuManager
 
 from config.app_settings import app_settings
@@ -64,9 +63,6 @@ class WebGUI(QMainWindow):
 
         # Set Windows window style to match content theme
         self._setup_window_style()
-
-        # Initialize IPC API
-        self._ipc_api = None
 
         if self._progress_callback:
             self._progress_callback(82, "Connecting web engine...")
@@ -394,6 +390,9 @@ class WebGUI(QMainWindow):
             else:
                 logger.error(f"Directory {app_settings.dist_dir} does not exist")
     
+    def get_ipc_api(self):        
+        return self.web_engine_view.get_ipc_api()
+    
     def _setup_shortcuts(self):
         """Set up shortcuts"""
         # Developer tools shortcut
@@ -546,10 +545,6 @@ class WebGUI(QMainWindow):
             import traceback
             traceback.print_exc()
             event.ignore()
-
-    def get_ipc_api(self):
-        self._ipc_api = IPCAPI.get_instance()
-        return self._ipc_api
 
     def _setup_custom_titlebar_with_menu(self):
         """Set a custom title bar and integrate the menu bar into it"""
