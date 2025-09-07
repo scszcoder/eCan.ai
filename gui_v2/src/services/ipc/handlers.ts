@@ -140,6 +140,12 @@ export class IPCHandlers {
         eventBus.emit('chat:newNotification', { chatId, content, isRead, timestamp, uid });
         return { success: true };
     }
+
+    async pushChatMessage(request: IPCRequest): Promise<{ success: boolean }> {
+        // logger.info('Received pushChatMessage request:', request.params);
+        eventBus.emit('chat:newMessage', request.params);
+        return { success: true };
+    }
 }
 
 export const getHandlers = () => {
