@@ -42,6 +42,8 @@ from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
 from agent.a2a.langgraph_agent.utils import send_data_to_agent
 from agent.mcp.server.scrapers.eval_util import get_default_fom_form
 from agent.ec_skills.llm_utils.llm_utils import try_parse_json
+from agent.mcp.server.scrapers.digi_key_scrapers.unit_test import sample_pfs_1
+
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
 OWNER = "public"
@@ -709,6 +711,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     url = {"url": "https://www.digikey.com/en/products/filter/power-management-pmic/voltage-regulators-linear-low-drop-out-ldo-regulators/699", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
     # url = {"url": "file:///C:/temp/parametric/digikeySC/Voltage Regulators - Linear, Low Drop Out (LDO) Regulators _ Power Management (PMIC) _ Electronic Components Distributor DigiKey.html", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
 
+    parametric_filters = sample_pfs_1
     # set up tool call input
     state["tool_input"]["urls"] = [url]
     state["tool_input"]["parametric_filters"] = parametric_filters
