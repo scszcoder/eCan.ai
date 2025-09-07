@@ -706,6 +706,8 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     parametric_filters = state["metadata"].get("parametric_filters", [[]])
     # url = state["tool_input"]["url"]
     url = {"url": "https://www.digikey.com/en/products", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
+    url = {"url": "https://www.digikey.com/en/products/filter/power-management-pmic/voltage-regulators-linear-low-drop-out-ldo-regulators/699", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
+    # url = {"url": "file:///C:/temp/parametric/digikeySC/Voltage Regulators - Linear, Low Drop Out (LDO) Regulators _ Power Management (PMIC) _ Electronic Components Distributor DigiKey.html", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
 
     # set up tool call input
     state["tool_input"]["urls"] = [url]

@@ -926,7 +926,7 @@ def connect_to_adspower(mainwin, url):
 
         webdriver.switch_to.window(webdriver.window_handles[0])
         time.sleep(2)
-        logger.debug(f"openning URL: {url}")
+        logger.debug(f"openning new tab with URL: {url}")
         webdriver.execute_script(f"window.open('{url}', '_blank');")
         time.sleep(1)
         # Switch to the new tab
@@ -935,9 +935,14 @@ def connect_to_adspower(mainwin, url):
         # Navigate to the new URL in the new tab
         domTree = {}
         if url:
-            webdriver.get(url)  # Replace with the new URL
-            logger.info("opened URL: " + url)
-            time.sleep(5)
+            if not url.startswith("file:///"):
+                logger.debug(f"Navigating to live URL with .get(): {url}")
+                webdriver.get(url)
+                logger.info("opened live URL: " + url)
+            else:
+                logger.debug(f"Local file URL detected. Skipping webdriver.get() as it's already loaded.")
+
+            # time.sleep(5)
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorConnectToAdspower")

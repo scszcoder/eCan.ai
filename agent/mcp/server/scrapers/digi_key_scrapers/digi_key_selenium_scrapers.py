@@ -360,6 +360,17 @@ def _resolve_element(driver,
         return WebDriverWait(driver, timeout).until(cond)
     return target
 
+
+def _smooth_scroll_by(driver, total_dy: float, steps: int = 20, delay: float = 0.03):
+    if steps < 1:
+        steps = 1
+    step_dy = total_dy / float(steps)
+    for _ in range(steps):
+        driver.execute_script("window.scrollBy(0, arguments[0]);", step_dy)
+        # allow layout to settle a frame
+        driver.execute_script("return window.requestAnimationFrame(() => {});")
+        time.sleep(delay)
+
 def safe_scroll(driver,
                 to: str = "element",
                 element: Optional[Union[WebElement, Locator]] = None,
@@ -378,28 +389,20 @@ def safe_scroll(driver,
     """
     with step(driver, desc, settle_ms=settle_ms):
         # Helper to perform incremental scrolls for smooth visual motion
-        def _smooth_scroll_by(total_dy: float, steps: int = 20, delay: float = 0.03):
-            if steps < 1:
-                steps = 1
-            step_dy = total_dy / float(steps)
-            for _ in range(steps):
-                driver.execute_script("window.scrollBy(0, arguments[0]);", step_dy)
-                # allow layout to settle a frame
-                driver.execute_script("return window.requestAnimationFrame(() => {});")
-                time.sleep(delay)
+
 
         # Smooth scrolling logic for different targets
         if by is not None:
             # Scroll by a specific offset in small increments
             total = int(by)
             steps = max(10, min(60, abs(total) // 100))  # more steps for larger distances
-            _smooth_scroll_by(total, steps=steps, delay=0.02)
+            _smooth_scroll_by(driver, total, steps=steps, delay=0.02)
 
         elif to == "top":
             current_y = driver.execute_script("return window.pageYOffset || document.documentElement.scrollTop || 0;") or 0
             total = -float(current_y)
             steps = max(20, min(80, int(abs(total) // 150)))
-            _smooth_scroll_by(total, steps=steps, delay=0.02)
+            _smooth_scroll_by(driver, total, steps=steps, delay=0.02)
 
         elif to == "bottom":
             current_y = driver.execute_script("return window.pageYOffset || document.documentElement.scrollTop || 0;") or 0
@@ -407,7 +410,7 @@ def safe_scroll(driver,
                 "return Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;") or 0
             total = float(max_y) - float(current_y)
             steps = max(20, min(100, int(abs(total) // 150)))
-            _smooth_scroll_by(total, steps=steps, delay=0.02)
+            _smooth_scroll_by(driver, total, steps=steps, delay=0.02)
 
         else:
             # Scroll to the element's Y position smoothly
@@ -427,7 +430,7 @@ def safe_scroll(driver,
             current_y = viewport_y
             total = float(target_y) - float(current_y)
             steps = max(20, min(80, int(abs(total) // 120)))
-            _smooth_scroll_by(total, steps=steps, delay=0.02)
+            _smooth_scroll_by(driver, total, steps=steps, delay=0.02)
 
         # Final settle
         driver.execute_script("return window.requestAnimationFrame(() => {});")
@@ -827,6 +830,18 @@ def format_elements(elems, max_items=10):
     #     for i, el in enumerate(elems[-max_items:]):
     #         lines.append(f"[{i}] {describe_element(el)}")
     return "\n".join(lines)
+
+def safe_big_scroll_down(driver, guard_mid=False):
+    viewport_height = driver.execute_script("return window.innerHeight;")
+    n_screen = 30
+    scroll_per_screen = 5
+    _smooth_scroll_by(driver, viewport_height * n_screen, steps=n_screen*scroll_per_screen, delay=0.3)
+    safe_scroll(driver, by=viewport_height * 30)
+
+    driver.execute_script("return window.requestAnimationFrame(() => {});")
+    time.sleep(0.05)
+    if guard_mid:
+        _px_tick(driver, f"big scroll [after scroll]")
 
 
 def click_category_link_safe(driver, phrase: str, timeout: int = 20) -> bool:
@@ -1262,6 +1277,7 @@ def selenium_accept_cookies(driver):
         pass
 
 def selenium_wait_for_results_container(driver, timeout_ms: int = 10000):
+    logger.debug("selenium_wait_for_results_container.....")
     timeout = max(1, timeout_ms // 1000)
     selectors = [
         "div[data-testid='sb-container']",
@@ -1271,16 +1287,17 @@ def selenium_wait_for_results_container(driver, timeout_ms: int = 10000):
         ".ProductResults",
         ".SearchResults-productTable",
     ]
-
+    logger.debug("ding ding ding.....")
     # Strategy 1: try in current context
     for sel in selectors:
         try:
             el = _visible(driver, sel, timeout=3)
             if el:
+                logger.debug("Found results using strategy1")
                 return el
         except Exception:
             pass
-
+    logger.debug("Try using strategy2")
     # Strategy 2: probe iframes for the container
     try:
         frames = driver.find_elements(By.CSS_SELECTOR, "iframe, frame")
@@ -1303,7 +1320,7 @@ def selenium_wait_for_results_container(driver, timeout_ms: int = 10000):
                 driver.switch_to.default_content()
             except Exception:
                 pass
-
+    logger.debug("Try using strategy3")
     # Strategy 3: wait for any row to appear (some pages omit the wrapper selectors)
     try:
         _visible(driver, ROW_SELECTOR, timeout=timeout)
@@ -1369,10 +1386,10 @@ def selenium_wait_for_page_load(driver):
 
 
 def selenium_apply_parametric_filters(webdriver, pfs):
-    try:
-        selenium_wait_for_results_container(driver, timeout_ms=10000)
-    except TimeoutException:
-        print("⚠️ Results container not found yet; continuing")
+    # try:
+    #     selenium_wait_for_results_container(driver, timeout_ms=10000)
+    # except TimeoutException:
+    #     print("⚠️ Results container not found yet; continuing")
 
     # Ensure filter blocks present/visible if possible
     try:
@@ -1401,11 +1418,37 @@ def selenium_apply_parametric_filters(webdriver, pfs):
 
 
 
+def get_table_headers(driver) -> List[str]:
+    """Extracts the column headers from the search results table header."""
+    headers = []
+    try:
+        logger.debug("Extracting table headers with corrected selector...")
+        # CORRECTED SELECTOR based on user-provided HTML
+        header_row = driver.find_element(By.CSS_SELECTOR, "tr[data-testid='Draggable Headers']")
+        header_cells = header_row.find_elements(By.TAG_NAME, "th")
+
+        for cell in header_cells:
+            try:
+                # The actual header text is nested within divs and a span.
+                header_text_element = cell.find_element(By.CSS_SELECTOR, "div[data-testid='custom-header-label'] span")
+                header_text = header_text_element.text.strip()
+                if header_text:  # Ensure we don't add empty headers
+                    headers.append(header_text)
+            except NoSuchElementException:
+                # Some header cells (like the first one for the drag handle) are intentionally empty. Skip them.
+                pass
+        logger.info(f"Successfully extracted headers: {headers}")
+    except Exception as e:
+        logger.error(f"Could not extract table headers: {get_traceback(e)}")
+    return headers
+
+
 def selenium_extract_search_results(webdriver):
     try:
         logger.debug("Parsing rows on current page...")
         # The new helper function does all the work.
         rows, _ = parse_rows_on_page(webdriver)
+        print(f"extracted # of rows {len(rows)}")
         return rows
     except Exception as e:
         logger.error(f"Error during selenium_extract_search_results: {get_traceback(e)}")
@@ -1494,16 +1537,26 @@ def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
     rows_out: List[Dict[str, str]] = []
     dynamic_keys_in_order: List[str] = []
 
+    # First, get the correct headers for all columns.
+    headers = get_table_headers(driver)
+    if not headers:
+        logger.error("Could not retrieve table headers. Aborting parsing.")
+        return rows_out, dynamic_keys_in_order
     # wait for row presence
     try:
         WebDriverWait(driver, WAIT_TIMEOUT).until(
+            # EC.presence_of_element_located((By.CSS_SELECTOR, "tr[data-testid^='tr-']"))
             EC.presence_of_element_located((By.CSS_SELECTOR, "tr[class*='muwdap-tr'], tbody tr"))
         )
-    except Exception:
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorParseRowsOnPage")
+        print("⚠️ Rows not found; timed out", err_msg)
         return rows_out, dynamic_keys_in_order
-
+    print("rows found...")
     # prefer specific class; fallback to generic
-    rows = driver.find_elements(By.CSS_SELECTOR, "tr[class*='muwdap-tr']")
+    # rows = driver.find_elements(By.CSS_SELECTOR, "tr[data-testid^='tr-']")
+    rows = driver.find_elements(By.CSS_SELECTOR, "tr[class*='muwdap-tr'], tbody tr")
+    print("driver found # of rows", len(rows))
     if not rows:
         rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr")
 
@@ -1513,6 +1566,8 @@ def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
 
         for j, td in enumerate(tds):
             # find a child carrying data-atag
+
+
             key_raw = None
             try:
                 atag_node = td.find_element(By.CSS_SELECTOR, "[data-atag]")
@@ -1524,6 +1579,11 @@ def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
             if key not in dynamic_keys_in_order:
                 dynamic_keys_in_order.append(key)
 
+            if j < len(headers):
+                header = headers[j]
+                key = header
+
+            print("setting key:", key)
             # cell text
             val = clean_text(td.text)
             if val:
@@ -1538,6 +1598,7 @@ def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
                 pass
 
         if any(v for v in row.values()):
+            logger.debug(f"Found row: {row}")
             rows_out.append(row)
 
     return rows_out, dynamic_keys_in_order
@@ -1596,6 +1657,7 @@ def click_next_if_present(driver) -> bool:
     return False
 
 
+
 def extract_search_results_table(driver):
     try:
         driver.get(START_URL)
@@ -1633,17 +1695,21 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase):
     try:
         logger.debug("digi_key_selenium_search_component... accessing driver")
         selenium_wait_for_page_load(driver)
-        logger.debug(f"clicking on category phrase... {category_phrase}")
-        click_category_link_safe(driver, category_phrase)
-        logger.debug(f"wait for category page to full load...")
-        selenium_wait_for_page_load(driver)
-        logger.debug(f"applying pfs: {pfs}")
-        results = apply_parametric_filters_safe(driver, pfs)
+        # logger.debug(f"clicking on category phrase... {category_phrase}")
+        # click_category_link_safe(driver, category_phrase)
+        # logger.debug(f"wait for category page to full load...")
+        # selenium_wait_for_page_load(driver)
+        # logger.debug(f"applying pfs: {pfs}")
+        # results = apply_parametric_filters_safe(driver, pfs)
 
         logger.debug(f"waiting for search results to show up completely......")
-        selenium_wait_for_results_container(driver)
+        # selenium_wait_for_results_container(driver)
+        time.sleep(3)
+        safe_big_scroll_down(driver)
+        logger.debug(f"done big scroll......")
+
         logger.debug(f"extracting search results......")
-        results = selenium_extract_search_results(webdriver)
+        results = selenium_extract_search_results(driver)
         logger.debug(f"search results collected......{results}")
 
     except Exception as e:
