@@ -44,6 +44,8 @@ export class IPCHandlers {
         // this.registerHandler('update_tools', this.updateTools);
         // this.registerHandler('update_vehicles', this.updateVehicles);
         this.registerHandler('push_chat_message', this.pushChatMessage);
+        this.registerHandler('update_skill_run_stat', this.updateSkillRunStat);
+        this.registerHandler('update_tasks_stat', this.updateTasksStat);
         this.registerHandler('push_chat_notification', this.pushChatNotification);
         this.registerHandler('update_all', this.updateAll);
     }
@@ -141,11 +143,19 @@ export class IPCHandlers {
         return { success: true };
     }
 
-    async pushChatMessage(request: IPCRequest): Promise<{ success: boolean }> {
-        // logger.info('Received pushChatMessage request:', request.params);
+
+    async updateSkillRunStat(request: IPCRequest): Promise<{ success: boolean }> {
+        // logger.info('Received updateSkillRunStat request:', request.params);
+        eventBus.emit('chat:latestSkillRunStat', request.params);
+        return { success: true };
+    }
+
+    async updateTasksStat(request: IPCRequest): Promise<{ success: boolean }> {
+        // logger.info('Received updateTasksStat request:', request.params);
         eventBus.emit('chat:newMessage', request.params);
         return { success: true };
     }
+
 }
 
 export const getHandlers = () => {

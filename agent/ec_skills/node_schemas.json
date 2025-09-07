@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "required": ["input"],
+  "properties": {
+      "input": {
+          "type": "object",
+          "required": ["setup"],
+          "properties": {
+              "setup": {
+                  "type": "object",
+                  "description": "setup contains component preliminary info, parametric filter values, and result figure of merit schemes.",
+              }
+          }
+      }
+  }
+}

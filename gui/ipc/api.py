@@ -331,7 +331,6 @@ class IPCAPI:
         agent_task_id: str,
         langgraph_state: dict,
         timestamp: int = None,
-        uid: str = None,
         callback: Optional[Callable[[APIResponse[bool]], None]] = None
     ) -> None:
         """
@@ -343,4 +342,22 @@ class IPCAPI:
             callback: 回调函数，接收 APIResponse[bool]
         """
         params = {'agentTaskId': agent_task_id, 'langgraphState': langgraph_state, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
-        self._send_request('update_run_stat', params, callback=callback)
+        self._send_request('update_skill_run_stat', params, callback=callback)
+
+    def update_task_stat(
+        self,
+        agent_task_id: str,
+        langgraph_state: dict,
+        timestamp: int = None,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        推送单条聊天消息到指定会话
+        Args:
+            agent_task_id: task ID
+            langgraph_state: {status, node_name, node_state}
+            timestamp: 通知时间戳
+            callback: 回调函数，接收 APIResponse[bool]
+        """
+        params = {'agentTaskId': agent_task_id, 'langgraphState': langgraph_state, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
+        self._send_request('update_tasks_stat', params, callback=callback)

@@ -361,8 +361,8 @@ def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRes
             f"Error during pausing skill run: {str(e)}"
         )
 
-@IPCHandlerRegistry.handler('run_skill')
-def handle_resume_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+@IPCHandlerRegistry.handler('resume_run_skill')
+def handle_resume_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
     """处理获取可用测试项请求
 
     Args:
@@ -540,6 +540,39 @@ def handle_inject_skill_state(request: IPCRequest, params: Optional[Any]) -> IPC
             request,
             'LOGIN_ERROR',
             f"Error during injecting skill state: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('load_skill_schemas')
+def handle_load_skill_schemas(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """处理获取可用测试项请求
+
+    Args:
+        request: IPC 请求对象
+        params: None
+
+    Returns:
+        str: JSON 格式的响应消息
+    """
+    try:
+        logger.debug(f"loading skill schemas: {request}")
+
+        # 生成随机令牌
+        token = str(uuid.uuid4()).replace('-', '')
+        login: Login = AppContext.login
+        node_schemas = login.main_win.node_schemas
+        return create_success_response(request, {
+            'token': token,
+            "node_schemas": node_schemas,
+            'message': 'Load skill schemas successful'
+        })
+
+    except Exception as e:
+        logger.error(f"Error in loading skill schemas handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'LOGIN_ERROR',
+            f"Error during loading skill schemas: {str(e)}"
         )
 
 

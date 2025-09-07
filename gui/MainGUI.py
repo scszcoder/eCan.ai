@@ -96,6 +96,8 @@ import concurrent.futures
 from gui.unified_browser_manager import get_unified_browser_manager
 from auth.auth_manager import AuthManager
 from agent.mcp.local_client import mcp_client_manager
+from agent.ec_skills.build_node import get_default_node_schemas
+
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui finished...")
 
@@ -621,6 +623,20 @@ class MainWindow:
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
+        if self.general_settings["gui_flowgram_schema"]:
+            node_schema_file = self.my_ecb_data_homepath + self.general_settings["gui_flowgram_schema"]
+            if os.path.exists(node_schema_file):
+                try:
+                    with open(node_schema_file, 'rb') as fileTBRead:
+                        self.node_schemas = json.load(fileTBRead)
+                        fileTBRead.close()
+                except json.JSONDecodeError:
+                    self.showMsg("ERROR: json loads an wrongly formated json file")
+                    self.node_schemas = get_default_node_schemas()
+                except Exception as e:
+                    self.showMsg("ERROR: unexpected json load error")
+                    self.node_schemas = get_default_node_schemas()
+
         logger.info("Building agent skills.....")
         asyncio.create_task(self.async_agents_init())
 
