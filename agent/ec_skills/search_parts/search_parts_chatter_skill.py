@@ -705,15 +705,19 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
     logger.debug(f"run_local_search_node: {state}")
+
+    # site - [[{"name", "url"}, "name", "url", ....]...]
+    site_categories = state["tool_result"]["components"][0].get("site_categories", [[]])
     parametric_filters = state["metadata"].get("parametric_filters", [[]])
     # url = state["tool_input"]["url"]
     url = {"url": "https://www.digikey.com/en/products", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
     url = {"url": "https://www.digikey.com/en/products/filter/power-management-pmic/voltage-regulators-linear-low-drop-out-ldo-regulators/699", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
     # url = {"url": "file:///C:/temp/parametric/digikeySC/Voltage Regulators - Linear, Low Drop Out (LDO) Regulators _ Power Management (PMIC) _ Electronic Components Distributor DigiKey.html", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
 
-    parametric_filters = sample_pfs_1
+    print("site categories:", site_categories)
+    # parametric_filters = sample_pfs_1
     # set up tool call input
-    state["tool_input"]["urls"] = [url]
+    state["tool_input"]["urls"] = site_categories
     state["tool_input"]["parametric_filters"] = parametric_filters
     state["tool_input"]["fom_form"] = {}            # this will force the tool to use default fom
     state["tool_input"]["max_n_results"] = 8
@@ -814,7 +818,7 @@ async def create_search_parts_chatter_skill(mainwin):
 
         workflow.add_node("pend_for_next_human_msg0", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg0", THIS_SKILL_NAME, OWNER))
 
-        # workflow.set_entry_point("query_component_specs")
+        workflow.set_entry_point("query_component_specs")
         workflow.add_node("query_component_specs", query_component_specs_node)
 
         workflow.add_conditional_edges("more_analysis_app", is_preliminary_component_info_ready, ["query_component_specs", "pend_for_next_human_msg0"])
@@ -846,7 +850,7 @@ async def create_search_parts_chatter_skill(mainwin):
 
         workflow.add_node("run_search", run_local_search_node)
         workflow.add_node("pend_for_result", node_wrapper(pend_for_result_message_node, "pend_for_result", THIS_SKILL_NAME, OWNER))
-        workflow.set_entry_point("run_search")
+        # workflow.set_entry_point("run_search")
 
         workflow.add_node("show_results", show_results_node)
         # workflow.add_conditional_edges("run_search", is_result_ready, ["show_results", "pend_for_result"])

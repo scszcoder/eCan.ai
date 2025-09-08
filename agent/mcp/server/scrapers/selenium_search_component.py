@@ -1,21 +1,21 @@
-
 from agent.mcp.server.scrapers.digi_key_scrapers.digi_key_selenium_scrapers import *
 from utils.logger_helper import get_traceback
 from agent.agent_service import get_agent_by_id
 from utils.logger_helper import logger_helper as logger
 
 
-def selenium_search_component(webdriver, pf, site):
+def selenium_search_component(webdriver, pf, site_cats):
     try:
-        logger.debug("selenium_search_component started......")
+        logger.debug(f"selenium_search_component started......{site_cats}")
+        logger.debug(f"Received pf: {pf}")
         all_results = []
-        site_url = site['url']
-        cats = site['categories']
-        for cat in cats:
-            cat_phrase = cat[-1]
+
+        for cats in site_cats:
+            site_url = cats[-1]['url']
+            cat_phrase = cats[-1]['name']
             if "digikey" in site_url:
                 logger.debug("searching digikey")
-                results = digi_key_selenium_search_component(webdriver, pf, cat_phrase)
+                results = digi_key_selenium_search_component(webdriver, pf, cat_phrase, site_url)
                 if results["status"] == "success":
                     all_results.extend(results["components"])
     except Exception as e:
