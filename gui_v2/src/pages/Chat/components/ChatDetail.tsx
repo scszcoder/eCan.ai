@@ -95,7 +95,12 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
         isLoadingMoreRef.current = true;
         setLoadingMore(true);
-        const res = await get_ipc_api().chatApi.getChatMessages({ chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: false });
+        const res = await get_ipc_api().chatApi.getChatMessages({
+            chatId,
+            limit: PAGE_SIZE,
+            offset: pageMessages.length,
+            reverse: true  // 获取更早的消息（倒序）
+        });
         let newMsgs: any[] = [];
         if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
             newMsgs = (res.data as any).data;
@@ -387,7 +392,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                         chatId,
                         limit: PAGE_SIZE,
                         offset: 0,
-                        reverse: false  // 改为 false，获取正序数据
+                        reverse: true  // 获取最新的消息（倒序）
                     });
                     
                     let initialMsgs: any[] = [];
