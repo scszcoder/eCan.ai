@@ -11,7 +11,7 @@ function_registry = {
     "loop": build_loop_node,
     "condition": build_condition_node,
     "tool": build_mcp_tool_calling_node,
-    "group": lambda state: state,
+    "group": build_group_node,
     "default": build_debug_node,
 }
 
@@ -91,48 +91,21 @@ def flowgram2langgraph(flowgram_json):
     id_to_node = {}
     for node in flow["nodes"]:
         node_id = node["id"]
-        node_type = node["type"]
+        node_type = node.get("type", "default")
+        node_data = node.get("data", {})
+
         node_map[node_id] = node_id
         id_to_node[node_id] = node
 
+        # Get the appropriate builder function from the registry
+        builder_func = function_registry.get(node_type, build_debug_node)
 
-        callable_func = None
-        # Check for dynamic callable (inline code or file)
-        if 'callable' in node.get('data', {}):
-            callable_data = node['data']['callable']
-            code = callable_data.get('code')
+        # Call the builder function with the node's data to get the final callable
+        node_callable = builder_func(node_data)
 
-            if code and isinstance(code, str):
-                # Scenario 1: Code is a file path
-                if code.endswith('.py') and os.path.exists(code):
-                    try:
-                        spec = importlib.util.spec_from_file_location(f"dynamic_node_{node_id}", code)
-                        module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                        # Convention: the file must have a 'run' function
-                        if hasattr(module, 'run'):
-                            callable_func = getattr(module, 'run')
-                        else:
-                            print(f"Warning: Node {node_id} file {code} is missing a 'run' function.")
-                    except Exception as e:
-                        print(f"Error loading module for node {node_id} from {code}: {e}")
-                # Scenario 2: Code is an inline script
-                else:
-                    try:
-                        func_name = code.split("def ")[1].split("(")[0].strip()
-                        temp_scope = {}
-                        exec(code, globals(), temp_scope)
-                        callable_func = temp_scope[func_name]
-                    except Exception as e:
-                        print(f"Error executing inline code for node {node_id}: {e}")
+        # Add the constructed node to the workflow
+        workflow.add_node(node_id, node_callable)
 
-        # Fallback to registry if no dynamic callable was found/loaded
-        if callable_func is None:
-            callable_func = function_registry.get(node_type, debug_node)
-
-
-
-        workflow.add_node(node_id, function_registry.get(node_type, debug_node))
         if node_type == "start":
             workflow.set_entry_point(node_id)
         if node_type in ["loop", "group"] and "blocks" in node:
@@ -175,5 +148,3 @@ def flatten_blocks(blocks):
 
 def debug_condition_function(state):
     return "if_0"  # just always select first condition for testing
-
-
