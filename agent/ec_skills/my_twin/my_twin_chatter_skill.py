@@ -25,10 +25,10 @@ def parrot(state: NodeState) -> NodeState:
     # this function simply routes the incoming chat message, if the chat message is for
     # human, then sends it to the GUI section, (update message DB)
     # if the chat message is for agent, then sends it to the recipient agent using A2A protocol (update message DB)
-    print("my twin parrot chatting...", state)
+    logger.debug("my twin parrot chatting...", state)
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
-    mainwin = AppContext.main_window
+    mainwin = AppContext.get_main_window()
     try:
         if human_message(state):
             # this is a human to agent chat message
@@ -48,12 +48,12 @@ def parrot(state: NodeState) -> NodeState:
             if recipient_agent:
                 logger.info("parrot recipient found:", recipient_agent.card.name)
             else:
-                logger.error("recipient agent not found!")
+                logger.error("parrot recipient agent not found!")
             # result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
             result = agent.a2a_send_chat_message(recipient_agent, {"chat": state})
         else:
             # sendd this message to GUI
-            print("showing agent msg", state)
+            logger.debug("parrot showing agent msg", state)
             params = state["attributes"]["params"]
             if isinstance(params, TaskSendParams):
                 mtype = params.metadata["mtype"]
@@ -98,8 +98,8 @@ def parrot(state: NodeState) -> NodeState:
                 "status": status,
                 "ext": ext,
             }
-            print("supposed chat id:", state["messages"][1][0])
-            print("pushing frontend message", frontend_message)
+            logger.debug("parrot supposed chat id:", state["messages"][1][0])
+            logger.debug("parrot pushing frontend message", frontend_message)
             mainwin.chat_service.push_message_to_chat(state["messages"][1][0], frontend_message)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)

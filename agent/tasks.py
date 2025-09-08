@@ -724,7 +724,7 @@ class TaskRunner(Generic[Context]):
         await self.resume_task(task_id)
 
     def sendChatMessageToGUI(self, sender_agent, chatId, msg):
-        print("sendChatMessageToGUI::", msg)
+        logger.debug("sendChatMessageToGUI::", msg)
 
         message_text = ""
         if isinstance(msg, dict):
@@ -789,8 +789,8 @@ class TaskRunner(Generic[Context]):
                 "content": {"type": "notification", "notification": chatData},
                 "status": "sent"
             }
-            mainwin = AppContext.main_window
-            mainwin.chat_service.push_message_to_chat(target_chat_id, msg_data)
+            mainwin = AppContext.get_main_window()
+            mainwin.chat_service.push_notification_to_chat(target_chat_id, msg_data)
         except Exception as e:
             ex_stat = "ErrorSendChat2GUI:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")

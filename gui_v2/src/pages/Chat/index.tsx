@@ -426,7 +426,7 @@ const ChatPage: React.FC = () => {
                 chatId,
                 limit: PAGE_SIZE,
                 offset: 0,
-                reverse: true
+                reverse: false  // 改为 false，获取正序数据（最老在前）
             });
             console.log("[chat message] result>>>", response.data);
             

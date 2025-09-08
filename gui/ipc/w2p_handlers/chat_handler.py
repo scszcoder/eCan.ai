@@ -96,7 +96,7 @@ def _do_push_and_echo(chatId, message):
     from app_context import AppContext
 
     main_window: MainWindow = AppContext.main_window
-    web_gui = AppContext.web_gui
+    web_gui = AppContext.get_web_gui()
 
     def build_echo_message(main_window, message):
         """构造 echo 回显消息，自动处理角色、内容、附件等，确保所有必需字段齐全"""

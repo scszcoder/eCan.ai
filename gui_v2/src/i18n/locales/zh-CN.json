@@ -385,6 +385,31 @@
         "scoringComponent": "评分组件",
         "delete": "删除",
         "save": "保存"
+      },
+      "notification": {
+        "content": "内容",
+        "statistics": "统计信息",
+        "summary": "摘要",
+        "product": "产品",
+        "comments": "评论",
+        "viewDetails": "查看详情",
+        "helpful": "有帮助",
+        "notHelpful": "没有帮助",
+        "stats": {
+          "sites_visited": "访问站点",
+          "searches": "搜索次数",
+          "pages_visited": "访问页面",
+          "input_tokens": "输入令牌",
+          "output_tokens": "输出令牌",
+          "products_compared": "对比产品"
+        },
+        "criteria": {
+          "criteria1": "标准1",
+          "criteria2": "标准2",
+          "criteria3": "标准3"
+        },
+        "totalItems": "总项目数",
+        "generatedAt": "生成时间"
       }
     },
     "skills": {

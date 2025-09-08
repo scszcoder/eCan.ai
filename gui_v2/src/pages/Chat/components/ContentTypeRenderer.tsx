@@ -118,19 +118,284 @@ const SystemContent: React.FC<{ system?: { text: string; level: string } }> = ({
   );
 };
 
+// 通用渲染函数
+const renderGenericContent = (key: string, value: any, t: any): React.ReactNode => {
+  if (value === null || value === undefined) return null;
+  
+  // 处理不同数据类型
+  if (typeof value === 'string') {
+    // 特殊处理包含统计信息的字符串
+    if (value.includes('Statistics:')) {
+      const parts = value.split('Statistics:');
+      const mainContent = parts[0].trim();
+      const statsContent = parts[1]?.trim();
+      
+      return (
+        <div>
+          {mainContent && (
+            <Typography.Text style={{ lineHeight: 1.6, display: 'block', marginBottom: statsContent ? 16 : 0 }}>
+              {mainContent}
+            </Typography.Text>
+          )}
+          {statsContent && (
+            <div style={{
+              padding: 12,
+              backgroundColor: 'var(--semi-color-bg-2)',
+              borderRadius: 6,
+              border: '1px solid var(--semi-color-border)'
+            }}>
+              <Typography.Text strong style={{ display: 'block', marginBottom: 8, fontSize: '13px' }}>
+                {t('pages.chat.notification.statistics') || 'Statistics'}
+              </Typography.Text>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+                {statsContent.split(',').map((stat, index) => {
+                  const [statKey, statValue] = stat.trim().split(':');
+                  return statKey && statValue ? (
+                    <div key={index} style={{
+                      padding: '6px 8px',
+                      backgroundColor: 'var(--semi-color-fill-0)',
+                      borderRadius: 4,
+                      textAlign: 'center'
+                    }}>
+                      <Typography.Text size="small" type="secondary" style={{ display: 'block' }}>
+                        {statKey.trim().replace(/_/g, ' ')}
+                      </Typography.Text>
+                      <Typography.Text strong style={{ color: 'var(--semi-color-primary)', fontSize: '14px' }}>
+                        {statValue.trim()}
+                      </Typography.Text>
+                    </div>
+                  ) : null;
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    // 普通字符串
+    return (
+      <Typography.Text style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+        {value}
+      </Typography.Text>
+    );
+  }
+  
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return <Typography.Text>{String(value)}</Typography.Text>;
+  }
+  
+  if (Array.isArray(value)) {
+    if (value.length === 0) return <Typography.Text type="secondary">Empty array</Typography.Text>;
+    
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {value.map((item, index) => (
+          <div key={index} style={{
+            padding: 8,
+            backgroundColor: 'var(--semi-color-fill-0)',
+            borderRadius: 4,
+            marginBottom: 8
+          }}>
+            {typeof item === 'string' ? (
+              <Typography.Text>{item}</Typography.Text>
+            ) : (
+              renderGenericContent(`${key}_${index}`, item, t)
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  
+  if (typeof value === 'object') {
+    // 特殊处理已知的对象结构
+    if (value.isError && value.content) {
+      return (
+        <div style={{
+          padding: 12,
+          backgroundColor: 'var(--semi-color-danger-light-default)',
+          border: '1px solid var(--semi-color-danger-light-active)',
+          borderRadius: 6,
+          borderLeft: '4px solid var(--semi-color-danger)'
+        }}>
+          <Typography.Text style={{ color: 'var(--semi-color-danger)', lineHeight: 1.5 }}>
+            {value.content?.[0]?.text || 'An error occurred'}
+          </Typography.Text>
+        </div>
+      );
+    }
+    
+    // 表格数据处理
+    if (Object.keys(value).length > 0 && Object.values(value).every(v => typeof v === 'object' && v !== null)) {
+      const firstValue = Object.values(value)[0] as any;
+      if (typeof firstValue === 'object' && firstValue !== null) {
+        const criteriaKeys = Object.keys(firstValue);
+        
+        return (
+          <Table
+            dataSource={Object.entries(value).map(([k, v]) => ({
+              key: k,
+              ...(typeof v === 'object' && v !== null ? v as Record<string, any> : {})
+            }))}
+            columns={[
+              { title: t('pages.chat.notification.product') || 'Item', dataIndex: 'key', key: 'key' },
+              ...criteriaKeys.map(criteria => ({
+                title: criteria,
+                dataIndex: criteria,
+                key: criteria
+              }))
+            ]}
+            pagination={false}
+            size="small"
+          />
+        );
+      }
+    }
+    
+    // 统计数据网格处理
+    if (Object.values(value).every(v => typeof v === 'number' || typeof v === 'string')) {
+      return (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+          gap: 12
+        }}>
+          {Object.entries(value).map(([k, v]) => (
+            <div key={k} style={{
+              padding: '12px 16px',
+              backgroundColor: 'var(--semi-color-bg-2)',
+              borderRadius: 6,
+              border: '1px solid var(--semi-color-border)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center'
+            }}>
+              <Typography.Text size="small" type="secondary" style={{
+                display: 'block',
+                marginBottom: 6,
+                fontSize: '12px',
+                fontWeight: 500,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}>
+                {k.replace(/_/g, ' ')}
+              </Typography.Text>
+              <Typography.Title heading={4} style={{
+                margin: 0,
+                color: 'var(--semi-color-primary)',
+                fontWeight: 600,
+                fontSize: '20px'
+              }}>
+                {String(v)}
+              </Typography.Title>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    
+    // 通用对象渲染
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {Object.entries(value).map(([k, v]) => (
+          <div key={k}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
+              {k.replace(/_/g, ' ')}:
+            </Typography.Text>
+            <div style={{ marginLeft: 16 }}>
+              {renderGenericContent(k, v, t)}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  
+  return <Typography.Text>{String(value)}</Typography.Text>;
+};
+
 // 通知内容渲染
-const NotificationContent: React.FC<{ notification?: { title: string; content: string; level: string } }> = ({ notification }) => {
+const NotificationContent: React.FC<{ notification?: any }> = ({ notification }) => {
   const { t } = useTranslation();
   if (!notification) return null;
   
+  // 处理新的嵌套结构
+  const actualNotification = notification.content?.notification || notification;
+  const { title, ...otherFields } = actualNotification;
+  
+  // 如果只有简单的字符串内容且没有其他字段，使用简单格式
+  if (Object.keys(otherFields).length === 1 && typeof otherFields.content === 'string') {
+    return (
+      <Banner
+        type={actualNotification.level as any || 'info'}
+        title={t(title) || title}
+        description={t(otherFields.content) || otherFields.content}
+        closeIcon={null}
+        style={{ marginBottom: 16 }}
+      />
+    );
+  }
+  
   return (
-    <Banner
-      type={notification.level as any}
-      title={t(notification.title) || notification.title}
-      description={t(notification.content) || notification.content}
-      closeIcon={null}
-      style={{ marginBottom: 16 }}
-    />
+    <div className="enhanced-notification" style={{ 
+      border: '1px solid var(--semi-color-border)',
+      borderRadius: 8,
+      padding: 16,
+      marginBottom: 16,
+      backgroundColor: 'var(--semi-color-bg-1)'
+    }}>
+      {/* 标题 */}
+      {title && (
+        <Typography.Title heading={4} style={{ marginBottom: 12 }}>
+          {t(title) || title}
+        </Typography.Title>
+      )}
+      
+      {/* 动态渲染所有其他字段 */}
+      {Object.entries(otherFields).map(([key, value]) => (
+        <div key={key} style={{ marginBottom: 16 }}>
+          <Typography.Title heading={5} style={{ marginBottom: 8, color: 'var(--semi-color-text-1)' }}>
+            {t(`pages.chat.notification.${key}`) || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+          </Typography.Title>
+          <div style={{ 
+            padding: 16,
+            backgroundColor: 'var(--semi-color-fill-0)',
+            border: '1px solid var(--semi-color-border)',
+            borderRadius: 8
+          }}>
+            {renderGenericContent(key, value, t)}
+          </div>
+        </div>
+      ))}
+      
+      {/* 特殊处理链接字段 */}
+      {otherFields.behind_the_scene && (
+        <div style={{ marginBottom: 16 }}>
+          <a href={otherFields.behind_the_scene} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--semi-color-primary)' }}>
+            {t('pages.chat.notification.viewDetails') || 'View Details'}
+          </a>
+        </div>
+      )}
+      
+      {/* 特殊处理反馈选项 */}
+      {otherFields.show_feedback_options && (
+        <div style={{ 
+          display: 'flex', 
+          gap: 8, 
+          paddingTop: 12, 
+          borderTop: '1px solid var(--semi-color-border)' 
+        }}>
+          <Button size="small" type="tertiary" icon={<IconTick />}>
+            {t('pages.chat.notification.helpful') || 'Helpful'}
+          </Button>
+          <Button size="small" type="tertiary" icon={<IconAlertTriangle />}>
+            {t('pages.chat.notification.notHelpful') || 'Not Helpful'}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 };
 
