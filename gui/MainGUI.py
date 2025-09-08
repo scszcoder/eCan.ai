@@ -623,8 +623,9 @@ class MainWindow:
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
-        if self.general_settings["gui_flowgram_schema"]:
-            node_schema_file = self.my_ecb_data_homepath + self.general_settings["gui_flowgram_schema"]
+        gui_flowgram_schema = self.general_settings.get("gui_flowgram_schema", "")
+        if gui_flowgram_schema:
+            node_schema_file = self.my_ecb_data_homepath + gui_flowgram_schema
             if os.path.exists(node_schema_file):
                 try:
                     with open(node_schema_file, 'rb') as fileTBRead:
@@ -1268,7 +1269,8 @@ class MainWindow:
             "last_bots_file_time": "",
             "last_order_file": "",
             "last_order_file_time": "",
-            "mids_forced_to_run": []
+            "mids_forced_to_run": [],
+            "gui_flowgram_schema": ""
         }
 
         # Set default values for missing configuration items

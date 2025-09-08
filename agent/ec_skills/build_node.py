@@ -4,7 +4,7 @@ import importlib.util
 import httpx
 import asyncio
 from agent.mcp.local_client import mcp_call_tool
-from utils.async_utils import run_async_in_sync
+from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI

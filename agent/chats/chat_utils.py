@@ -196,14 +196,15 @@ class ContentSchema:
         }
 
     @staticmethod
-    def create_notification(title: str, content: str, level: str = "info") -> dict:
-        """创建通知消息内容，用于显示通知横幅"""
+    def create_notification(title: str = None, content: str = None) -> dict:
+        """
+        创建通知消息内容
+        """
         return {
             "type": ContentType.NOTIFICATION.value,
             "notification": {
-                "title": title,
-                "content": content,
-                "level": level  # info, warning, error, success
+                "title": title or "Notification",
+                "content": content or ""
             }
         }
 

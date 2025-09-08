@@ -50,9 +50,83 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     const prevScrollHeightRef = useRef(0);
     const prevScrollTopRef = useRef(0);
     const isLoadingMoreRef = useRef(false);
+    
+    // Auto-scroll related refs
+    const isAtBottomRef = useRef(true);
+    const shouldAutoScrollRef = useRef(true);
+    const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+    // Check if user is at the bottom of the chat
+    const isAtBottom = useCallback(() => {
+        const chatBox = chatBoxRef.current;
+        if (!chatBox) return true;
+        
+        const threshold = 100; // Increased threshold for better detection
+        const scrollBottom = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
+        const atBottom = scrollBottom <= threshold;
+        
+        // Update refs for tracking
+        isAtBottomRef.current = atBottom;
+        
+        return atBottom;
+    }, []);
+    
+    // Scroll to bottom of chat
+    const scrollToBottom = useCallback((smooth: boolean = true) => {
+        const chatBox = chatBoxRef.current;
+        if (!chatBox) return;
+        
+        chatBox.scrollTo({
+            top: chatBox.scrollHeight,
+            behavior: smooth ? 'smooth' : 'auto'
+        });
+    }, []);
+    
+    // 加载更多消息
+    const handleLoadMore = useCallback(async () => {
+        if (loadingMore || isInitialLoading || !hasMore || !chatId) {
+            return;
+        }
+        // Record current scrollHeight and scrollTop
+        const chatBox = chatBoxRef.current;
+        if (chatBox) {
+            prevScrollHeightRef.current = chatBox.scrollHeight;
+            prevScrollTopRef.current = chatBox.scrollTop;
+        }
+        isLoadingMoreRef.current = true;
+        setLoadingMore(true);
+        const res = await get_ipc_api().chatApi.getChatMessages({ chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: false });
+        let newMsgs: any[] = [];
+        if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
+            newMsgs = (res.data as any).data;
+        }
+        setPageMessages(prev => mergeAndSortMessages(newMsgs, prev));
+        setOffset(offset + newMsgs.length);
+        setHasMore(newMsgs.length === PAGE_SIZE);
+        setLoadingMore(false);
+    }, [loadingMore, isInitialLoading, hasMore, chatId, pageMessages.length, offset]);
+
+    // Handle scroll position detection
+    const handleScroll = useCallback((e: Event) => {
+        const target = e.target as HTMLElement;
+        
+        // Update scroll position tracking
+        const nowAtBottom = isAtBottom();
+        shouldAutoScrollRef.current = nowAtBottom;
+        
+        // Clear any pending scroll timeout
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+        }
+        
+        // Load more messages when scrolled to top
+        if (target.scrollTop === 0) {
+            handleLoadMore();
+        }
+    }, [isAtBottom, handleLoadMore]);
+    
     // 懒加载可见内容：仅在可见时渲染消息内容，减少首屏渲染压力
-    const LazyVisible: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const LazyVisible = React.memo<{ children: React.ReactNode }>(({ children }) => {
         const [visible, setVisible] = useState(false);
         const itemRef = useRef<HTMLDivElement | null>(null);
         useEffect(() => {
@@ -72,7 +146,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             return () => observer.disconnect();
         }, []);
         return <div ref={itemRef}>{visible ? children : null}</div>;
-    };
+    });
 
     // 初始化协议处理器
     useEffect(() => {
@@ -141,6 +215,10 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     // 自定义消息发送处理函数
     const handleMessageSend = useCallback((content: string, attachments: any[]) => {
         justSentMessageRef.current = true;
+        // When user sends a message, they should auto-scroll to see their message and responses
+        shouldAutoScrollRef.current = true;
+        isAtBottomRef.current = true;
+        
         // 构造新消息对象
         const tempId = `user_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const userMessage = {
@@ -155,6 +233,15 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
             attachments
         };
         setPageMessages(prev => mergeAndSortMessages(prev, [userMessage]));
+        
+        // Scroll to bottom after sending message - use multiple attempts with different timings
+        const scrollAttempts = [50, 100, 200, 300];
+        scrollAttempts.forEach(delay => {
+            setTimeout(() => {
+                scrollToBottom(true);
+            }, delay);
+        });
+        
         if (onSend) {
             onSend(content, attachments);
         }
@@ -174,7 +261,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         setTimeout(() => {
             justSentMessageRef.current = false;
         }, Math.max(...attempts) + 100);
-    }, [chatId, onSend, focusInputArea]);
+    }, [chatId, onSend, focusInputArea, scrollToBottom]);
 
     // 添加事件监听，防止输入框失去焦点
     useEffect(() => {
@@ -251,29 +338,6 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         }
     }, [onMessageDelete, t, updateMessages, messages]);
 
-    // 加载更多消息
-    const handleLoadMore = async () => {
-        if (loadingMore || isInitialLoading || !hasMore || !chatId) {
-            return;
-        }
-        // Record current scrollHeight and scrollTop
-        const chatBox = chatBoxRef.current;
-        if (chatBox) {
-            prevScrollHeightRef.current = chatBox.scrollHeight;
-            prevScrollTopRef.current = chatBox.scrollTop;
-        }
-        isLoadingMoreRef.current = true;
-        setLoadingMore(true);
-        const res = await get_ipc_api().chatApi.getChatMessages({ chatId, limit: PAGE_SIZE, offset: pageMessages.length, reverse: true });
-        let newMsgs: any[] = [];
-        if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
-            newMsgs = (res.data as any).data;
-        }
-        setPageMessages(prev => mergeAndSortMessages(newMsgs, prev));
-        setOffset(offset + newMsgs.length);
-        setHasMore(newMsgs.length === PAGE_SIZE);
-        setLoadingMore(false);
-    };
 
     // 平滑分页：pageMessages 增加时，调整 scrollTop 保持视图无感衔接
     useEffect(() => {
@@ -294,85 +358,165 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         const chatBox = wrapperRef.current.querySelector('.semi-chat-container');
         if (chatBox) chatBoxRef.current = chatBox as HTMLDivElement;
         if (!chatBox) return;
-        const onScroll = (e: Event) => {
-            const target = e.target as HTMLElement;
-            // console.log('onScroll', target.scrollTop, target.scrollHeight, target.clientHeight);
-            if (target.scrollTop === 0) {
-                // console.log('Scrolled to top, will load more');
-                handleLoadMore();
+        
+        chatBox.addEventListener('scroll', handleScroll);
+        return () => {
+            chatBox.removeEventListener('scroll', handleScroll);
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
             }
         };
-        chatBox.addEventListener('scroll', onScroll);
-        return () => chatBox.removeEventListener('scroll', onScroll);
-    }, [pageMessages, handleLoadMore]);
+    }, [handleScroll]);
 
     // 初始化加载第一页
     useEffect(() => {
         setOffset(0);
         setHasMore(true);
         setPageMessages([]);
+        // Reset auto-scroll state when switching chats
+        shouldAutoScrollRef.current = true;
+        isAtBottomRef.current = true;
+        
         if (setIsInitialLoading) setIsInitialLoading(true); else _setIsInitialLoading(true);
+        
+        // Load initial messages when chatId changes
         if (chatId) {
-            // 这里不直接调用 handleLoadMore，而是等 fetchAndProcessChatMessages 完成后再设为 false
+            const loadInitialMessages = async () => {
+                try {
+                    const res = await get_ipc_api().chatApi.getChatMessages({
+                        chatId,
+                        limit: PAGE_SIZE,
+                        offset: 0,
+                        reverse: false  // 改为 false，获取正序数据
+                    });
+                    
+                    let initialMsgs: any[] = [];
+                    if (res.success && res.data && typeof res.data === 'object' && Array.isArray((res.data as any).data)) {
+                        initialMsgs = (res.data as any).data;
+                    }
+                    
+                    setPageMessages(initialMsgs);
+                    setOffset(initialMsgs.length);
+                    setHasMore(initialMsgs.length === PAGE_SIZE);
+                    
+                    // Scroll to bottom after initial load
+                    setTimeout(() => {
+                        scrollToBottom(false); // Use instant scroll for initial load
+                    }, 200);
+                } catch (error) {
+                    console.error('Failed to load initial messages:', error);
+                } finally {
+                    if (setIsInitialLoading) setIsInitialLoading(false); else _setIsInitialLoading(false);
+                }
+            };
+            
+            loadInitialMessages();
+        } else {
+            if (setIsInitialLoading) setIsInitialLoading(false); else _setIsInitialLoading(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chatId]);
+    }, [chatId, scrollToBottom]);
 
+    // Sync allMessages from useMessages hook to pageMessages for display
     useEffect(() => {
         if (!chatId) return;
-        setPageMessages(prev => {
-            const globalMsgs = (allMessages.get(chatId) || []);
-            // 移除本地“sending”且内容和新消息重复的
-            const filteredPrev = prev.filter(
-                m => !(m.status === 'sending' && globalMsgs.some(gm => gm.content === m.content))
-            );
-            // 只合并比当前最新消息 createAt 更晚的新消息
-            const latestTime = filteredPrev.length > 0 ? filteredPrev[filteredPrev.length - 1].createAt : 0;
-            const newMsgs = globalMsgs.filter(m => m.createAt > latestTime);
-            return mergeAndSortMessages(filteredPrev, newMsgs);
-        });
-    }, [allMessages, chatId]);
+        
+        const globalMsgs = allMessages.get(chatId) || [];
+        if (globalMsgs.length > 0) {
+            setPageMessages(prev => {
+                // Remove local "sending" messages that match global messages
+                const filteredPrev = prev.filter(
+                    m => !(m.status === 'sending' && globalMsgs.some(gm => gm.content === m.content))
+                );
+                
+                // Only merge messages that are newer than the latest in current pageMessages
+                const latestTime = filteredPrev.length > 0 ? filteredPrev[filteredPrev.length - 1].createAt : 0;
+                const newMsgs = globalMsgs.filter(m => m.createAt > latestTime);
+                
+                const merged = mergeAndSortMessages(filteredPrev, newMsgs);
+                
+                // Check if user is at bottom before new messages arrive
+                const wasAtBottom = isAtBottomRef.current;
+                
+                // If there are new messages and user was at bottom, auto-scroll
+                if (newMsgs.length > 0 && wasAtBottom) {
+                    // Use requestAnimationFrame for better performance and timing
+                    requestAnimationFrame(() => {
+                        scrollToBottom(false); // Use instant scroll first
+                        
+                        // Then follow up with smooth scroll attempts
+                        const scrollDelays = [50, 150, 300];
+                        scrollDelays.forEach(delay => {
+                            setTimeout(() => {
+                                const stillAtBottom = isAtBottom();
+                                if (wasAtBottom || stillAtBottom) {
+                                    scrollToBottom(true);
+                                }
+                            }, delay);
+                        });
+                    });
+                }
+                
+                return merged;
+            });
+        }
+    }, [allMessages, chatId, scrollToBottom, isAtBottom]);
+
+    // Memoized message renderer to prevent unnecessary re-renders
+    const MessageRenderer = React.memo<{ message: any }>(({ message }) => {
+        const content = message?.content || '';
+        // 只处理 content 字段，不再解析附件标记
+        let parsedContent = content;
+        if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
+            try {
+                parsedContent = JSON.parse(content);
+            } catch (e) {
+                // 解析失败，按普通文本处理
+            }
+        }
+        return (
+            <LazyVisible>
+                <div>
+                    <ContentTypeRenderer 
+                        content={parsedContent} 
+                        chatId={message?.chatId}
+                        messageId={message?.id}
+                        onFormSubmit={(
+                            formId: string, 
+                            values: any, 
+                            chatId?: string, 
+                            messageId?: string, 
+                            processedForm?: any) => handleFormSubmit(
+                                formId, 
+                                values, 
+                                chatId || '', 
+                                messageId || '', 
+                                processedForm)}
+                        onCardAction={handleCardAction}
+                    />
+                    <AttachmentList attachments={message.attachments} />
+                </div>
+            </LazyVisible>
+        );
+    }, (prevProps, nextProps) => {
+        // Custom comparison to prevent re-render if message content hasn't changed
+        const prevMsg = prevProps.message;
+        const nextMsg = nextProps.message;
+        return (
+            prevMsg?.id === nextMsg?.id &&
+            prevMsg?.content === nextMsg?.content &&
+            prevMsg?.status === nextMsg?.status &&
+            JSON.stringify(prevMsg?.attachments) === JSON.stringify(nextMsg?.attachments)
+        );
+    });
 
     // 自定义渲染配置
     const chatBoxRenderConfig = useMemo(() => ({
         renderChatBoxContent: (props: any) => {
             const { message } = props;
-            const content = message?.content || '';
-            // 只处理 content 字段，不再解析附件标记
-            let parsedContent = content;
-            if (typeof content === 'string' && (content.startsWith('{') || content.startsWith('['))) {
-                try {
-                    parsedContent = JSON.parse(content);
-                } catch (e) {
-                    // 解析失败，按普通文本处理
-                }
-            }
-            return (
-                <LazyVisible>
-                    <div>
-                        <ContentTypeRenderer 
-                            content={parsedContent} 
-                            chatId={message?.chatId}
-                            messageId={message?.id}
-                            onFormSubmit={(
-                                formId: string, 
-                                values: any, 
-                                chatId?: string, 
-                                messageId?: string, 
-                                processedForm?: any) => handleFormSubmit(
-                                    formId, 
-                                    values, 
-                                    chatId || '', 
-                                    messageId || '', 
-                                    processedForm)}
-                            onCardAction={handleCardAction}
-                        />
-                        <AttachmentList attachments={message.attachments} />
-                    </div>
-                </LazyVisible>
-            );
+            return <MessageRenderer message={message} />;
         }
-    }), [handleFormSubmit, handleCardAction]);
+    }), []);
 
     // 上传组件的配置
     const uploadProps = getUploadProps();

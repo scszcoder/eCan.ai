@@ -344,21 +344,28 @@ class ChatService(metaclass=SingletonMeta):
             **kwargs
         )
         
-    def add_notification_message(self, chatId: str, title: str, content: str, level: str = "info", 
+    def add_notification_message(self, chatId: str, notification: dict = "",
                                senderId: str = "system", createAt: int = None, **kwargs):
-        """添加通知消息的便捷方法"""
-        notification_content = ContentSchema.create_notification(title, content, level)
-        logger.debug(f"add_notification_message: {notification_content}")
-        return self.add_message(
-            chatId=chatId, 
-            role="system", 
-            content=notification_content, 
+
+        title = notification.get('title', 'Notification')
+        logger.debug(f"Final notification params - title: '{title}', notification: '{notification}'")
+            
+        notification_content = ContentSchema.create_notification(title, notification)
+        logger.debug(f"Created notification content: {notification_content}")
+
+        # 添加消息到数据库
+        result = self.add_message(
+            chatId=chatId,
+            role="system",
+            content=notification_content,
             senderId=senderId,
-            createAt=createAt or int(time.time()*1000), 
+            createAt=createAt or int(time.time()*1000),
             **kwargs
         )
-    
-    def add_card_message(self, chatId: str, role: str, title: str, content: str, actions: list = None, 
+        logger.debug(f"add_notification_message result: {result}")
+        return result
+
+    def add_card_message(self, chatId: str, role: str, title: str, content: str, actions: list = None,
                         senderId: str = None, createAt: int = None, **kwargs):
         """添加卡片消息的便捷方法"""
         card_content = ContentSchema.create_card(title, content, actions)
@@ -825,8 +832,9 @@ class ChatService(metaclass=SingletonMeta):
             elif msg_type == 'notification':
                 notification = content.get('notification', {})
                 return self.add_notification_message(
-                    chatId=chatId, title=notification.get('title', ''), content=notification.get('content', ''),
-                    level=notification.get('level', 'info'), senderId=senderId, createAt=createAt, id=messageId, status=status, ext=ext, attachments=attachments)
+                    chatId=chatId,
+                    notification=notification,
+                    senderId=senderId, createAt=createAt, id=messageId, status=status, ext=ext, attachments=attachments)
             elif msg_type == 'card':
                 card = content.get('card', {})
                 return self.add_card_message(
@@ -854,21 +862,27 @@ class ChatService(metaclass=SingletonMeta):
         logger.debug("push message to front", msg)
         content = msg.get('content')
         createAt = msg.get('createAt')
-        if isinstance(content, dict):
-            msg_type = content.get('type')
-        else:
-            msg_type = 'text'
+
         db_result = self.dispatch_add_message(chatId, msg)
-        logger.info(f"push_message db_result: {db_result}")
+        logger.info(f"push message to db_result: {db_result}")
+
         # Push to frontend
-        web_gui = AppContext.web_gui
+        web_gui = AppContext.get_web_gui()
         # Push actual data after database write
-        if db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type != "notification":
-            logger.debug("push_message db_result['data']:", db_result['data'])
+        if db_result and isinstance(db_result, dict) and 'data' in db_result:
+            logger.debug("push chat message content:", db_result['data'])
             web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
-        elif db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type == "notification":
-            uid = msg.get('id')
-            web_gui.get_ipc_api().push_chat_notification(chatId, content.get('notification', {}), True, createAt, uid)
         else:
             logger.error(f"message insert db failed{chatId}, {msg.get('id')}")
-            # web_gui.get_ipc_api().push_chat_message(chatId, msg)
+
+    def push_notification_to_chat(self, chatId, notif: dict):
+        logger.debug("push notification to front", notif)
+
+        db_result = self.add_chat_notification(chatId, notif, int(time.time() * 1000))
+        logger.info(f"push notification to db_result: {db_result}")
+        # Push to frontend
+        web_gui = AppContext.get_web_gui()
+        # Push actual data after database write
+        if db_result and isinstance(db_result, dict) and 'data' in db_result:
+            logger.debug("push chat notification content:", db_result['data'])
+            web_gui.get_ipc_api().push_chat_notification(chatId, db_result['data'])

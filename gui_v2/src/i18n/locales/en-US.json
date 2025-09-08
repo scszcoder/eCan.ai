@@ -367,6 +367,31 @@
         "scoringComponent": "Scoring Component",
         "delete": "Delete",
         "save": "Save"
+      },
+      "notification": {
+        "content": "Content",
+        "statistics": "Statistics",
+        "summary": "Summary",
+        "product": "Product",
+        "comments": "Comments",
+        "viewDetails": "View Details",
+        "helpful": "Helpful",
+        "notHelpful": "Not Helpful",
+        "stats": {
+          "sites_visited": "Sites Visited",
+          "searches": "Searches",
+          "pages_visited": "Pages Visited",
+          "input_tokens": "Input Tokens",
+          "output_tokens": "Output Tokens",
+          "products_compared": "Products Compared"
+        },
+        "criteria": {
+          "criteria1": "Criteria 1",
+          "criteria2": "Criteria 2",
+          "criteria3": "Criteria 3"
+        },
+        "totalItems": "Total Items",
+        "generatedAt": "Generated at"
       }
     },
     "skills": {
