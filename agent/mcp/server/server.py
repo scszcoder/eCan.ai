@@ -928,19 +928,19 @@ def connect_to_adspower(mainwin, url):
         time.sleep(2)
         logger.debug(f"openning new tab with URL: {url}")
         webdriver.execute_script(f"window.open('{url}', '_blank');")
-        time.sleep(1)
+        time.sleep(2)
         # Switch to the new tab
         webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(2)
+        time.sleep(3)
         # Navigate to the new URL in the new tab
         domTree = {}
-        if url:
-            if not url.startswith("file:///"):
-                logger.debug(f"Navigating to live URL with .get(): {url}")
-                webdriver.get(url)
-                logger.info("opened live URL: " + url)
-            else:
-                logger.debug(f"Local file URL detected. Skipping webdriver.get() as it's already loaded.")
+        # if url:
+        #     if not url.startswith("file:///"):
+        #         logger.debug(f"Navigating to live URL with .get(): {url}")
+        #         webdriver.get(url)
+        #         logger.info("opened live URL: " + url)
+        #     else:
+        #         logger.debug(f"Local file URL detected. Skipping webdriver.get() as it's already loaded.")
 
             # time.sleep(5)
 
@@ -1398,13 +1398,18 @@ async def api_ecan_ai_query_components(mainwin, args):
 async def api_ecan_local_search_components(mainwin, args):
     logger.debug(f"api_ecan_local_search_components initial state: {args}")
     try:
-        url = args['input']["urls"][0]["url"]
+        vendors = list(args['input']["urls"].keys())
+        print("vendors::", vendors)
+        vendor = vendors[0]
+        print("vendor::", vendor)
+        url = args['input']["urls"][vendor][0][-1]["url"]
         logger.debug(f"conncting to ads power: {url}")
         webdriver = connect_to_adspower(mainwin, url)
         if webdriver:
             logger.debug(f"conncted to ads power and webdriver: {args['input']['urls']}")
             log_user = mainwin.user.replace("@", "_").replace(".", "_")
-            pfs = args['input']['parametric_filters']
+            pfs = args['input']["parametric_filters"]
+            logger.debug(f"Received pf in api_ecan_local_search_components: {pfs}")
             sites = args['input']['urls']
             fom_form = args['input'].get('fom_form', {})
             if not fom_form:
@@ -1417,7 +1422,8 @@ async def api_ecan_local_search_components(mainwin, args):
                 for site in sites:
                     try:
                         # Pass a list of URLs and the target category phrase to the selenium search helper
-                        site_results = selenium_search_component(webdriver, pf, site)
+                        print("searching site:", site)
+                        site_results = selenium_search_component(webdriver, pf, sites[site])
                         # extend accumulates in place; do not assign the None return value
                         search_results.extend(site_results)
                     except Exception as e:
