@@ -12,6 +12,8 @@ import base64
 import asyncio
 import sys
 from threading import Thread
+from langgraph.types import Interrupt
+
 
 def rough_token_count(text: str) -> int:
     # Split on whitespace and common punctuations (roughly approximates token count)
@@ -356,3 +358,103 @@ def try_parse_json(s: str):
         return json.loads(s)
     except (json.JSONDecodeError, TypeError, ValueError):
         return s
+
+
+from langgraph.types import Interrupt
+
+def debuggable_node(node_fn, name):
+    """Wrap a node so it can pause after execution."""
+    def wrapper(state, *args, **kwargs):
+        # Run the node normally
+        result = node_fn(state, *args, **kwargs)
+
+        # Always return both result and an interrupt "checkpoint"
+        return [
+            result,
+            Interrupt(value={"at": name, "state": {**state, **result}})
+        ]
+    return wrapper
+
+class BreakpointManager:
+    def __init__(self):
+        self.breakpoints = set()
+        self.pending_interrupt = None
+
+    def set_breakpoint(self, node_name: str):
+        self.breakpoints.add(node_name)
+
+    def clear_breakpoint(self, node_name: str):
+        self.breakpoints.discard(node_name)
+
+    def clear_all(self):
+        self.breakpoints.clear()
+
+    def has_breakpoint(self, node_name: str) -> bool:
+        return node_name in self.breakpoints
+
+    def capture_interrupt(self, interrupt: Interrupt):
+        self.pending_interrupt = interrupt
+
+    def resume(self):
+        if self.pending_interrupt:
+            self.pending_interrupt.resume()
+            self.pending_interrupt = None
+
+
+def breakpoint_wrapper(node_fn, node_name: str, bp_manager: BreakpointManager):
+    """Wrap node function so it pauses if node has a breakpoint set."""
+    def wrapper(state, *args, **kwargs):
+        result = node_fn(state, *args, **kwargs)
+        if bp_manager.has_breakpoint(node_name):
+            return [
+                result,
+                Interrupt(value={"paused_at": node_name, "state": {**state, **result}})
+            ]
+        return result
+    return wrapper
+
+
+# def step1(state): return {"a": 1}
+# def step2(state): return {"b": state["a"] + 2}
+# def step3(state): return {"c": state["b"] * 2}
+# Build graph with wrapped nodes
+# python
+# 复制代码
+# from langgraph.graph import StateGraph, END
+#
+# bp_manager = BreakpointManager()
+#
+# graph = StateGraph(dict)
+# graph.add_node("step1", breakpoint_wrapper(step1, "step1", bp_manager))
+# graph.add_node("step2", breakpoint_wrapper(step2, "step2", bp_manager))
+# graph.add_node("step3", breakpoint_wrapper(step3, "step3", bp_manager))
+#
+# graph.set_entry_point("step1")
+# graph.add_edge("step1", "step2")
+# graph.add_edge("step2", "step3")
+# graph.add_edge("step3", END)
+#
+# compiled = graph.compile()
+# 🔹 Run + Pause/Resume from GUI
+# python
+# 复制代码
+# # GUI (or user) sets a breakpoint
+# bp_manager.set_breakpoint("step2")
+#
+# for event in compiled.stream({}):
+#     if isinstance(event, dict):
+#         print("State update:", event)
+#
+#     elif isinstance(event, Interrupt):
+#         print(f"⏸ Paused at {event.value['paused_at']}")
+#         bp_manager.capture_interrupt(event)
+#         break   # stop loop here until GUI resumes
+# Later in GUI callback
+# python
+# 复制代码
+# # User clicks "resume"
+# bp_manager.resume()
+# Clear breakpoint at runtime
+# python
+# 复制代码
+# bp_manager.clear_breakpoint("step2")
