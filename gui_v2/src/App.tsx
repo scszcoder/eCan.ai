@@ -14,34 +14,7 @@ import { set_ipc_api } from './services/ipc_api';
 import { createIPCAPI } from './services/ipc';
 import { protocolHandler } from './pages/Chat/utils/protocolHandler';
 
-// 初始化应用
-const initializeApp = () => {
-  // 根据环境设置日志等级
-  const isDevelopment = process.env.NODE_ENV === 'development';
 
-  // 打印当前环境信息
-  console.log('Current NODE_ENV:', process.env.NODE_ENV);
-  console.log('Is development:', isDevelopment);
-
-  if (isDevelopment) {
-    // 开发环境：显示所有日志
-    logger.setLevel(LogLevel.DEBUG);
-    console.log('Set log level to:', LogLevel[logger.getLevel()]);
-  } else {
-    // 生产环境：只显示信息、警告和错误
-    logger.setLevel(LogLevel.INFO);
-    logger.info('Running in production mode, debug logs disabled');
-  }
-
-  // 初始化 IPC 服务
-  set_ipc_api(createIPCAPI());
-
-  // 初始化页面刷新管理器
-  pageRefreshManager.initialize();
-
-  // 初始化协议处理器
-  protocolHandler.init();
-};
 
 // 配置 React Router future flags
 // const router = {
@@ -125,10 +98,59 @@ const AppContent = () => {
 };
 
 function App() {
-    // 异步初始化应用，不阻塞首次渲染
+    const [isInitialized, setIsInitialized] = React.useState(false);
+
     React.useEffect(() => {
-        initializeApp();
+        // 同步初始化关键服务，异步初始化其他服务
+        try {
+            // 初始化 IPC 服务（同步）
+            set_ipc_api(createIPCAPI());
+
+            // 异步初始化其他服务
+            const initOtherServices = async () => {
+                try {
+                    // 初始化页面刷新管理器
+                    pageRefreshManager.initialize();
+
+                    // 初始化协议处理器
+                    protocolHandler.init();
+
+                    // 根据环境设置日志等级
+                    const isDevelopment = process.env.NODE_ENV === 'development';
+
+                    if (isDevelopment) {
+                        logger.setLevel(LogLevel.DEBUG);
+                    } else {
+                        logger.setLevel(LogLevel.INFO);
+                        logger.info('Running in production mode, debug logs disabled');
+                    }
+                } catch (error) {
+                    console.error('Failed to initialize other services:', error);
+                }
+            };
+
+            initOtherServices();
+            setIsInitialized(true);
+        } catch (error) {
+            console.error('Failed to initialize core services:', error);
+            setIsInitialized(true); // 仍然允许应用启动，但可能功能受限
+        }
     }, []);
+
+    if (!isInitialized) {
+        return (
+            <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                height: '100vh',
+                backgroundColor: '#0f172a',
+                color: '#f8fafc'
+            }}>
+                <div>Initializing...</div>
+            </div>
+        );
+    }
 
     return (
         <ThemeProvider>

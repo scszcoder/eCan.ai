@@ -333,37 +333,41 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
         title={t(title) || title}
         description={t(otherFields.content) || otherFields.content}
         closeIcon={null}
-        style={{ marginBottom: 16 }}
+        style={{ 
+          marginBottom: 16,
+          borderRadius: 4,
+          border: '1px solid var(--semi-color-border)'
+        }}
       />
     );
   }
   
   return (
-    <div className="enhanced-notification" style={{ 
+    <div className="notification-content" style={{ 
       border: '1px solid var(--semi-color-border)',
-      borderRadius: 8,
+      borderRadius: 4,
       padding: 16,
       marginBottom: 16,
       backgroundColor: 'var(--semi-color-bg-1)'
     }}>
       {/* 标题 */}
       {title && (
-        <Typography.Title heading={4} style={{ marginBottom: 12 }}>
+        <Typography.Title heading={5} style={{ marginBottom: 12, color: 'var(--semi-color-text-0)' }}>
           {t(title) || title}
         </Typography.Title>
       )}
       
       {/* 动态渲染所有其他字段 */}
       {Object.entries(otherFields).map(([key, value]) => (
-        <div key={key} style={{ marginBottom: 16 }}>
-          <Typography.Title heading={5} style={{ marginBottom: 8, color: 'var(--semi-color-text-1)' }}>
+        <div key={key} style={{ marginBottom: 12 }}>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 8, color: 'var(--semi-color-text-1)' }}>
             {t(`pages.chat.notification.${key}`) || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-          </Typography.Title>
+          </Typography.Text>
           <div style={{ 
-            padding: 16,
+            padding: 12,
             backgroundColor: 'var(--semi-color-fill-0)',
             border: '1px solid var(--semi-color-border)',
-            borderRadius: 8
+            borderRadius: 4
           }}>
             {renderGenericContent(key, value, t)}
           </div>
@@ -372,10 +376,14 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
       
       {/* 特殊处理链接字段 */}
       {otherFields.behind_the_scene && (
-        <div style={{ marginBottom: 16 }}>
-          <a href={otherFields.behind_the_scene} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--semi-color-primary)' }}>
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--semi-color-border)' }}>
+          <Button 
+            size="small" 
+            type="tertiary" 
+            onClick={() => window.open(otherFields.behind_the_scene, '_blank')}
+          >
             {t('pages.chat.notification.viewDetails') || 'View Details'}
-          </a>
+          </Button>
         </div>
       )}
       
@@ -384,6 +392,7 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
         <div style={{ 
           display: 'flex', 
           gap: 8, 
+          marginTop: 12,
           paddingTop: 12, 
           borderTop: '1px solid var(--semi-color-border)' 
         }}>
@@ -398,8 +407,6 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
     </div>
   );
 };
-
-// 卡片内容渲染
 const CardContent: React.FC<{ 
   card?: { title: string; content: string; actions: Array<{ text: string; type: string; action: string }> };
   onCardAction?: (action: string) => void;
@@ -408,14 +415,19 @@ const CardContent: React.FC<{
   if (!card) return null;
   
   return (
-    <div className="card-container" style={{ 
+    <div className="card-content" style={{ 
       border: '1px solid var(--semi-color-border)',
       borderRadius: 4,
       padding: 16,
-      marginBottom: 16
+      marginBottom: 16,
+      backgroundColor: 'var(--semi-color-bg-1)'
     }}>
-      <Typography.Title heading={5}>{t(card.title) || card.title}</Typography.Title>
-      <Typography.Paragraph style={{ marginBottom: 16 }}>{t(card.content) || card.content}</Typography.Paragraph>
+      <Typography.Title heading={5} style={{ marginBottom: 12, color: 'var(--semi-color-text-0)' }}>
+        {t(card.title) || card.title}
+      </Typography.Title>
+      <Typography.Paragraph style={{ marginBottom: 16, color: 'var(--semi-color-text-1)' }}>
+        {t(card.content) || card.content}
+      </Typography.Paragraph>
       
       {card.actions?.length > 0 && (
         <div className="card-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -436,54 +448,59 @@ const CardContent: React.FC<{
 
 // Markdown内容渲染
 const MarkdownContent: React.FC<{ markdown?: string }> = ({ markdown }) => {
-  const { t } = useTranslation();
-  const [MD, setMD] = useState<any>(null);
   if (!markdown) return null;
-  useEffect(() => {
-    let mounted = true;
-    import('react-markdown').then(m => {
-      if (mounted) setMD(() => m.default);
-    }).catch(() => {});
-    return () => { mounted = false; };
-  }, []);
   
   return (
-    <div className="markdown-container" style={{ marginBottom: 16 }}>
-      {MD ? <MD>{markdown}</MD> : <pre style={{ whiteSpace: 'pre-wrap' }}>{markdown}</pre>}
+    <div className="markdown-content" style={{ 
+      padding: 16, 
+      border: '1px solid var(--semi-color-border)', 
+      borderRadius: 4, 
+      marginBottom: 16,
+      backgroundColor: 'var(--semi-color-bg-1)'
+    }}>
+      <Typography.Text style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        {markdown}
+      </Typography.Text>
     </div>
   );
 };
 
 // 表格内容渲染
-const TableContent: React.FC<{ table?: { headers: string[]; rows: any[][] } }> = ({ table }) => {
+const TableContent: React.FC<{ table?: { headers: string[]; rows: string[][] } }> = ({ table }) => {
   const { t } = useTranslation();
-  if (!table?.headers?.length || !table.rows?.length) return null;
+  if (!table?.headers || !table?.rows) return null;
   
-  // 构建Semi UI Table需要的columns和dataSource
   const columns = table.headers.map((header, index) => ({
     title: t(header) || header,
-    dataIndex: `col${index}`,
-    key: `col${index}`
+    dataIndex: `col_${index}`,
+    key: `col_${index}`,
+    render: (text: any) => renderTableCell(text)
   }));
   
   const dataSource = table.rows.map((row, rowIndex) => {
-    const rowData: any = { key: `row${rowIndex}` };
-    
+    const rowData: any = { key: rowIndex };
     row.forEach((cell, cellIndex) => {
-      rowData[`col${cellIndex}`] = cell;
+      rowData[`col_${cellIndex}`] = cell;
     });
-    
     return rowData;
   });
   
   return (
-    <Table
-      columns={columns}
-      dataSource={dataSource}
-      size="small"
-      pagination={false}
-      style={{ marginBottom: 16 }}
-    />
+    <div className="table-content" style={{ 
+      marginBottom: 16,
+      border: '1px solid var(--semi-color-border)',
+      borderRadius: 4,
+      overflow: 'hidden'
+    }}>
+      <Table 
+        columns={columns} 
+        dataSource={dataSource} 
+        pagination={false}
+        size="small"
+        bordered={false}
+        style={{ backgroundColor: 'var(--semi-color-bg-1)' }}
+      />
+    </div>
   );
 };
 
@@ -493,11 +510,21 @@ const ImageUrlContent: React.FC<{ image_url?: { url: string } }> = ({ image_url 
   if (!image_url?.url) return null;
   
   return (
-    <div style={{ marginBottom: 16, maxWidth: '100%' }}>
+    <div className="image-content" style={{ 
+      marginBottom: 16, 
+      border: '1px solid var(--semi-color-border)',
+      borderRadius: 4,
+      overflow: 'hidden',
+      backgroundColor: 'var(--semi-color-bg-1)'
+    }}>
       <img 
         src={image_url.url} 
         alt={t('pages.chat.imageAttachmentAlt')}
-        style={{ maxWidth: '100%', borderRadius: 4 }} 
+        style={{ 
+          width: '100%', 
+          height: 'auto',
+          display: 'block'
+        }} 
       />
     </div>
   );
@@ -509,24 +536,29 @@ const FileUrlContent: React.FC<{ file_url?: { url: string; name: string; size: s
   
   return (
     <div 
-      className="file-attachment" 
+      className="file-content" 
       style={{ 
         display: 'flex', 
         alignItems: 'center', 
-        gap: 8,
-        padding: '8px 12px',
+        gap: 12,
+        padding: 16,
         border: '1px solid var(--semi-color-border)',
         borderRadius: 4,
         marginBottom: 16,
-        maxWidth: 300,
-        cursor: 'pointer'
+        backgroundColor: 'var(--semi-color-bg-1)',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease'
       }}
       onClick={() => window.open(file_url.url, '_blank')}
     >
-      <IconInfoCircle />
+      <IconInfoCircle size="large" style={{ color: 'var(--semi-color-primary)' }} />
       <div style={{ flex: 1, overflow: 'hidden' }}>
-        <Typography.Text ellipsis>{file_url.name}</Typography.Text>
-        <Typography.Text size="small" type="tertiary">{file_url.size}</Typography.Text>
+        <Typography.Text strong ellipsis style={{ display: 'block', marginBottom: 4 }}>
+          {file_url.name}
+        </Typography.Text>
+        <Typography.Text size="small" type="tertiary">
+          {file_url.size} • {file_url.type}
+        </Typography.Text>
       </div>
     </div>
   );
@@ -603,11 +635,7 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chat
     // 其它类型走原有 switch
     switch (parsedContent.type) {
       case 'text':
-        return (
-          <div>
-            <TextContent text={(parsedContent as any).text} />
-          </div>
-        );
+        return <TextContent text={(parsedContent as any).text} />;
       case 'code':
         return <CodeContent code={parsedContent.code} />;
       case 'system':
@@ -622,7 +650,18 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chat
           const messageIdToUse = messageId || (parsedContent as any).messageId || (parsedContent as any).message_id || (parsedContent as any).id;
           return <DynamicForm form={formData} chatId={chatIdToUse} messageId={messageIdToUse} onFormSubmit={onFormSubmit} />;
         }
-        return <div>{t('pages.chat.noFormContent')}</div>;
+        return (
+          <div className="form-error" style={{
+            padding: 16,
+            border: '1px solid var(--semi-color-border)',
+            borderRadius: 4,
+            marginBottom: 16,
+            backgroundColor: 'var(--semi-color-bg-1)',
+            color: 'var(--semi-color-text-2)'
+          }}>
+            {t('pages.chat.noFormContent') || 'No form content available'}
+          </div>
+        );
       }
       case 'card':
         return <CardContent card={parsedContent.card} onCardAction={onCardAction} />;
