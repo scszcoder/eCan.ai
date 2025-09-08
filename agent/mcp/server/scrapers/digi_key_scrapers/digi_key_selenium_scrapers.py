@@ -1151,6 +1151,7 @@ def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20)
 # Public API
 # -----------------------------
 
+
 def apply_parametric_filters_safe(driver, filters: List[Dict], timeout: int = 20) -> List[Tuple[str, bool, str]]:
     """
     Apply a list of parametric filters:
@@ -1214,7 +1215,6 @@ def apply_parametric_filters_safe(driver, filters: List[Dict], timeout: int = 20
         logger.error(f"An error applying pfs: {get_traceback(e)}")
 
     return results
-
 
 import csv
 import re
@@ -1460,7 +1460,6 @@ def try_dismiss_banners(driver):
         except Exception:
             pass
 
-
 def extract_links_from_td(td) -> Dict[str, str]:
     out = {}
     # MPN + Product URL
@@ -1510,7 +1509,7 @@ def extract_links_from_td(td) -> Dict[str, str]:
     except Exception:
         pass
 
-    return out
+    return links
 
 
 def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
