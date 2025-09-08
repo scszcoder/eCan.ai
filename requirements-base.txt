@@ -210,7 +210,7 @@ jsonpatch==1.33
 jsonpointer==3.0.0
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
-protobuf>=6.32.0
+protobuf>=5.29.0,<6.0.0
 proto-plus==1.25.0
 flatbuffers==25.2.10
 
