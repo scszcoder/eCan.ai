@@ -16,7 +16,8 @@ def selenium_search_component(webdriver, pf, site):
             if "digikey" in site_url:
                 logger.debug("searching digikey")
                 results = digi_key_selenium_search_component(webdriver, pf, cat_phrase)
-                all_results.extend(results)
+                if results["status"] == "success":
+                    all_results.extend(results["components"])
     except Exception as e:
         err_trace = get_traceback(e, "ErrorSeleniumSearchComponent")
         logger.debug(err_trace)

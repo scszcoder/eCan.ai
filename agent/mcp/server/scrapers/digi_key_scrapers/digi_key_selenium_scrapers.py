@@ -1030,7 +1030,9 @@ def _get_scroll_outers(card):
 
 def _visible_option_nodes(card):
     """Return the current visible option <span> elements (the inner text node)."""
-    return card.find_elements(By.CSS_SELECTOR, "span.tss-css-1w97wf3-options > span")
+    # The clickable element is the outer span with data-testid ending in '-label-<id>'
+    return card.find_elements(By.CSS_SELECTOR, "span[data-testid^='filter-'][data-testid*='-label-']")
+    # return card.find_elements(By.CSS_SELECTOR, "span.tss-css-1w97wf3-options > span")
 
 def _find_visible_option_by_text(card, target_text: str):
     want = _norm(target_text)
@@ -1093,11 +1095,13 @@ def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20)
     Inside the filter card titled `header`, select option whose text == `value`.
     Returns True if it clicks something (or it detects the option already active); False if not found.
     """
+    logger.debug("Setting filter '%s' to '%s'...", header, value)
     with step(driver, f"filter '{header}' = '{value}'"):
         card = _find_filter_card(driver, header)
         if not card:
+            logger.warning("Card not found!!!")
             return False
-
+        logger.debug("Card found!!!")
         # Bring card into view
         safe_scroll(driver, element=card, block="center", desc=f"scroll to '{header}' card")
 
@@ -1119,6 +1123,7 @@ def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20)
                 pass
 
         # If visible now, great; otherwise virtual-scroll
+        logger.debug("Checking if option '%s' is visible...", value)
         node = _find_visible_option_by_text(card, value) or _scroll_and_probe_for_option(driver, card, value)
         if not node:
             return False
@@ -1133,8 +1138,9 @@ def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20)
         try:
             safe_click(driver, node, desc=f"select '{value}' in '{header}'")
             return True
-        except Exception:
+        except (ElementClickInterceptedException, ElementNotInteractableException):
             # JS fallback
+            logger.warning("Standard click failed for '%s', trying JS click fallback...", value)
             try:
                 safe_inject_js(driver, "arguments[0].click();", [node], desc=f"js click '{value}' in '{header}'")
                 return True
@@ -1160,45 +1166,52 @@ def apply_parametric_filters_safe(driver, filters: List[Dict], timeout: int = 20
       - otherwise skip (return reason)
     Returns a list of tuples: (label, applied_bool, reason)
     """
-    results = []
-    for f in filters or []:
-        label = (f or {}).get("label") or ""
-        sel   = (f or {}).get("selectedValue")
-        opts  = (f or {}).get("options") or []
+    try:
+        logger.debug(f"AApplying filters: {filters}")
+        results = []
+        for f in filters or []:
+            label = (f or {}).get("label") or ""
+            sel   = (f or {}).get("selectedValue")
+            opts  = (f or {}).get("options") or []
+            logger.debug(f"label::: {label}, sel {sel}, opts {opts}")
+            if not label:
+                logger.warning("Missing label in filter: %s", f)
+                results.append(("<missing label>", False, "no label"))
+                continue
 
-        if not label:
-            results.append(("<missing label>", False, "no label"))
-            continue
+            if not sel:
+                logger.warning("Missing selectedValue in filter: %s", f)
+                results.append((label, False, "no selectedValue"))
+                continue
 
-        if not sel:
-            results.append((label, False, "no selectedValue"))
-            continue
+            if not _value_present_in_options(str(sel), opts):
+                logger.warning("Missing options in filter: %s", f)
+                results.append((label, False, "selectedValue not in options (skipped)"))
+                continue
 
-        if not _value_present_in_options(str(sel), opts):
-            results.append((label, False, "selectedValue not in options (skipped)"))
-            continue
+            applied = _set_single_filter_value(driver, label, str(sel), timeout=timeout)
+            results.append((label, bool(applied), "ok" if applied else "option not found / not clickable"))
 
-        applied = _set_single_filter_value(driver, label, str(sel), timeout=timeout)
-        results.append((label, bool(applied), "ok" if applied else "option not found / not clickable"))
-
-        # After setting all filters, find and click the 'Apply All' button.
-        try:
-            logger.debug("Attempting to click 'Apply All' filters button...")
-            apply_button_selector = (By.CSS_SELECTOR, "button[data-testid='apply-all-button']")
-            apply_button = WebDriverWait(driver, timeout).until(
-                EC.element_to_be_clickable(apply_button_selector)
-            )
-            apply_button.click()
-            logger.debug("'Apply All' button clicked. Waiting for page to update.")
-            # Wait for the page to process the filters and reload the results.
-            selenium_wait_for_page_load(driver)
-        except TimeoutException:
-            logger.warning("'Apply All' button was not found or not clickable within the timeout period.")
-            # Depending on the desired behavior, you might want to handle this case differently.
-            # For now, we just log a warning and continue.
-            pass
-        except Exception as e:
-            logger.error(f"An error occurred while trying to click 'Apply All': {get_traceback(e)}")
+            # After setting all filters, find and click the 'Apply All' button.
+            try:
+                logger.debug("Attempting to click 'Apply All' filters button...")
+                apply_button_selector = (By.CSS_SELECTOR, "button[data-testid='apply-all-button']")
+                apply_button = WebDriverWait(driver, timeout).until(
+                    EC.element_to_be_clickable(apply_button_selector)
+                )
+                apply_button.click()
+                logger.debug("'Apply All' button clicked. Waiting for page to update.")
+                # Wait for the page to process the filters and reload the results.
+                selenium_wait_for_page_load(driver)
+            except TimeoutException:
+                logger.warning("'Apply All' button was not found or not clickable within the timeout period.")
+                # Depending on the desired behavior, you might want to handle this case differently.
+                # For now, we just log a warning and continue.
+                pass
+            except Exception as e:
+                logger.error(f"An error occurred while trying to click 'Apply All': {get_traceback(e)}")
+    except Exception as e:
+        logger.error(f"An error applying pfs: {get_traceback(e)}")
 
     return results
 
@@ -1695,12 +1708,12 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase):
     try:
         logger.debug("digi_key_selenium_search_component... accessing driver")
         selenium_wait_for_page_load(driver)
-        # logger.debug(f"clicking on category phrase... {category_phrase}")
-        # click_category_link_safe(driver, category_phrase)
-        # logger.debug(f"wait for category page to full load...")
-        # selenium_wait_for_page_load(driver)
+        logger.debug(f"clicking on category phrase... {category_phrase}")
+        click_category_link_safe(driver, category_phrase)
+        logger.debug(f"wait for category page to full load...")
+        selenium_wait_for_page_load(driver)
         logger.debug(f"applying pfs: {pfs}")
-        results = apply_parametric_filters_safe(driver, pfs)
+        applied_pfs = apply_parametric_filters_safe(driver, pfs)
 
         logger.debug(f"waiting for search results to show up completely......")
         # selenium_wait_for_results_container(driver)
@@ -1709,12 +1722,13 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase):
         logger.debug(f"done big scroll......")
 
         logger.debug(f"extracting search results......")
-        results = selenium_extract_search_results(driver)
-        logger.debug(f"search results collected......{results}")
+        components_results = selenium_extract_search_results(driver)
+        logger.debug(f"search results collected......{components_results}")
+        results = {"status": "success", "components": components_results}
 
     except Exception as e:
         err_msg = get_traceback(e, "ErrorDigikeySeleniumSearchComponent")
-        results = []
+        results = {"status": "failed", "error": err_msg, "components": []}
 
     return results
 
