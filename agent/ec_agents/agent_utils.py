@@ -1180,6 +1180,7 @@ def prep_knowledges_data_for_cloud(mainwin, knowledges):
         return None
 
 
+
 def remove_knowledges_from_cloud(mainwin, knowledges):
     try:
         api_removes=[{"id": item.id, "owner": "", "reason": ""} for item in knowledges]
@@ -1195,3 +1196,14 @@ def remove_knowledges_from_cloud(mainwin, knowledges):
         # log3(ex_stat)
         logger.error(ex_stat)
         return None
+
+
+def add_tasks_to_agent(mainwin, agent_name, tasks):
+    found_agent = next((ag for ag in mainwin.agents if agent_name.lower() in ag.card.name.lower()), None)
+    if found_agent:
+        if isinstance(tasks, list):
+            found_agent.tasks.extend(tasks)
+        else:
+            found_agent.tasks.append(tasks)
+
+    return found_agent

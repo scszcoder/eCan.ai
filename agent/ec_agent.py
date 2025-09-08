@@ -61,6 +61,7 @@ import threading
 import concurrent.futures
 import base64
 from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
 
 
 load_dotenv()
@@ -412,3 +413,62 @@ class EC_Agent(Agent):
 			else:
 				ex_stat = "ErrorA2ASend: traceback information not available:" + str(e)
 			logger.error(ex_stat)
+
+	def launch_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = ""
+			dev_task = next((task for task in self.tasks if "run task for skill under development" in task.name.lower()), None)
+			self.running_tasks.submit(self.runner.launch_dev_run, dev_task)
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+	def resume_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = ""
+			self.runner.resume_dev_run()
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+	def step_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = ""
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+	def pause_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = ""
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+
+	def cancel_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = ""
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
