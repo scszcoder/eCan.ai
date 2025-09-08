@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Typography, Banner, Table, Button } from '@douyinfe/semi-ui';
+import { Typography, Banner, Table, Button, Space } from '@douyinfe/semi-ui';
 import { IconCode, IconInfoCircle, IconTick, IconAlertTriangle } from '@douyinfe/semi-icons';
 import { Content } from '../types/chat';
 import DynamicForm from './FormField';
@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next';
 
 // 基础的文本内容渲染
 const TextContent: React.FC<{ text?: string }> = ({ text }) => {
-  const { t } = useTranslation();
   if (!text?.trim()) return null;
   return (
     <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
@@ -60,7 +59,7 @@ const CodeContent: React.FC<{ code?: { lang: string; value: string } }> = ({ cod
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <IconCode />
-          <span>{code.lang || t('pages.chat.codeText')}</span>
+          <span>{code.lang || t('pages.chat.code') || 'Code'}</span>
         </div>
         <Button 
           size="small" 
@@ -68,7 +67,7 @@ const CodeContent: React.FC<{ code?: { lang: string; value: string } }> = ({ cod
           type={copied ? "tertiary" : "primary"}
           onClick={handleCopy}
         >
-          {copied ? t('pages.chat.copied') : t('pages.chat.copy')}
+          {copied ? (t('pages.chat.copied') || 'Copied') : (t('pages.chat.copy') || 'Copy')}
         </Button>
       </div>
       {Highlighter && style ? (
@@ -113,7 +112,7 @@ const SystemContent: React.FC<{ system?: { text: string; level: string } }> = ({
       marginBottom: 16
     }}>
       {getIcon(system.level)}
-      <Typography.Text>{t(system.text) || system.text}</Typography.Text>
+      <Typography.Text>{system.text}</Typography.Text>
     </div>
   );
 };
@@ -145,20 +144,24 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
               border: '1px solid var(--semi-color-border)'
             }}>
               <Typography.Text strong style={{ display: 'block', marginBottom: 8, fontSize: '13px' }}>
-                {t('pages.chat.notification.statistics') || 'Statistics'}
+                {t('pages.chat.statistics') || 'Statistics'}
               </Typography.Text>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+              <Space wrap>
                 {statsContent.split(',').map((stat, index) => {
                   const [statKey, statValue] = stat.trim().split(':');
                   return statKey && statValue ? (
                     <div key={index} style={{
-                      padding: '6px 8px',
-                      backgroundColor: 'var(--semi-color-fill-0)',
+                      padding: '4px 8px',
+                      backgroundColor: 'var(--semi-color-primary-light-default)',
                       borderRadius: 4,
-                      textAlign: 'center'
+                      fontSize: '12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      minWidth: 60
                     }}>
-                      <Typography.Text size="small" type="secondary" style={{ display: 'block' }}>
-                        {statKey.trim().replace(/_/g, ' ')}
+                      <Typography.Text type="secondary" size="small" style={{ fontSize: '10px' }}>
+                        {t(`pages.chat.stats.${statKey.trim()}`) || statKey.trim().replace(/_/g, ' ')}
                       </Typography.Text>
                       <Typography.Text strong style={{ color: 'var(--semi-color-primary)', fontSize: '14px' }}>
                         {statValue.trim()}
@@ -166,7 +169,7 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
                     </div>
                   ) : null;
                 })}
-              </div>
+              </Space>
             </div>
           )}
         </div>
@@ -181,12 +184,16 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
     );
   }
   
-  if (typeof value === 'number' || typeof value === 'boolean') {
+  if (typeof value === 'boolean') {
+    return <Typography.Text>{value ? (t('common.yes') || 'Yes') : (t('common.no') || 'No')}</Typography.Text>;
+  }
+  
+  if (typeof value === 'number') {
     return <Typography.Text>{String(value)}</Typography.Text>;
   }
   
   if (Array.isArray(value)) {
-    if (value.length === 0) return <Typography.Text type="secondary">Empty array</Typography.Text>;
+    if (value.length === 0) return <Typography.Text type="secondary">{t('common.emptyArray') || 'Empty array'}</Typography.Text>;
     
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -220,7 +227,7 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
           borderLeft: '4px solid var(--semi-color-danger)'
         }}>
           <Typography.Text style={{ color: 'var(--semi-color-danger)', lineHeight: 1.5 }}>
-            {value.content?.[0]?.text || 'An error occurred'}
+            {value.content?.[0]?.text || t('pages.chat.errorOccurred') || 'An error occurred'}
           </Typography.Text>
         </div>
       );
@@ -316,6 +323,55 @@ const renderGenericContent = (key: string, value: any, t: any): React.ReactNode 
   return <Typography.Text>{String(value)}</Typography.Text>;
 };
 
+// 表格单元格渲染函数
+const renderTableCell = (value: any, t?: any): React.ReactNode => {
+  if (value === null || value === undefined) {
+    return <Typography.Text type="secondary">-</Typography.Text>;
+  }
+  
+  if (typeof value === 'boolean') {
+    return <Typography.Text>{value ? (t?.('common.yes') || 'Yes') : (t?.('common.no') || 'No')}</Typography.Text>;
+  }
+  
+  if (typeof value === 'number') {
+    return <Typography.Text>{value.toLocaleString()}</Typography.Text>;
+  }
+  
+  if (typeof value === 'string') {
+    // 检查是否是URL
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return (
+        <a href={value} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--semi-color-primary)' }}>
+          {value.length > 50 ? `${value.substring(0, 50)}...` : value}
+        </a>
+      );
+    }
+    
+    // 长文本截断
+    if (value.length > 100) {
+      return (
+        <Typography.Text ellipsis={{ showTooltip: true }}>
+          {value}
+        </Typography.Text>
+      );
+    }
+    
+    return <Typography.Text>{value}</Typography.Text>;
+  }
+  
+  // 对象或数组，转换为JSON字符串
+  if (typeof value === 'object') {
+    const jsonStr = JSON.stringify(value, null, 2);
+    return (
+      <Typography.Text code ellipsis={{ showTooltip: true }}>
+        {jsonStr.length > 50 ? `${jsonStr.substring(0, 50)}...` : jsonStr}
+      </Typography.Text>
+    );
+  }
+  
+  return <Typography.Text>{String(value)}</Typography.Text>;
+};
+
 // 通知内容渲染
 const NotificationContent: React.FC<{ notification?: any }> = ({ notification }) => {
   const { t } = useTranslation();
@@ -382,7 +438,7 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
             type="tertiary" 
             onClick={() => window.open(otherFields.behind_the_scene, '_blank')}
           >
-            {t('pages.chat.notification.viewDetails') || 'View Details'}
+            {t('pages.chat.viewDetails') || 'View Details'}
           </Button>
         </div>
       )}
@@ -397,10 +453,10 @@ const NotificationContent: React.FC<{ notification?: any }> = ({ notification })
           borderTop: '1px solid var(--semi-color-border)' 
         }}>
           <Button size="small" type="tertiary" icon={<IconTick />}>
-            {t('pages.chat.notification.helpful') || 'Helpful'}
+            {t('pages.chat.helpful') || 'Helpful'}
           </Button>
           <Button size="small" type="tertiary" icon={<IconAlertTriangle />}>
-            {t('pages.chat.notification.notHelpful') || 'Not Helpful'}
+            {t('pages.chat.notHelpful') || 'Not Helpful'}
           </Button>
         </div>
       )}
@@ -474,7 +530,7 @@ const TableContent: React.FC<{ table?: { headers: string[]; rows: string[][] } }
     title: t(header) || header,
     dataIndex: `col_${index}`,
     key: `col_${index}`,
-    render: (text: any) => renderTableCell(text)
+    render: (text: any) => renderTableCell(text, t)
   }));
   
   const dataSource = table.rows.map((row, rowIndex) => {
@@ -519,7 +575,7 @@ const ImageUrlContent: React.FC<{ image_url?: { url: string } }> = ({ image_url 
     }}>
       <img 
         src={image_url.url} 
-        alt={t('pages.chat.imageAttachmentAlt')}
+        alt={t('pages.chat.imageAttachment') || 'Image attachment'}
         style={{ 
           width: '100%', 
           height: 'auto',
@@ -531,7 +587,6 @@ const ImageUrlContent: React.FC<{ image_url?: { url: string } }> = ({ image_url 
 };
 
 const FileUrlContent: React.FC<{ file_url?: { url: string; name: string; size: string; type: string } }> = ({ file_url }) => {
-  const { t } = useTranslation();
   if (!file_url?.url) return null;
   
   return (
@@ -551,7 +606,7 @@ const FileUrlContent: React.FC<{ file_url?: { url: string; name: string; size: s
       }}
       onClick={() => window.open(file_url.url, '_blank')}
     >
-      <IconInfoCircle size="large" style={{ color: 'var(--semi-color-primary)' }} />
+      <IconInfoCircle size="large" />
       <div style={{ flex: 1, overflow: 'hidden' }}>
         <Typography.Text strong ellipsis style={{ display: 'block', marginBottom: 4 }}>
           {file_url.name}

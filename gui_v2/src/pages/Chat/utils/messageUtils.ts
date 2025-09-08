@@ -26,5 +26,20 @@ export function ensureMessageId(message: Message): Message {
  * 记录消息处理日志
  */
 export function logMessageProcessing(action: string, messageId: string, details?: any): void {
-  logger.debug(`Message processing [${action}]: ${messageId}`, details);
+  let detailsStr = '';
+  if (details !== undefined) {
+    if (typeof details === 'string') {
+      detailsStr = ` - ${details}`;
+    } else if (typeof details === 'object' && details !== null) {
+      // 将对象转换为简洁的键值对字符串
+      const entries = Object.entries(details);
+      if (entries.length > 0) {
+        detailsStr = ` - ${entries.map(([key, value]) => `${key}:${String(value)}`).join(', ')}`;
+      }
+    } else {
+      detailsStr = ` - ${String(details)}`;
+    }
+  }
+  
+  logger.debug(`Message processing [${action}]: ${messageId}${detailsStr}`);
 } 

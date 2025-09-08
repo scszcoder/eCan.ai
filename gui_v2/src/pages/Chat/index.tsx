@@ -629,7 +629,7 @@ const ChatPage: React.FC = () => {
             };
             
             const response = await get_ipc_api().chatApi.sendChat(messageData);
-            logger.debug("[sendChat] response:", response.data);
+            logger.debug("[sendChat] response:", JSON.stringify(response.data));
             if (!response.success) {
                 logger.error('Failed to send message:', response.error);
                 // 更新消息状态为错误
