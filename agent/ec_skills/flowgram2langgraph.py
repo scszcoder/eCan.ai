@@ -1,17 +1,18 @@
 import json
 from langgraph.graph import StateGraph, START, END
-from all_callables import process_chat, custom_greeting, read_attachments, debug_node
-
+from agent.ec_skills.build_node import *
+import importlib
 # Simulated function registry to map node types to actual Python functions.
 # You need to populate this in your real implementation
 function_registry = {
-    "llm": process_chat,
-    "basic": custom_greeting,
-    "loop": read_attachments,
-    "condition": debug_node,
-    "comment": lambda state: state,
-    "group": lambda state: state,
-    "default": debug_node,
+    "llm": build_llm_node,
+    "basic": build_basic_node,
+    "api": build_api_node,
+    "loop": build_loop_node,
+    "condition": build_condition_node,
+    "tool": build_mcp_tool_calling_node,
+    "group": build_group_node,
+    "default": build_debug_node,
 }
 
 def evaluate_condition(state, conditions):
@@ -90,10 +91,21 @@ def flowgram2langgraph(flowgram_json):
     id_to_node = {}
     for node in flow["nodes"]:
         node_id = node["id"]
-        node_type = node["type"]
+        node_type = node.get("type", "default")
+        node_data = node.get("data", {})
+
         node_map[node_id] = node_id
         id_to_node[node_id] = node
-        workflow.add_node(node_id, function_registry.get(node_type, debug_node))
+
+        # Get the appropriate builder function from the registry
+        builder_func = function_registry.get(node_type, build_debug_node)
+
+        # Call the builder function with the node's data to get the final callable
+        node_callable = builder_func(node_data)
+
+        # Add the constructed node to the workflow
+        workflow.add_node(node_id, node_callable)
+
         if node_type == "start":
             workflow.set_entry_point(node_id)
         if node_type in ["loop", "group"] and "blocks" in node:
@@ -136,5 +148,3 @@ def flatten_blocks(blocks):
 
 def debug_condition_function(state):
     return "if_0"  # just always select first condition for testing
-
-

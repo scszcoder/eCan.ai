@@ -234,6 +234,42 @@ export class IPCAPI {
         return this.executeRequest<void>('run_skill', {username, skill});
     }
 
+    public async cancelRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('cancel_run_skill', {username, skill});
+    }
+
+    public async pauseRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('pause_run_skill', {username, skill});
+    }
+
+    public async resumeRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('resume_run_skill', {username, skill});
+    }
+
+    public async stepRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('step_run_skill', {username, skill});
+    }
+
+    public async setSkillBreakpoints<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('set_skill_breakpoints', {username, skill});
+    }
+
+    public async stepRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('step_run_skill', {username, skill});
+    }
+
+    public async requestSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('request_skill_state', {username, skill});
+    }
+
+    public async injectSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('inject_skill_state', {username, skill});
+    }
+
+    public async loadSkillSchemas<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        return this.executeRequest<void>('load_skill_schemas', {username, skill});
+    }
+
     public async saveSettings<T>(value: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('save_settings', value);
     }
