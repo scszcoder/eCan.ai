@@ -328,11 +328,11 @@ class EC_Agent(Agent):
 	@time_execution_sync('--a2a_send_chat_message (agent, message)')
 	def a2a_send_chat_message(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
-		logger.info("recipient card:", recipient_agent.get_card().name.lower())
-		logger.info("sending message:", message)
+		logger.info("[ec_agent] recipient card:", recipient_agent.get_card().name.lower())
+		logger.info("[ec_agent] sending message:", message)
 		try:
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
-			logger.info("a2a end point: ", a2a_end_point)
+			logger.info("[ec_agent] a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
 			msg_parts = [TextPart(type="text", text=message['chat']['input'])]
 			if message['chat']['attachments']:
@@ -399,10 +399,10 @@ class EC_Agent(Agent):
 					"ext": ""
 				}
 			)
-			logger.info("client payload:", payload)
+			logger.info("[ec_agent] client payload:", payload)
 			# response = await self.a2a_client.send_task(payload)
 			response = self.a2a_client.sync_send_task(payload.model_dump())
-			logger.info("A2A RESPONSE:", response)
+			logger.info("[ec_agent] A2A RESPONSE:", response)
 			return response
 		except Exception as e:
 			# Get the traceback information

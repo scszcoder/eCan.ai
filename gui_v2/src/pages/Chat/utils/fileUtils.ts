@@ -30,6 +30,12 @@ export class FileUtils {
     private static get api() {
         if (!this._api) {
             this._api = get_ipc_api();
+            if (!this._api) {
+                throw new Error('IPC API not initialized. Please ensure the application is properly started.');
+            }
+            if (!this._api.chatApi) {
+                throw new Error('Chat API not available. Please check the IPC initialization.');
+            }
         }
         return this._api;
     }
@@ -98,7 +104,7 @@ export class FileUtils {
                 normalizedPath = filePath;
             }
             
-            const response = await this.api.chat.getFileInfo(normalizedPath);
+            const response = await this.api.chatApi.getFileInfo(normalizedPath);
             if (response.success && response.data) {
                 return response.data;
             } else {
@@ -131,7 +137,7 @@ export class FileUtils {
             
             //logger.debug(`[getFileContent] Normalized path: ${normalizedPath}`);
             
-            const response = await this.api.chat.getFileContent(normalizedPath);
+            const response = await this.api.chatApi.getFileContent(normalizedPath);
             
             if (response.success && response.data) {
                 //logger.debug(`[getFileContent] Success, data received`);
