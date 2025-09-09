@@ -74,6 +74,7 @@
       "directories": [
         "resource",
         "config",
+        "auth",
         "bot",
         "gui",
         "common",

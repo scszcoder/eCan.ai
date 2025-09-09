@@ -319,18 +319,6 @@ class UnifiedBuildSystem:
         except Exception as e:
             print(f"[RENAME] Warning: Failed to standardize names: {e}")
     
-    def register_url_scheme_post_build(self) -> None:
-        """Register URL scheme after build completion"""
-        print("\n[URL-SCHEME] Registering URL scheme post-build...")
-        try:
-            from build_system.url_scheme_config import register_url_scheme_post_build
-            success = register_url_scheme_post_build()
-            if success:
-                print("[URL-SCHEME] URL scheme registered successfully")
-            else:
-                print("[URL-SCHEME] Warning: URL scheme registration failed")
-        except Exception as e:
-            print(f"[URL-SCHEME] Warning: Post-build registration error: {e}")
     
     def build(self, mode: str = "prod", version: str = None, **kwargs) -> int:
         """Unified build method with comprehensive error handling"""
@@ -368,8 +356,6 @@ class UnifiedBuildSystem:
             # Standardize artifacts
             self.standardize_artifacts(version)
             
-            # Post-build URL scheme registration
-            self.register_url_scheme_post_build()
             
             # Show results
             show_build_results()
