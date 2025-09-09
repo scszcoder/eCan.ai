@@ -296,7 +296,7 @@ class ChatService(metaclass=SingletonMeta):
     def add_text_message(self, chatId: str, role: str, text: str, senderId: str, createAt: int = None, **kwargs):
         """添加纯文本消息的便捷方法"""
         content = ContentSchema.create_text(text)
-        logger.debug(f"[chat_service] add_text_message: {chatId}, {role}, {text}, {content}, {senderId}, {createAt}, {kwargs}")
+        logger.debug(f"[chat_service] add_text_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {kwargs}")
         return self.add_message(
             chatId=chatId, 
             role=role, 
@@ -306,9 +306,10 @@ class ChatService(metaclass=SingletonMeta):
             **kwargs
         )
 
-    def add_form_message(self, chatId: str, role: str, form: dict, senderId: str = None, createAt: int = None, **kwargs):
+    def add_form_message(self, chatId: str, role: str, text:str, form: dict, senderId: str = None, createAt: int = None, **kwargs):
         """添加表单消息的便捷方法，直接使用 form 字典生成 content，不做字段解析"""
-        content = {"type": "form", "form": form}
+        content = ContentSchema.create_form(text, form)
+        logger.debug(f"[chat_service] add_form_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {kwargs}")
         return self.add_message(
             chatId=chatId, 
             role=role, 
@@ -816,8 +817,9 @@ class ChatService(metaclass=SingletonMeta):
                     id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
             elif msg_type == 'form':
                 form = content.get('form', {})
+                text = content.get('text', '')
                 return self.add_form_message(
-                    chatId=chatId, role=role, form=form, senderId=senderId,
+                    chatId=chatId, role=role, text=text, form=form, senderId=senderId,
                     createAt=createAt, id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
             elif msg_type == 'code':
                 code = content.get('code', {})

@@ -172,16 +172,12 @@ class ContentSchema:
         return {"type": ContentType.CODE.value, "code": {"lang": language, "value": code}}
 
     @staticmethod
-    def create_form(form_id: str, title: str, fields: list, submit_text: str = "提交") -> dict:
+    def create_form(text:str, form: dict) -> dict:
         """创建表单内容，用于数据收集，fields 字段应原样存储，不做任何解析"""
         return {
             "type": ContentType.FORM.value,
-            "form": {
-                "id": form_id,
-                "title": title,
-                "fields": fields,
-                "submit_text": submit_text
-            }
+            "text": text,
+            "form": form
         }
 
     @staticmethod

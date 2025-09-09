@@ -703,7 +703,12 @@ const ContentTypeRenderer: React.FC<ContentTypeRendererProps> = ({ content, chat
           // 优先用 chatId/messageId 变量
           const chatIdToUse = chatId || (parsedContent as any).chatId || (parsedContent as any).chat_id;
           const messageIdToUse = messageId || (parsedContent as any).messageId || (parsedContent as any).message_id || (parsedContent as any).id;
-          return <DynamicForm form={formData} chatId={chatIdToUse} messageId={messageIdToUse} onFormSubmit={onFormSubmit} />;
+          
+          // Extract text content from the parsed content and add it to form data
+          const textContent = (parsedContent as any).text;
+          const formWithText = textContent ? { ...formData, text: textContent } : formData;
+          
+          return <DynamicForm form={formWithText} chatId={chatIdToUse} messageId={messageIdToUse} onFormSubmit={onFormSubmit} />;
         }
         return (
           <div className="form-error" style={{
