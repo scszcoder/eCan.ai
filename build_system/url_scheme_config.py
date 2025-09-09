@@ -127,22 +127,6 @@ Comment=eCan Automation Platform
         return options
 
 
-def register_url_scheme_post_build():
-    """Register URL scheme after build completion"""
-    try:
-        from utils.url_scheme_handler import URLSchemeRegistrar
-        success = URLSchemeRegistrar.register_url_scheme()
-        
-        if success:
-            logger.info("URL scheme registered successfully after build")
-        else:
-            logger.warning("URL scheme registration failed after build")
-            
-        return success
-        
-    except Exception as e:
-        logger.error(f"Error during post-build URL scheme registration: {e}")
-        return False
 
 
 if __name__ == "__main__":
