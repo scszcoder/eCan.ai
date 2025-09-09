@@ -18,14 +18,14 @@ from agent.agent_service import get_agent_by_id
 
 def human_message(state):
     human_msg = state["attributes"].get("human", False)
-    logger.debug(f"human message? {human_msg}")
+    logger.debug(f"[my_twin_chatter_skill] human message? {human_msg}")
     return human_msg
 
 def parrot(state: NodeState) -> NodeState:
     # this function simply routes the incoming chat message, if the chat message is for
     # human, then sends it to the GUI section, (update message DB)
     # if the chat message is for agent, then sends it to the recipient agent using A2A protocol (update message DB)
-    logger.debug("my twin parrot chatting...", state)
+    logger.debug("[my_twin_chatter_skill] my twin parrot chatting...", state)
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = AppContext.get_main_window()
@@ -46,14 +46,14 @@ def parrot(state: NodeState) -> NodeState:
             #     await ipc_api.update_chats({"chats": [chat], "agent": agent})
             recipient_agent = next((ag for ag in mainwin.agents if "Engineering Procurement Agent" == ag.card.name), None)
             if recipient_agent:
-                logger.info("parrot recipient found:", recipient_agent.card.name)
+                logger.info("[my_twin_chatter_skill] parrot recipient found:", recipient_agent.card.name)
             else:
-                logger.error("parrot recipient agent not found!")
+                logger.error("[my_twin_chatter_skill] parrot recipient agent not found!")
             # result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
             result = agent.a2a_send_chat_message(recipient_agent, {"chat": state})
         else:
             # sendd this message to GUI
-            logger.debug("parrot showing agent msg", state)
+            logger.debug("[my_twin_chatter_skill] parrot showing agent msg", state)
             params = state["attributes"]["params"]
             if isinstance(params, TaskSendParams):
                 mtype = params.metadata["mtype"]
@@ -98,8 +98,8 @@ def parrot(state: NodeState) -> NodeState:
                 "status": status,
                 "ext": ext,
             }
-            logger.debug("parrot supposed chat id:", state["messages"][1][0])
-            logger.debug("parrot pushing frontend message", frontend_message)
+            logger.debug("[my_twin_chatter_skill] parrot supposed chat id:", state["messages"][1][0])
+            logger.debug("[my_twin_chatter_skill] parrot pushing frontend message", frontend_message)
             mainwin.chat_service.push_message_to_chat(state["messages"][1][0], frontend_message)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
@@ -111,7 +111,6 @@ def parrot(state: NodeState) -> NodeState:
             ex_stat = "ErrorCreateMyTwinChatterSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateMyTwinChatterSkill: traceback information not available:" + str(e)
-        # mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
@@ -134,7 +133,7 @@ async def create_my_twin_chatter_skill(mainwin):
         chatter_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         chatter_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("my_twin_chatter_skill build is done!")
+        logger.info("[my_twin_chatter_skill] my_twin_chatter_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
@@ -144,7 +143,6 @@ async def create_my_twin_chatter_skill(mainwin):
             ex_stat = "ErrorCreateMyTwinChatterSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateMyTwinChatterSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         return None
 

@@ -23,11 +23,11 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Get agents handler called with request: {request}")
+        logger.debug(f"[agent_handler] Get agents handler called with request: {request}")
         # 验证参数
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for get agents: {error}")
+            logger.warning(f"[agent_handler] Invalid parameters for get agents: {error}")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -38,7 +38,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         # 生成随机令牌
         username = data['username']
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"get agents successful for user: {username}")
+        logger.info(f"[agent_handler] get agents successful for user: {username}")
         main_window: MainWindow = AppContext.main_window
         agents = main_window.agents
 
@@ -47,11 +47,11 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             'agents': [agent.to_dict() for agent in agents],
             'message': 'Get all successful'
         }
-        logger.trace('get agents resultJS:' + str(resultJS))
+        logger.trace('[agent_handler] get agents resultJS:' + str(resultJS))
         return create_success_response(request, resultJS)
 
     except Exception as e:
-        logger.error(f"Error in get agents handler: {e} {traceback.format_exc()}")
+        logger.error(f"[agent_handler] Error in get agents handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'LOGIN_ERROR',
@@ -72,12 +72,12 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Save agents handler called with request: {request}")
+        logger.debug(f"[agent_handler] Save agents handler called with request: {request}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for save agents: {error}")
+            logger.warning(f"[agent_handler] Invalid parameters for save agents: {error}")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -90,14 +90,14 @@ def handle_save_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCR
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"save agents successful for user: {username}")
+        logger.info(f"[agent_handler] save agents successful for user: {username}")
         return create_success_response(request, {
             'token': token,
             'message': 'Save agents successful'
         })
 
     except Exception as e:
-        logger.error(f"Error in save agents handler: {e} {traceback.format_exc()}")
+        logger.error(f"[agent_handler] Error in save agents handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'LOGIN_ERROR',
@@ -125,7 +125,7 @@ def handle_delete_agents(request: IPCRequest, params: Optional[list[Any]]) -> IP
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for delete agents: {error}")
+            logger.warning(f"[agent_handler] Invalid parameters for delete agents: {error}")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -138,14 +138,14 @@ def handle_delete_agents(request: IPCRequest, params: Optional[list[Any]]) -> IP
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"delete agents successful for user: {username}")
+        logger.info(f"[agent_handler] delete agents successful for user: {username}")
         return create_success_response(request, {
             'token': token,
             'message': 'Delete agents successful'
         })
 
     except Exception as e:
-        logger.error(f"Error in delete agents handler: {e} {traceback.format_exc()}")
+        logger.error(f"[agent_handler] Error in delete agents handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'LOGIN_ERROR',
@@ -168,12 +168,12 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Create agents handler called with request: {request}")
+        logger.debug(f"[agent_handler] Create agents handler called with request: {request}")
 
         # 验证参数
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
-            logger.warning(f"Invalid parameters for create agents: {error}")
+            logger.warning(f"[agent_handler] Invalid parameters for create agents: {error}")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
@@ -186,14 +186,14 @@ def handle_new_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"create agents successful for user: {username}")
+        logger.info(f"[agent_handler] create agents successful for user: {username}")
         return create_success_response(request, {
             'token': token,
             'message': 'Create agents successful'
         })
 
     except Exception as e:
-        logger.error(f"Error in create agents handler: {e} {traceback.format_exc()}")
+        logger.error(f"[agent_handler] Error in create agents handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'LOGIN_ERROR',

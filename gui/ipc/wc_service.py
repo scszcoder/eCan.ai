@@ -48,11 +48,11 @@ class IPCWCService(QObject):
     
     def __init__(self):
         super().__init__()
-        logger.info("IPC WebChannel service initialized")
+        logger.info("[IPCWCService] IPC WebChannel service initialized")
         # 存储请求ID和对应的回调函数的映射
         self._request_callbacks: Dict[str, Callable[[IPCResponse], None]] = {}
         self.threadpool = QThreadPool()
-        logger.info(f"QThreadPool max thread count: {self.threadpool.maxThreadCount()}")
+        logger.info(f"[IPCWCService] QThreadPool max thread count: {self.threadpool.maxThreadCount()}")
     
     @Slot(str, result=str)
     def web_to_python(self, message: str) -> str:
@@ -69,11 +69,11 @@ class IPCWCService(QObject):
             data = json.loads(message)
             data_str = str(data)
             truncated_data = data_str[:800] + "..." if len(data_str) > 500 else data_str
-            logger.debug(f"web_to_python: Received message: {truncated_data}")
+            logger.debug(f"[IPCWCService] web_to_python: Received message: {truncated_data}")
 
             # 检查消息类型
             if 'type' not in data:
-                logger.warning("Message missing type field")
+                logger.warning("[IPCWCService] Message missing type field")
                 return json.dumps(create_error_response(
                     {'id': 'missing_type', 'method': 'unknown'},
                     'MISSING_TYPE',
@@ -90,7 +90,7 @@ class IPCWCService(QObject):
                 return self._handle_request(IPCRequest(**data))
             
             # 未知消息类型
-            logger.warning(f"Unknown message type: {data['type']}")
+            logger.warning(f"[IPCWCService] Unknown message type: {data['type']}")
             return json.dumps(create_error_response(
                 {'id': 'unknown_type', 'method': 'unknown'},
                 'UNKNOWN_TYPE',
@@ -134,13 +134,13 @@ class IPCWCService(QObject):
 
         if handler_type == 'sync':
             # 直接在主线程调用同步处理器
-            logger.debug(f"Executing sync handler for method: {method}")
+            logger.debug(f"[IPCWCService] Executing sync handler for method: {method}")
             try:
                 params = request.get('params')
                 sync_response = handler(request, params)
                 return json.dumps(sync_response)
             except KeyboardInterrupt:
-                logger.warning(f"KeyboardInterrupt during sync handler execution for method: {method}")
+                logger.warning(f"[IPCWCService] KeyboardInterrupt during sync handler execution for method: {method}")
                 return json.dumps(create_error_response(
                     request,
                     'INTERRUPTED',
@@ -156,7 +156,7 @@ class IPCWCService(QObject):
         
         elif handler_type == 'background':
             # 为后台任务创建一个 Worker 并提交到线程池
-            logger.debug(f"Submitting background handler for method: {method} to threadpool")
+            logger.debug(f"[IPCWCService] Submitting background handler for method: {method} to threadpool")
             worker = Worker(handler, request)
             worker.signals.result.connect(self._on_background_task_result)
             worker.signals.error.connect(self._on_background_task_error)
@@ -174,18 +174,18 @@ class IPCWCService(QObject):
     def _on_background_task_result(self, request: IPCRequest, result_reponse: IPCResponse):
         """后台任务成功完成时，此槽在主线程中执行"""
         request_id = request['id']
-        logger.info(f"Background task for request {request_id} completed successfully.")
+        logger.info(f"[IPCWCService] Background task for request {request_id} completed successfully.")
         
         # 封装成一个标准的 response 格式发回给前端
         # final_response = create_success_response(request, result_data)
-        logger.info(f"Final response: {result_reponse}")
+        logger.info(f"[IPCWCService] Final response: {result_reponse}")
         self.python_to_web.emit(json.dumps(result_reponse))
 
     @Slot(object, object)
     def _on_background_task_error(self, request: IPCRequest, error_response: IPCResponse):
         """后台任务失败时，此槽在主线程中执行"""
         request_id = request['id']
-        logger.error(f"Background task for request {request_id} failed: {error_response.get('error', {}).get('message', '') }")
+        logger.error(f"[IPCWCService] Background task for request {request_id} failed: {error_response.get('error', {}).get('message', '') }")
         self.python_to_web.emit(json.dumps(error_response))
     
     def _handle_response(self, response: IPCResponse) -> None:
@@ -202,9 +202,9 @@ class IPCWCService(QObject):
                 callback(response)
                 # 处理完成后删除回调
                 del self._request_callbacks[response['id']]
-                logger.info(f"Response handled for request: {response['id']} handle finished")
+                logger.info(f"[IPCWCService] Response handled for request: {response['id']} handle finished")
             else:
-                logger.warning(f"No callback found for response: {response['id']}")
+                logger.warning(f"[IPCWCService] No callback found for response: {response['id']}")
         except Exception as e:
             logger.error(f"Error handling response: {e}")
     
@@ -230,13 +230,13 @@ class IPCWCService(QObject):
             # 如果有回调函数，注册回调
             if callback:
                 self._request_callbacks[request['id']] = callback
-                logger.debug(f"Callback registered for request: {request['id']}")
+                logger.debug(f"[IPCWCService] Callback registered for request: {request['id']}")
             
             # 发送请求
             self.python_to_web.emit(json.dumps(request))
             request_str = json.dumps(request)
             truncated_request = request_str[:800] + "..." if len(request_str) > 500 else request_str
-            logger.debug(f"Request sent: {truncated_request}")
+            logger.debug(f"[IPCWCService] Request sent: {truncated_request}")
         except Exception as e:
             logger.error(f"Error sending request: {e}")
             if callback:

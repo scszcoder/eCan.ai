@@ -626,7 +626,7 @@ def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) ->
         # _ensure_context(runtime.context)
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin
-        logger.debug(f"request_FOM_node:{state}")
+        logger.debug(f"[search_parts_chatter_skill] request_FOM_node:{state}")
 
         # send self a message to trigger the real component search work-flow
         fom_form = prep_fom_form(state)
@@ -638,7 +638,7 @@ def request_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore) ->
         # Nothing to do; local loop was closed above
         pass
 
-    print("request_FROM_node all done, current state is:", state)
+    logger.debug("[search_parts_chatter_skill] request_FROM_node all done, current state is:", state)
     return state
 
 
@@ -704,7 +704,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
-    logger.debug(f"run_local_search_node: {state}")
+    logger.debug(f"[search_parts_chatter_skill] run_local_search_node: {state}")
     parametric_filters = state["metadata"].get("parametric_filters", [[]])
     # url = state["tool_input"]["url"]
     url = {"url": "https://www.digikey.com/en/products", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
@@ -718,7 +718,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     state["tool_input"]["fom_form"] = {}            # this will force the tool to use default fom
     state["tool_input"]["max_n_results"] = 8
 
-    logger.debug(f"tool input::{state['tool_input']}")
+    logger.debug(f"[search_parts_chatter_skill] tool input::{state['tool_input']}")
     async def run_tool_call():
         return await mcp_call_tool("api_ecan_local_search_components", {"input": state["tool_input"]})
 
@@ -728,7 +728,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
 
     # what we should get here is a dict of parametric search filters based on the preliminary
     # component info, this should be passed to human for filling out and confirmation
-    print("run local search completed:", type(tool_result), tool_result)
+    logger.info("[search_parts_chatter_skill] run local search completed:", type(tool_result), tool_result)
 
 
     # send self a message to trigger the real component search work-flow
@@ -748,7 +748,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     return state
 
 def are_component_specs_filled(state):
-    logger.debug(f"are_component_specs_filled input:{state}")
+    logger.debug(f"[search_parts_chatter_skill] are_component_specs_filled input:{state}")
     if state['condition']:
         return "request_FOM"
     else:
@@ -756,14 +756,14 @@ def are_component_specs_filled(state):
 
 
 def is_FOM_filled(state):
-    logger.debug(f"is_FOM_filled input: {state}")
+    logger.debug(f"[search_parts_chatter_skill] is_FOM_filled input: {state}")
     if state['condition']:
         return "run_search"
     else:
         return "pend_for_next_human_msg2"
 
 def is_result_ready(state):
-    logger.debug(f"is_result_ready input: {state}")
+    logger.debug(f"[search_parts_chatter_skill] is_result_ready input: {state}")
     if state['condition']:
         return "show_results"
     else:
@@ -780,7 +780,7 @@ def show_results_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -
     mainwin = self_agent.mainwin
     twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
-    print("show_results_node:", state)
+    logger.debug("[search_parts_chatter_skill] show_results_node:", state)
 
     # send self a message to trigger the real component search work-flow
     final_search_results = state["tool_result"]
