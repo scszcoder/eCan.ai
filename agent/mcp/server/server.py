@@ -1432,6 +1432,7 @@ async def api_ecan_local_search_components(mainwin, args):
                         logger.error(err_trace)
                         continue
 
+            logger.debug(f"about to re-rank search results: {search_results}")
             calculate_score(fom_form, search_results)
 
             sorted_search_results = sorted(search_results, key=lambda x: x['score'], reverse=True)

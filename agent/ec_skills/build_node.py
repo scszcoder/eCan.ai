@@ -4,12 +4,13 @@ import importlib.util
 import httpx
 import asyncio
 from agent.mcp.local_client import mcp_call_tool
-from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, node_maker
+from agent.ec_skills.dev_defs import BreakpointManager
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
-
+from agent.ec_skill import node_builder
 
 def get_default_node_schemas():
     schemas = {
@@ -19,7 +20,7 @@ def get_default_node_schemas():
     }
     return schemas
 
-def build_llm_node(config_metadata: dict):
+def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a LangGraph node that interacts with an LLM.
 
@@ -111,10 +112,11 @@ def build_llm_node(config_metadata: dict):
 
         return state
 
-    return llm_node_callable
+    full_node_callable = node_builder(llm_node_callable, node_name, skill_name, owner, bp_manager)
+    return full_node_callable
 
 
-def build_basic_node(config_metadata: dict):
+def build_basic_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a basic node that executes custom Python code.
 
@@ -177,10 +179,12 @@ def build_basic_node(config_metadata: dict):
     if node_callable is None:
         return lambda state: state
 
-    return node_callable
+    full_node_callable = node_builder(node_callable, node_name, skill_name, owner, bp_manager)
+
+    return full_node_callable
 
 
-def build_api_node(config_metadata: dict):
+def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a node that makes an API call.
 
@@ -269,11 +273,15 @@ def build_api_node(config_metadata: dict):
             state['error'] = error_msg
         return state
 
+    # return sync_api_callable if is_sync else async_api_callable
+
     # Return the correct function based on the 'sync' flag
-    return sync_api_callable if is_sync else async_api_callable
+    full_node_callable = node_builder(sync_api_callable, node_name, skill_name, owner, bp_manager)
+
+    return full_node_callable
 
 
-def build_mcp_tool_calling_node(config_metadata: dict):
+def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """
     Builds a callable function for a node that calls an MCP tool.
 
@@ -320,21 +328,24 @@ def build_mcp_tool_calling_node(config_metadata: dict):
 
         return state
 
-    return mcp_tool_callable
+    # graph.add_node("step1", breakpoint_wrapper(step1, "step1", bp_manager))
+
+    node_callable = node_builder(mcp_tool_callable, node_name, skill_name, owner, bp_manager)
+    return node_callable
 
 
-def build_condition_node():
+def build_condition_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     node_callable = None
 
     return node_callable
 
 
-def build_loop_node():
+def build_loop_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     node_callable = None
 
     return node_callable
 
-def build_debug_node():
+def build_debug_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     node_callable = None
 
     return node_callable

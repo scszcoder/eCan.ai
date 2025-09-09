@@ -13,6 +13,7 @@ import uuid
 import traceback
 from app_context import AppContext
 import asyncio
+from agent.ec_skills.dev_utils.skill_dev_utils import *
 
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
     """验证请求参数
@@ -287,10 +288,13 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
+        login: Login = AppContext.login
+        skill = request.meta["skill_flowgram"]
+        results = run_dev_skill(login.main_win, skill)
         return create_success_response(request, {
             'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'Start skill run successful'
+            "results": results,
+            'message': "Start skill run successful" if results["success"] else "Start skill run failed"
         })
 
     except Exception as e:
@@ -317,10 +321,12 @@ def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
+        login: Login = AppContext.login
+        results = cancel_run_dev_skill(login.main_win)
         return create_success_response(request, {
-            'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'Cancelling skill run successful'
+            "token": token,
+            "results": results,
+            "message": "Cancelling skill run successful" if results["success"] else "Cancelling skill run failed"
         })
 
     except Exception as e:
@@ -347,10 +353,12 @@ def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRes
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
+        login: Login = AppContext.login
+        results = pause_run_dev_skill(login.main_win)
         return create_success_response(request, {
-            'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'Get pause skill run successful'
+            "token": token,
+            "results": results,
+            "message": "Get pause skill run successful" if results["success"] else "Pausing skill run failed"
         })
 
     except Exception as e:
@@ -377,10 +385,12 @@ def handle_resume_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
+        login: Login = AppContext.login
+        results = resume_run_dev_skill(login.main_win)
         return create_success_response(request, {
-            'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'Resume skill run successful'
+            "token": token,
+            "results": results,
+            "message": "Resume skill run successful" if results["success"] else "Pausing skill run failed"
         })
 
     except Exception as e:
@@ -407,10 +417,12 @@ def handle_step_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResp
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
+        login: Login = AppContext.login
+        results = step_run_dev_skill(login.main_win)
         return create_success_response(request, {
-            'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'single step skill run successful'
+            "token": token,
+            "results": results,
+            "message": "single step skill run successful" if results["success"] else "Single Stepping skill run failed"
         })
 
     except Exception as e:
@@ -437,10 +449,13 @@ def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> 
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
+        login: Login = AppContext.login
+        bps = request.meta["bps"]
+        results = set_bps_dev_skill(login.main_win, bps)
         return create_success_response(request, {
-            'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'Setting skill breakpoints successful'
+            "token": token,
+            "results": results,
+            "message": "Setting skill breakpoints successful" if results["success"] else "Setting skill breakpoints failed"
         })
 
     except Exception as e:
@@ -467,10 +482,12 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
+        bps = request.meta["bps"]
+        results = clear_bps_dev_skill(login.main_win, bps)
         return create_success_response(request, {
-            'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'clear skill breakpoints successful'
+            "token": token,
+            "results": results,
+            "message": "Clearing skill breakpoints successful" if results["success"] else "Clearing skill breakpoints failed"
         })
 
     except Exception as e:
