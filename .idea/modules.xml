@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/ecbot.iml" filepath="$PROJECT_DIR$/.idea/ecbot.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/eCan.ai.iml" filepath="$PROJECT_DIR$/.idea/eCan.ai.iml" />
     </modules>
   </component>
 </project>
