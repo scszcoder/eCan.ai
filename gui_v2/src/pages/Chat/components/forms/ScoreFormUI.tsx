@@ -1,7 +1,31 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Card, Tooltip, Input, Button, Typography, Table, Slider } from '@douyinfe/semi-ui';
 import { IconInfoCircle, IconFolder, IconFile, IconChevronDown, IconChevronRight } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
+
+// Text content component for displaying chat-like text above form
+const TextContent: React.FC<{ text?: string }> = ({ text }) => {
+  if (!text?.trim()) return null;
+  return (
+    <div style={{ 
+      marginBottom: 20, 
+      padding: 16, 
+      backgroundColor: 'var(--semi-color-bg-1)',
+      borderRadius: 8,
+      border: '1px solid var(--semi-color-border)'
+    }}>
+      <Typography.Paragraph style={{ 
+        whiteSpace: 'pre-wrap', 
+        wordBreak: 'break-word',
+        margin: 0,
+        lineHeight: 1.6,
+        color: 'var(--semi-color-text-0)'
+      }}>
+        {text}
+      </Typography.Paragraph>
+    </div>
+  );
+};
 
 interface ScoreComponent {
   name: string;
@@ -28,7 +52,7 @@ interface ScoreFormData {
 }
 
 interface ScoreFormUIProps {
-  form: ScoreFormData;
+  form: ScoreFormData & { text?: string };
   onSubmit?: (form: ScoreFormData, chatId?: string, messageId?: string) => void;
   chatId?: string;
   messageId?: string;
@@ -555,21 +579,26 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
   };
 
   return (
-    <Card bodyStyle={{ padding: 28 }}>
-      {form.title && (
-        <>
-          <Typography.Title heading={4} style={{ textAlign: 'center', marginBottom: 8 }}>{form.title}</Typography.Title>
-          <div style={{ borderBottom: '1px solid var(--semi-color-border)', margin: '0 auto 16px auto', width: '60%' }} />
-        </>
-      )}
+    <div>
+      {/* Display text content above the form if it exists */}
+      <TextContent text={form.text} />
       
-      {/* 渲染所有第一层组件 */}
-      {Array.isArray(formState.components) && formState.components.map((comp, idx) => renderComponent(comp, ['components', String(idx)], formState.components))}
-      
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
-        <Button type="primary" size="large" theme="solid" style={{ minWidth: 120, fontWeight: 600, borderRadius: 8 }} onClick={handleSubmit}>{t('pages.chat.scoreForm.save')}</Button>
-      </div>
-    </Card>
+      <Card bodyStyle={{ padding: 28 }}>
+        {form.title && (
+          <>
+            <Typography.Title heading={4} style={{ textAlign: 'center', marginBottom: 8 }}>{form.title}</Typography.Title>
+            <div style={{ borderBottom: '1px solid var(--semi-color-border)', margin: '0 auto 16px auto', width: '60%' }} />
+          </>
+        )}
+        
+        {/* 渲染所有第一层组件 */}
+        {Array.isArray(formState.components) && formState.components.map((comp, idx) => renderComponent(comp, ['components', String(idx)], formState.components))}
+        
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
+          <Button type="primary" size="large" theme="solid" style={{ minWidth: 120, fontWeight: 600, borderRadius: 8 }} onClick={handleSubmit}>{t('pages.chat.scoreForm.save')}</Button>
+        </div>
+      </Card>
+    </div>
   );
 };
 

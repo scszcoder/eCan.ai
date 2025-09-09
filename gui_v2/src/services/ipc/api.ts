@@ -254,10 +254,6 @@ export class IPCAPI {
         return this.executeRequest<void>('set_skill_breakpoints', {username, skill});
     }
 
-    public async stepRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
-        return this.executeRequest<void>('step_run_skill', {username, skill});
-    }
-
     public async requestSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
         return this.executeRequest<void>('request_skill_state', {username, skill});
     }

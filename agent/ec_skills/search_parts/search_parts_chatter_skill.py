@@ -73,7 +73,7 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
         # Navigate to the new URL in the new tab
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            logger.debug("[search_parts_chatter_skill] open URL: " + url)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
@@ -89,10 +89,10 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    print("run time:", runtime)
+    logger.debug("[search_parts_chatter_skill] un time:", runtime)
     current_node_name = runtime.context["this_node"].get("name")
 
-    print(f"pend_for_human_input_node: {current_node_name}", state)
+    logger.debug(f"[search_parts_chatter_skill] pend_for_human_input_node: {current_node_name}", state)
     if state.get("tool_result", None):
         qa_form = state.get("tool_result").get("qa_form", {})
         notification = state.get("tool_result").get("notification", {})
@@ -108,17 +108,17 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
         }
     )
 
-    print("node resume running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
-    print("node state after resuming:", state)
-    print("interrupted:", interrupted)
+    logger.debug("[search_parts_chatter_skill] node resume running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
+    logger.debug("[search_parts_chatter_skill] node state after resuming:", state)
+    logger.debug("[search_parts_chatter_skill] interrupted:", interrupted)
 
     data = try_parse_json(interrupted["human_text"])
     if isinstance(data, dict):
         if data.get("type", "") == "normal":
-            print("saving filled parametric filter form......")
+            logger.debug("[search_parts_chatter_skill] saving filled parametric filter form......")
             state["attributes"]["filled_parametric_filter"] = data
         elif data.get("type", "") == "score":
-            print("saving filled fom form......")
+            logger.debug("[search_parts_chatter_skill] saving filled fom form......")
             state["attributes"]["filled_fom_form"] = data
 
     return state
@@ -132,10 +132,10 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    print("run time:", runtime)
+    logger.debug("[search_parts_chatter_skill] run time:", runtime)
     current_node_name = runtime.context["this_node"].get("name")
 
-    print("pend_for_human_fill_FOM_node:", current_node_name, state)
+    logger.debug("[search_parts_chatter_skill] pend_for_human_fill_FOM_node:", current_node_name, state)
     if state.get("tool_result", None):
         qa_form = state.get("tool_result").get("qa_form", None)
         notification = state.get("tool_result").get("notification", None)
@@ -150,8 +150,8 @@ def pend_for_human_fill_FOM_node(state: NodeState, *, runtime: Runtime, store: B
             "notification_to_human": notification
         }
     )
-    print("node running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
-    print("interrupted:", interrupted)
+    logger.debug("[search_parts_chatter_skill] node running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
+    logger.debug("[search_parts_chatter_skill] interrupted:", interrupted)
     return {
         "pended": interrupted  # (3)!
     }
@@ -167,10 +167,10 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    print("run time:", runtime)
+    logger.debug("[search_parts_chatter_skill] run time:", runtime)
     current_node_name = runtime.context["this_node"].get("name")
 
-    print("pend_for_human_fill_specs_node:", current_node_name, state)
+    logger.debug("[search_parts_chatter_skill] pend_for_human_fill_specs_node:", current_node_name, state)
     if state.get("tool_result", None):
         pf_exists = has_parametric_filters(state)
         if pf_exists:
@@ -190,8 +190,8 @@ def pend_for_human_fill_specs_node(state: NodeState, *, runtime: Runtime, store:
             "notification_to_human": notification
         }
     )
-    print("node running:", current_node_name)
-    print("interrupted:", interrupted)
+    logger.debug("[search_parts_chatter_skill] node running:", current_node_name)
+    logger.debug("[search_parts_chatter_skill] interrupted:", interrupted)
     return {
         "pended": interrupted  # (3)!
     }
@@ -224,7 +224,7 @@ def is_form_filled(form):
 
 
 def examine_filled_specs_node(state):
-    print("examine filled specs node.......", state)
+    logger.debug("[search_parts_chatter_skill] examine filled specs node.......", state)
     pf_exists = has_parametric_filters(state)
     if pf_exists:
         parametric_filters = state["tool_result"]["components"][0]["parametric_filters"]
@@ -232,12 +232,12 @@ def examine_filled_specs_node(state):
     else:
         parametric_filters = {}
 
-    print("parametric_filters", parametric_filters)
+    logger.debug("[search_parts_chatter_skill] parametric_filters", parametric_filters)
     if is_form_filled(parametric_filters):
-        print("parametric filters filled")
+        logger.debug("[search_parts_chatter_skill] parametric filters filled")
         state["condition"] = True
     else:
-        print("parametric filters NOT YET filled")
+        logger.debug("[search_parts_chatter_skill] parametric filters NOT YET filled")
         state["condition"] = False
         state["condition"] = True
 
@@ -253,21 +253,21 @@ def has_fom(data):
 
 
 def confirm_FOM_node(state):
-    print("confirm FOM node.......", state)
+    logger.debug("[search_parts_chatter_skill] confirm FOM node.......", state)
     fom_exists = has_fom(state)
-    print("fom_exists:", fom_exists)
+    logger.debug("[search_parts_chatter_skill] fom_exists:", fom_exists)
     if fom_exists:
         fom = state["tool_result"]["components"][0]["metadata"]["parametric_filters"]
         state["metadata"]["fom"] = fom
     else:
         fom = {}
 
-    print("filled figure of merit", fom)
+    logger.debug("[search_parts_chatter_skill] filled figure of merit", fom)
     if is_form_filled(fom):
-        print("FOM filled")
+        logger.debug("[search_parts_chatter_skill] FOM filled")
         state["condition"] = True
     else:
-        print("FOM NOT YET filled")
+        logger.debug("[search_parts_chatter_skill] FOM NOT YET filled")
         state["condition"] = False
         state["condition"] = True
 
@@ -278,10 +278,10 @@ def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: B
     agent_id = state["messages"][0]
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
-    print("run time:", runtime)
+    logger.debug("[search_parts_chatter_skill] run time:", runtime)
     current_node_name = runtime.context["this_node"].get("name")
 
-    print("pend_for_result_message_node:", current_node_name, state)
+    logger.debug("[search_parts_chatter_skill] pend_for_result_message_node:", current_node_name, state)
     if state.get("tool_result", None):
         qa_form = state.get("tool_result").get("qa_form", None)
         notification = state.get("tool_result").get("notification", None)
@@ -296,8 +296,8 @@ def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: B
             "notification_to_human": notification
         }
     )
-    print("node running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
-    print("interrupted:", interrupted)
+    logger.debug("[search_parts_chatter_skill] node running:", (runtime.context.get("current_node") if isinstance(runtime.context, dict) else None))
+    logger.debug("[search_parts_chatter_skill] interrupted:", interrupted)
     return {
         "pended": interrupted # (3)!
     }
@@ -305,7 +305,7 @@ def pend_for_result_message_node(state: NodeState, *, runtime: Runtime, store: B
 
 
 def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
-    print("chat_or_work input:", state)
+    logger.debug("[search_parts_chatter_skill] chat_or_work input:", state)
     if isinstance(state['attributes'], dict):
         state_attributes = state['attributes']
         if state_attributes.get("work_related", False):
@@ -317,14 +317,14 @@ def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
 
 
 def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -> str:
-    print("is_preliminary_component_info_ready input:", state)
+    logger.debug("[search_parts_chatter_skill] is_preliminary_component_info_ready input:", state)
     if state['condition']:
         return "query_component_specs"
     else:
         return "pend_for_next_human_msg0"
 
 def all_requirement_filled(state: NodeState) -> str:
-    print("all_requirement_filled:", state)
+    logger.debug("[search_parts_chatter_skill] all_requirement_filled:", state)
     if state["all_requirement_filled"]:
         return True
     return False
@@ -334,18 +334,18 @@ def all_requirement_filled(state: NodeState) -> str:
 # .wav (.mp3) and .mp4
 # def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
 #     try:
-#         print("in llm_node_with_raw_files....")
+#         logger.debug("[search_parts_chatter_skill] in llm_node_with_raw_files....")
 #         user_input = state.get("input", "")
 #         agent_id = state["messages"][0]
 #         agent = get_agent_by_id(agent_id)
 #         mainwin = agent.mainwin
-#         print("run time:", runtime)
+#         logger.debug("[search_parts_chatter_skill] "run time:", runtime)
 #         current_node_name = runtime.context["this_node"].get("name")
-#         # print("current node:", current_node)
+#         # logger.debug("[search_parts_chatter_skill] current node:", current_node)
 #         full_node_name = f"{OWNER}:{THIS_SKILL_NAME}:{current_node_name}"
 #         run_pre_llm_hook(full_node_name, agent, state)
 #
-#         print("networked prompts:", state["prompts"])
+#         logger.debug("[search_parts_chatter_skill] networked prompts:", state["prompts"])
 #         node_prompt = state["prompts"]
 #
 #         mm_content = prep_multi_modal_content(state, runtime)
@@ -358,9 +358,9 @@ def all_requirement_filled(state: NodeState) -> str:
 #         llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
 #
 #
-#         print("chat node: llm prompt ready:", formatted_prompt)
+#         logger.debug("[search_parts_chatter_skill] chat node: llm prompt ready:", formatted_prompt)
 #         response = llm.invoke(formatted_prompt)
-#         print("chat node: LLM response:", response)
+#         logger.debug("[search_parts_chatter_skill] chat node: LLM response:", response)
 #         # Parse the response
 #         run_post_llm_hook(full_node_name, agent, state, response)
 #
@@ -704,7 +704,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
-    logger.debug(f"run_local_search_node: {state}")
+    logger.debug(f"[search_parts_chatter_skill] run_local_search_node: {state}")
 
     # site - [[{"name", "url"}, "name", "url", ....]...]
     site_categories = state["tool_result"]["components"][0].get("site_categories", [[]])
@@ -714,7 +714,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     url = {"url": "https://www.digikey.com/en/products/filter/power-management-pmic/voltage-regulators-linear-low-drop-out-ldo-regulators/699", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
     # url = {"url": "file:///C:/temp/parametric/digikeySC/Voltage Regulators - Linear, Low Drop Out (LDO) Regulators _ Power Management (PMIC) _ Electronic Components Distributor DigiKey.html", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
 
-    print("site categories:", site_categories)
+    logger.debug("[search_parts_chatter_skill] site categories:", site_categories)
     # parametric_filters = sample_pfs_1
     # set up tool call input
     state["tool_input"]["urls"] = site_categories

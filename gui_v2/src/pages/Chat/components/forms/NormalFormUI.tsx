@@ -1,10 +1,34 @@
 import React, { useState, useRef } from 'react';
-import { Form, Button, Card, Slider, Input, Select, Tooltip } from '@douyinfe/semi-ui';
+import { Form, Button, Card, Slider, Input, Select, Tooltip, Typography } from '@douyinfe/semi-ui';
 import { IconInfoCircle } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { getValidators, validateField } from '../../hooks/useChatForm';
 import { logger } from '@/utils/logger';
 import { DynamicNormalFormProps } from './types';
+
+// Text content component for displaying chat-like text above form
+const TextContent: React.FC<{ text?: string }> = ({ text }) => {
+  if (!text?.trim()) return null;
+  return (
+    <div style={{ 
+      marginBottom: 20, 
+      padding: 16, 
+      backgroundColor: 'var(--semi-color-bg-1)',
+      borderRadius: 8,
+      border: '1px solid var(--semi-color-border)'
+    }}>
+      <Typography.Paragraph style={{ 
+        whiteSpace: 'pre-wrap', 
+        wordBreak: 'break-word',
+        margin: 0,
+        lineHeight: 1.6,
+        color: 'var(--semi-color-text-0)'
+      }}>
+        {text}
+      </Typography.Paragraph>
+    </div>
+  );
+};
 
 const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   const { t } = useTranslation();
@@ -456,39 +480,44 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
   };
 
   return (
-    <Card>
-      {props.form.title && (
-        <>
-          <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8, textAlign: 'center' }}>{props.form.title}</div>
-          <div style={{ borderBottom: '1px solid #e5e6eb', margin: '0 auto 16px auto', width: '60%' }} />
-        </>
-      )}
-      <Form
-        ref={formRef}
-        initValues={initialValues}
-        onSubmit={handleSubmit}
-        style={{ width: '100%' }}
-      >
-        {fields.map(renderField)}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28, marginBottom: 8 }}>
-          <Button
-            htmlType="submit"
-            type="primary"
-            size="large"
-            style={{
-              minWidth: 160,
-              fontWeight: 600,
-              borderRadius: 8,
-              boxShadow: '0 2px 12px rgba(25, 118, 210, 0.12)',
-              color: '#fff',
-              textShadow: '0 1px 2px rgba(0,0,0,0.15)'
-            }}
-          >
-            {props.form.submit_text ? t(props.form.submit_text) : t('pages.chat.submit')}
-          </Button>
-        </div>
-      </Form>
-    </Card>
+    <div>
+      {/* Display text content above the form if it exists */}
+      <TextContent text={props.form.text} />
+      
+      <Card>
+        {props.form.title && (
+          <>
+            <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8, textAlign: 'center' }}>{props.form.title}</div>
+            <div style={{ borderBottom: '1px solid #e5e6eb', margin: '0 auto 16px auto', width: '60%' }} />
+          </>
+        )}
+        <Form
+          ref={formRef}
+          initValues={initialValues}
+          onSubmit={handleSubmit}
+          style={{ width: '100%' }}
+        >
+          {fields.map(renderField)}
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 28, marginBottom: 8 }}>
+            <Button
+              htmlType="submit"
+              type="primary"
+              size="large"
+              style={{
+                minWidth: 160,
+                fontWeight: 600,
+                borderRadius: 8,
+                boxShadow: '0 2px 12px rgba(25, 118, 210, 0.12)',
+                color: '#fff',
+                textShadow: '0 1px 2px rgba(0,0,0,0.15)'
+              }}
+            >
+              {props.form.submit_text ? t(props.form.submit_text) : t('pages.chat.submit')}
+            </Button>
+          </div>
+        </Form>
+      </Card>
+    </div>
   );
 };
 

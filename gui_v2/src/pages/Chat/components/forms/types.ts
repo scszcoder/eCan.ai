@@ -5,6 +5,7 @@ export interface ScoreForm {
   id: string;
   type: 'score';
   title?: string;
+  text?: string;
   components: any[];
 }
 
@@ -12,6 +13,7 @@ export interface NormalForm {
   id: string;
   type: 'normal';
   title?: string;
+  text?: string;
   fields?: IFormField[];
   parametric_filters?: IFormField[];
   submit_text?: string;
