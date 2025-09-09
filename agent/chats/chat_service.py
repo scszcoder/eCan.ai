@@ -226,7 +226,7 @@ class ChatService(metaclass=SingletonMeta):
         ext: dict = None,
         attachments: list = None
     ) -> Dict[str, Any]:
-        logger.debug(f"chat_service.add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
+        logger.debug(f"[chat_service] add_message: {chatId}, {role}, {content}, {senderId}, {createAt}, {id}, {status}, {senderName}, {time}, {ext}, {attachments}")
         """向会话添加消息及附件，必传 chat_id、role、content、senderId、createAt，返回标准化结构"""
         if not chatId or not role or content is None or not senderId or not createAt:
             return {
@@ -281,7 +281,7 @@ class ChatService(metaclass=SingletonMeta):
             chat.lastMsgTime = createAt
             # 新增消息未读，chat.unread +1
             chat.unread = (chat.unread or 0) + 1
-            logger.debug(f"chat.unread: {message}")
+            logger.debug(f"[chat_service] chat.unread: {message}")
             chat.messages.append(message)
             session.add(message)
             session.flush()
@@ -296,7 +296,7 @@ class ChatService(metaclass=SingletonMeta):
     def add_text_message(self, chatId: str, role: str, text: str, senderId: str, createAt: int = None, **kwargs):
         """添加纯文本消息的便捷方法"""
         content = ContentSchema.create_text(text)
-        logger.debug(f"chat_service.add_text_message: {chatId}, {role}, {text}, {content}, {senderId}, {createAt}, {kwargs}")
+        logger.debug(f"[chat_service] add_text_message: {chatId}, {role}, {text}, {content}, {senderId}, {createAt}, {kwargs}")
         return self.add_message(
             chatId=chatId, 
             role=role, 
@@ -348,10 +348,10 @@ class ChatService(metaclass=SingletonMeta):
                                senderId: str = "system", createAt: int = None, **kwargs):
 
         title = notification.get('title', 'Notification')
-        logger.debug(f"Final notification params - title: '{title}', notification: '{notification}'")
+        logger.debug(f"[chat_service] Final notification params - title: '{title}', notification: '{notification}'")
             
         notification_content = ContentSchema.create_notification(title, notification)
-        logger.debug(f"Created notification content: {notification_content}")
+        logger.debug(f"[chat_service] Created notification content: {notification_content}")
 
         # 添加消息到数据库
         result = self.add_message(
@@ -362,7 +362,7 @@ class ChatService(metaclass=SingletonMeta):
             createAt=createAt or int(time.time()*1000),
             **kwargs
         )
-        logger.debug(f"add_notification_message result: {result}")
+        logger.debug(f"[chat_service] add_notification_message result: {result}")
         return result
 
     def add_card_message(self, chatId: str, role: str, title: str, content: str, actions: list = None,
@@ -859,30 +859,30 @@ class ChatService(metaclass=SingletonMeta):
                 id=messageId, status=status, senderName=senderName, time=time_, ext=ext, attachments=attachments)
 
     def push_message_to_chat(self, chatId, msg: dict):
-        logger.debug("push message to front", msg)
+        logger.debug("[chat_service] push message to front", msg)
         content = msg.get('content')
         createAt = msg.get('createAt')
 
         db_result = self.dispatch_add_message(chatId, msg)
-        logger.info(f"push message to db_result: {db_result}")
+        logger.info(f"[chat_service] push message to db_result: {db_result}")
 
         # Push to frontend
         web_gui = AppContext.get_web_gui()
         # Push actual data after database write
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
-            logger.debug("push chat message content:", db_result['data'])
+            logger.debug("[chat_service] push chat message content:", db_result['data'])
             web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
         else:
-            logger.error(f"message insert db failed{chatId}, {msg.get('id')}")
+            logger.error(f"[chat_service] message insert db failed{chatId}, {msg.get('id')}")
 
     def push_notification_to_chat(self, chatId, notif: dict):
-        logger.debug("push notification to front", notif)
+        logger.debug("[chat_service] push notification to front", notif)
 
         db_result = self.add_chat_notification(chatId, notif, int(time.time() * 1000))
-        logger.info(f"push notification to db_result: {db_result}")
+        logger.info(f"[chat_service] push notification to db_result: {db_result}")
         # Push to frontend
         web_gui = AppContext.get_web_gui()
         # Push actual data after database write
         if db_result and isinstance(db_result, dict) and 'data' in db_result:
-            logger.debug("push chat notification content:", db_result['data'])
+            logger.debug("[chat_service] push chat notification content:", db_result['data'])
             web_gui.get_ipc_api().push_chat_notification(chatId, db_result['data'])
