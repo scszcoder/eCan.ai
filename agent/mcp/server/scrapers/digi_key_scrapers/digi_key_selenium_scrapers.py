@@ -1151,6 +1151,7 @@ def _set_single_filter_value(driver, header: str, value: str, timeout: int = 20)
 # Public API
 # -----------------------------
 
+
 def apply_parametric_filters_safe(driver, filters: List[Dict], timeout: int = 20) -> List[Tuple[str, bool, str]]:
     """
     Apply a list of parametric filters:
@@ -1214,7 +1215,6 @@ def apply_parametric_filters_safe(driver, filters: List[Dict], timeout: int = 20
         logger.error(f"An error applying pfs: {get_traceback(e)}")
 
     return results
-
 
 import csv
 import re
@@ -1398,39 +1398,6 @@ def selenium_wait_for_page_load(driver):
 
 
 
-def selenium_apply_parametric_filters(webdriver, pfs):
-    # try:
-    #     selenium_wait_for_results_container(driver, timeout_ms=10000)
-    # except TimeoutException:
-    #     print("⚠️ Results container not found yet; continuing")
-
-    # Ensure filter blocks present/visible if possible
-    try:
-        _present(driver, ".FilterContainer-filter--native", timeout=10)
-    except TimeoutException:
-        try:
-            _present(driver, ".FilterContainer-filter", timeout=10)
-        except TimeoutException:
-            print("⚠️ Filter blocks not found; proceeding anyway")
-
-    # Apply filters incrementally
-    print("ready to fill parametric filters")
-    for pf in pfs:
-        set_values = pf.get("setValues") or []
-        if not set_values:
-            continue
-        filter_name = pf.get("name", "")
-        css_name = pf.get("css_name")
-        for val in set_values:
-            try:
-                vals = selenium_pick_parameter(driver, filter_name, css_name, [val])
-                print(f"➡️ Selected values for {filter_name}: {vals}")
-                selenium_apply_now(driver)
-            except Exception as e:
-                print(f"❌ Failed to set {filter_name} to {val}: {e}")
-
-
-
 def get_table_headers(driver) -> List[str]:
     """Extracts the column headers from the search results table header."""
     headers = []
@@ -1493,7 +1460,6 @@ def try_dismiss_banners(driver):
         except Exception:
             pass
 
-
 def extract_links_from_td(td) -> Dict[str, str]:
     out = {}
     # MPN + Product URL
@@ -1543,7 +1509,7 @@ def extract_links_from_td(td) -> Dict[str, str]:
     except Exception:
         pass
 
-    return out
+    return links
 
 
 def parse_rows_on_page(driver) -> Tuple[List[Dict[str, str]], List[str]]:
@@ -1704,12 +1670,12 @@ def extract_search_results_table(driver):
         driver.quit()
 
 
-def digi_key_selenium_search_component(driver, pfs, category_phrase):
+def digi_key_selenium_search_component(driver, pfs, category_phrase, site_url):
     try:
         logger.debug("digi_key_selenium_search_component... accessing driver")
         selenium_wait_for_page_load(driver)
         logger.debug(f"clicking on category phrase... {category_phrase}")
-        click_category_link_safe(driver, category_phrase)
+        # click_category_link_safe(driver, category_phrase)
         logger.debug(f"wait for category page to full load...")
         selenium_wait_for_page_load(driver)
         logger.debug(f"applying pfs: {pfs}")

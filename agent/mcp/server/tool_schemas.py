@@ -1526,15 +1526,8 @@ def build_agent_mcp_tools_schemas():
                     "required": ["urls", "parametric_filters", "fom_form", "max_n_results"],
                     "properties": {
                         "urls": {
-                            "type": "array",
-                            "description": "list of dict that contains url link to search sites",
-                            "items": {
-                                "type": "object",
-                                "required": ["url"],
-                                "properties": {
-                                    "url": {"type": "string", "description": "base url for a search site"}
-                                }
-                            }
+                            "type": "object",
+                            "description": "categories dict with site names as the keys",
                         },
                         "components": {
                             "type": "array",
