@@ -18,6 +18,26 @@ import emptyFlowData from './data/empty-flow.json';
 import { useSkillInfoStore } from './stores/skill-info-store';
 import { createSkillInfo } from './typings/skill-info';
 import { NodeInfoDisplay } from './components/node-info-display';
+import styled from 'styled-components';
+
+const EditorContainer = styled.div`
+  position: relative;
+  width: 100%;
+  height: 100%;
+`;
+
+const SkillNameLabel = styled.div`
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: rgba(255, 255, 255, 0.8);
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-weight: bold;
+  z-index: 10;
+  pointer-events: none; /* Make it non-interactive */
+  color: #333; /* Add a dark color for the text */
+`;
 
 export const Editor = () => {
   const emptyData: FlowDocumentJSON = emptyFlowData;
@@ -35,18 +55,24 @@ export const Editor = () => {
     return undefined;
   });
 
+  const { skillInfo } = useSkillInfoStore();
+
   return (
-    <div className="doc-free-feature-overview">
-      <FreeLayoutEditorProvider {...editorProps}>
-        <SidebarProvider>
-          <NodeInfoDisplay />
-          <div className="demo-container">
-            <EditorRenderer className="demo-editor" />
-          </div>
-          <Tools />
-          <SidebarRenderer />
-        </SidebarProvider>
-      </FreeLayoutEditorProvider>
-    </div>
+    <EditorContainer>
+      <div className="doc-free-feature-overview">
+        <FreeLayoutEditorProvider {...editorProps}>
+          <SidebarProvider>
+            <NodeInfoDisplay />
+            <div className="demo-container">
+              <EditorRenderer className="demo-editor">
+                {skillInfo?.skillName && <SkillNameLabel>{skillInfo.skillName}</SkillNameLabel>}
+              </EditorRenderer>
+            </div>
+            <Tools />
+            <SidebarRenderer />
+          </SidebarProvider>
+        </FreeLayoutEditorProvider>
+      </div>
+    </EditorContainer>
   );
 };
