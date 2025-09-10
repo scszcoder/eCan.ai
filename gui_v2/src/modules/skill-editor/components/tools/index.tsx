@@ -8,9 +8,10 @@ import { useState, useEffect } from 'react';
 import { useRefresh } from '@flowgram.ai/free-layout-editor';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Divider } from '@douyinfe/semi-ui';
-import { IconUndo, IconRedo } from '@douyinfe/semi-icons';
+import { IconUndo, IconRedo, IconPause, IconStop, IconForward, IconPlay } from '@douyinfe/semi-icons';
 
 import { TestRunButton } from '../testrun/testrun-button';
+import { TestRunControlButton } from '../testrun/testrun-controls';
 import { AddNode } from '../add-node';
 import { ZoomSelect } from './zoom-select';
 import { SwitchLine } from './switch-line';
@@ -26,9 +27,14 @@ import { AutoLayout } from './auto-layout';
 import { Open } from './open';
 import { Info } from './info';
 import { NewPage } from './new-page';
+import { IPCAPI } from '../../../../services/ipc/api';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { useUserStore } from '../../../../stores/userStore';
 
 export const Tools = () => {
-  const { history, playground } = useClientContext();
+  const { history, playground, document } = useClientContext();
+  const skillInfoFromStore = useSkillInfoStore((state) => state.skillInfo);
+  const username = useUserStore((state) => state.username);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -45,6 +51,33 @@ export const Tools = () => {
     const disposable = playground.config.onReadonlyOrDisabledChange(() => refresh());
     return () => disposable.dispose();
   }, [playground]);
+
+  const ipcApi = IPCAPI.getInstance();
+
+  const handleRunControl = (action: 'cancel' | 'pause' | 'resume' | 'step') => {
+    if (!skillInfoFromStore || !username) return;
+
+    // Create a new skill info object with the latest diagram
+    const skillInfo = {
+      ...skillInfoFromStore,
+      diagram: document.toJSON(),
+    };
+
+    switch (action) {
+      case 'cancel':
+        ipcApi.cancelRunSkill(username, skillInfo);
+        break;
+      case 'pause':
+        ipcApi.pauseRunSkill(username, skillInfo);
+        break;
+      case 'resume':
+        ipcApi.resumeRunSkill(username, skillInfo);
+        break;
+      case 'step':
+        ipcApi.stepRunSkill(username, skillInfo);
+        break;
+    }
+  };
 
   return (
     <ToolContainer className="demo-free-layout-tools">
@@ -84,6 +117,30 @@ export const Tools = () => {
         <Save disabled={playground.config.readonly} />
         <Info />
         <TestRunButton disabled={playground.config.readonly} />
+        <TestRunControlButton
+          icon={<IconPause size="small" />}
+          onClick={() => handleRunControl('pause')}
+          tooltip="Pause Run"
+          disabled={playground.config.readonly}
+        />
+        <TestRunControlButton
+          icon={<IconForward size="small" />}
+          onClick={() => handleRunControl('step')}
+          tooltip="Step Run"
+          disabled={playground.config.readonly}
+        />
+        <TestRunControlButton
+          icon={<IconPlay size="small" />}
+          onClick={() => handleRunControl('resume')}
+          tooltip="Resume Run"
+          disabled={playground.config.readonly}
+        />
+        <TestRunControlButton
+          icon={<IconStop size="small" />}
+          onClick={() => handleRunControl('cancel')}
+          tooltip="Stop Run"
+          disabled={playground.config.readonly}
+        />
       </ToolSection>
     </ToolContainer>
   );

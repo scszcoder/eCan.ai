@@ -2,6 +2,13 @@ import json
 from langgraph.graph import StateGraph, START, END
 from agent.ec_skills.build_node import *
 import importlib
+from agent.ec_skills.llm_utils.llm_utils import node_maker
+from gui.LoginoutGUI import Login
+from utils.logger_helper import logger_helper as logger
+import traceback
+from app_context import AppContext
+
+
 # Simulated function registry to map node types to actual Python functions.
 # You need to populate this in your real implementation
 function_registry = {
@@ -11,7 +18,7 @@ function_registry = {
     "loop": build_loop_node,
     "condition": build_condition_node,
     "tool": build_mcp_tool_calling_node,
-    "group": build_group_node,
+    # "group": process_blocks,
     "default": build_debug_node,
 }
 
@@ -72,23 +79,61 @@ def make_condition_func(node_id, conditions, port_map):
     condition_func.__name__ = node_id
     return condition_func
 
-def process_blocks(workflow, blocks, node_map, id_to_node):
+def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block):
+    # Process all blocks (nodes) within the group/loop
     for block in blocks:
         block_id = block["id"]
-        block_type = block["type"]
         node_map[block_id] = block_id
         id_to_node[block_id] = block
-        workflow.add_node(block_id, function_registry.get(block_type, debug_node))
-        if block_type == "group" and "blocks" in block:
-            process_blocks(workflow, block["blocks"], node_map, id_to_node)
-        if block_type == "loop" and "blocks" in block:
-            process_blocks(workflow, block["blocks"], node_map, id_to_node)
+
+        node_type = block.get("type", "default")
+        node_data = block.get("data", {})
+
+        # Get the appropriate builder function from the registry
+        builder_func = function_registry.get(node_type, build_debug_node)
+
+        # Call the builder function with the node's data to get the final callable
+        node_callable = builder_func(node_data, block_id, skill_name, owner, bp_manager)
+
+        # Add the constructed node to the workflow
+        workflow.add_node(block_id, node_callable)
+
+        # Recursively process nested blocks if any
+        if node_type in ["loop", "group"] and "blocks" in block:
+            nested_edges = block.get("edges", [])
+            process_blocks(workflow, block["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, nested_edges)
+
+    # Process all edges within the group/loop
+    for edge in edges_in_block:
+        source_id = edge["sourceNodeID"]
+        target_id = edge["targetNodeID"]
+
+        # Ensure both source and target nodes are in the map
+        if source_id in node_map and target_id in node_map:
+            source = node_map[source_id]
+            target = node_map[target_id]
+
+            if target == "end":
+                workflow.add_edge(source, END)
+            else:
+                workflow.add_edge(source, target)
+        else:
+            logger.warning(f"Edge source or target not found in node_map: {source_id} -> {target_id}")
 
 def flowgram2langgraph(flowgram_json):
     flow = json.loads(flowgram_json) if isinstance(flowgram_json, str) else flowgram_json
     workflow = StateGraph(dict)
     node_map = {}
     id_to_node = {}
+
+    skill_name = flowgram_json["name"]
+    owner = flowgram_json["owner"]
+    # find breakpoint manager of the dev task, since it will always be that.
+    login: Login = AppContext.login
+    tester = next((agent for agent in login.main_win.agents if "test engineer" in agent.card.title.lower()), None)
+
+    bp_manager = tester.runner.bp_manager
+
     for node in flow["nodes"]:
         node_id = node["id"]
         node_type = node.get("type", "default")
@@ -101,7 +146,7 @@ def flowgram2langgraph(flowgram_json):
         builder_func = function_registry.get(node_type, build_debug_node)
 
         # Call the builder function with the node's data to get the final callable
-        node_callable = builder_func(node_data)
+        node_callable = builder_func(node_data, node_id, skill_name, owner, bp_manager)
 
         # Add the constructed node to the workflow
         workflow.add_node(node_id, node_callable)
@@ -109,7 +154,8 @@ def flowgram2langgraph(flowgram_json):
         if node_type == "start":
             workflow.set_entry_point(node_id)
         if node_type in ["loop", "group"] and "blocks" in node:
-            process_blocks(workflow, node["blocks"], node_map, id_to_node)
+            edges_in_block = node.get("edges", [])
+            process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block)
     # Add edges
     for edge in flow["edges"]:
         source = node_map[edge["sourceNodeID"]]
