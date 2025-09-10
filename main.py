@@ -155,14 +155,14 @@ try:
         progress_manager.update_progress(35, "Initializing application...")
 
         # Start hot reload monitoring (development mode)
-        if app_settings.is_dev_mode:
-            try:
-                progress_manager.update_status("Setting up hot reload...")
-                from utils.hot_reload import start_watching
-                watch_paths = ['agent', 'bot', 'config', 'common', 'gui', 'skills', 'utils']
-                start_watching(watch_paths, None)
-            except ImportError:
-                pass  # Ignore when hot reload module doesn't exist
+        # if app_settings.is_dev_mode:
+        #     try:
+        #         progress_manager.update_status("Setting up hot reload...")
+        #         from utils.hot_reload import start_watching
+        #         watch_paths = ['agent', 'bot', 'config', 'common', 'gui', 'skills', 'utils']
+        #         start_watching(watch_paths, None)
+        #     except ImportError:
+        #         pass  # Ignore when hot reload module doesn't exist
 
         # Reuse early-initialized QApplication
         from PySide6.QtWidgets import QApplication as _QApp

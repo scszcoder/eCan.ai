@@ -183,8 +183,6 @@ class MainWindow:
         self.my_ecb_data_homepath = f"{ecb_data_homepath}/{self.log_user}"
         if not os.path.exists(f"{self.my_ecb_data_homepath}/resource/data/"):
             os.makedirs(f"{self.my_ecb_data_homepath}/resource/data/")
-        self.cog = None
-        self.cog_client = None
         self.VEHICLES_FILE = self.my_ecb_data_homepath + "/vehicles.json"
         self.host_role = machine_role
         self.screen_size = getScreenSize()
@@ -596,8 +594,6 @@ class MainWindow:
         self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
         self.showMsg("spawned chat task")
 
-        self.keyboard_task = asyncio.create_task(self.listen_for_hotkey())
-
         if not self.browser_use_file_system_path:
             # create a temporary file system using agent ID
             base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
@@ -1006,44 +1002,7 @@ class MainWindow:
     def get_helper_agent(self):
         return self.helper_agent
 
-    def getHomePath(self):
-        return self.homepath
 
-    def getPLATFORMS(self):
-        return self.static_resource.PLATFORMS
-
-    def getAPPS(self):
-        return self.static_resource.APPS
-
-    def getSITES(self):
-        return self.static_resource.SITES
-
-    def getSMPLATFORMS(self):
-        return self.SM_PLATFORMS
-
-    def getBUYTYPES(self):
-        return self.static_resource.BUY_TYPES
-
-    def getSUBBUYTYPES(self):
-        return self.static_resource.SUB_BUY_TYPES
-
-    def getSELLTYPES(self):
-        return self.static_resource.SELL_TYPES
-
-    def getSUBSELLTYPES(self):
-        return self.static_resource.SUB_SELL_TYPES
-
-    def getOPTYPES(self):
-        return self.static_resource.OP_TYPES
-
-    def getSUBOPTYPES(self):
-        return self.static_resource.SUB_OP_TYPES
-
-    def getSTATUSTYPES(self):
-        return self.static_resource.STATUS_TYPES
-
-    def getBUYSTATUSTYPES(self):
-        return self.static_resource.BUY_STATUS_TYPES
 
     def translateSiteName(self, site_text):
         if site_text in self.static_resource.SITES_SH_DICT.keys():
@@ -1069,11 +1028,7 @@ class MainWindow:
         else:
             return site_text
 
-    def setCog(self, cog):
-        self.cog = cog
 
-    def setCogClient(self, client):
-        self.cog_client = client
 
     def setCommanderName(self, cn):
         self.commander_name = cn
@@ -1097,8 +1052,7 @@ class MainWindow:
     def getWebDriverPath(self):
         return self.default_webdriver_path
 
-    def setWebDriverPath(self, driver_path):
-        self.default_webdriver_path = driver_path
+
 
     def getWebDriver(self):
         return self.default_webdriver
@@ -1339,12 +1293,7 @@ class MainWindow:
         self.general_settings["localUserDB_host"] = ip
         self.general_settings["localUserDB_port"] = port
 
-    def findIndex(self, list, element):
-        try:
-            index_value = list.index(element)
-        except ValueError:
-            index_value = -1
-        return index_value
+
 
     def getDisplayResolution(self):
         return self.display_resolution
@@ -3655,7 +3604,7 @@ class MainWindow:
         # Cancel asyncio tasks we manage
         to_cancel = []
         for name in (
-            'lan_task', 'peer_task', 'monitor_task', 'chat_task', 'keyboard_task', 'wan_sub_task',
+            'lan_task', 'peer_task', 'monitor_task', 'chat_task', 'wan_sub_task',
             'rpa_task', 'manager_task'
         ):
             try:
@@ -8094,56 +8043,11 @@ class MainWindow:
                 ex_stat = "ErrorSendMissionResultsFilesToCommander: traceback information not available:" + str(e)
             log3(ex_stat)
 
-    async def halt_action(self):
-        print("escape hotkey pressed!")
-        # send a message to RPA virtual machine engine.
-        msg = {"cmd": "halt missions", "target": "current"}
-        rpa_ctl_msg = json.dumps(msg)
-        asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
-
-    async def resume_action(self):
-        print("space hotkey pressed!")
-        # send a message to RPA virtual machine engine.
-        msg = {"cmd": "resume missions", "target": "current"}
-        rpa_ctl_msg = json.dumps(msg)
-        asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
-
-    async def quit_action(self):
-        print("quit hotkey pressed!")
-        # Show the dialog and wait for the user to respond
-        self.rpa_quit_confirmation_future = asyncio.get_event_loop().create_future()
-        self.rpa_quit_dialog.show()
-        while not self.rpa_quit_confirmation_future.done():
-            await asyncio.sleep(0.1)
-        if self.rpa_quit_confirmation_future.result():
-            print("reqCancelAllMissions")
-            msg = {"cmd": "cancel missions", "target": "all"}
-            rpa_ctl_msg = json.dumps(msg)
-            asyncio.create_task(self.gui_rpa_msg_queue.put(rpa_ctl_msg))
 
 
 
-    # Coroutine to listen for hotkey and run the action
-    async def listen_for_hotkey(self):
-        loop = asyncio.get_running_loop()
 
-        def esc_callback():
-            asyncio.run_coroutine_threadsafe(self.halt_action(), loop)
 
-        def space_callback():
-            asyncio.run_coroutine_threadsafe(self.resume_action(), loop)
-
-        def q_callback():
-            asyncio.run_coroutine_threadsafe(self.quit_action(), loop)
-        #
-        # keyboard.add_hotkey('esc', esc_callback)
-        # keyboard.add_hotkey('space', space_callback)
-        # keyboard.add_hotkey('q', q_callback)
-
-        # Keep the coroutine running to listen for the hotkey indefinitely
-
-        while True:
-            await asyncio.sleep(1)
 
     def set_wan_connected(self, wan_stat):
         self.wan_connected = wan_stat
@@ -8798,15 +8702,7 @@ class MainWindow:
         decrypted = fernet.decrypt(encrypted_text.encode())  # Decrypt the text
         return decrypted.decode()  # Return as a string
 
-    def genPseudo(self, keyString, inString):
-        # Generate a key from string A
-        key = self.generate_key_from_string(keyString)
 
-        # Encrypt string B to get string C
-        encrypted = self.encrypt_string(key, inString)
-        print("Encrypted:", encrypted)
-
-        return encrypted
 
     def generateShortHash(self, text: str, length: int = 32) -> str:
         """Generate a fixed-length hash for the input text."""
