@@ -20,6 +20,9 @@ import { IconMore } from '@douyinfe/semi-icons';
 import { FlowNodeRegistry } from '../../typings';
 import { PasteShortcut } from '../../shortcuts/paste';
 import { CopyShortcut } from '../../shortcuts/copy';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { IPCAPI } from '../../../../services/ipc/api';
+import { useUserStore } from '../../../../stores/userStore';
 
 interface NodeMenuProps {
   node: WorkflowNodeEntity;
@@ -35,6 +38,10 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
   const selectService = useService(WorkflowSelectService);
   const dragService = useService(WorkflowDragService);
   const canMoveOut = nodeIntoContainerService.canMoveOutContainer(node);
+  const { breakpoints, addBreakpoint, removeBreakpoint } = useSkillInfoStore();
+  const isBreakpoint = breakpoints.includes(node.id);
+  const ipcApi = IPCAPI.getInstance();
+  const username = useUserStore((state) => state.username);
 
   const rerenderMenu = useCallback(() => {
     // force destroy component - 强制销毁组件触发重新渲染
@@ -87,6 +94,28 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
     updateTitleEdit(true);
   }, [updateTitleEdit]);
 
+  const handleBreakpointToggle = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Disable clicking prevents the sidebar from opening
+    if (!username) return;
+
+    const node_name = node.id;
+
+    let response;
+    if (isBreakpoint) {
+      response = await ipcApi.clearSkillBreakpoints(username, node_name);
+    } else {
+      response = await ipcApi.setSkillBreakpoints(username, node_name);
+    }
+
+    if (response.success) {
+      if (isBreakpoint) {
+        removeBreakpoint(node.id);
+      } else {
+        addBreakpoint(node.id);
+      }
+    }
+  }, [isBreakpoint, node.id, username, ipcApi, addBreakpoint, removeBreakpoint]);
+
   if (!visible) {
     return <></>;
   }
@@ -101,6 +130,9 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
           {canMoveOut && <Dropdown.Item onClick={handleMoveOut}>Move out</Dropdown.Item>}
           <Dropdown.Item onClick={handleCopy} disabled={registry.meta!.copyDisable === true}>
             Create Copy
+          </Dropdown.Item>
+          <Dropdown.Item onClick={(e) => handleBreakpointToggle(e)}>
+            {isBreakpoint ? 'Clear Breakpoint' : 'Set Breakpoint'}
           </Dropdown.Item>
           <Dropdown.Item
             onClick={handleDelete}

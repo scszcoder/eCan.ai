@@ -4,7 +4,7 @@
  */
 
 import styled from 'styled-components';
-import { IconInfoCircle } from '@douyinfe/semi-icons';
+import { IconInfoCircle, IconCode } from '@douyinfe/semi-icons';
 
 export const NodeWrapperStyle = styled.div`
   align-items: flex-start;
@@ -34,6 +34,21 @@ export const ErrorIcon = () => (
       zIndex: 1,
       background: 'white',
       borderRadius: 8,
+    }}
+  />
+);
+
+export const BreakpointIcon = () => (
+  <IconCode
+    style={{
+      position: 'absolute',
+      color: 'darkgreen',
+      left: -8,
+      top: -8,
+      zIndex: 1,
+      background: 'white',
+      borderRadius: '50%',
+      padding: '2px',
     }}
   />
 );
