@@ -24,8 +24,7 @@ except ImportError:
 
 # Import build utilities
 from build_system.build_utils import (
-    print_banner, print_mode_info, standardize_artifact_names,
-    show_build_results, prepare_third_party_assets, dev_sign_artifacts
+    print_banner, print_mode_info, show_build_results
 )
 
 # Import symlink manager for macOS fixes
@@ -222,38 +221,7 @@ class BuildEnvironment:
 # Removed: _standardize_artifact_names function moved to build_utils.py to eliminate duplication
 
 
-def _show_build_results():
-    """Show build results"""
-    print("\n[RESULT] Build Results:")
-
-    dist_dir = Path("dist")
-    if dist_dir.exists():
-        for item in dist_dir.iterdir():
-            if item.is_dir():
-                size = sum(f.stat().st_size for f in item.rglob('*') if f.is_file())
-                size_mb = size / (1024 * 1024)
-                print(f"  folder {item.name} ({size_mb:.1f} MB)")
-            elif item.is_file():
-                size_mb = item.stat().st_size / (1024 * 1024)
-                print(f"  file {item.name} ({size_mb:.1f} MB)")
-
-    # Show platform-specific information
-    if platform.system() == "Windows":
-        exe_name = "eCan.exe"
-        print(f"\n[INFO] Executable: ./dist/eCan/{exe_name}")
-    elif platform.system() == "Darwin":
-        exe_name = "eCan"
-        print(f"\n[INFO] Executable: ./dist/eCan/{exe_name}")
-    else:
-        exe_name = "eCan"
-        print(f"\n[INFO] Executable: ./dist/eCan/{exe_name}")
-
-    print("\n[OK] Standard optimization features:")
-    print("  - PyInstaller native optimization")
-    print("  - Smart hidden imports detection")
-    print("  - Exclude unnecessary modules")
-    print("  - Binary compression")
-    print("  - Debug info stripping")
+# Removed: _show_build_results function - functionality moved to build_utils.show_build_results
 
 
 
@@ -614,7 +582,7 @@ Usage examples:
             # Clean build outputs with enhanced symlink handling
             build_paths = [Path("dist"), Path("build")]
             try:
-                from build_system.symlink_manager import symlink_manager, set_verbose
+                from build_system.symlink_manager import set_verbose
                 set_verbose(args.verbose if hasattr(args, 'verbose') else False)
                 symlink_manager.cleanup_build_artifacts(build_paths)
                 for p in build_paths:
@@ -756,7 +724,7 @@ Usage examples:
 
         # 5) Dev-only local signing (disabled by default)
         try:
-            dev_sign_artifacts(args.dev_sign)
+            _dev_sign_artifacts(args.dev_sign)
         except Exception as _e:
             print(f"[DEV-SIGN] error: {_e}")
 

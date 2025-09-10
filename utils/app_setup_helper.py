@@ -9,6 +9,53 @@ except ImportError:
     app_info = None
 
 
+def get_app_user_model_id():
+    """
+    统一获取 AppUserModelID 的函数
+
+    Returns:
+        str: AppUserModelID，如果读取失败则返回默认值
+    """
+    try:
+        import json
+        from pathlib import Path
+        config_path = Path(__file__).parent.parent / "build_system" / "build_config.json"
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return config.get("app", {}).get("app_user_model_id", "eCan.AI.Assistant")
+    except Exception:
+        return "eCan.AI.Assistant"  # Fallback stable ID
+
+
+def set_windows_app_user_model_id(logger=None):
+    """
+    统一设置 Windows AppUserModelID 的函数
+
+    Args:
+        logger: 可选的日志记录器
+
+    Returns:
+        tuple: (app_id, result) - AppUserModelID 和设置结果
+    """
+    if sys.platform != 'win32':
+        return None, False
+
+    try:
+        import ctypes
+        app_id = get_app_user_model_id()
+        shell32 = ctypes.windll.shell32
+        result = shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+
+        if logger:
+            logger.debug(f"Set AppUserModelID: {app_id} (result: {result})")
+
+        return app_id, result
+    except Exception as e:
+        if logger:
+            logger.warning(f"Failed to set AppUserModelID: {e}")
+        return None, False
+
+
 def read_version_file(version_paths, logger=None):
     """
     统一的版本文件读取函数，支持开发环境和打包环境
@@ -228,9 +275,8 @@ def _setup_windows_app_info(app, logger=None):
     try:
         if sys.platform == 'win32' and ctypes:
             # Set application user model ID (must be done very early)
-            app_id = "eCan.AI.App"
-            shell32 = ctypes.windll.shell32
-            result = shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+            # Note: AppUserModelID should be stable across versions for proper Windows integration
+            app_id, result = set_windows_app_user_model_id(logger)
 
             # Set process title early for better Windows integration
             try:
@@ -286,9 +332,8 @@ def set_windows_taskbar_icon(app, icon_path, logger=None):
             logger.debug(f"Setting Windows taskbar icon: {icon_path}")
 
         # Method 1: Set application user model ID (AppUserModelID)
-        app_id = "eCan.AI.App"
-        shell32 = ctypes.windll.shell32
-        shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        # Note: AppUserModelID should be stable across versions for proper Windows integration
+        app_id, _ = set_windows_app_user_model_id(logger)
 
         # Method 2: Set window icon using Windows API
         try:
@@ -362,8 +407,22 @@ def set_windows_taskbar_icon(app, icon_path, logger=None):
                         if logger:
                             logger.debug("Set small icon (16x16) for title bar")
 
-                    # Force refresh taskbar
+                    # Force refresh taskbar and window
                     user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0001)  # SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE
+
+                    # Additional Windows API calls to ensure icon update
+                    try:
+                        # Force taskbar to refresh
+                        user32.UpdateWindow(hwnd)
+
+                        # Send notification to shell about icon change
+                        shell32.SHChangeNotify(0x08000000, 0x0000, None, None)  # SHCNE_ASSOCCHANGED
+
+                        if logger:
+                            logger.debug("Forced taskbar and shell icon refresh")
+                    except Exception as e:
+                        if logger:
+                            logger.debug(f"Additional icon refresh failed: {e}")
 
         except Exception as e:
             if logger:
@@ -380,24 +439,63 @@ def set_windows_taskbar_icon(app, icon_path, logger=None):
 
 def clear_windows_icon_cache(logger=None):
     """
-    Clear Windows icon cache (use with caution, will restart Explorer)
+    Clear Windows icon cache to fix taskbar icon issues
     """
     if sys.platform != 'win32':
         return False
 
     try:
         import subprocess
+        import winreg
 
         if logger:
-            logger.info("Note: Icon cache clearing requires Explorer restart")
-            logger.info("This is optional and may cause temporary desktop disruption")
-            logger.info("Windows icon cache clearing is available but not automatically executed")
+            logger.info("Clearing Windows icon cache...")
+
+        # Clear registry icon cache
+        try:
+            cache_keys = [
+                r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify"
+            ]
+
+            for key_path in cache_keys:
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE) as key:
+                        cache_values = ["IconStreams", "PastIconsStream"]
+                        for value_name in cache_values:
+                            try:
+                                winreg.DeleteValue(key, value_name)
+                                if logger:
+                                    logger.debug(f"Cleared {value_name} from registry")
+                            except FileNotFoundError:
+                                pass
+                except FileNotFoundError:
+                    pass
+        except Exception as e:
+            if logger:
+                logger.debug(f"Registry cache clear failed: {e}")
+
+        # Force icon refresh using Windows API
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            shell32 = ctypes.windll.shell32
+
+            # Refresh desktop and taskbar
+            user32.UpdatePerUserSystemParameters(1, 0)
+            shell32.SHChangeNotify(0x08000000, 0x0000, None, None)  # SHCNE_ASSOCCHANGED
+            shell32.SHChangeNotify(0x00002000, 0x0000, None, None)  # SHCNE_UPDATEIMAGE
+
+            if logger:
+                logger.info("Windows icon cache cleared and refreshed")
+        except Exception as e:
+            if logger:
+                logger.debug(f"Icon refresh failed: {e}")
 
         return True
 
     except Exception as e:
         if logger:
-            logger.warning(f"Icon cache clearing not available: {e}")
+            logger.warning(f"Icon cache clearing failed: {e}")
         return False
 
 def set_app_icon(app, logger=None):
@@ -459,13 +557,12 @@ def set_app_icon(app, logger=None):
         # Windows-specific settings
         if sys.platform == 'win32':
             success = set_windows_taskbar_icon(app, icon_path, logger)
-            if not success:
-                if logger:
-                    logger.warning("Windows taskbar icon setting failed")
-                    logger.info("If taskbar shows wrong icon, try:")
-                    logger.info("1. Restart the application")
-                    logger.info("2. Clear Windows icon cache manually")
-                    logger.info("3. Check if .ico file is valid")
+            if not success and logger:
+                logger.warning("Windows taskbar icon setting failed")
+                logger.info("If taskbar icon doesn't update:")
+                logger.info("1. Restart the application")
+                logger.info("2. Restart Windows Explorer (taskkill /f /im explorer.exe && start explorer.exe)")
+                logger.info("3. Reboot computer if needed")
 
         if logger:
             logger.info(f"Successfully loaded application icon from: {icon_path}")
@@ -520,10 +617,7 @@ def set_app_icon_early(app, logger=None):
         if sys.platform == 'win32':
             # Set AppUserModelID first (must be done early)
             try:
-                import ctypes
-                shell32 = ctypes.windll.shell32
-                app_id = "eCan.AI.App"
-                result = shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+                app_id, result = set_windows_app_user_model_id()
                 log_msg(f"Early AppUserModelID set: {app_id} (result: {result})", 'debug')
 
                 # Set process title early for better Windows integration
