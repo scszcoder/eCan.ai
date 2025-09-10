@@ -86,7 +86,7 @@ jobs:
         if ! (git show-ref --verify --quiet "refs/heads/$REF_NAME" 2>/dev/null || \
               git show-ref --verify --quiet "refs/tags/$REF_NAME" 2>/dev/null || \
               git show-ref --verify --quiet "refs/remotes/origin/$REF_NAME" 2>/dev/null); then
-          echo "❌ Error: Ref '$REF_NAME' does not exist!"
+          echo "[ERROR] Ref '$REF_NAME' does not exist!"
           echo "Available branches: $(git branch -r --format='%(refname:short)' | sed 's/origin\///' | grep -v '^HEAD' | sort | tr '\n' ' ')"
           echo "Available tags: $(git tag --sort=-version:refname | head -5 | tr '\n' ' ')"
           exit 1
@@ -232,9 +232,30 @@ jobs:
         # Set environment variables
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
+        $env:VIRTUAL_ENV = "$PWD\.venv"
+        $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
 
         # Verify build architecture environment variable
         Write-Host "BUILD_ARCH environment variable: $env:BUILD_ARCH"
+
+        # Verify virtual environment and dependencies
+        Write-Host "=== Verifying Build Environment ==="
+        Write-Host "Python executable: $((Get-Command python).Source)"
+        Write-Host "Virtual environment: $env:VIRTUAL_ENV"
+
+        # Test key dependencies
+        python -c "
+        import sys
+        print(f'Python version: {sys.version}')
+        print(f'Python executable: {sys.executable}')
+        packages = ['PyInstaller', 'PySide6', 'requests', 'playwright', 'colorlog']
+        for pkg in packages:
+            try:
+                __import__(pkg)
+                print(f'[OK] {pkg} available')
+            except ImportError as e:
+                print(f'[ERROR] {pkg} not found: {e}')
+        "
 
         # Run build with detailed output (including Sparkle support)
         python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"

@@ -11,7 +11,21 @@ import os
 import sys
 import platform
 from pathlib import Path
-from utils.logger_helper import logger_helper as logger
+
+# Use build system's own logger instead of runtime logger
+try:
+    from .build_logger import get_build_logger
+    logger = get_build_logger()
+except ImportError:
+    # Fallback to simple print-based logging for build system
+    class SimpleBuildLogger:
+        def info(self, msg, component="URL_SCHEME"):
+            print(f"[{component}] {msg}")
+        def warning(self, msg, component="URL_SCHEME"):
+            print(f"[WARNING] [{component}] {msg}")
+        def error(self, msg, component="URL_SCHEME"):
+            print(f"[ERROR] [{component}] {msg}")
+    logger = SimpleBuildLogger()
 
 
 class URLSchemeBuildConfig:
