@@ -41,7 +41,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
 
   const [isRunning, setRunning] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [errors, setErrors] = useState<string[]>();
+  const [errors, setErrors] = useState<string[] | undefined>();
   const [result, setResult] = useState<
     | {
         inputs: WorkflowInputs;
@@ -61,72 +61,67 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     localStorage.setItem('testrun-input-json-mode', JSON.stringify(checked));
   };
 
-  const onTestRun = useCallback(async () => {
+  const onTestRun = useCallback(() => {
     if (isRunning) {
       // TODO: Implement backend cancel
       setRunning(false);
       setRunningNodeId(null); // Clear indicator on cancel
       return;
     }
+
+    // 1. Set the initial state
     setResult(undefined);
     setErrors(undefined);
-
-    if (!username || !skillInfo) {
-      Notification.error({ title: 'Cannot run test', content: 'User or skill info is missing.' });
-      return;
-    }
-
-    // Use the `document` object from the `useClientContext` hook to ensure freshness
-    const diagram = document.toJSON();
-
-    // Set the initial running node to the start node
-    const startNode = diagram.nodes.find((node: any) => node.id === 'start_0');
+    setRunning(true);
+    const startNode = document.toJSON().nodes.find((node: any) => node.id === 'start');
     if (startNode) {
       setRunningNodeId(startNode.id);
     }
 
-    // Add a small delay to ensure the UI has a chance to render the icon
-    // on the start node before the backend sends its first update.
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    // Create a deep copy to avoid mutating the original diagram state
-    const diagramWithBreakpoints = JSON.parse(JSON.stringify(diagram));
-
-    // Inject breakpoint info
-    diagramWithBreakpoints.nodes.forEach((node: any) => {
-      if (breakpoints.includes(node.id)) {
-        if (!node.data) {
-          node.data = {};
-        }
-        node.data.break_point = true;
+    // 2. Use setTimeout to allow the UI to update before proceeding
+    setTimeout(async () => {
+      if (!username || !skillInfo) {
+        Notification.error({ title: 'Cannot run test', content: 'User or skill info is missing.' });
+        setRunning(false);
+        setRunningNodeId(null);
+        return;
       }
-    });
 
-    const skillPayload = {
-      ...skillInfo,
-      diagram: diagramWithBreakpoints,
-      testInputs: values, // Pass form values to the backend
-    };
+      const diagram = document.toJSON();
 
-    setRunning(true);
-    console.log('Sending skill to backend for execution:', skillPayload);
-    const response = await ipcApi.runSkill(username, skillPayload);
+      // Create a deep copy to avoid mutating the original diagram state
+      const diagramWithBreakpoints = JSON.parse(JSON.stringify(diagram));
 
-    // Do not clear state here. The state will be cleared by the updateSkillRunStat handler
-    // when a final status (e.g., 'completed' or 'failed') is received.
-
-    if (response.success) {
-      console.log('Backend execution successful:', response.data);
-      // Notification.success({ title: 'Backend Run Successful' });
-    } else {
-      console.error('Backend execution failed:', response.error);
-      Notification.error({
-        title: 'Backend Run Failed',
-        content: response.error?.message || 'An unknown error occurred.',
+      // Inject breakpoint info
+      diagramWithBreakpoints.nodes.forEach((node: any) => {
+        if (breakpoints.includes(node.id)) {
+          if (!node.data) {
+            node.data = {};
+          }
+          node.data.break_point = true;
+        }
       });
-      setErrors([response.error?.message || 'An unknown error occurred.']);
-    }
-  }, [document, username, skillInfo, breakpoints, setRunningNodeId, values, document]);
+
+      const skillPayload = {
+        ...skillInfo,
+        diagram: diagramWithBreakpoints,
+        testInputs: values,
+      };
+
+      // Send the skill payload to the backend
+      const response = await ipcApi.runSkill(username, skillPayload);
+
+      if (!response.success) {
+        setRunning(false);
+        setRunningNodeId(null);
+        Notification.error({
+          title: 'Backend Run Failed',
+          content: response.error?.message || 'An unknown error occurred.',
+        });
+        setErrors([response.error?.message || 'An unknown error occurred.']);
+      }
+    }, 0);
+  }, [document, isRunning, username, skillInfo, breakpoints, setRunningNodeId, values]);
 
   const onClose = async () => {
     if (isRunning) {
@@ -140,17 +135,8 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
 
   // runtime effect - This can be removed or replaced with a listener for backend events
   useEffect(() => {
-    setNodeId(undefined);
-    const disposer = runtimeService.onResultChanged(({ result, errors }) => {
-      // This logic is now handled by the IPC call
-    });
-    return () => disposer.dispose();
-  }, []);
-
-  // sidebar effect
-  useEffect(() => {
     if (sidebarNodeId) {
-      onCancel();
+      setNodeId(undefined);
     }
   }, [sidebarNodeId]);
 
