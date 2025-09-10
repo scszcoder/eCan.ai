@@ -61,6 +61,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 0  # Fetch all history for tags and branches
 
     - name: Validate ref and compute version
       id: validate
@@ -116,6 +117,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 0
 
     - name: Setup Python Environment
       uses: ./.github/actions/setup-python-env
@@ -442,6 +446,9 @@ jobs:
     - name: Checkout code
       if: steps.should_build.outputs.should_build == 'true'
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 0
 
     - name: Setup Python Environment
       if: steps.should_build.outputs.should_build == 'true'
@@ -880,6 +887,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 0
 
       - name: Check environment variables
         run: |

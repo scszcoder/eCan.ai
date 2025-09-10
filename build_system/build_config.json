@@ -103,8 +103,6 @@
         "app_context.py",
         "eCan.ico",
         "eCan.icns",
-        "ecbot.qm",
-        "ecbot_zh.qm",
         "role.json",
         "VERSION"
       ]
@@ -471,7 +469,7 @@
     "app_publisher": "eCan.AI Team",
     "default_dir": "{localappdata}\\\\eCan",
     "default_group": "eCan",
-    "privileges_required": "lowest",
+    "privileges_required": "admin",
     "compression": "lzma",
     "solid_compression": false,
     "internal_compress_level": "normal",
@@ -503,7 +501,7 @@
       "icon_file": "eCan.ico",
       "default_dir": "{localappdata}\\eCan",
       "default_group": "eCan",
-      "privileges_required": "lowest",
+      "privileges_required": "admin",
       "create_desktop_icon": true,
       "create_quick_launch_icon": false,
       "create_uninstaller": true,
