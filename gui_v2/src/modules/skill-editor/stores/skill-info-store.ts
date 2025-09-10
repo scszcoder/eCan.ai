@@ -12,6 +12,7 @@ interface SkillInfoStoreState {
   breakpoints: string[];
   addBreakpoint: (nodeId: string) => void;
   removeBreakpoint: (nodeId: string) => void;
+  setBreakpoints: (nodeIds: string[]) => void;
 }
 
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
@@ -19,7 +20,8 @@ export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   setSkillInfo: (info) => set({ skillInfo: info }),
   breakpoints: [],
   addBreakpoint: (nodeId) =>
-    set((state) => ({ breakpoints: [...state.breakpoints, nodeId] })),
+    set((state) => ({ breakpoints: [...new Set([...state.breakpoints, nodeId])] })), // Avoid duplicates
   removeBreakpoint: (nodeId) =>
     set((state) => ({ breakpoints: state.breakpoints.filter((id) => id !== nodeId) })),
+  setBreakpoints: (nodeIds) => set({ breakpoints: nodeIds }),
 }));
