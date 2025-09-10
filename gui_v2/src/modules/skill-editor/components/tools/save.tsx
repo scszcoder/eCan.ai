@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
 import { IconSave } from '@douyinfe/semi-icons';
@@ -35,12 +36,15 @@ interface SaveProps {
 // 是否启用本地下载 SkillInfo 文件
 const ENABLE_LOCAL_DOWNLOAD = true;
 
-export async function saveFile(skillInfo: SkillInfo, username?: string) {
+export async function saveFile(dataToSave: SkillInfo, username?: string) {
   try {
-    const jsonString = JSON.stringify(skillInfo, null, 2);
+    console.log('--- Debug Save: Data to Save ---', dataToSave);
+    const jsonString = JSON.stringify(dataToSave, null, 2);
+    console.log('--- Debug Save: Final JSON String ---', jsonString);
+
     if (ENABLE_LOCAL_DOWNLOAD) {
       const blob = new Blob([jsonString], { type: 'application/json' });
-      const fileName = (skillInfo.skillName || 'skill-info') + '.json';
+      const fileName = (dataToSave.skillName || 'skill-info') + '.json';
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName: fileName,
@@ -68,7 +72,7 @@ export async function saveFile(skillInfo: SkillInfo, username?: string) {
       }
     }
     if (username) {
-      await get_ipc_api().saveSkill(username, skillInfo);
+      await get_ipc_api().saveSkill(username, dataToSave);
     }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -81,14 +85,43 @@ export async function saveFile(skillInfo: SkillInfo, username?: string) {
 }
 
 export const Save = ({ disabled }: SaveProps) => {
+  const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
+  const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+  const breakpoints = useSkillInfoStore((state) => state.breakpoints);
   const username = useUserStore((state) => state.username);
 
   const handleSave = useCallback(async () => {
     if (!skillInfo) return;
-    console.log('handleSave', skillInfo, username);
-    await saveFile(skillInfo, username || undefined);
-  }, [skillInfo, username]);
+
+    // 1. Get the latest diagram state
+    const diagram = document.toJSON();
+
+    // 2. Inject breakpoint information into the diagram
+    diagram.nodes.forEach((node: any) => {
+      if (breakpoints.includes(node.id)) {
+        if (!node.data) {
+          node.data = {};
+        }
+        node.data.break_point = true;
+      } else {
+        // Ensure the flag is removed if the breakpoint was removed
+        if (node.data?.break_point) {
+          delete node.data.break_point;
+        }
+      }
+    });
+
+    // 3. Create the updated skillInfo object
+    const updatedSkillInfo = {
+      ...skillInfo,
+      workFlow: diagram,
+      lastModified: new Date().toISOString(),
+    };
+
+    // 4. Now, save the updated state to the file by passing it directly
+    await saveFile(updatedSkillInfo, username || undefined);
+  }, [skillInfo, username, document, breakpoints]);
 
   return (
     <Tooltip content="Save">

@@ -35,6 +35,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const ipcApi = IPCAPI.getInstance();
   const username = useUserStore((state) => state.username);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
+  const breakpoints = useSkillInfoStore((state) => state.breakpoints);
 
   const [isRunning, setRunning] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -72,9 +73,24 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       return;
     }
 
+    const diagram = document.toJSON();
+
+    // Create a deep copy to avoid mutating the original diagram state
+    const diagramWithBreakpoints = JSON.parse(JSON.stringify(diagram));
+
+    // Inject breakpoint information
+    diagramWithBreakpoints.nodes.forEach((node: any) => {
+      if (breakpoints.includes(node.id)) {
+        if (!node.data) {
+          node.data = {};
+        }
+        node.data.break_point = true;
+      }
+    });
+
     const skillPayload = {
       ...skillInfo,
-      diagram: document.toJSON(),
+      diagram: diagramWithBreakpoints,
       testInputs: values, // Pass form values to the backend
     };
 

@@ -19,21 +19,44 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   const tools = usePlaygroundTools();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+  const breakpoints = useSkillInfoStore((state) => state.breakpoints);
 
   const handleNewPage = useCallback(async () => {
-    // 1. 保存当前数据，复用 saveFile
+    // 1. Save the current data using the CORRECT, up-to-date logic
     if (skillInfo) {
-      await saveFile(skillInfo, username || undefined);
+      const diagram = workflowDocument.toJSON();
+      diagram.nodes.forEach((node: any) => {
+        if (breakpoints.includes(node.id)) {
+          if (!node.data) {
+            node.data = {};
+          }
+          node.data.break_point = true;
+        } else {
+          if (node.data?.break_point) {
+            delete node.data.break_point;
+          }
+        }
+      });
+
+      const updatedSkillInfo = {
+        ...skillInfo,
+        workFlow: diagram,
+        lastModified: new Date().toISOString(),
+      };
+
+      setSkillInfo(updatedSkillInfo);
+      await saveFile(updatedSkillInfo, username || undefined);
     }
-    // 2. 清理现有画布数据
+
+    // 2. Clear the existing canvas data
     workflowDocument.clear && workflowDocument.clear();
-    // 3. 加载 emptydata
+    // 3. Load empty data
     workflowDocument.fromJSON(emptyFlow);
-    // 4. 画布自适应
+    // 4. Fit the canvas view
     tools.fitView && tools.fitView();
-    // 5. 生成并保存新的 SkillInfo
+    // 5. Generate and save the new SkillInfo
     setSkillInfo(createSkillInfo(emptyFlow));
-  }, [workflowDocument, username, tools, setSkillInfo, skillInfo]);
+  }, [workflowDocument, username, tools, setSkillInfo, skillInfo, breakpoints]);
 
   return (
     <Tooltip content="New Page">
