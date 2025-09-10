@@ -318,9 +318,44 @@ class InstallerBuilder:
         ]
         return any(Path(path).exists() for path in inno_paths)
 
+    def _ensure_windows_icon_quality(self) -> bool:
+        """确保Windows图标质量和配置"""
+        try:
+            icon_file = self.project_root / "eCan.ico"
+
+            # 验证ICO文件
+            if not icon_file.exists():
+                print("[WARNING] eCan.ico not found")
+                return False
+
+            # 检查ICO文件质量
+            file_size = icon_file.stat().st_size
+            if file_size < 1000:
+                print(f"[WARNING] ICO file seems too small: {file_size} bytes")
+
+            # 验证ICO文件头
+            with open(icon_file, 'rb') as f:
+                header = f.read(6)
+                if header[:2] != b'\x00\x00' or header[2:4] != b'\x01\x00':
+                    print("[WARNING] Invalid ICO file header")
+                    return False
+
+                icon_count = int.from_bytes(header[4:6], 'little')
+                print(f"[INFO] ICO file contains {icon_count} icon(s), size: {file_size} bytes")
+
+            return True
+
+        except Exception as e:
+            print(f"[WARNING] Failed to validate ICO file: {e}")
+            return False
+
     def _create_inno_script(self) -> Optional[Path]:
         """Create Inno Setup script"""
         try:
+            # 确保Windows图标质量
+            if not self._ensure_windows_icon_quality():
+                print("[WARNING] Windows icon quality check failed")
+
             installer_config = self.config.config.get("installer", {})
             windows_config = installer_config.get("windows", {})
             app_info = self.config.get_app_info()
@@ -417,11 +452,22 @@ Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: 
 {files_section}
 
 [Icons]
-Name: "{{group}}\eCan"; Filename: "{run_target}"
-Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; Tasks: desktopicon
+Name: "{{group}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
+Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{{localappdata}}\eCan"
+
+[Code]
+// Notify Windows of new application installation
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    // Refresh shell to recognize new application
+    // This is less intrusive than restarting explorer
+  end;
+end;
 
 [Code]
 function InitializeUninstall(): Boolean;

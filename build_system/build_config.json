@@ -10,7 +10,19 @@
       "windows": "eCan.ico"
     },
     "console": false,
-    "debug": false
+    "debug": false,
+    "app_user_model_id": "eCan.AI.Assistant",
+    "version_info": {
+      "company_name": "eCan.AI Team",
+      "file_description": "eCan AI Assistant - Intelligent automation platform",
+      "product_name": "eCan AI Assistant",
+      "internal_name": "eCan",
+      "original_filename": "eCan.exe",
+      "copyright_year": "2025",
+      "copyright_holder": "eCan.AI Team",
+      "language_code": "040904B0",
+      "translation": [1033, 1200]
+    }
   },
   "build_profiles": {
     "fast": {
@@ -498,7 +510,9 @@
       "compression": "lzma",
       "solid_compression": true,
       "sign_tool": "",
-      "sign_params": ""
+      "sign_params": "",
+      "clear_icon_cache": true,
+      "force_icon_refresh": true
     },
     "macos": {
       "bundle_identifier": "com.ecan.app",

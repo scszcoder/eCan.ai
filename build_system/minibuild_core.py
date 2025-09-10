@@ -243,10 +243,100 @@ class MiniSpecBuilder:
         else:
             return runtime_tmpdir_cfg.get("linux")
 
+    def _generate_version_info_file(self, app_name: str, app_version: str) -> Optional[str]:
+        """Generate Windows version info file dynamically"""
+        if not sys.platform.startswith('win'):
+            return None
+
+        # Parse version string to tuple (e.g., "1.0.0" -> (1, 0, 0, 0))
+        version_parts = app_version.split('.')
+        while len(version_parts) < 4:
+            version_parts.append('0')
+        version_tuple = tuple(int(part) for part in version_parts[:4])
+
+        # Get app info from config
+        app_info = self.cfg.get("app", {})
+        version_info = app_info.get("version_info", {})
+
+        # Get version info with fallbacks to main app config
+        company_name = version_info.get("company_name", app_info.get("author", "eCan.AI Team"))
+        file_description = version_info.get("file_description", app_info.get("description", f"{app_name} AI Assistant"))
+        product_name = version_info.get("product_name", app_info.get("description", f"{app_name} AI Assistant"))
+        internal_name = version_info.get("internal_name", app_name)
+        original_filename = version_info.get("original_filename", f"{app_name}.exe")
+        copyright_year = version_info.get("copyright_year", "2025")
+        copyright_holder = version_info.get("copyright_holder", company_name)
+        language_code = version_info.get("language_code", "040904B0")
+        translation = version_info.get("translation", [1033, 1200])
+
+        # Ensure version string has 4 parts for display
+        version_parts_count = len(app_version.split('.'))
+        if version_parts_count < 4:
+            # Add .0 for missing parts to make it 4-part version
+            missing_parts = 4 - version_parts_count
+            version_display = app_version + '.0' * missing_parts
+        else:
+            version_display = app_version
+
+        # Generate version info content
+        version_info_content = f'''# UTF-8
+#
+# For more details about fixed file info 'ffi' see:
+# http://msdn.microsoft.com/en-us/library/ms646997.aspx
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    # filevers and prodvers should be always a tuple with four items: (1, 2, 3, 4)
+    # Set not needed items to zero 0.
+    filevers={version_tuple},
+    prodvers={version_tuple},
+    # Contains a bitmask that specifies the valid bits 'flags'r
+    mask=0x3f,
+    # Contains a bitmask that specifies the Boolean attributes of the file.
+    flags=0x0,
+    # The operating system for which this file was designed.
+    # 0x4 - NT and there is no need to change it.
+    OS=0x4,
+    # The general type of file.
+    # 0x1 - the file is an application.
+    fileType=0x1,
+    # The function of the file.
+    # 0x0 - the function is not defined for this fileType
+    subtype=0x0,
+    # Creation date and time stamp.
+    date=(0, 0)
+    ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'{language_code}',
+        [StringStruct(u'CompanyName', u'{company_name}'),
+        StringStruct(u'FileDescription', u'{file_description}'),
+        StringStruct(u'FileVersion', u'{version_display}'),
+        StringStruct(u'InternalName', u'{internal_name}'),
+        StringStruct(u'LegalCopyright', u'Copyright © {copyright_year} {copyright_holder}'),
+        StringStruct(u'OriginalFilename', u'{original_filename}'),
+        StringStruct(u'ProductName', u'{product_name}'),
+        StringStruct(u'ProductVersion', u'{version_display}')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', {translation})])
+  ]
+)'''
+
+        # Write to file
+        version_info_path = self.project_root / "build_system" / "version_info.txt"
+        version_info_path.write_text(version_info_content, encoding='utf-8')
+        print(f"[MINIBUILD] Generated version info: {version_info_path} (v{app_version})")
+
+        return str(version_info_path)
+
     def _generate_spec_template(self, app_name: str, app_version: str, main_script: str,
                                mode: str, onefile: bool, console: bool, debug: bool,
                                runtime_tmpdir: Optional[str], profile: Dict[str, Any] = None) -> str:
         """Generate spec file content using a clean template approach"""
+
+        # Generate Windows version info file dynamically
+        self._generate_version_info_file(app_name, app_version)
 
         # Get configuration data
         hiddenimports = self._hiddenimports_from_config()
@@ -578,6 +668,8 @@ if sys.platform == 'darwin':
     runtime_tmpdir={repr(runtime_tmpdir)},
     console={repr(console)},
     icon=icon_path,
+    version='build_system/version_info.txt' if sys.platform.startswith('win') else None,
+    uac_admin=True if sys.platform.startswith('win') else False,
 )'''
         else:
             return f'''exe = EXE(
@@ -593,6 +685,8 @@ if sys.platform == 'darwin':
     runtime_tmpdir={repr(runtime_tmpdir)},
     console={repr(console)},
     icon=icon_path,
+    version='build_system/version_info.txt' if sys.platform.startswith('win') else None,
+    uac_admin=True if sys.platform.startswith('win') else False,
 )
 
 coll = COLLECT(
