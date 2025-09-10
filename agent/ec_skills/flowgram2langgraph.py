@@ -18,7 +18,7 @@ function_registry = {
     "loop": build_loop_node,
     "condition": build_condition_node,
     "tool": build_mcp_tool_calling_node,
-    "group": build_group_node,
+    # "group": process_blocks,
     "default": build_debug_node,
 }
 
