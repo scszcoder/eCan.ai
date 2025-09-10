@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useCallback } from 'react';
 
 import { WorkflowPortRender } from '@flowgram.ai/free-layout-editor';
-import { useClientContext } from '@flowgram.ai/free-layout-editor';
+import { useClientContext, useNode } from '@flowgram.ai/free-layout-editor';
 
 import { FlowNodeMeta } from '../../typings';
 import { useNodeRenderContext, usePortClick } from '../../hooks';
@@ -14,6 +14,8 @@ import { SidebarContext } from '../../context';
 import { scrollToView } from './utils';
 import { NodeWrapperStyle, BreakpointIcon } from './styles';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { useRunningNodeStore } from '../../stores/running-node-store';
+import { RunningIndicator } from '../running-indicator';
 
 export interface NodeWrapperProps {
   isScrollToView?: boolean;
@@ -36,11 +38,21 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const onPortClick = usePortClick();
   const meta = node.getNodeMeta<FlowNodeMeta>();
   const { breakpoints } = useSkillInfoStore();
+  const { runningNodeId } = useRunningNodeStore();
   const isBreakpoint = breakpoints.includes(node.id);
+  const isRunning = runningNodeId === node.id;
 
   const portsRender = ports.map((p) => (
     <WorkflowPortRender key={p.id} entity={p} onClick={!readonly ? onPortClick : undefined} />
   ));
+
+  const handleMouseEnter = useCallback(() => {
+    if (readonly) {
+      return;
+    }
+  }, [readonly]);
+
+  const handleMouseLeave = useCallback(() => {}, []);
 
   return (
     <>
@@ -70,14 +82,17 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         onMouseUp={() => setIsDragging(false)}
         onFocus={onFocus}
         onBlur={onBlur}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         data-node-selected={String(selected)}
         style={{
           ...meta.wrapperStyle,
           outline: form?.state.invalid ? '1px solid red' : 'none',
         }}
       >
-        {isBreakpoint && <BreakpointIcon />}
+        {isRunning && <RunningIndicator />}
         {children}
+        {isBreakpoint && <BreakpointIcon />}
       </NodeWrapperStyle>
       {portsRender}
     </>
