@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FC, useContext, useEffect, useState } from 'react';
+import { FC, useContext, useEffect, useState, useCallback } from 'react';
 
 import classnames from 'classnames';
 import { WorkflowInputs, WorkflowOutputs } from '@flowgram.ai/runtime-interface';
@@ -61,7 +61,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     localStorage.setItem('testrun-input-json-mode', JSON.stringify(checked));
   };
 
-  const onTestRun = async () => {
+  const onTestRun = useCallback(async () => {
     if (isRunning) {
       // TODO: Implement backend cancel
       setRunning(false);
@@ -76,6 +76,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       return;
     }
 
+    // Use the `document` object from the `useClientContext` hook to ensure freshness
     const diagram = document.toJSON();
 
     // Set the initial running node to the start node
@@ -84,13 +85,14 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       setRunningNodeId(startNode.id);
     }
 
-    // Add a small delay to ensure the UI updates before the next state change
+    // Add a small delay to ensure the UI has a chance to render the icon
+    // on the start node before the backend sends its first update.
     await new Promise(resolve => setTimeout(resolve, 50));
 
     // Create a deep copy to avoid mutating the original diagram state
     const diagramWithBreakpoints = JSON.parse(JSON.stringify(diagram));
 
-    // Inject breakpoint information
+    // Inject breakpoint info
     diagramWithBreakpoints.nodes.forEach((node: any) => {
       if (breakpoints.includes(node.id)) {
         if (!node.data) {
@@ -124,7 +126,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       });
       setErrors([response.error?.message || 'An unknown error occurred.']);
     }
-  };
+  }, [document, username, skillInfo, breakpoints, setRunningNodeId, values, document]);
 
   const onClose = async () => {
     if (isRunning) {

@@ -5,22 +5,33 @@
 
 import styled from 'styled-components';
 import { IconInfoCircle, IconCode } from '@douyinfe/semi-icons';
+import runningGif from '/src/assets/gifs/running0.gif';
+
+export const RunningIcon = styled.div`
+  display: none; // Hidden by default
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 32px;
+  background-image: url(${runningGif});
+  background-size: contain;
+  z-index: 10;
+`;
 
 export const NodeWrapperStyle = styled.div`
-  position: relative; // This is the key fix for positioning the absolute indicator
-  align-items: flex-start;
-  background-color: #fff;
-  border: 1px solid rgba(6, 7, 9, 0.15);
-  border-radius: 8px;
-  box-shadow: 0 2px 6px 0 rgba(0, 0, 0, 0.04), 0 4px 12px 0 rgba(0, 0, 0, 0.02);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  width: 360px;
-  height: auto;
+  position: relative;
+  width: 200px;
+  border-radius: 4px;
+  background-color: var(--flow-node-bg-color);
+  border: 1px solid var(--flow-node-border-color);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 
-  &.selected {
-    border: 1px solid #4e40e5;
+  &.is-running {
+    ${RunningIcon} {
+      display: block;
+    }
   }
 `;
 
