@@ -101,17 +101,17 @@ runs:
 
         echo "=== Verifying key dependencies ==="
         "$PYTHON_EXE" -c "
-import sys
-packages = ['PyInstaller', 'PySide6', 'requests', 'playwright', 'colorlog']
-for pkg in packages:
-    try:
-        __import__(pkg)
-        print(f'[OK] {pkg} installed successfully')
-    except ImportError as e:
-        print(f'[ERROR] {pkg} not found: {e}')
-        sys.exit(1)
-print('All key dependencies verified!')
-"
+        import sys
+        packages = ['PyInstaller', 'PySide6', 'requests', 'playwright', 'colorlog']
+        for pkg in packages:
+            try:
+                __import__(pkg)
+                print(f'[OK] {pkg} installed successfully')
+            except ImportError as e:
+                print(f'[ERROR] {pkg} not found: {e}')
+                sys.exit(1)
+        print('All key dependencies verified!')
+        "
 
     - name: Uninstall pathlib if present
       shell: bash
