@@ -113,10 +113,10 @@
         "pandas",
         "scipy",
         "sklearn",
-        "PIL",
-        "cv2"
+        "PIL"
       ],
       "collect_data_only": [
+        "cv2",
         "playwright",
         "browser_use",
         "crawl4ai",
@@ -150,6 +150,7 @@
         "setuptools.dist",
         "importlib.metadata",
         "importlib_metadata",
+        "cv2",
         "PySide6.QtWebEngineCore",
         "PySide6.QtWebEngineWidgets",
         "PySide6.QtWebChannel",
@@ -466,10 +467,10 @@
     "enabled": true,
     "app_name": "eCan",
     "app_version": "1.0.0",
-    "app_publisher": "eCan.AI Team",
-    "default_dir": "{localappdata}\\\\eCan",
+    "app_publisher": "eCan.ai Team",
+    "default_dir": "{localappdata}\\eCan",
     "default_group": "eCan",
-    "privileges_required": "admin",
+    "privileges_required": "lowest",
     "compression": "lzma",
     "solid_compression": false,
     "internal_compress_level": "normal",
@@ -492,7 +493,7 @@
     },
     "windows": {
       "app_id": "{6E1CCB74-1C0D-4333-9F20-2E4F2AF3F4A1}",
-      "publisher": "eCan Team",
+      "publisher": "eCan.ai Team",
       "publisher_url": "https://github.com/ecan-team",
       "support_url": "https://github.com/ecan-team/ecbot/issues",
       "updates_url": "https://github.com/ecan-team/ecbot/releases",
@@ -501,7 +502,7 @@
       "icon_file": "eCan.ico",
       "default_dir": "{localappdata}\\eCan",
       "default_group": "eCan",
-      "privileges_required": "admin",
+      "privileges_required": "lowest",
       "create_desktop_icon": true,
       "create_quick_launch_icon": false,
       "create_uninstaller": true,
@@ -510,7 +511,37 @@
       "sign_tool": "",
       "sign_params": "",
       "clear_icon_cache": true,
-      "force_icon_refresh": true
+      "force_icon_refresh": true,
+      "registry_entries": [
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan",
+          "value_name": "",
+          "value_data": "URL:eCan Protocol",
+          "value_type": "string"
+        },
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan",
+          "value_name": "URL Protocol",
+          "value_data": "",
+          "value_type": "string"
+        },
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan\\shell\\open\\command",
+          "value_name": "",
+          "value_data": "\"{app}\" \"%1\"",
+          "value_type": "string"
+        },
+        {
+          "root": "HKCU",
+          "subkey": "Software\\Classes\\ecan\\DefaultIcon",
+          "value_name": "",
+          "value_data": "\"{app}\",0",
+          "value_type": "string"
+        }
+      ]
     },
     "macos": {
       "bundle_identifier": "com.ecan.app",

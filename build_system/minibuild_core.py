@@ -669,7 +669,7 @@ if sys.platform == 'darwin':
     console={repr(console)},
     icon=icon_path,
     version='build_system/version_info.txt' if sys.platform.startswith('win') else None,
-    uac_admin=True if sys.platform.startswith('win') else False,
+    uac_admin=False,  # Disable UAC admin requirement
 )'''
         else:
             return f'''exe = EXE(
@@ -686,7 +686,7 @@ if sys.platform == 'darwin':
     console={repr(console)},
     icon=icon_path,
     version='build_system/version_info.txt' if sys.platform.startswith('win') else None,
-    uac_admin=True if sys.platform.startswith('win') else False,
+    uac_admin=False,  # Disable UAC admin requirement
 )
 
 coll = COLLECT(

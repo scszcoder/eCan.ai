@@ -36,3 +36,4 @@ gui_v2/coverage/
 /third_party/winsparkle/
 .build_cache
 /webdrivers/
+/build_system/version_info.txt
