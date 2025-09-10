@@ -120,7 +120,7 @@ Comment=eCan Automation Platform
         elif system == "windows":
             # Windows specific options
             options.extend([
-                "--uac-admin",  # Request admin privileges for registry access
+                # "--uac-admin",  # Request admin privileges for registry access - commented out to avoid elevation requirement
                 "--version-file=build_system/version_info.txt"
             ])
         

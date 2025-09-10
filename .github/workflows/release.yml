@@ -3,14 +3,15 @@ name: Release Build eCan
 # Build platform, CPU architecture and reference can be selected via workflow_dispatch parameters:
 #   - platform: windows, macos, all
 #   - arch: amd64, aarch64
-#   - ref: Can fill in tag (like v1.2.3) or branch name (default current branch), editable
+#   - ref: Branch name or tag (e.g., gui-v2, master, v0.0.4)
 #
 # Notes:
 #   - Windows only supports amd64 architecture (GitHub Actions has no ARM64 runner)
 #   - macOS supports amd64/aarch64, but GitHub Actions x86_64 runner needs special handling for arm64 builds
+#   - The workflow validates the ref and shows available options if invalid
 #
 # Examples:
-#   - When manually triggering workflow, you can select platform and architecture, and edit ref
+#   - When manually triggering workflow, enter branch/tag name
 #   - When pushing tag or publishing release, automatically triggered, default build all + amd64
 
 on:
@@ -42,9 +43,9 @@ on:
           - amd64
           - aarch64
       ref:
-        description: 'Git ref to build (tag like v1.2.3 or branch name)'
+        description: 'Git ref to build (branch name or tag, e.g., master, gui-v2, v0.0.4)'
         required: true
-        default: ''
+        default: 'master'
         type: string
 
 jobs:
@@ -70,12 +71,26 @@ jobs:
         set -euo pipefail
         INPUT_REF="${{ github.event.inputs.ref }}"
         REF_FULL="${GITHUB_REF}"
+
+        # Determine the actual ref to use
         if [ -n "$INPUT_REF" ]; then
           REF_NAME="$INPUT_REF"
         else
           REF_NAME="${REF_FULL#refs/*/}"
         fi
+
         echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
+        echo "Selected ref: $REF_NAME"
+
+        # Simple validation with helpful error message
+        if ! (git show-ref --verify --quiet "refs/heads/$REF_NAME" 2>/dev/null || \
+              git show-ref --verify --quiet "refs/tags/$REF_NAME" 2>/dev/null || \
+              git show-ref --verify --quiet "refs/remotes/origin/$REF_NAME" 2>/dev/null); then
+          echo "❌ Error: Ref '$REF_NAME' does not exist!"
+          echo "Available branches: $(git branch -r --format='%(refname:short)' | sed 's/origin\///' | grep -v '^HEAD' | sort | tr '\n' ' ')"
+          echo "Available tags: $(git tag --sort=-version:refname | head -5 | tr '\n' ' ')"
+          exit 1
+        fi
 
         if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
           echo "valid=true" >> $GITHUB_OUTPUT

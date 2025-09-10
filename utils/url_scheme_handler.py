@@ -157,6 +157,18 @@ class URLSchemeRegistrar:
                 
                 logger.info("URL scheme registered in HKCU successfully")
                 registered = True
+
+                # Verify registration by reading back the key
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software\\Classes\\ecan\\shell\\open\\command", 0,
+                                      winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as verify_key:
+                        command_value, _ = winreg.QueryValueEx(verify_key, "")
+                        if app_path in command_value:
+                            logger.info(f"URL scheme registration verified: {command_value}")
+                        else:
+                            logger.warning(f"URL scheme registration verification failed: {command_value}")
+                except Exception as e:
+                    logger.warning(f"Could not verify URL scheme registration: {e}")
                 
             except Exception as e:
                 logger.warning(f"Failed to register URL scheme in HKCU: {e}")
@@ -195,7 +207,8 @@ class URLSchemeRegistrar:
                     logger.error(f"Failed to register URL scheme in HKLM: {e}")
                     return False
             elif not registered:
-                logger.warning("URL scheme registration requires admin privileges. Some features may be limited.")
+                logger.warning("URL scheme registration failed. Some features may be limited.")
+                # Still return True if HKCU registration succeeded, as that's sufficient for most use cases
                 return False
                     
         except Exception as e:
