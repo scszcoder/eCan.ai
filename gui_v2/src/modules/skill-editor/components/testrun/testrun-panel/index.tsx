@@ -20,6 +20,7 @@ import { IconCancel } from '../../../assets/icon-cancel';
 import { IPCAPI } from '../../../../../services/ipc/api';
 import { useUserStore } from '../../../../../stores/userStore';
 import { useSkillInfoStore } from '../../../stores/skill-info-store';
+import { useRunningNodeStore } from '../../../stores/running-node-store';
 
 import styles from './index.module.less';
 
@@ -36,6 +37,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const username = useUserStore((state) => state.username);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
+  const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
 
   const [isRunning, setRunning] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -63,6 +65,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     if (isRunning) {
       // TODO: Implement backend cancel
       setRunning(false);
+      setRunningNodeId(null); // Clear indicator on cancel
       return;
     }
     setResult(undefined);
@@ -74,6 +77,15 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     }
 
     const diagram = document.toJSON();
+
+    // Set the initial running node to the start node
+    const startNode = diagram.nodes.find((node: any) => node.id === 'start_0');
+    if (startNode) {
+      setRunningNodeId(startNode.id);
+    }
+
+    // Add a small delay to ensure the UI updates before the next state change
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // Create a deep copy to avoid mutating the original diagram state
     const diagramWithBreakpoints = JSON.parse(JSON.stringify(diagram));
@@ -97,12 +109,13 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     setRunning(true);
     console.log('Sending skill to backend for execution:', skillPayload);
     const response = await ipcApi.runSkill(username, skillPayload);
-    setRunning(false);
+
+    // Do not clear state here. The state will be cleared by the updateSkillRunStat handler
+    // when a final status (e.g., 'completed' or 'failed') is received.
 
     if (response.success) {
       console.log('Backend execution successful:', response.data);
-      Notification.success({ title: 'Backend Run Successful' });
-      // TODO: Display results from backend
+      // Notification.success({ title: 'Backend Run Successful' });
     } else {
       console.error('Backend execution failed:', response.error);
       Notification.error({
@@ -117,6 +130,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     if (isRunning) {
       // TODO: Implement backend cancel
       setRunning(false);
+      setRunningNodeId(null); // Clear indicator on close
     }
     setValues({});
     onCancel();
@@ -137,13 +151,6 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       onCancel();
     }
   }, [sidebarNodeId]);
-
-  const renderRunning = (
-    <div className={styles['testrun-panel-running']}>
-      <IconSpin spin size="large" />
-      <div className={styles.text}>Running on Backend...</div>
-    </div>
-  );
 
   const renderForm = (
     <div className={styles['testrun-panel-form']}>
@@ -216,7 +223,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
           />
         </div>
         <div className={styles['testrun-panel-content']}>
-          {isRunning ? renderRunning : renderForm}
+          {renderForm}
         </div>
         <div className={styles['testrun-panel-footer']}>{renderButton}</div>
       </div>

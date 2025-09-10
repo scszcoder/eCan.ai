@@ -6,6 +6,7 @@ import { IPCRequest } from './types';
 import { useAppDataStore } from '../../stores/appDataStore';
 import { logger } from '../../utils/logger';
 import { eventBus } from '@/utils/eventBus';
+import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 
 // 处理器类型定义
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -146,6 +147,18 @@ export class IPCHandlers {
 
     async updateSkillRunStat(request: IPCRequest): Promise<{ success: boolean }> {
         // logger.info('Received updateSkillRunStat request:', request.params);
+        const { current_node, status } = request.params as { current_node?: string, status?: string };
+
+        // Update the running node if the backend provides a specific node ID.
+        if (typeof current_node === 'string' && current_node.length > 0) {
+            useRunningNodeStore.getState().setRunningNodeId(current_node);
+        }
+
+        // Clear the running node if the skill has completed or failed.
+        if (status === 'completed' || status === 'failed') {
+            useRunningNodeStore.getState().setRunningNodeId(null);
+        }
+
         eventBus.emit('chat:latestSkillRunStat', request.params);
         return { success: true };
     }

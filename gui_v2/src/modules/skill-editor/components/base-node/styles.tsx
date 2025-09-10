@@ -7,6 +7,7 @@ import styled from 'styled-components';
 import { IconInfoCircle, IconCode } from '@douyinfe/semi-icons';
 
 export const NodeWrapperStyle = styled.div`
+  position: relative; // This is the key fix for positioning the absolute indicator
   align-items: flex-start;
   background-color: #fff;
   border: 1px solid rgba(6, 7, 9, 0.15);
@@ -15,7 +16,6 @@ export const NodeWrapperStyle = styled.div`
   display: flex;
   flex-direction: column;
   justify-content: center;
-  position: relative;
   width: 360px;
   height: auto;
 
