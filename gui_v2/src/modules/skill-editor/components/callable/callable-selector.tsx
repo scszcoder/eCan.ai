@@ -10,10 +10,9 @@ import { CallableFunction, createDefaultCallableFunction } from '../../typings/c
 import { systemFunctions, customFunctions } from './test-data';
 import { CallableEditor } from './callable-editor';
 import { CallableSelectorWrapper } from './styles';
-import { get_ipc_api } from '@/services/ipc_api';
 
 // 配置是否使用远程搜索
-const USE_REMOTE_SEARCH = true;
+const USE_REMOTE_SEARCH = false; // Set to false to use props
 
 interface CallableSelectorProps {
   value?: CallableFunction;
@@ -34,45 +33,12 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   const [editorVisible, setEditorVisible] = useState(false);
   const [editingFunction, setEditingFunction] = useState<CallableFunction | null>(null);
   const [selectedValue, setSelectedValue] = useState<string | undefined>(value?.name);
-  const [isLoading, setIsLoading] = useState(false);
-  const [remoteFunctions, setRemoteFunctions] = useState<CallableFunction[]>([]);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [functionToDelete, setFunctionToDelete] = useState<CallableFunction | null>(null);
-
-  // 添加刷新函数列表的函数
-  const refreshFunctions = async () => {
-    if (!USE_REMOTE_SEARCH) return;
-    
-    setIsLoading(true);
-    try {
-      const response = await get_ipc_api().getCallables<{ data: CallableFunction[] }>({
-        text: searchText || undefined
-      });
-      
-      if (response.success && response.data?.data) {
-        setRemoteFunctions(response.data.data);
-      }
-    } catch (error) {
-      console.error('Error refreshing functions:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 组件挂载时刷新函数列表
-  useEffect(() => {
-    refreshFunctions();
-  }, []);
 
   useEffect(() => {
     setSelectedValue(value?.name);
   }, [value]);
-
-  // 修改远程搜索的 useEffect
-  useEffect(() => {
-    const debounceTimer = setTimeout(refreshFunctions, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [searchText]);
 
   // 使用 useMemo 优化本地过滤函数列表的性能
   const localFilteredFunctions = useMemo(() => {
@@ -109,7 +75,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     if (typeof selectedValue !== 'string') return;
     
     console.log('Selected value:', selectedValue);
-    const functions = USE_REMOTE_SEARCH ? remoteFunctions : localFilteredFunctions;
+    const functions = localFilteredFunctions;
     const selectedFunction = functions.find(func => func.name === selectedValue);
     console.log('Found function:', selectedFunction);
     if (selectedFunction) {
@@ -144,9 +110,6 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     }
     setEditorVisible(false);
     setEditingFunction(null);
-
-    // 更新函数列表
-    await refreshFunctions();
   };
 
   const handleEditorCancel = () => {
@@ -162,28 +125,9 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   const handleDeleteConfirm = async () => {
     if (!functionToDelete) return;
 
-    try {
-      const response = await get_ipc_api().manageCallable({
-        action: 'delete',
-        data: functionToDelete
-      });
-
-      if (response.success) {
-        // 刷新函数列表
-        await refreshFunctions();
-        // 如果删除的是当前选中的函数，清空选择
-        if (value?.name === functionToDelete.name) {
-          if (onChange) {
-            onChange(null as any);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error deleting function:', error);
-    } finally {
-      setDeleteConfirmVisible(false);
-      setFunctionToDelete(null);
-    }
+    // This logic is for remote search, can be adjusted or removed
+    setDeleteConfirmVisible(false);
+    setFunctionToDelete(null);
   };
 
   const renderOption = (func: CallableFunction) => (
@@ -254,7 +198,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
   ];
 
   // 确保函数列表始终是数组
-  const functions = USE_REMOTE_SEARCH ? remoteFunctions : localFilteredFunctions;
+  const functions = localFilteredFunctions;
   const optionList = Array.isArray(functions) ? functions : [];
 
   return (
@@ -267,7 +211,6 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
           onSearch={setSearchText}
           showClear
           filter
-          loading={isLoading}
           placeholder="Select a function"
           optionList={optionList.map(func => ({
             value: func.name,
@@ -336,4 +279,4 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
       </Modal>
     </CallableSelectorWrapper>
   );
-}; 
+};

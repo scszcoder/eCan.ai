@@ -3,46 +3,37 @@ import { Spin, Button, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
-import { IPCAPI } from '../../services/ipc/api';
-import { APIResponse } from '@/services/ipc';
 import { useUserStore } from '../../stores/userStore';
+import { useToolStore, Tool } from '../../stores/toolStore';
 import ToolsList from './ToolsList';
 import ToolDetail from './ToolDetail';
-import { Tool } from './types';
 import DetailLayout from '../../components/Layout/DetailLayout';
 
 const { Text } = Typography;
 
 const Tools: React.FC = () => {
   const { t } = useTranslation();
-  const [tools, setTools] = useState<Tool[]>([]);
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
-  const [loading, setLoading] = useState(false);
-
   const username = useUserStore((state) => state.username);
-
-  const fetchTools = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response: APIResponse<{ tools: Tool[] }> = await IPCAPI.getInstance().getTools(username || '', []);
-      if (response && response.success && response.data && response.data.tools) {
-        setTools(response.data.tools);
-        setSelectedTool(response.data.tools[0] || null);
-      }
-    } catch (error) {
-      console.error('Error fetching tools:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [username]);
+  const { tools, loading, fetchTools } = useToolStore();
 
   useEffect(() => {
-    fetchTools();
-  }, [fetchTools]);
+    if (username) {
+      fetchTools(username);
+    }
+  }, [username, fetchTools]);
+
+  useEffect(() => {
+    if (tools.length > 0 && !selectedTool) {
+      setSelectedTool(tools[0]);
+    }
+  }, [tools, selectedTool]);
 
   const handleRefresh = useCallback(async () => {
-    await fetchTools();
-  }, [fetchTools]);
+    if (username) {
+      await fetchTools(username);
+    }
+  }, [username, fetchTools]);
 
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
