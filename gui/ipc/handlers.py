@@ -450,8 +450,10 @@ def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
         login: Login = AppContext.login
-        bps = request.meta["bps"]
-        results = set_bps_dev_skill(login.main_win, bps)
+        owner = params["username"]
+        bps = [params["node_name"]]
+        # results = set_bps_dev_skill(login.main_win, bps)
+        results = {"success": True}
         return create_success_response(request, {
             "token": token,
             "results": results,
@@ -482,8 +484,10 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        bps = request.meta["bps"]
-        results = clear_bps_dev_skill(login.main_win, bps)
+        owner = params["username"]
+        bps = [params["node_name"]]
+        # results = clear_bps_dev_skill(login.main_win, bps)
+        results = {"success": True}
         return create_success_response(request, {
             "token": token,
             "results": results,
