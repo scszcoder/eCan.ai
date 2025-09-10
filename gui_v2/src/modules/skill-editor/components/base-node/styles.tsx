@@ -49,17 +49,13 @@ export const ErrorIcon = () => (
   />
 );
 
-export const BreakpointIcon = () => (
-  <IconCode
-    style={{
-      position: 'absolute',
-      color: 'darkgreen',
-      left: -8,
-      top: -8,
-      zIndex: 1,
-      background: 'white',
-      borderRadius: '50%',
-      padding: '2px',
-    }}
-  />
-);
+export const BreakpointIcon = styled.div`
+  position: absolute;
+  color: 'darkgreen',
+  left: -8,
+  top: -8,
+  zIndex: 1,
+  background: 'white',
+  borderRadius: '50%',
+  padding: '2px',
+`;
