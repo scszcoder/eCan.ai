@@ -164,7 +164,12 @@ class BuildEnvironment:
 
     def _check_virtual_environment(self) -> bool:
         """Check virtual environment"""
-        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+        # Check if we're in a virtual environment
+        in_venv = (hasattr(sys, 'real_prefix') or
+                  (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix) or
+                  os.environ.get('VIRTUAL_ENV'))
+
+        if in_venv:
             print("[SUCCESS] Virtual environment detected")
             return True
         else:
@@ -749,15 +754,17 @@ Usage examples:
 
         return 0
 
-    except subprocess.CalledProcessError as e:
-        print(f"\n[ERROR] Build failed, exit code: {e.returncode}")
-        return e.returncode
-    except KeyboardInterrupt:
-        print("\n[WARNING] Build interrupted by user")
-        return 1
     except Exception as e:
-        print(f"\n[ERROR] Build failed: {e}")
-        return 1
+        # Check if it's a subprocess error
+        if hasattr(e, 'returncode'):
+            print(f"\n[ERROR] Build failed, exit code: {e.returncode}")
+            return e.returncode
+        elif isinstance(e, KeyboardInterrupt):
+            print("\n[WARNING] Build interrupted by user")
+            return 1
+        else:
+            print(f"\n[ERROR] Build failed: {e}")
+            return 1
 
 
 if __name__ == "__main__":
