@@ -13,6 +13,7 @@ import asyncio
 import sys
 from threading import Thread
 from langgraph.types import Interrupt
+from agent.ec_skills.dev_defs import BreakpointManager
 
 
 def rough_token_count(text: str) -> int:
@@ -359,6 +360,30 @@ def try_parse_json(s: str):
     except (json.JSONDecodeError, TypeError, ValueError):
         return s
 
+def find_key(data, target_key, path=None):
+    """
+    Recursively search nested dict/list for a key.
+    Returns list of (path, value) where the key was found.
+    """
+    if path is None:
+        path = []
+
+    results = []
+
+    if isinstance(data, dict):
+        for k, v in data.items():
+            new_path = path + [k]
+            if k == target_key:
+                results.append((".".join(new_path), v))
+            results.extend(find_key(v, target_key, new_path))
+
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            new_path = path + [f"[{i}]"]
+            results.extend(find_key(item, target_key, new_path))
+
+    return results
+
 
 from langgraph.types import Interrupt
 
@@ -375,31 +400,6 @@ def debuggable_node(node_fn, name):
         ]
     return wrapper
 
-class BreakpointManager:
-    def __init__(self):
-        self.breakpoints = set()
-        self.pending_interrupt = None
-
-    def set_breakpoint(self, node_name: str):
-        self.breakpoints.add(node_name)
-
-    def clear_breakpoint(self, node_name: str):
-        self.breakpoints.discard(node_name)
-
-    def clear_all(self):
-        self.breakpoints.clear()
-
-    def has_breakpoint(self, node_name: str) -> bool:
-        return node_name in self.breakpoints
-
-    def capture_interrupt(self, interrupt: Interrupt):
-        self.pending_interrupt = interrupt
-
-    def resume(self):
-        if self.pending_interrupt:
-            self.pending_interrupt.resume()
-            self.pending_interrupt = None
-
 
 def breakpoint_wrapper(node_fn, node_name: str, bp_manager: BreakpointManager):
     """Wrap node function so it pauses if node has a breakpoint set."""
@@ -414,10 +414,10 @@ def breakpoint_wrapper(node_fn, node_name: str, bp_manager: BreakpointManager):
     return wrapper
 
 
-def retry_and_interrupt(
+def node_maker(
         node_fn,
         node_name: str,
-        bp_manager,
+        bp_manager: BreakpointManager,
         default_retries: int = 1,
         base_delay: float = 1.0,
         jitter: float = 0.5
@@ -463,6 +463,7 @@ def retry_and_interrupt(
         return result
 
     return wrapper
+
 
 
 # def step1(state): return {"a": 1}

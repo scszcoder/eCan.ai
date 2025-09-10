@@ -1679,7 +1679,8 @@ def digi_key_selenium_search_component(driver, pfs, category_phrase, site_url):
         logger.debug(f"wait for category page to full load...")
         selenium_wait_for_page_load(driver)
         logger.debug(f"applying pfs: {pfs}")
-        applied_pfs = apply_parametric_filters_safe(driver, pfs)
+        filters_to_apply = [pfs] if isinstance(pfs, dict) else pfs
+        applied_pfs = apply_parametric_filters_safe(driver, filters_to_apply)
 
         logger.debug(f"waiting for search results to show up completely......")
         # selenium_wait_for_results_container(driver)

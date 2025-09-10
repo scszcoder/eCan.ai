@@ -12,7 +12,8 @@ import { FlowNodeMeta } from '../../typings';
 import { useNodeRenderContext, usePortClick } from '../../hooks';
 import { SidebarContext } from '../../context';
 import { scrollToView } from './utils';
-import { NodeWrapperStyle } from './styles';
+import { NodeWrapperStyle, BreakpointIcon } from './styles';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
 
 export interface NodeWrapperProps {
   isScrollToView?: boolean;
@@ -34,6 +35,8 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   const ctx = useClientContext();
   const onPortClick = usePortClick();
   const meta = node.getNodeMeta<FlowNodeMeta>();
+  const { breakpoints } = useSkillInfoStore();
+  const isBreakpoint = breakpoints.includes(node.id);
 
   const portsRender = ports.map((p) => (
     <WorkflowPortRender key={p.id} entity={p} onClick={!readonly ? onPortClick : undefined} />
@@ -73,6 +76,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           outline: form?.state.invalid ? '1px solid red' : 'none',
         }}
       >
+        {isBreakpoint && <BreakpointIcon />}
         {children}
       </NodeWrapperStyle>
       {portsRender}

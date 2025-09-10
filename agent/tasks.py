@@ -22,7 +22,7 @@ from app_context import AppContext
 from utils.logger_helper import logger_helper as logger
 # from agent.chats.tests.test_notifications import *
 from langgraph.types import Interrupt
-
+from agent.ec_skills.dev_defs import BreakpointManager
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
@@ -537,6 +537,8 @@ def time_to_run(agent):
 
 
 
+
+
 class TaskRunnerRegistry:
     """Global registry for TaskRunner instances to allow coordinated shutdown."""
     _runners: List["TaskRunner"] = []
@@ -570,6 +572,7 @@ class TaskRunner(Generic[Context]):
     def __init__(self, agent):  # includes persistence methods
         self.agent = agent
         self.tasks: Dict[str, ManagedTask] = {}
+        self.bp_manager = BreakpointManager()
         self.running_tasks = []
         self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
         os.makedirs(self.save_dir, exist_ok=True)
@@ -1257,10 +1260,12 @@ class TaskRunner(Generic[Context]):
     def resume_dev_run(self, skill_runnable):
         for event in skill_runnable.stream({"x": 0}):
             if isinstance(event, dict):
-                print("State:", event)
+                logger.debug(f"State:{event}")
 
             elif isinstance(event, Interrupt):
-                print(f"⏸ Paused at node {event.value['at']} with state {event.value['state']}")
+                logger.debug(f"⏸ Paused at node {event.value['at']} with state {event.value['state']}")
+                self.bp_manager.capture_interrupt(event)
+                #         break   # stop loop here until GUI resumes
                 # resume control
                 event.resume()
 
@@ -1268,19 +1273,35 @@ class TaskRunner(Generic[Context]):
 
     def step_dev_run(self):
         logger.debug("resume dev run")
+        # check whether the next node is a breakpoint, if so, just resume run,
+        # otherwise, add an breakpoint to the next node and then resume run
+        next_node_name = ""
+        if not self.bp_manager.has_breakpoint(next_node_name):
+            self.bp_manager.set_breakpoints([next_node_name])
+        self.bp_manager.resume()
 
     def cancel_dev_run(self):
         logger.debug("resume dev run")
 
     def pause_dev_run(self):
         logger.debug("resume dev run")
+        self.bp_manager.set_breakpoints(bps)
 
-    def inject_state_dev_run(self):
+    def inject_state_dev_run(self, in_state):
         logger.debug("resume dev run")
+        # set current langgraph nodeState to be in_state, and then resume run.
+        self.bp_manager.resume()
 
     def get_dev_run_state(self):
         run_state = {}
         return run_state
+
+    def set_bps_dev_skill(self, bps):
+        self.bp_manager.set_breakpoints(bps)
+
+    def clear_bps_dev_skill(self, bps):
+        self.bp_manager.clear_breakpoints(bps)
+
 
 # Remaining application code continues here...
 # (not repeating routing/app setup for brevity)

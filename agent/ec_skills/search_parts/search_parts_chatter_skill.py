@@ -697,6 +697,29 @@ def package_search_results_notification(search_results):
 
     return notification
 
+def find_key(data, target_key, path=None):
+    """
+    Recursively search nested dict/list for a key.
+    Returns list of (path, value) where the key was found.
+    """
+    if path is None:
+        path = []
+
+    results = []
+
+    if isinstance(data, dict):
+        for k, v in data.items():
+            new_path = path + [k]
+            if k == target_key:
+                results.append((".".join(new_path), v))
+            results.extend(find_key(v, target_key, new_path))
+
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            new_path = path + [f"[{i}]"]
+            results.extend(find_key(item, target_key, new_path))
+
+    return results
 
 
 def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
@@ -704,11 +727,13 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
+    print("finding key route: ", find_key(state, "filled_parametric_filter"))
     logger.debug(f"[search_parts_chatter_skill] run_local_search_node: {state}")
 
     # site - [[{"name", "url"}, "name", "url", ....]...]
     site_categories = state["tool_result"]["components"][0].get("site_categories", [[]])
-    parametric_filters = state["metadata"].get("parametric_filters", [[]])
+    parametric_filters = state["attributes"].get("filled_parametric_filter", [[]])
+
     # url = state["tool_input"]["url"]
     url = {"url": "https://www.digikey.com/en/products", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
     url = {"url": "https://www.digikey.com/en/products/filter/power-management-pmic/voltage-regulators-linear-low-drop-out-ldo-regulators/699", "categories": [["Voltage Regulators - Linear, Low Drop Out (LDO) Regulators"]]}
