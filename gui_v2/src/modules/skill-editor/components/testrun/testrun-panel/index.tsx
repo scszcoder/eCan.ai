@@ -7,8 +7,8 @@ import { FC, useContext, useEffect, useState } from 'react';
 
 import classnames from 'classnames';
 import { WorkflowInputs, WorkflowOutputs } from '@flowgram.ai/runtime-interface';
-import { useService } from '@flowgram.ai/free-layout-editor';
-import { Button, SideSheet, Switch } from '@douyinfe/semi-ui';
+import { useClientContext, useService } from '@flowgram.ai/free-layout-editor';
+import { Button, SideSheet, Switch, Notification } from '@douyinfe/semi-ui';
 import { IconClose, IconPlay, IconSpin } from '@douyinfe/semi-icons';
 
 import { TestRunJsonInput } from '../testrun-json-input';
@@ -17,6 +17,9 @@ import { NodeStatusGroup } from '../node-status-bar/group';
 import { WorkflowRuntimeService } from '../../../plugins/runtime-plugin/runtime-service';
 import { SidebarContext } from '../../../context';
 import { IconCancel } from '../../../assets/icon-cancel';
+import { IPCAPI } from '../../../../../services/ipc/api';
+import { useUserStore } from '../../../../../stores/userStore';
+import { useSkillInfoStore } from '../../../stores/skill-info-store';
 
 import styles from './index.module.less';
 
@@ -27,7 +30,11 @@ interface TestRunSidePanelProps {
 
 export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel }) => {
   const runtimeService = useService(WorkflowRuntimeService);
+  const { document } = useClientContext();
   const { nodeId: sidebarNodeId, setNodeId } = useContext(SidebarContext);
+  const ipcApi = IPCAPI.getInstance();
+  const username = useUserStore((state) => state.username);
+  const skillInfo = useSkillInfoStore((state) => state.skillInfo);
 
   const [isRunning, setRunning] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -53,35 +60,57 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
 
   const onTestRun = async () => {
     if (isRunning) {
-      await runtimeService.taskCancel();
+      // TODO: Implement backend cancel
+      setRunning(false);
       return;
     }
     setResult(undefined);
     setErrors(undefined);
-    const taskID = await runtimeService.taskRun(values);
-    if (taskID) {
-      setRunning(true);
+
+    if (!username || !skillInfo) {
+      Notification.error({ title: 'Cannot run test', content: 'User or skill info is missing.' });
+      return;
+    }
+
+    const skillPayload = {
+      ...skillInfo,
+      diagram: document.toJSON(),
+      testInputs: values, // Pass form values to the backend
+    };
+
+    setRunning(true);
+    console.log('Sending skill to backend for execution:', skillPayload);
+    const response = await ipcApi.runSkill(username, skillPayload);
+    setRunning(false);
+
+    if (response.success) {
+      console.log('Backend execution successful:', response.data);
+      Notification.success({ title: 'Backend Run Successful' });
+      // TODO: Display results from backend
+    } else {
+      console.error('Backend execution failed:', response.error);
+      Notification.error({
+        title: 'Backend Run Failed',
+        content: response.error?.message || 'An unknown error occurred.',
+      });
+      setErrors([response.error?.message || 'An unknown error occurred.']);
     }
   };
 
   const onClose = async () => {
-    await runtimeService.taskCancel();
+    if (isRunning) {
+      // TODO: Implement backend cancel
+      setRunning(false);
+    }
     setValues({});
-    setRunning(false);
     onCancel();
   };
 
-  // runtime effect
+  // runtime effect - This can be removed or replaced with a listener for backend events
   useEffect(() => {
     setNodeId(undefined);
     const disposer = runtimeService.onResultChanged(({ result, errors }) => {
-      setRunning(false);
-      setResult(result);
-      if (errors) {
-        setErrors(errors);
-      } else {
-        setErrors(undefined);
-      }
+      // This logic is now handled by the IPC call
     });
     return () => disposer.dispose();
   }, []);
@@ -96,7 +125,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const renderRunning = (
     <div className={styles['testrun-panel-running']}>
       <IconSpin spin size="large" />
-      <div className={styles.text}>Running...</div>
+      <div className={styles.text}>Running on Backend...</div>
     </div>
   );
 

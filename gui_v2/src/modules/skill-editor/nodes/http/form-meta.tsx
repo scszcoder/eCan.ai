@@ -4,7 +4,7 @@
  */
 
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
-import { createInferInputsPlugin, DisplayOutputs, IJsonSchema } from '@flowgram.ai/form-materials';
+import { createInferInputsPlugin, DisplayOutputs, IJsonSchema, validateFlowValue } from '@flowgram.ai/form-materials';
 import { Divider } from '@douyinfe/semi-ui';
 
 import { FormHeader, FormContent } from '../../form-components';
@@ -39,6 +39,11 @@ export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
 
 export const formMeta: FormMeta = {
   render: (props) => <FormRender {...props} />,
+  validate: {
+    // Override the default validation for api.url to do nothing.
+    // This prevents the frontend from trying to fetch the URL.
+    'api.url': () => undefined,
+  },
   effect: defaultFormMeta.effect,
   plugins: [
     createInferInputsPlugin({ sourceKey: 'headersValues', targetKey: 'headers' }),
