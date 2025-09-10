@@ -7,15 +7,15 @@ import React, { useState, useContext, useCallback } from 'react';
 
 import { WorkflowPortRender } from '@flowgram.ai/free-layout-editor';
 import { useClientContext, useNode } from '@flowgram.ai/free-layout-editor';
+import classnames from 'classnames';
 
 import { FlowNodeMeta } from '../../typings';
 import { useNodeRenderContext, usePortClick } from '../../hooks';
 import { SidebarContext } from '../../context';
 import { scrollToView } from './utils';
-import { NodeWrapperStyle, BreakpointIcon } from './styles';
+import { NodeWrapperStyle, BreakpointIcon, RunningIcon } from './styles';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../stores/running-node-store';
-import { RunningIndicator } from '../running-indicator';
 
 export interface NodeWrapperProps {
   isScrollToView?: boolean;
@@ -57,7 +57,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   return (
     <>
       <NodeWrapperStyle
-        className={selected ? 'selected' : ''}
+        className={classnames(selected ? 'selected' : '', { 'is-running': isRunning })}
         ref={nodeRef}
         draggable
         onDragStart={(e) => {
@@ -90,7 +90,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           outline: form?.state.invalid ? '1px solid red' : 'none',
         }}
       >
-        {isRunning && <RunningIndicator />}
+        <RunningIcon />
         {children}
         {isBreakpoint && <BreakpointIcon />}
       </NodeWrapperStyle>
