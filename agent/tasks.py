@@ -86,7 +86,7 @@ class ManagedTask(Task):
     state: dict
     name: str
     id: str
-    run_id: str
+    run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     resume_from: Optional[str] = None
     trigger: Optional[str] = None
     task: Optional[asyncio.Task] = None
