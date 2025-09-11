@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from PySide6.QtGui import QIcon
 import setproctitle
 
@@ -320,122 +321,212 @@ def _setup_windows_app_info(app, logger=None):
         if logger:
             logger.warning(f"Windows application info setup failed: {e}")
 
-def set_windows_taskbar_icon(app, icon_path, logger=None):
+def set_windows_taskbar_icon(app, icon_path, logger=None, target_window=None):
     """
     Windows-specific taskbar icon setting
     """
-    if sys.platform != 'win32' or not ctypes or not icon_path:
+    if sys.platform != 'win32' or not icon_path or not os.path.exists(icon_path):
         return False
 
     try:
+        import ctypes
+    except ImportError:
         if logger:
-            logger.debug(f"Setting Windows taskbar icon: {icon_path}")
+            logger.warning("ctypes not available for Windows icon setting")
+        return False
 
-        # Method 1: Set application user model ID (AppUserModelID)
-        # Note: AppUserModelID should be stable across versions for proper Windows integration
+    try:
+        # 设置应用程序用户模型ID
         app_id, _ = set_windows_app_user_model_id(logger)
 
-        # Method 2: Set window icon using Windows API
+        # 只处理ICO文件
+        if not icon_path.endswith('.ico'):
+            return False
+
+        user32 = ctypes.windll.user32
+
+        # 获取窗口句柄
+        hwnd = None
+
+        # 优先使用指定的目标窗口
+        if target_window:
+            try:
+                hwnd = int(target_window.winId())
+            except:
+                pass
+
+        # 备选方案：从Qt应用获取活动窗口
+        if not hwnd:
+            try:
+                main_window = app.activeWindow()
+                if main_window:
+                    hwnd = int(main_window.winId())
+            except:
+                pass
+
+        # 最后方案：遍历顶级窗口
+        if not hwnd:
+            try:
+                for widget in app.topLevelWidgets():
+                    if widget.isVisible() and hasattr(widget, 'winId'):
+                        hwnd = int(widget.winId())
+                        break
+            except:
+                pass
+
+        if not hwnd:
+            if logger:
+                logger.warning("Could not get window handle")
+            return False
+
+        # 加载并设置图标（标准实现：优先使用EXE资源，其次文件，最后后备）
         try:
-            # Get main window handle
-            main_window = app.activeWindow()
-            if main_window:
-                hwnd = int(main_window.winId())
-                user32 = ctypes.windll.user32
+            user32 = ctypes.windll.user32
+            success = False
 
-                # Try to set icon based on file type
-                if os.path.exists(icon_path):
-                    if icon_path.endswith('.ico'):
-                        # Load ICO file directly
-                        hicon_large = user32.LoadImageW(
-                            None, icon_path, 1,  # IMAGE_ICON
-                            32, 32,  # 32x32 for large icon
-                            0x00000010  # LR_LOADFROMFILE
-                        )
-                        hicon_small = user32.LoadImageW(
-                            None, icon_path, 1,  # IMAGE_ICON
-                            16, 16,  # 16x16 for small icon
-                            0x00000010  # LR_LOADFROMFILE
-                        )
-                    else:
-                        # For PNG files, try to find corresponding ICO file or use Qt conversion
-                        ico_path = None
-
-                        # First, try to find icon_multi.ico in the same directory
-                        icon_dir = os.path.dirname(icon_path)
-                        ico_candidates = [
-                            os.path.join(icon_dir, "icon_multi.ico"),
-                            os.path.join(icon_dir, "taskbar_32x32.ico"),
-                            os.path.join(icon_dir, "taskbar_16x16.ico")
-                        ]
-
-                        for ico_candidate in ico_candidates:
-                            if os.path.exists(ico_candidate):
-                                ico_path = ico_candidate
-                                break
-
-                        if ico_path:
-                            # Use found ICO file
-                            hicon_large = user32.LoadImageW(
-                                None, ico_path, 1,  # IMAGE_ICON
-                                32, 32,  # 32x32 for large icon
-                                0x00000010  # LR_LOADFROMFILE
-                            )
-                            hicon_small = user32.LoadImageW(
-                                None, ico_path, 1,  # IMAGE_ICON
-                                16, 16,  # 16x16 for small icon
-                                0x00000010  # LR_LOADFROMFILE
-                            )
+            # 1) 优先从可执行文件资源中提取图标（EXE 内嵌，多尺寸，最稳定）
+            try:
+                exe_path = sys.executable if getattr(sys, 'frozen', False) else None
+                if exe_path and os.path.exists(exe_path):
+                    from ctypes import wintypes
+                    shell32 = ctypes.windll.shell32
+                    hicon_large = wintypes.HANDLE()
+                    hicon_small = wintypes.HANDLE()
+                    count = shell32.ExtractIconExW(exe_path, 0, ctypes.byref(hicon_large), ctypes.byref(hicon_small), 1)
+                    if count > 0:
+                        if hicon_large.value:
+                            user32.SendMessageW(hwnd, 0x0080, 1, hicon_large.value)
+                            success = True
                             if logger:
-                                logger.debug(f"Using ICO file for Windows API: {ico_path}")
-                        else:
-                            # Fallback: let Qt handle the icon, skip Windows API
+                                logger.debug("Set large icon (resource) for taskbar")
+                        if hicon_small.value:
+                            user32.SendMessageW(hwnd, 0x0080, 0, hicon_small.value)
+                            success = True
                             if logger:
-                                logger.debug(f"No ICO file found, using Qt icon handling for: {icon_path}")
-                            hicon_large = None
-                            hicon_small = None
+                                logger.debug("Set small icon (resource) for title bar")
+            except Exception as e:
+                if logger:
+                    logger.debug(f"Resource icon extract failed: {e}")
 
-                    if hicon_large:
-                        # Set large icon (taskbar)
-                        user32.SendMessageW(hwnd, 0x0080, 1, hicon_large)  # WM_SETICON, ICON_LARGE
-                        if logger:
-                            logger.debug("Set large icon (32x32) for taskbar")
+            # 2) 若资源方式未成功，退回基于文件路径加载（eCan.ico）
+            if not success:
+                LR_LOADFROMFILE = 0x00000010
+                LR_DEFAULTSIZE = 0x00000040
+                IMAGE_ICON = 1
 
-                    if hicon_small:
-                        # Set small icon (title bar)
-                        user32.SendMessageW(hwnd, 0x0080, 0, hicon_small)  # WM_SETICON, ICON_SMALL
-                        if logger:
-                            logger.debug("Set small icon (16x16) for title bar")
+                hicon_large = user32.LoadImageW(None, icon_path, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+                hicon_small = user32.LoadImageW(None, icon_path, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+                if not hicon_large and not hicon_small:
+                    if logger:
+                        logger.debug("Initial icon load failed, retrying with default size")
+                    hicon_large = user32.LoadImageW(None, icon_path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
+                    hicon_small = user32.LoadImageW(None, icon_path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
 
-                    # Force refresh taskbar and window
-                    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0001)  # SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE
+                if hicon_large:
+                    user32.SendMessageW(hwnd, 0x0080, 1, hicon_large)  # WM_SETICON, ICON_LARGE
+                    success = True
+                    if logger:
+                        logger.debug("Set large icon for taskbar")
+                if hicon_small:
+                    user32.SendMessageW(hwnd, 0x0080, 0, hicon_small)  # WM_SETICON, ICON_SMALL
+                    success = True
+                    if logger:
+                        logger.debug("Set small icon for title bar")
 
-                    # Additional Windows API calls to ensure icon update
+                # 3) 文件方式仍失败 => 使用资源目录中的多尺寸ICO作为后备
+                if not success:
                     try:
-                        # Force taskbar to refresh
-                        user32.UpdateWindow(hwnd)
+                        from config.app_info import app_info as _ai
+                        res_path = _ai.app_resources_path
+                        fallback_ico = os.path.join(res_path, "images", "logos", "icon_multi.ico")
+                        if os.path.exists(fallback_ico):
+                            if logger:
+                                logger.debug(f"Retrying with fallback ICO: {fallback_ico}")
+                            hicon_large = user32.LoadImageW(None, fallback_ico, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+                            hicon_small = user32.LoadImageW(None, fallback_ico, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+                            if not hicon_large and not hicon_small:
+                                hicon_large = user32.LoadImageW(None, fallback_ico, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
+                                hicon_small = user32.LoadImageW(None, fallback_ico, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE)
+                            if hicon_large:
+                                user32.SendMessageW(hwnd, 0x0080, 1, hicon_large)
+                                success = True
+                            if hicon_small:
+                                user32.SendMessageW(hwnd, 0x0080, 0, hicon_small)
+                                success = True
+                            if success and logger:
+                                logger.info("Windows taskbar icon set via fallback ICO")
+                    except Exception:
+                        pass
 
-                        # Send notification to shell about icon change
-                        shell32.SHChangeNotify(0x08000000, 0x0000, None, None)  # SHCNE_ASSOCCHANGED
+            if success:
+                # 刷新窗口与任务栏
+                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0020 | 0x0004 | 0x0001)  # SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE
+                try:
+                    user32.UpdateWindow(hwnd)
+                    shell32 = ctypes.windll.shell32
+                    shell32.SHChangeNotify(0x08000000, 0x0000, None, None)  # SHCNE_ASSOCCHANGED
+                    if logger:
+                        logger.debug("Forced taskbar and shell icon refresh")
+                except Exception as e:
+                    if logger:
+                        logger.debug(f"Additional icon refresh failed: {e}")
 
-                        if logger:
-                            logger.debug("Forced taskbar and shell icon refresh")
-                    except Exception as e:
-                        if logger:
-                            logger.debug(f"Additional icon refresh failed: {e}")
+            return success
 
         except Exception as e:
             if logger:
-                logger.warning(f"Failed to set window icon via API: {e}")
-
-        if logger:
-            logger.info(f"Set AppUserModelID: {app_id} and attempted icon setting")
-        return True
+                logger.warning(f"Failed to load/set icon: {e}")
+            return False
 
     except Exception as e:
         if logger:
             logger.warning(f"Windows taskbar icon setup failed: {e}")
         return False
+
+def check_ico_quality(logger=None):
+    """
+    简单检查ICO文件质量
+    Simple ICO file quality check
+    """
+    if sys.platform != 'win32':
+        return True
+
+    try:
+        # 查找主ICO文件
+        ico_path = os.path.join(os.path.dirname(app_info.app_resources_path), "eCan.ico")
+
+        if not os.path.exists(ico_path):
+            if logger:
+                logger.warning("eCan.ico not found")
+            return False
+
+        # 简单的大小检查（处理PyInstaller一体包启动早期的解压延迟）
+        file_size = os.path.getsize(ico_path)
+        if file_size == 0 and "_internal" in ico_path:
+            # 在一体包中，启动早期可能文件尚未完全写入；重试几次
+            for _ in range(10):
+                time.sleep(0.1)
+                try:
+                    file_size = os.path.getsize(ico_path)
+                    if file_size > 0:
+                        break
+                except Exception:
+                    pass
+
+        if file_size < 5000:  # 5KB minimum（过小的ICO通常缺少16/32尺寸或仅含PNG）
+            if logger:
+                logger.warning(f"ICO file too small ({file_size} bytes)")
+            return False
+
+        if logger:
+            logger.debug(f"ICO file OK: {ico_path} ({file_size} bytes)")
+        return True
+
+    except Exception as e:
+        if logger:
+            logger.warning(f"ICO check failed: {e}")
+        return False
+
 
 def clear_windows_icon_cache(logger=None):
     """
@@ -445,14 +536,12 @@ def clear_windows_icon_cache(logger=None):
         return False
 
     try:
-        import subprocess
-        import winreg
-
         if logger:
             logger.info("Clearing Windows icon cache...")
 
         # Clear registry icon cache
         try:
+            import winreg
             cache_keys = [
                 r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\TrayNotify"
             ]
@@ -474,6 +563,19 @@ def clear_windows_icon_cache(logger=None):
             if logger:
                 logger.debug(f"Registry cache clear failed: {e}")
 
+        # 删除文件系统图标缓存
+        cache_dir = os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\Windows\Explorer')
+        import glob
+
+        deleted_count = 0
+        for pattern in ['iconcache_*.db', 'thumbcache_*.db']:
+            for cache_file in glob.glob(os.path.join(cache_dir, pattern)):
+                try:
+                    os.remove(cache_file)
+                    deleted_count += 1
+                except Exception:
+                    pass  # 文件可能正在使用，忽略错误
+
         # Force icon refresh using Windows API
         try:
             import ctypes
@@ -491,6 +593,9 @@ def clear_windows_icon_cache(logger=None):
             if logger:
                 logger.debug(f"Icon refresh failed: {e}")
 
+        if logger and deleted_count > 0:
+            logger.debug(f"Cleared {deleted_count} icon cache files")
+
         return True
 
     except Exception as e:
@@ -498,10 +603,62 @@ def clear_windows_icon_cache(logger=None):
             logger.warning(f"Icon cache clearing failed: {e}")
         return False
 
+# 全局标志，避免重复执行图标修复
+_icon_fix_executed = False
+
+def verify_taskbar_icon_setting(target_window=None, logger=None):
+    """
+    验证taskbar图标是否正确设置
+    """
+    if sys.platform != 'win32':
+        return True
+
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+
+        # 获取窗口句柄
+        hwnd = None
+        if target_window:
+            try:
+                hwnd = int(target_window.winId())
+            except:
+                pass
+
+        if not hwnd:
+            if logger:
+                logger.debug("No window handle available for verification")
+            return False
+
+        # 检查窗口图标是否已设置
+        hicon_large = user32.SendMessageW(hwnd, 0x007F, 1, 0)  # WM_GETICON, ICON_LARGE
+        hicon_small = user32.SendMessageW(hwnd, 0x007F, 0, 0)  # WM_GETICON, ICON_SMALL
+
+        has_large = hicon_large != 0
+        has_small = hicon_small != 0
+
+        if logger:
+            logger.debug(f"Icon verification: Large={has_large}, Small={has_small}")
+
+        return has_large or has_small
+
+    except Exception as e:
+        if logger:
+            logger.debug(f"Icon verification failed: {e}")
+        return False
+
 def set_app_icon(app, logger=None):
     """
     Automatically find and set application icon based on current platform.
     """
+    global _icon_fix_executed
+
+    # Windows图标修复：检查ICO质量并清除缓存（只执行一次）
+    if sys.platform == 'win32' and not _icon_fix_executed:
+        check_ico_quality(logger)
+        clear_windows_icon_cache(logger)
+        _icon_fix_executed = True
+
     resource_path = app_info.app_resources_path
 
     # Debug info: log actual resource path used
@@ -539,10 +696,10 @@ def set_app_icon(app, logger=None):
     icon_path = None
     if logger:
         logger.debug(f"Checking {len(icon_candidates)} icon candidates:")
-    for i, candidate in enumerate(icon_candidates):
+    for candidate in icon_candidates:
         exists = os.path.exists(candidate)
         # if logger:
-        #     logger.debug(f"{i+1}. {candidate} - {'EXISTS' if exists else 'NOT FOUND'}")
+        #     logger.debug(f"{candidate} - {'EXISTS' if exists else 'NOT FOUND'}")
         #     logger.info(f"Icon candidate {i+1}: {candidate} - {'found' if exists else 'not found'}")
         if exists and icon_path is None:
             icon_path = candidate
@@ -647,13 +804,10 @@ def set_app_icon_early(app, logger=None):
             ]
 
             icon_path = None
-            for i, candidate in enumerate(icon_candidates):
+            for candidate in icon_candidates:
                 if os.path.exists(candidate):
                     icon_path = candidate
-                    log_msg(f"Found icon candidate {i+1}: {candidate}")
                     break
-                else:
-                    log_msg(f"Icon candidate {i+1} not found: {candidate}", 'debug')
 
             if icon_path:
                 # Set Qt application icon immediately
@@ -687,6 +841,32 @@ def set_app_icon_delayed(app, logger=None):
     from PySide6.QtCore import QTimer
 
     def delayed_setup():
-        set_app_icon(app, logger)
+        # 尝试找到WebGUI主窗口
+        main_window = None
+        for widget in app.topLevelWidgets():
+            if widget.isVisible() and widget.__class__.__name__ == 'WebGUI':
+                main_window = widget
+                break
 
-    QTimer.singleShot(100, delayed_setup)
+        if main_window:
+            try:
+                from config.app_info import app_info
+                resource_path = app_info.app_resources_path
+                icon_path = os.path.join(os.path.dirname(resource_path), "eCan.ico")
+
+                if os.path.exists(icon_path):
+                    success = set_windows_taskbar_icon(app, icon_path, logger, main_window)
+                    if success and logger:
+                        logger.info("Delayed taskbar icon setup successful")
+            except Exception as e:
+                if logger:
+                    logger.warning(f"Delayed icon setup failed: {e}")
+
+    # 更短首延迟+有界重试，尽早设置且确保主窗体就绪
+    _attempts = {'n': 0}
+    def _try_set():
+        _attempts['n'] += 1
+        delayed_setup()
+        if _attempts['n'] < 6:
+            QTimer.singleShot(300, _try_set)
+    QTimer.singleShot(300, _try_set)
