@@ -1285,7 +1285,7 @@ class TaskRunner(Generic[Context]):
 
     def pause_dev_run(self):
         logger.debug("resume dev run")
-        self.bp_manager.set_breakpoints(bps)
+
 
     def inject_state_dev_run(self, in_state):
         logger.debug("resume dev run")
