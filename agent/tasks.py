@@ -11,6 +11,7 @@ import os
 from fastapi.responses import JSONResponse
 import time
 import queue
+import threading
 
 from datetime import datetime, timedelta
 import inspect
@@ -23,6 +24,7 @@ from utils.logger_helper import logger_helper as logger
 # from agent.chats.tests.test_notifications import *
 from langgraph.types import Interrupt
 from agent.ec_skills.dev_defs import BreakpointManager
+from utils.logger_helper import get_traceback
 
 # self.REPEAT_TYPES = ["none", "by seconds", "by minutes", "by hours", "by days", "by weeks", "by months", "by years"]
 # self.WEEK_DAY_TYPES = ["M", "Tu", "W", "Th", "F", "Sa", "Su"]
@@ -83,10 +85,13 @@ class ManagedTask(Task):
     skill: Any
     state: dict
     name: str
+    id: str
+    run_id: str
     resume_from: Optional[str] = None
     trigger: Optional[str] = None
     task: Optional[asyncio.Task] = None
     pause_event: asyncio.Event = asyncio.Event()
+    cancellation_event: threading.Event = Field(default_factory=threading.Event)
     schedule: Optional[TaskSchedule] = None
     checkpoint_nodes: Optional[List[str]] = None
     priority: Optional[Priority_Types] = None
@@ -119,7 +124,7 @@ class ManagedTask(Task):
         
         taskJS = {
             "id": self.id,
-            "sessionId": self.sessionId,
+            "runId": self.run_id,
             "skill": self.skill.name,
             "metadata": self.metadata,
             "state": self.state,
@@ -144,6 +149,10 @@ class ManagedTask(Task):
     def remove_checkpoint_node(self, cp_name):
         if cp_name in self.checkpoint_nodes:
             self.checkpoint_nodes.remove(cp_name)
+
+    def cancel(self):
+        """Signal the task to cancel its execution."""
+        self.cancellation_event.set()
 
     # from langgraph.types import Command
 
@@ -209,6 +218,13 @@ class ManagedTask(Task):
 
             for step in agen:
                 print("synced Step output:", step)
+
+                # Check for cancellation signal
+                if self.cancellation_event.is_set():
+                    logger.info(f"Task {self.name} ({self.run_id}) received cancellation signal. Stopping.")
+                    self.status.state = TaskState.CANCELED
+                    break
+
                 # self.pause_event.wait()
                 self.status.message = Message(
                     role="agent",
@@ -239,7 +255,8 @@ class ManagedTask(Task):
         finally:
             # Cleanup code here
             # self.runner = None
-            self.status.state = TaskState.CANCELED
+            if self.cancellation_event.is_set():
+                self.status.state = TaskState.CANCELED
             # agen.aclose()
 
         # Rest of the function remains the same...
@@ -580,6 +597,7 @@ class TaskRunner(Generic[Context]):
         # self.chat_msg_queue = asyncio.Queue()
         self.a2a_msg_queue = queue.Queue()
         self.chat_msg_queue = queue.Queue()
+        self.dev_msg_queue = queue.Queue()
         self._stop_event = asyncio.Event()
         TaskRunnerRegistry.register(self)
 
@@ -1135,6 +1153,7 @@ class TaskRunner(Generic[Context]):
                                     else:
                                         logger.error("ERROR: lost track of task id....", msg)
                                 self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
+
                         self.chat_msg_queue.task_done()
                     except asyncio.QueueEmpty:
                         logger.info("Queue unexpectedly empty when trying to get message.")
@@ -1149,142 +1168,179 @@ class TaskRunner(Generic[Context]):
                 logger.error(f"{ex_stat}")
             time.sleep(1)
 
-    def launch_dev_run(self, task=None):
-        chatNotDone = True
-        justStarted = True
-        while not self._stop_event.is_set():
-            try:
-                logger.trace("checking a2a queue....", self.agent.card.name)
+    def launch_dev_run(self, task: ManagedTask = None):
+        """
+        Executes a controlled, interactive development run for a given task,
+        allowing for pausing, resuming, and single-stepping from the GUI.
+        """
+        if not task:
+            logger.error("launch_dev_run called without a task.")
+            return
 
-                if not self.a2a_msg_queue.empty():
-                    try:
-                        msg = self.a2a_msg_queue.get_nowait()
-                        logger.trace("A2A message...." + str(msg))
-                        # a message could be handled by different task, so first find
-                        # a task that that's suitable to handle this message,
-                        matched_tasks = self.find_suitable_tasks(msg.params)
-                        logger.trace("matched task...." + len(matched_tasks))
-                        # then run this skill's runnable with the msg
-                        if matched_tasks:
-                            task2run = matched_tasks[0]
-                            if task2run:
-                                if justStarted:
-                                    logger.debug("task2run skill name" + task2run.skill.name)
-                                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent, None)
+        logger.info(f"Launching interactive dev run for task: {task.name} with run_id: {task.run_id}")
 
-                                    logger.trace("task2run init state" + str(task2run.metadata["state"]))
-                                    logger.trace("ready to run the right task" + task2run.name + str(msg))
-                                    # response = await task2run.astream_run()
-                                    response = task2run.stream_run()
+        try:
+            runnable = task.skill.get_runnable()
+            if not runnable:
+                logger.error(f"Task {task.name} does not have a runnable graph.")
+                return
 
-                                    logger.debug("reacted task run response:", response)
-                                    step = response.get('step') or {}
-                                    if isinstance(step, dict) and '__interrupt__' in step:
-                                        logger.trace("sending interrupt prompt1")
-                                        logger.trace("sending interrupt prompt2")
-                                        interrupt_obj = step["__interrupt__"][
-                                            0]  # [0] because it's a tuple with one item
-                                        prompt = interrupt_obj.value["prompt_to_human"]
-                                        # now return this prompt to GUI to display
-                                        chatId = msg.params.metadata['chatId']
-                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
-                                        justStarted = False
-                                    else:
-                                        justStarted = True
-                                else:
-                                    logger.debug("task2run skill name" + task2run.skill.name)
-                                    task2run.metadata["state"] = prep_skills_run(task2run.skill.name, self.agent,
-                                                                                 task2run.metadata["state"])
+            # Start the stream, configured to interrupt before every node
+            # The '*' is a wildcard that matches all nodes.
+            controller = runnable.stream({}, config={"interrupt_before": ['*']})
 
-                                    logger.trace("task2run init state" + str(task2run.metadata["state"]))
-                                    logger.trace("ready to run the right task" + task2run.name + str(msg))
-                                    # response = await task2run.astream_run()
-                                    response = task2run.stream_run()
-                                    logger.debug("NI, resume tick", response)
-                                    # Resume with the user's reply using Command(resume=...)
-                                    resume_payload = self._build_resume_payload(msg)
-                                    response = task2run.stream_run(Command(resume=resume_payload),
-                                                                   stream_mode="updates")
-                                    logger.debug("NI reacted task resume response:", response)
+            # Get the iterator for the stream
+            stream_iterator = iter(controller)
+            paused_at_node = None
 
-                                    step = response.get('step') or {}
-                                    if isinstance(step, dict) and '__interrupt__' in step:
-                                        logger.trace("sending interrupt prompt2")
-                                        interrupt_obj = step["__interrupt__"][
-                                            0]  # [0] because it's a tuple with one item
-                                        prompt = interrupt_obj.value["prompt_to_human"]
-                                        # now return this prompt to GUI to display
-                                        chatId = msg.params.metadata['chatId']
-                                        task_id = msg.params.metadata['msgId']
-                                        logger.debug("chatId in the message", chatId)
+            # Initial state notification to GUI
+            # We don't know the first node yet, so we send a generic "started" status.
+            self.agent.mainwin.ipc_api.update_run_stat(
+                agent_task_id=task.run_id,
+                current_node="start",  # The frontend knows 'start' is the beginning
+                status="running",
+                langgraph_state={}
+            )
 
-                                        # hilData = sample_search_result0
-                                        # hilData = sample_parameters_0
-                                        # hilData = sample_metrics_0
-                                        # self.sendChatNotificationToGUI(self.agent, chatId, hilData)
-                                        # self.sendChatFormToGUI(self.agent, chatId, hilData)
-                                        # self.sendChatMessageToGUI(self.agent, chatId, hilData)
-                                        # self.agent.mainwin.top_gui.push_message_to_chat(chatId, hilData)
-                                        self.sendChatMessageToGUI(self.agent, chatId, prompt)
+            while not task.cancellation_event.is_set():
+                try:
+                    # Wait for a command from the GUI
+                    command = self.dev_msg_queue.get(timeout=60)  # Timeout to prevent deadlocks
+                    logger.debug(f"Dev run ({task.run_id}) received command: {command}")
 
-                                        if interrupt_obj.value.get("qa_form_to_agent", None):
-                                            self.sendChatFormToGUI(self.agent, chatId,
-                                                                   interrupt_obj.value.get["qa_form_to_human"])
-                                        elif interrupt_obj.value.get("notification_to_agent", None):
-                                            self.sendChatNotificationToGUI(self.agent, chatId, interrupt_obj.value.get[
-                                                "notification_to_human"])
+                    if command == "step" or (
+                            command == "resume" and not self.bp_manager.has_breakpoint(paused_at_node)):
+                        # Advance the graph by one step
+                        event = next(stream_iterator, None)
 
-                                        justStarted = False
-                                    else:
-                                        justStarted = True
+                        if event is None:
+                            logger.info(f"Dev run for {task.name} has completed.")
+                            self.agent.mainwin.ipc_api.update_run_stat(
+                                agent_task_id=task.run_id,
+                                current_node=None,
+                                status="completed",
+                                langgraph_state={}
+                            )
+                            break
 
-                                task_id = msg.params.id
-                                self.agent.a2a_server.task_manager.resolve_waiter(task_id, response)
-                        self.a2a_msg_queue.task_done()
+                        if isinstance(event, Interrupt):
+                            paused_at_node = event.value.get('paused_at')
+                            logger.info(f"Execution paused at node: {paused_at_node}")
 
-                        # process msg here and the msg could be start a task run.
-                    except asyncio.QueueEmpty:
-                        logger.info("Queue unexpectedly empty when trying to get message.")
-                        pass
-                    except Exception as e:
-                        logger.error(f"Error processing Commander message: {e}")
+                            # Notify the GUI where we are paused
+                            self.agent.mainwin.ipc_api.update_run_stat(
+                                agent_task_id=task.run_id,
+                                current_node=paused_at_node,
+                                status="paused",
+                                langgraph_state=event.value.get('state', {})
+                            )
+
+                            # If in resume mode and we hit a breakpoint, stay paused
+                            if command == "resume" and self.bp_manager.has_breakpoint(paused_at_node):
+                                logger.info(f"Resumed run hit a breakpoint at {paused_at_node}. Pausing.")
+                                continue
+
+                        # If in step mode, we always wait for the next command
+                        if command == "step":
+                            continue
+
+                    elif command == "cancel":
+                        task.cancel()
+                        logger.info(f"Dev run for {task.name} cancelled by GUI command.")
+                        self.agent.mainwin.ipc_api.update_run_stat(
+                            agent_task_id=task.run_id,
+                            current_node=paused_at_node,
+                            status="cancelled",
+                            langgraph_state={}
+                        )
+                        break
+
+                    # If in resume mode, continue the loop to advance the next step automatically
+                    elif command == "resume":
+                        continue
+
+                except queue.Empty:
+                    logger.warning(f"Dev run for {task.name} timed out waiting for GUI command. It might be stuck.")
+                    continue
+                except StopIteration:
+                    logger.info(f"Dev run for {task.name} has completed.")
+                    self.agent.mainwin.ipc_api.update_run_stat(
+                        agent_task_id=task.run_id,
+                        current_node=None,
+                        status="completed",
+                        langgraph_state={}
+                    )
+                    break
+
+        except Exception as e:
+            logger.error(f"Exception during launch_dev_run for task {task.name}: {e}")
+            self.agent.mainwin.ipc_api.update_run_stat(
+                agent_task_id=task.run_id,
+                current_node=paused_at_node,
+                status="failed",
+                langgraph_state={"error": str(e)}
+            )
+            raise
+
+    def resume_dev_run_task(self):
+        """Sends the 'resume' command to the running dev task."""
+        logger.info("Sending 'resume' command to dev run task.")
+        try:
+            self.dev_msg_queue.put_nowait("resume")
+            return {"success": True}
+        except queue.Full:
+            logger.error("Development message queue is full. Cannot send 'resume' command.")
+            return {"success": False, "error": "Queue full"}
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorResumeDevRunTask")
+            logger.error(err_msg)
+            return {"success": False, "error": err_msg}
+
+    def step_dev_run_task(self):
+        """Sends the 'step' command to the running dev task."""
+        logger.info("Sending 'step' command to dev run task.")
+        try:
+            self.dev_msg_queue.put_nowait("step")
+            return {"success": True}
+        except queue.Full:
+            logger.error("Development message queue is full. Cannot send 'step' command.")
+            return {"success": False, "error": "Queue full"}
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorStepDevRunTask")
+            logger.error(err_msg)
+            return {"success": False, "error": err_msg}
+
+    def pause_dev_run_task(self):
+        """
+        Note: Pausing is the default state. This function is a placeholder
+        in case you need to send an explicit 'pause' command for other reasons.
+        """
+        logger.info("Sending 'pause' command to dev run task.")
+        try:
+            self.dev_msg_queue.put_nowait("pause")
+            return {"success": True}
+        except queue.Full:
+            logger.error("Development message queue is full. Cannot send 'pause' command.")
+            return {"success": False, "error": "Queue full"}
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorPauseDevRunTask")
+            logger.error(err_msg)
+            return {"success": False, "error": err_msg}
 
 
-            except Exception as e:
-                ex_stat = "ErrorLaunchReactedRun:" + traceback.format_exc() + " " + str(e)
-                logger.error(f"{ex_stat}")
-
-            # await asyncio.sleep(1)  # the loop goes on.....
-            time.sleep(1)
-
-    def resume_dev_run(self, skill_runnable):
-        for event in skill_runnable.stream({"x": 0}):
-            if isinstance(event, dict):
-                logger.debug(f"State:{event}")
-
-            elif isinstance(event, Interrupt):
-                logger.debug(f"⏸ Paused at node {event.value['at']} with state {event.value['state']}")
-                self.bp_manager.capture_interrupt(event)
-                #         break   # stop loop here until GUI resumes
-                # resume control
-                event.resume()
-
-        logger.debug("resume dev run")
-
-    def step_dev_run(self):
-        logger.debug("resume dev run")
-        # check whether the next node is a breakpoint, if so, just resume run,
-        # otherwise, add an breakpoint to the next node and then resume run
-        next_node_name = ""
-        if not self.bp_manager.has_breakpoint(next_node_name):
-            self.bp_manager.set_breakpoints([next_node_name])
-        self.bp_manager.resume()
-
-    def cancel_dev_run(self):
-        logger.debug("resume dev run")
-
-    def pause_dev_run(self):
-        logger.debug("resume dev run")
+    def cancel_dev_run_task(self):
+        """Sends the 'cancel' command to the running dev task."""
+        logger.info("Sending 'cancel' command to dev run task.")
+        try:
+            self.dev_msg_queue.put_nowait("cancel")
+            return {"success": True}
+        except queue.Full:
+            logger.error("Development message queue is full. Cannot send 'cancel' command.")
+            return {"success": False, "error": "Queue full"}
+        except Exception as e:
+            err_msg = get_traceback(e, "ErrorCancelDevRunTask")
+            logger.error(err_msg)
+            return {"success": False, "error": err_msg}
 
 
     def inject_state_dev_run(self, in_state):
@@ -1301,31 +1357,3 @@ class TaskRunner(Generic[Context]):
 
     def clear_bps_dev_skill(self, bps):
         self.bp_manager.clear_breakpoints(bps)
-
-
-# Remaining application code continues here...
-# (not repeating routing/app setup for brevity)
-
-
-# cached_human_responses = ["hi!", "rag prompt", "1 rag, 2 none, 3 no, 4 no", "red", "q"]
-# cached_response_index = 0
-# config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-# while True:
-#     try:
-#         user = input("User (q/Q to quit): ")
-#     except:
-#         user = cached_human_responses[cached_response_index]
-#         cached_response_index += 1
-#     print(f"User (q/Q to quit): {user}")
-#     if user in {"q", "Q"}:
-#         print("AI: Byebye")
-#         break
-#     output = None
-#     for output in graph.stream(
-#         {"messages": [HumanMessage(content=user)]}, config=config, stream_mode="updates"
-#     ):
-#         last_message = next(iter(output.values()))["messages"][-1]
-#         last_message.pretty_print()
-#
-#     if output and "prompt" in output:
-#         print("Done!")
