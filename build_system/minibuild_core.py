@@ -441,17 +441,24 @@ playwright_third_party = project_root / "third_party" / "ms-playwright"
 if playwright_third_party.exists():
     data_files.append((str(playwright_third_party), "third_party/ms-playwright"))
 
-# Icon detection
+# Icon detection with enhanced Windows support
 icon_path = None
 if sys.platform.startswith('win'):
     icon_candidates = [
-        project_root / '{icon_win}',
+        project_root / f'{icon_win}',
+        project_root / 'resource' / 'images' / 'logos' / 'icon_multi.ico',
         project_root / 'resource' / 'icon.ico',
         project_root / 'resource' / 'eCan.ico'
     ]
+
+    # Check if primary icon exists
+    primary_icon = project_root / f'{icon_win}'
+    if primary_icon.exists():
+        print(f'[SPEC] Found primary icon: {{primary_icon}}')
+
 elif sys.platform == 'darwin':
     icon_candidates = [
-        project_root / '{icon_mac}',
+        project_root / f'{icon_mac}',
         project_root / 'resource' / 'icon.icns',
         project_root / 'resource' / 'eCan.icns'
     ]
