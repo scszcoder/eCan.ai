@@ -30,7 +30,7 @@ def find_tester_agent(mainwin):
 def run_dev_skill(mainwin, skill):
     tester_agent = setup_dev_skill(mainwin, skill)
     if tester_agent:
-        results = tester_agent.lauch_dev_run_task()
+        results = tester_agent.launch_dev_run()
         run_results = {"success": True, "error": "", "run_status": results}
     else:
         run_results = {"success": False, "error": "ErrorSetupDevSkill", "run_status": None}
@@ -40,7 +40,7 @@ def run_dev_skill(mainwin, skill):
 def cancel_run_dev_skill(mainwin):
     tester_agent = find_tester_agent(mainwin)
     if tester_agent:
-        results = tester_agent.cancel_dev_run_task()
+        results = tester_agent.cancel_dev_run()
         run_results = {"success": True, "error": "", "run_status": results}
     else:
         run_results = {"success": False, "error": "ErrorCancelRunDevSkill", "run_status": None}
@@ -50,7 +50,7 @@ def cancel_run_dev_skill(mainwin):
 def pause_run_dev_skill(mainwin):
     tester_agent = find_tester_agent(mainwin)
     if tester_agent:
-        results = tester_agent.pause_dev_run_task()
+        results = tester_agent.pause_dev_run()
         run_results = {"success": True, "error": "", "run_status": results}
     else:
         run_results = {"success": False, "error": "ErrorPauseRunDevSkill", "run_status": None}
@@ -60,7 +60,7 @@ def pause_run_dev_skill(mainwin):
 def step_run_dev_skill(mainwin):
     tester_agent = find_tester_agent(mainwin)
     if tester_agent:
-        results = tester_agent.step_dev_run_task()
+        results = tester_agent.step_dev_run()
         run_results = {"success": True, "error": "", "run_status": results}
     else:
         run_results = {"success": False, "error": "ErrorStepRunDevSkill", "run_status": None}
@@ -70,7 +70,7 @@ def step_run_dev_skill(mainwin):
 def resume_run_dev_skill(mainwin):
     tester_agent = find_tester_agent(mainwin)
     if tester_agent:
-        results = tester_agent.resume_dev_run_task()
+        results = tester_agent.resume_dev_run()
         run_results = {"success": True, "error": "", "run_status": results}
     else:
         run_results = {"success": False, "error": "ErrorResumeRunDevSkill", "run_status": None}
