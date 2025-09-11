@@ -53,7 +53,7 @@ from browser_use.controller.registry.views import ActionModel
 from browser_use.controller.service import Controller
 from browser_use.agent.service import Agent
 from agent.exceptions import LLMException
-
+from agent.ec_skill import EC_Skill
 from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
 from agent.tasks import TaskRunner, ManagedTask
 from agent.human_chatter import *
@@ -92,7 +92,8 @@ class EC_Agent(Agent):
 		# Core components
 		self.tasks = tasks
 		self.skill_llm = skill_llm
-		self.running_tasks = []
+		self.active_tasks: Dict[str, concurrent.futures.Future] = {}
+		self.task_lock = threading.Lock()
 		self.skill_set = skill_set
 		self._stop_event = asyncio.Event()
 		self.supervisors = supervisors if supervisors is not None else []
@@ -260,29 +261,35 @@ class EC_Agent(Agent):
 		logger.info("A2A server started....")
 		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor
-		self.running_tasks = self.mainwin.threadPoolExecutor
+		thread_pool_executor = self.mainwin.threadPoolExecutor
 		for task in self.tasks:
 			# new_thread = self.new_thread(task.id)
 			logger.info(f"{self.card.name} Starting task {task.name} with trigger {task.trigger}")
+
+			target_func = None
 			if task.trigger == "schedule":
-				logger.info(" scheduled task name:", task.name)
-				self.running_tasks.submit(self.runner.launch_scheduled_run,task)
-				# await self.runner.launch_scheduled_run(task)
-				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
+				logger.info(f" scheduled task name: {task.name}")
+				target_func = self.runner.launch_scheduled_run
 			elif task.trigger == "message":
-				logger.info(" message task name:", task.name)
-				self.running_tasks.submit(self.runner.launch_reacted_run,task)
-
-				# await self.runner.launch_reacted_run(task)
-				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
+				logger.info(f" message task name: {task.name}")
+				target_func = self.runner.launch_reacted_run
 			elif task.trigger == "interaction":
-				logger.info(" interaction task name:", task.name)
-				self.running_tasks.submit(self.runner.launch_interacted_run,task)
-
-				# await self.runner.launch_interacted_run(task)
-				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
+				logger.info(f" interaction task name: {task.name}")
+				target_func = self.runner.launch_interacted_run
 			else:
-				logger.info("WARNING: UNRECOGNIZED task trigger type....")
+				logger.warning(f"WARNING: UNRECOGNIZED task trigger type for task {task.name}")
+				continue
+
+			# Submit the task and register it using its run_id
+			if hasattr(task, 'run_id') and task.run_id:
+				future = thread_pool_executor.submit(target_func, task)
+				with self.task_lock:
+					self.active_tasks[task.run_id] = future
+				future.add_done_callback(lambda f, run_id=task.run_id: self._task_done_callback(run_id, f))
+				logger.info(f"Task {task.name} with run_id {task.run_id} submitted and registered.")
+			else:
+				logger.error(f"Task {task.name} is missing a 'run_id' and cannot be tracked.")
+
 
 		# runnable = self.skill_set[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
@@ -292,13 +299,24 @@ class EC_Agent(Agent):
 	async def hone_skills(self):
 		logger.info("hone skills...")
 
-	def get_task_id_from_request(self, req):
-		task_id = req.params.id
-		logger.info(f"TASK ID IN QUERY:{task_id}.")
-		return task_id
+	def _task_done_callback(self, run_id: str, future: concurrent.futures.Future):
+		"""Callback to remove a task from the registry upon completion."""
+		with self.task_lock:
+			if run_id in self.active_tasks:
+				del self.active_tasks[run_id]
+				logger.info(f"Task with run_id {run_id} completed and removed from registry.")
+		try:
+			# Retrieve result to raise any exceptions that occurred during the task run
+			future.result()
+		except Exception as e:
+			logger.error(f"Task with run_id {run_id} failed with an exception: {e}")
 
-	@time_execution_async('--request_local_help (agent)')
-	async def request_local_help(self, recipient_agent=None):
+	def is_task_running(self, run_id: str) -> bool:
+		"""Check if a task with the given run_id is currently running."""
+		with self.task_lock:
+			return run_id in self.active_tasks
+
+	def request_local_help(self, recipient_agent=None):
 		# this is only available if myself is not a helper agent
 		helper = next((ag for ag in self.mainwin.agents if "helper" in self.get_card().name.lower()), None)
 		logger.info("client card:", self.get_card().name.lower())
@@ -314,18 +332,11 @@ class EC_Agent(Agent):
 			}
 
 			logger.info("client payload:", payload["id"])
-			response = await self.a2a_client.send_task(payload)
+			response = self.a2a_client.send_task(payload)
 			logger.info("A2A RESPONSE:", response)
 		else:
 			logger.info("client err:", self.get_card().name.lower())
 
-	# class Message(BaseModel):
-	# 	role: Literal["user", "agent"]
-	# 	parts: List[Part]
-	# 	metadata: dict[str, Any] | None = None
-	# @time_execution_async('--a2a_send_message (agent, message)')
-	# async def a2a_send_chat_message(self, recipient_agent, message):
-	@time_execution_sync('--a2a_send_chat_message (agent, message)')
 	def a2a_send_chat_message(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
 		logger.info("[ec_agent] recipient card:", recipient_agent.get_card().name.lower())
@@ -414,18 +425,61 @@ class EC_Agent(Agent):
 				ex_stat = "ErrorA2ASend: traceback information not available:" + str(e)
 			logger.error(ex_stat)
 
+
 	def launch_dev_run_task(self):
-		logger.info("launching dev run task!")
+		"""Launches a development run, ensuring any previous dev run is cancelled first."""
+		logger.info("Attempting to launch dev run task...")
+		DEV_RUN_ID = "dev_run_singleton"
+
 		try:
-			response = ""
-			dev_task = next((task for task in self.tasks if "run task for skill under development" in task.name.lower()), None)
-			self.running_tasks.submit(self.runner.launch_dev_run, dev_task)
-			logger.info("launching dev run task!", response)
-			return response
+			# Check if a dev run is already active and cancel it
+			if self.is_task_running(DEV_RUN_ID):
+				logger.info(f"An existing dev run ({DEV_RUN_ID}) is active. Attempting to cancel it.")
+				with self.task_lock:
+					# Find the ManagedTask object associated with the running future
+					old_future = self.active_tasks.get(DEV_RUN_ID)
+					dev_task_instance = next((t for t in self.tasks if hasattr(t, 'run_id') and t.run_id == DEV_RUN_ID), None)
+
+					if dev_task_instance:
+						dev_task_instance.cancel() # Signal the task to stop
+						logger.info(f"Cancellation signal sent to task with run_id {DEV_RUN_ID}.")
+					else:
+						logger.warning(f"Could not find the ManagedTask object for run_id {DEV_RUN_ID} to send cancel signal.")
+
+					if old_future:
+						# Wait for the old task to finish cancelling
+						try:
+							old_future.result(timeout=5) # Wait for up to 5 seconds
+							logger.info(f"Previous dev run task {DEV_RUN_ID} successfully cancelled.")
+						except concurrent.futures.TimeoutError:
+							logger.error(f"Timeout waiting for previous dev run task {DEV_RUN_ID} to cancel.")
+						except Exception as e:
+							logger.info(f"Previous dev run task {DEV_RUN_ID} terminated. Exception during cancellation: {e}")
+
+			# Find the template task for development runs
+			dev_task_template = next((task for task in self.tasks if "run task for skill under development" in task.name.lower()), None)
+			if not dev_task_template:
+				logger.error("Could not find the 'run task for skill under development' template task.")
+				return {"success": False, "error": "Dev task template not found."}
+
+			# Assign the unique run_id for tracking
+			dev_task_template.run_id = DEV_RUN_ID
+			dev_task_template.cancellation_event.clear() # Ensure the event is not set from a previous run
+
+			# Launch the new dev run task
+			thread_pool_executor = self.mainwin.threadPoolExecutor
+			future = thread_pool_executor.submit(self.runner.launch_dev_run, dev_task_template)
+			with self.task_lock:
+				self.active_tasks[DEV_RUN_ID] = future
+			future.add_done_callback(lambda f: self._task_done_callback(DEV_RUN_ID, f))
+
+			logger.info(f"New dev run task with run_id {DEV_RUN_ID} submitted and registered.")
+			return {"success": True, "message": "Dev run launched successfully."}
+
 		except Exception as e:
-			# Get the traceback information
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
+			return {"success": False, "error": err_msg}
 
 	def resume_dev_run_task(self):
 		logger.info("launching dev run task!")
@@ -460,7 +514,6 @@ class EC_Agent(Agent):
 			# Get the traceback information
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
-
 
 	def cancel_dev_run_task(self):
 		logger.info("launching dev run task!")
