@@ -1191,14 +1191,14 @@ class TaskRunner(Generic[Context]):
 
             # Get the iterator for the stream
             stream_iterator = iter(controller)
-            paused_at_node = None
+            paused_at_node = 'start' # Assume we start paused at the entry point
 
             # Initial state notification to GUI
-            # We don't know the first node yet, so we send a generic "started" status.
+            # We are paused at the start, waiting for the first command
             self.agent.mainwin.ipc_api.update_run_stat(
                 agent_task_id=task.run_id,
-                current_node="start",  # The frontend knows 'start' is the beginning
-                status="running",
+                current_node=paused_at_node,
+                status="paused",
                 langgraph_state={}
             )
 
@@ -1208,8 +1208,17 @@ class TaskRunner(Generic[Context]):
                     command = self.dev_msg_queue.get(timeout=60)  # Timeout to prevent deadlocks
                     logger.debug(f"Dev run ({task.run_id}) received command: {command}")
 
-                    if command == "step" or (
-                            command == "resume" and not self.bp_manager.has_breakpoint(paused_at_node)):
+                    if command == "step" or (command == "resume" and not self.bp_manager.has_breakpoint(paused_at_node)):
+                        
+                        # Pre-run notification: Tell the GUI we are now running this node
+                        if paused_at_node:
+                            self.agent.mainwin.ipc_api.update_run_stat(
+                                agent_task_id=task.run_id,
+                                current_node=paused_at_node,
+                                status="running",
+                                langgraph_state={}
+                            )
+
                         # Advance the graph by one step
                         event = next(stream_iterator, None)
 
@@ -1227,7 +1236,7 @@ class TaskRunner(Generic[Context]):
                             paused_at_node = event.value.get('paused_at')
                             logger.info(f"Execution paused at node: {paused_at_node}")
 
-                            # Notify the GUI where we are paused
+                            # Post-run notification: Tell the GUI where we are now paused
                             self.agent.mainwin.ipc_api.update_run_stat(
                                 agent_task_id=task.run_id,
                                 current_node=paused_at_node,
@@ -1281,6 +1290,15 @@ class TaskRunner(Generic[Context]):
                 langgraph_state={"error": str(e)}
             )
             raise
+        finally:
+            # Flush any remaining commands from the queue to ensure a clean state for the next run
+            logger.info(f"Flushing dev message queue for task {task.run_id}.")
+            while not self.dev_msg_queue.empty():
+                try:
+                    self.dev_msg_queue.get_nowait()
+                except queue.Empty:
+                    break
+            logger.info("Dev message queue flushed.")
 
     def resume_dev_run_task(self):
         """Sends the 'resume' command to the running dev task."""
