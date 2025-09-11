@@ -7,8 +7,11 @@ if TYPE_CHECKING:
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
+from gui.LoginoutGUI import Login
+from app_context import AppContext
 
 from utils.logger_helper import logger_helper as logger
+from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
 
 @IPCHandlerRegistry.handler('get_skills')
 def handle_get_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -161,37 +164,28 @@ def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         str: JSON 格式的响应消息
     """
     try:
-        logger.debug(f"Run skill handler called with request: {request}")
-        # 验证参数
-        is_valid, data, error = validate_params(params, ['username', 'skill'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for run skill: {error}")
-            return create_error_response(
-                request,
-                'INVALID_PARAMS',
-                error
-            )
-
-        # 获取用户名和密码
-        username = data['username']
+        logger.debug(f"Get run skill handler called with request: {request}")
 
         # 生成随机令牌
         token = str(uuid.uuid4()).replace('-', '')
-        logger.info(f"run skill successful for user: {username}")
-
-
+        user = request["params"]["username"]
+        skill_info = request["params"]["skill"]
+        login: Login = AppContext.login
+        skill = request.meta["skill_flowgram"]
+        results = run_dev_skill(login.main_win, skill_info)
 
         return create_success_response(request, {
             'token': token,
-            'message': 'Save skills successful'
+            "results": results,
+            'message': "Run skill starts successful" if results["success"] else "Start skill run failed"
         })
 
     except Exception as e:
-        logger.error(f"Error in save skills handler: {e}")
+        logger.error(f"Error in run skill handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
             'LOGIN_ERROR',
-            f"Error during save skills: {str(e)}"
+            f"Error during start skill run: {str(e)}"
         )
 
 

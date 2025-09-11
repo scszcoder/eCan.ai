@@ -329,6 +329,8 @@ class IPCAPI:
     def update_run_stat(
         self,
         agent_task_id: str,
+        current_node: str,
+        status: str,
         langgraph_state: dict,
         timestamp: int = None,
         callback: Optional[Callable[[APIResponse[bool]], None]] = None
@@ -341,7 +343,7 @@ class IPCAPI:
             timestamp: 通知时间戳
             callback: 回调函数，接收 APIResponse[bool]
         """
-        params = {'agentTaskId': agent_task_id, 'langgraphState': langgraph_state, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
+        params = {'agentTaskId': agent_task_id, "current_node": current_node, "status": status, 'nodeState': langgraph_state, 'timestamp': timestamp}
         self._send_request('update_skill_run_stat', params, callback=callback)
 
     def update_task_stat(
