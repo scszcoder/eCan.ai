@@ -6,12 +6,69 @@ import sys
 import os
 import traceback
 
+# Global QApplication instance
+_global_app = None
+
+def _configure_multiprocessing():
+    """
+    Configure multiprocessing settings for better process management.
+    This helps prevent unwanted subprocess creation and resource conflicts.
+    """
+    try:
+        import multiprocessing as mp
+
+        # Set multiprocessing start method for better PyInstaller compatibility
+        if hasattr(mp, 'set_start_method'):
+            try:
+                current_method = mp.get_start_method(allow_none=True)
+
+                # Platform-specific multiprocessing configuration
+                if sys.platform == 'win32':
+                    # Windows: Always use spawn (default and required)
+                    if current_method != 'spawn':
+                        mp.set_start_method('spawn', force=True)
+                        print(f"[MULTIPROCESSING] Windows: Set start method to 'spawn' (was: {current_method})")
+                    else:
+                        print("[MULTIPROCESSING] Windows: Start method already 'spawn'")
+                elif sys.platform == 'darwin':
+                    # macOS: Use spawn for better PyInstaller and WebEngine compatibility
+                    if current_method is None:
+                        mp.set_start_method('spawn', force=True)
+                        print("[MULTIPROCESSING] macOS: Set start method to 'spawn' for PyInstaller compatibility")
+                    elif current_method != 'spawn':
+                        print(f"[MULTIPROCESSING] macOS: Start method is '{current_method}', recommend 'spawn' for PyInstaller")
+                    else:
+                        print("[MULTIPROCESSING] macOS: Start method already 'spawn'")
+                else:
+                    # Linux: Use spawn for better isolation
+                    if current_method != 'spawn':
+                        mp.set_start_method('spawn', force=True)
+                        print(f"[MULTIPROCESSING] Linux: Set start method to 'spawn' (was: {current_method})")
+                    else:
+                        print("[MULTIPROCESSING] Linux: Start method already 'spawn'")
+
+            except RuntimeError as e:
+                print(f"[MULTIPROCESSING] Start method already set: {e}")
+
+        print("[MULTIPROCESSING] Configuration completed")
+
+    except Exception as e:
+        print(f"[MULTIPROCESSING] Configuration failed: {e}")
+        # Don't exit on multiprocessing config failure
+
 # Top-level exception handling, catch all import and runtime exceptions
 try:
     # Multi-process protection - must be before all other imports
     if __name__ == '__main__':
+        # Apply PyInstaller fixes early
+        try:
+            from utils.runtime_utils import initialize_runtime_environment
+            initialize_runtime_environment()
+        except Exception as e:
+            print(f"Warning: Runtime initialization failed: {e}")
+
         # Worker-mode support for packaged subprocesses: execute external script and exit
-        run_script = os.getenv('ECBOT_RUN_SCRIPT')
+        run_script = os.getenv('ECAN_RUN_SCRIPT')
         if run_script:
             try:
                 with open(run_script, 'r', encoding='utf-8') as f:
@@ -29,26 +86,17 @@ try:
             pass
 
         # Single-instance guard (bypass when explicitly requested for worker subprocesses)
-        if os.getenv('ECBOT_BYPASS_SINGLE_INSTANCE') != '1':
+        if os.getenv('ECAN_BYPASS_SINGLE_INSTANCE') != '1':
             from utils.single_instance import install_single_instance
             install_single_instance()
 
         from utils.logger_helper import install_crash_logger
         install_crash_logger()
 
-        # Set multiprocessing start method to spawn to avoid fork issues
-        if hasattr(multiprocessing, 'set_start_method'):
-            try:
-                multiprocessing.set_start_method('spawn', force=True)
-            except RuntimeError:
-                pass  # Already set
+        # Configure multiprocessing for better process management
+        _configure_multiprocessing()
 
-        # Disable resource tracker to avoid duplicate startup issues
-        try:
-            import multiprocessing.resource_tracker
-            multiprocessing.resource_tracker._resource_tracker = None
-        except Exception:
-            pass  # Ignore any errors
+
     else:
         # If not the main module, exit directly
         sys.exit(0)
@@ -57,18 +105,51 @@ try:
 
     print(TimeUtil.formatted_now_with_ms() + " app start...")
 
-    # Create QApplication and show themed splash as early as possible
-    from gui.splash import init_startup_splash, create_startup_progress_manager
-    startup_splash = init_startup_splash()
-    progress_manager = create_startup_progress_manager(startup_splash)
+    # Create QApplication FIRST - this is the single point of creation
+    print(TimeUtil.formatted_now_with_ms() + " creating QApplication...")
+    from PySide6.QtWidgets import QApplication as _QApp
 
-    print(TimeUtil.formatted_now_with_ms() + " importing modules...")
+    # Use global variable to store QApplication instance, ensuring access throughout the module
+    _global_app = _QApp.instance()
+    if not _global_app:
+        _global_app = _QApp(sys.argv)
+        print(TimeUtil.formatted_now_with_ms() + " QApplication created")
+    else:
+        print(TimeUtil.formatted_now_with_ms() + " QApplication already exists")
+
+    # Process events to ensure Qt is fully initialized
+    print(TimeUtil.formatted_now_with_ms() + " processing Qt events...")
+    _global_app.processEvents()
+
+    # Create and show themed splash as early as possible
+    print(TimeUtil.formatted_now_with_ms() + " importing gui.splash...")
+    try:
+        from gui.splash import init_startup_splash, create_startup_progress_manager
+
+        startup_splash = init_startup_splash()
+        print(TimeUtil.formatted_now_with_ms() + " startup splash initialized")
+
+        progress_manager = create_startup_progress_manager(startup_splash)
+    except Exception as e:
+        print(f"❌ Failed to initialize splash screen: {e}")
+        import traceback
+        traceback.print_exc()
+        # Create a dummy progress manager to continue startup
+        class DummyProgressManager:
+            def update_progress(self, progress, status=None):
+                print(f"Progress: {progress}% - {status}")
+            def update_status(self, status):
+                print(f"Status: {status}")
+            def finish(self, main_window=None):
+                pass
+        progress_manager = DummyProgressManager()
+        startup_splash = None
+
     progress_manager.update_progress(5, "Loading core modules...")
 
     # Standard imports
     import asyncio
     import qasync
-    from setproctitle import setproctitle
     progress_manager.update_progress(10, "Importing standard libraries...")
 
     # Basic configuration imports
@@ -78,69 +159,8 @@ try:
     from app_context import AppContext
     progress_manager.update_progress(15, "Loading configuration...")
 
-    def fix_pyinstaller_environment():
-        """Cross-platform PyInstaller environment fix"""
-        if not getattr(sys, 'frozen', False):
-            return
-
-        try:
-            # Only handle the most critical cv2 path issue
-            if hasattr(sys, '_MEIPASS'):
-                cv2_path = os.path.join(sys._MEIPASS, 'cv2')
-                if os.path.exists(cv2_path) and cv2_path not in sys.path:
-                    sys.path.insert(0, cv2_path)
-
-                # Platform-specific library path fixes
-                if sys.platform == 'win32':
-                    # Windows: Add DLL directory (if supported)
-                    try:
-                        os.add_dll_directory(cv2_path)
-                    except (OSError, AttributeError):
-                        pass  # Python < 3.8 or not supported
-
-                elif sys.platform == 'darwin':
-                    # macOS: Set dynamic library path
-                    try:
-                        # Add cv2 library path to DYLD_LIBRARY_PATH
-                        dyld_path = os.environ.get('DYLD_LIBRARY_PATH', '')
-                        if cv2_path not in dyld_path:
-                            if dyld_path:
-                                os.environ['DYLD_LIBRARY_PATH'] = f"{cv2_path}:{dyld_path}"
-                            else:
-                                os.environ['DYLD_LIBRARY_PATH'] = cv2_path
-
-                        # Also try to add to DYLD_FALLBACK_LIBRARY_PATH
-                        fallback_path = os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')
-                        if cv2_path not in fallback_path:
-                            if fallback_path:
-                                os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = f"{cv2_path}:{fallback_path}"
-                            else:
-                                os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = cv2_path
-
-                    except Exception:
-                        pass  # Ignore macOS-specific errors
-
-                elif sys.platform.startswith('linux'):
-                    # Linux: Set LD_LIBRARY_PATH
-                    try:
-                        ld_path = os.environ.get('LD_LIBRARY_PATH', '')
-                        if cv2_path not in ld_path:
-                            if ld_path:
-                                os.environ['LD_LIBRARY_PATH'] = f"{cv2_path}:{ld_path}"
-                            else:
-                                os.environ['LD_LIBRARY_PATH'] = cv2_path
-                    except Exception:
-                        pass  # Ignore Linux-specific errors
-
-            print(f"[PYINSTALLER_FIX] Cross-platform environment fix applied for {sys.platform}")
-
-        except Exception as e:
-            print(f"[PYINSTALLER_FIX] Warning: {e}")
-            # Don't prevent program startup due to fix failure
-
-    # Fix environment before all imports
+    # Runtime environment is already initialized above
     progress_manager.update_progress(20, "Setting up environment...")
-    fix_pyinstaller_environment()
 
     # Import other necessary modules
     progress_manager.update_progress(30, "Loading Login components...")
@@ -164,11 +184,11 @@ try:
         #     except ImportError:
         #         pass  # Ignore when hot reload module doesn't exist
 
-        # Reuse early-initialized QApplication
-        from PySide6.QtWidgets import QApplication as _QApp
-        app = _QApp.instance()
-        if not app:  # Fallback safety
-            app = _QApp(sys.argv)
+        # Get the already-created QApplication instance
+        app = _global_app
+        if not app:  # This should never happen now
+            print("ERROR: QApplication instance not found in main()!")
+            raise RuntimeError("QApplication was not properly initialized")
 
         # Set application info and icon (unified management)
         progress_manager.update_progress(40, "Setting up application info...")
@@ -251,38 +271,8 @@ try:
         print(TimeUtil.formatted_now_with_ms() + " main function run start...")
         # Note: Don't reset process title here as it's already set to 'eCan'
         print(f"[PLATFORM] Running on {sys.platform}")
-        if getattr(sys, 'frozen', False):
-            print("[PYINSTALLER] Running from PyInstaller bundle")
-        setproctitle('eCan')
 
-    # test_eb_orders_scraper()
-    # test_etsy_label_gen()
-    # test_use_func_instructions()
-    # test_multi_skills()
-    # test_scrape_etsy_orders()
-    # test_scrape_gs_labels()
-    # test_processSearchWordline()
-    # test_process7z()
-    # test_basic()
-    # test_coordinates()
-    # test_rar()
-    # test_UpdateBotADSProfileFromSavedBatchTxt()
-    # test_batch_ads_profile_conversion()
-    # test_run_group_of_tasks()
-    # test_schedule_check()
-    # test_pyautogui()
-    # test_eb_orders_scraper()
-    # print("all unit tests done...")
-    # test_scrape_amz_buy_orders()
-    # list_windows()
-    # test_scrape_amz_product_details()
-    # test_printer_print_sync()
-    # test_selenium_amazon_shop()
-    # test_selenium_GS()
-    # test_selenium_amazon()
-    # test_parse_xml()
-    # test_pyzipunzip()
-    # res = scrape_tests()
+
 
     try:
         main()

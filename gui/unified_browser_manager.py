@@ -253,12 +253,6 @@ class UnifiedBrowserManager:
         This avoids running Playwright on the GUI/qasync loop (which lacks subprocess support on Windows).
         """
         async def _do():
-            # Reinforce Proactor policy inside the coroutine context (worker thread) for subprocess support
-            if sys.platform.startswith("win"):
-                try:
-                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-                except Exception:
-                    pass
             try:
                 loop = asyncio.get_running_loop()
                 logger.info(f"[UnifiedBrowserManager._do] loop={type(loop).__name__}")

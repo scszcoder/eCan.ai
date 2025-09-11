@@ -3,7 +3,6 @@ import os
 import sys
 import signal
 from pathlib import Path
-from dataclasses import dataclass
 import threading
 import time
 from utils.logger_helper import logger_helper as logger
@@ -208,176 +207,6 @@ class LightragServer:
             logger.error(f"[LightragServer] Python validation error: {e}")
             return False
 
-    def _create_lightrag_startup_script(self):
-        """Create LightRAG startup script for packaged environment"""
-        try:
-            import tempfile
-
-            # Safely handle paths to avoid escaping issues
-            working_dir = self.extra_env.get('WORKING_DIR', '').replace('\\', '/')
-            input_dir = self.extra_env.get('INPUT_DIR', '').replace('\\', '/')
-            log_dir = self.extra_env.get('LOG_DIR', '').replace('\\', '/')
-            host = self.extra_env.get('HOST', '127.0.0.1')
-            port = self.extra_env.get('PORT', '9621')
-
-            # Create temporary startup script
-            # Create cross-platform compatible independent LightRAG startup script
-            script_content = f'''#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-LightRAG Server Independent Startup Script - Cross-platform Compatible Version
-Supports Windows and macOS, does not import main.py to avoid conflicts
-"""
-
-import sys
-import os
-import platform
-import traceback
-
-def setup_environment():
-    """Setup LightRAG runtime environment - cross-platform compatible"""
-    # Detect operating system
-    current_os = platform.system().lower()
-    print(f"Operating System: {{current_os}}")
-
-    # Get paths directly from environment variables to avoid string interpolation escaping issues
-    import os
-
-    # Environment variable settings (use preprocessed variables to avoid escaping issues)
-    env_vars = {{
-        "HOST": "{host}",
-        "PORT": "{port}",
-        "LOG_LEVEL": "INFO",
-        "MAX_TOKENS": "32768",
-        "MAX_ASYNC": "16",
-        "TIMEOUT": "60"
-    }}
-
-    # Safely set path environment variables (use forward slashes, convert in script)
-    path_vars = {{
-        "WORKING_DIR": "{working_dir}",
-        "INPUT_DIR": "{input_dir}",
-        "LOG_DIR": "{log_dir}"
-    }}
-
-    # Set non-path environment variables
-    for key, value in env_vars.items():
-        if value:
-            os.environ[key] = str(value)
-
-    # Safely set path environment variables (avoid escaping issues)
-    for key, value in path_vars.items():
-        if value:
-            # Use os.path.normpath to normalize paths
-            normalized_path = os.path.normpath(value)
-            os.environ[key] = normalized_path
-
-    # Clean command line arguments to avoid argparse conflicts
-    sys.argv = ["lightrag_server"]
-
-    # Display environment information
-    print(f"LightRAG Environment Setup ({{current_os}}):")
-    print(f"  HOST: {{os.environ.get('HOST', 'not set')}}")
-    print(f"  PORT: {{os.environ.get('PORT', 'not set')}}")
-    print(f"  WORKING_DIR: {{os.environ.get('WORKING_DIR', 'not set')}}")
-    print(f"  INPUT_DIR: {{os.environ.get('INPUT_DIR', 'not set')}}")
-    print(f"  LOG_DIR: {{os.environ.get('LOG_DIR', 'not set')}}")
-
-def check_python_environment():
-    """Check Python environment compatibility"""
-    print(f"Python Version: {{sys.version}}")
-    print(f"Python Executable: {{sys.executable}}")
-    print(f"Platform: {{platform.platform()}}")
-    print(f"Architecture: {{platform.architecture()}}")
-
-    # Check if running in PyInstaller environment
-    if getattr(sys, 'frozen', False):
-        print("✅ Running in PyInstaller packaged environment")
-        if hasattr(sys, '_MEIPASS'):
-            print(f"   PyInstaller temp directory: {{sys._MEIPASS}}")
-        return True
-    else:
-        print("ℹ️  Running in development environment")
-        return False
-
-def main():
-    """Main function - run LightRAG server independently"""
-    try:
-        print("=" * 70)
-        print("LightRAG Independent Server Starting...")
-        print("=" * 70)
-
-        # Check Python environment
-        is_packaged = check_python_environment()
-
-        # Setup runtime environment
-        setup_environment()
-
-        # Try to import LightRAG
-        print("\\n" + "=" * 50)
-        print("Importing LightRAG...")
-        print("=" * 50)
-
-        try:
-            import lightrag
-            print(f"✅ LightRAG imported successfully")
-            if hasattr(lightrag, '__version__'):
-                print(f"   Version: {{lightrag.__version__}}")
-            else:
-                print("   Version: unknown")
-        except ImportError as e:
-            print(f"❌ Failed to import LightRAG: {{e}}")
-            print("   LightRAG is not available in this environment")
-            if is_packaged:
-                print("   This is normal if LightRAG was not packaged with the application")
-                print("   LightRAG server will be disabled, but main application will continue")
-                return 0  # Return instead of exit, let main program continue
-            else:
-                print("   Please install LightRAG: pip install lightrag")
-                print("   Exiting gracefully...")
-                sys.exit(0)  # Only exit in development environment
-
-        # Import and start LightRAG API server
-        print("\\n" + "=" * 50)
-        print("Starting LightRAG API Server...")
-        print("=" * 50)
-
-        try:
-            from lightrag.api.lightrag_server import main as lightrag_main
-            print("🚀 Calling LightRAG main function...")
-            lightrag_main()
-        except Exception as e:
-            print(f"❌ LightRAG server startup failed: {{e}}")
-            print("\\nFull traceback:")
-            traceback.print_exc()
-            sys.exit(1)
-
-    except KeyboardInterrupt:
-        print("\\n⚠️  LightRAG server interrupted by user (Ctrl+C)")
-        sys.exit(0)
-    except SystemExit as e:
-        if e.code == 0:
-            print(f"\\n✅ LightRAG server exited normally")
-        else:
-            print(f"\\n❌ LightRAG server exited with error code: {{e.code}}")
-        sys.exit(e.code)
-    except Exception as e:
-        print(f"\\n❌ Unexpected error in LightRAG server: {{e}}")
-        print("\\nFull traceback:")
-        traceback.print_exc()
-        sys.exit(1)
-
-# Run directly, don't check __name__ == "__main__"
-# This way won't trigger main program logic in main.py
-  372→if True:  # Always execute, cross-platform compatible
-  373→    main()
-  374→'''
-            return script_path
-
-        except Exception as e:
-            logger.error(f"[LightragServer] Failed to create startup script: {e}")
-            return None
-
     def _create_simple_lightrag_script(self):
         """Create simple LightRAG startup script, utilizing main.py protection mechanism"""
         try:
@@ -481,8 +310,6 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"[LightragServer] Failed to create simple startup script: {e}")
             return None
-
-
 
     def _check_and_free_port(self):
         """Check if port is occupied, try to free it if occupied"""
@@ -812,10 +639,10 @@ if __name__ == '__main__':
                 self._script_path = script_path
 
                 # Use environment variable to deliver script path to main.exe (worker mode)
-                env['ECBOT_RUN_SCRIPT'] = script_path
-                env['ECBOT_BYPASS_SINGLE_INSTANCE'] = '1'
+                env['ECAN_RUN_SCRIPT'] = script_path
+                env['ECAN_BYPASS_SINGLE_INSTANCE'] = '1'
                 cmd = [python_executable]  # No -u needed; PYTHONUNBUFFERED=1 forces unbuffered output
-                logger.info(f"[LightragServer] PyInstaller mode command: {cmd} with ECBOT_RUN_SCRIPT={script_path}")
+                logger.info(f"[LightragServer] PyInstaller mode command: {cmd} with ECAN_RUN_SCRIPT={script_path}")
             else:
                 # Development environment: use -u for unbuffered output to locate errors quickly
                 cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
@@ -1056,11 +883,3 @@ if __name__ == "__main__":
         proc.wait()
     except KeyboardInterrupt:
         server.stop()
-
-    # import openai
-    # client = openai.OpenAI(api_key="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")
-    # resp = client.embeddings.create(
-    #     input="test",
-    #     model="text-embedding-3-large"
-    # )
-    # print(len(resp.data[0].embedding))

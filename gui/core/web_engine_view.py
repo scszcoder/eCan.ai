@@ -103,36 +103,80 @@ class WebEngineView(QWebEngineView):
     }
     
     def __init__(self, parent: Optional[QMainWindow] = None):
-        super().__init__(parent)
-        # Use default profile or create a new one
-        profile = QWebEngineProfile.defaultProfile()
-        custom_page = CustomWebEnginePage(profile, self)
-        self.setPage(custom_page)
+        try:
+            logger.info("Starting WebEngineView initialization...")
 
-        self._interceptor: Optional[RequestInterceptor] = None
-        self._is_loading: bool = False
-        self._last_error: Optional[str] = None
-        self._channel: Optional[QWebChannel] = None
-        self._ipc_wc_service: Optional[IPCWCService] = None
-        self._webchannel_script: Optional[QWebEngineScript] = None
+            # Ensure QApplication is properly initialized before WebEngine
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if not app:
+                logger.error("QApplication not found during WebEngine initialization")
+                raise RuntimeError("QApplication must be created before WebEngine initialization")
 
-        # 1. Initialize engine
-        self.init_engine()
+            # Process any pending events to ensure Qt is fully initialized
+            app.processEvents()
 
-        # 2. Connect signals
-        self.connect_signals()
+            super().__init__(parent)
 
-        # 3. Setup interceptor
-        self.setup_interceptor()
+            # Use default profile or create a new one with enhanced error handling
+            logger.info("Creating WebEngine profile...")
+            try:
+                # Add delay to ensure Qt WebEngine subsystem is ready
+                import time
+                time.sleep(0.1)  # 100ms delay
 
-        # 4. Create IPC service (after page initialization)
-        self._ipc_wc_service = IPCWCService()
+                profile = QWebEngineProfile.defaultProfile()
+                logger.info("WebEngine profile created successfully")
+            except Exception as e:
+                logger.error(f"Failed to create WebEngine profile: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
 
-        # 5. Setup WebChannel (before page loading)
-        self.setup_webchannel()
+                # Try alternative initialization approach
+                logger.info("Attempting alternative WebEngine profile creation...")
+                try:
+                    # Create a custom profile instead of using default
+                    profile = QWebEngineProfile("eCan", parent)
+                    logger.info("Custom WebEngine profile created successfully")
+                except Exception as e2:
+                    logger.error(f"Alternative profile creation also failed: {e2}")
+                    raise RuntimeError(f"WebEngine profile creation failed: {e}") from e
 
-        # # 6. Initialize IPCAPI singleton
-        self._ipc_api = IPCAPI(self._ipc_wc_service)
+            custom_page = CustomWebEnginePage(profile, self)
+            self.setPage(custom_page)
+
+            self._interceptor: Optional[RequestInterceptor] = None
+            self._is_loading: bool = False
+            self._last_error: Optional[str] = None
+            self._channel: Optional[QWebChannel] = None
+            self._ipc_wc_service: Optional[IPCWCService] = None
+            self._webchannel_script: Optional[QWebEngineScript] = None
+
+            # 1. Initialize engine
+            self.init_engine()
+
+            # 2. Connect signals
+            self.connect_signals()
+
+            # 3. Setup interceptor
+            self.setup_interceptor()
+
+            # 4. Create IPC service (after page initialization)
+            self._ipc_wc_service = IPCWCService()
+
+            # 5. Setup WebChannel (before page loading)
+            self.setup_webchannel()
+
+            # # 6. Initialize IPCAPI singleton
+            self._ipc_api = IPCAPI(self._ipc_wc_service)
+
+            logger.info("WebEngineView initialization completed successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize WebEngineView: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
     def get_ipc_api(self):
         return self._ipc_api
@@ -144,10 +188,13 @@ class WebEngineView(QWebEngineView):
             page = self.page()
             page.setBackgroundColor(Qt.white)
 
-            # Configure WebEngine settings
-            profile = QWebEngineProfile.defaultProfile()
-            profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
-            profile.setHttpCacheType(QWebEngineProfile.NoCache)
+            # Configure WebEngine settings - use the profile from page
+            profile = page.profile()
+            if profile:
+                profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
+                profile.setHttpCacheType(QWebEngineProfile.NoCache)
+            else:
+                logger.warning("Could not get profile from page, skipping profile configuration")
 
             # Apply default settings
             settings = page.settings()

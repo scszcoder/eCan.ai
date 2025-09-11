@@ -252,13 +252,13 @@ class CallableStorage:
         self._callables: Dict[str, CallableFunction] = {}
         self._init_system_callables()
         self._init_custom_callables()
-        logger.info(f"Initialized {len(self._callables)} callable functions")
+        # logger.info(f"Initialized {len(self._callables)} callable functions")
         
     def _init_system_callables(self):
         """Initialize system functions"""
         for func in self.SYSTEM_FUNCTIONS.values():
             self._callables[func.id] = func
-            logger.debug(f"Initialized system function: {func.name}")
+            # logger.debug(f"Initialized system function: {func.name}")
             
     def _init_custom_callables(self):
         """Initialize custom functions"""

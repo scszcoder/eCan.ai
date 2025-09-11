@@ -259,15 +259,12 @@ def _prepare_playwright_simple() -> None:
     if target_path.exists():
         shutil.rmtree(target_path, ignore_errors=True)
 
-    # Use symlink manager if available for safe copying
+    # Simple copy using standard library
     try:
-        from build_system.symlink_manager import symlink_manager
-        success = symlink_manager.safe_copytree(cache_path, target_path, "PLAYWRIGHT")
-        if not success:
-            raise Exception("Symlink manager copy failed")
-    except Exception:
-        # Fallback to standard copy
-        shutil.copytree(cache_path, target_path, symlinks=False)
+        shutil.copytree(cache_path, target_path, symlinks=False, dirs_exist_ok=True)
+    except Exception as e:
+        print(f"[PLAYWRIGHT] Copy failed: {e}")
+        raise
 
 
 def _prepare_ota_dependencies() -> None:
@@ -302,10 +299,6 @@ def _prepare_ota_dependencies() -> None:
             with tarfile.open(sparkle_archive, 'r:xz') as tar:
                 tar.extractall(sparkle_dir)
 
-            # Fix framework symlinks
-            from build_system.symlink_manager import SymlinkManager
-            symlink_manager = SymlinkManager(verbose=False)
-            symlink_manager.fix_pyinstaller_conflicts()
 
             # Create install info
             install_info = {

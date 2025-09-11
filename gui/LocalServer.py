@@ -199,7 +199,7 @@ class MCPHandler:
         """Ensures the session_manager is properly initialized."""
         if not MCPHandler._session_manager_initialized and mcp_server_config.session_manager:
             try:
-                logger.info("🔧 [MCP] Initializing session manager for PyInstaller environment...")
+                logger.info("🔧 [MCP] Initializing session manager...")
                 from agent.mcp.server.server import StreamableHTTPSessionManager
                 MCPHandler._session_manager_instance = StreamableHTTPSessionManager(
                     app=mcp_server_config.meca_mcp_server,
@@ -370,12 +370,16 @@ class ServerOptimizer:
         import asyncio
 
         try:
-            # 在线程内仅设置事件循环策略，不主动创建/切换事件循环，避免与 Uvicorn 自身循环管理冲突
+            # Event loop policy is already set in main.py for the main process
+            # No need to set it again here to avoid redundancy
             if os.name == 'nt':
-                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-                logger.info("✅ Set WindowsSelectorEventLoopPolicy (thread-friendly)")
+                current_policy = asyncio.get_event_loop_policy()
+                if isinstance(current_policy, asyncio.WindowsSelectorEventLoopPolicy):
+                    logger.info("✅ WindowsSelectorEventLoopPolicy already set (from main.py)")
+                else:
+                    logger.info("ℹ️  Event loop policy will be handled by main process")
         except Exception as e:
-            logger.warning(f"Failed to setup event loop policy: {e}")
+            logger.warning(f"Failed to check event loop policy: {e}")
 
     @staticmethod
     def _disable_warnings():

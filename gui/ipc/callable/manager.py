@@ -15,7 +15,7 @@ class CallableManager:
     
     def __init__(self):
         self.storage = CallableStorage()
-        logger.debug("Initializing CallableManager")
+        # logger.debug("Initializing CallableManager")
     
     def get_callables(self, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Get list of callable functions
