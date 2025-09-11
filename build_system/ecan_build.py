@@ -1474,10 +1474,6 @@ class ECanBuild:
             if not self.pyinstaller_builder.build(self.mode, force):
                 return False
 
-            # Post-build framework fixes (macOS only)
-            if self.env.is_macos:
-                self._post_build_fixes()
-
             # Build installer (if needed)
             if not skip_installer:
                 print(f"[INFO] Creating installer for {self.mode} mode...")
@@ -1497,22 +1493,6 @@ class ECanBuild:
             print(f"[ERROR] Build failed: {e}")
             return False
 
-    def _post_build_fixes(self):
-        """Apply post-build fixes"""
-        try:
-            print("[POST-BUILD] Applying post-build fixes...")
-
-            from build_system.symlink_manager import SymlinkManager
-            symlink_manager = SymlinkManager(verbose=True)
-
-            if symlink_manager.fix_frameworks_in_dist("dist"):
-                print("[POST-BUILD] Post-build fixes completed successfully")
-            else:
-                print("[POST-BUILD] Some post-build fixes may have failed")
-
-        except Exception as e:
-            print(f"[POST-BUILD] Post-build fixes failed: {e}")
-            print("[POST-BUILD] Build will continue, but some features may not work properly")
 
     def _check_ota_dependencies(self):
         """Check if OTA dependencies are available in third_party directory"""

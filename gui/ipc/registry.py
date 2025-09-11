@@ -67,7 +67,7 @@ class IPCHandlerRegistry:
 
             cls._handlers[method] = wrapper
             
-            logger.info(f"[registry] Registered sync handler for method: {method}")
+            # logger.info(f"[registry] Registered sync handler for method: {method}")
             return func
             
         return decorator
@@ -79,7 +79,7 @@ class IPCHandlerRegistry:
             @wraps(func)
             def wrapper(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
                 try:
-                    logger.debug(f"[registry] Calling background handler for method {method}")
+                    # logger.debug(f"[registry] Calling background handler for method {method}")
                     return func(request, params)
                 except Exception as e:
                     logger.error(f"[registry] Error in background handler {method}: {e}", exc_info=True)
@@ -87,7 +87,7 @@ class IPCHandlerRegistry:
             if method in cls._handlers or method in cls._background_handlers:
                 logger.warning(f"[registry] Handler for method {method} already exists, overwriting")
             cls._background_handlers[method] = wrapper
-            logger.info(f"[registry] Registered background handler for method: {method}")
+            # logger.info(f"[registry] Registered background handler for method: {method}")
             return func
         return decorator
     
@@ -95,7 +95,7 @@ class IPCHandlerRegistry:
     def get_handler(cls, method: str) -> Optional[Tuple[Callable, Literal['sync', 'background']]]:
         """根据方法名获取对应的处理器和类型"""
         if method in cls._handlers:
-            logger.debug(f"[registry] Found sync handler for method: {method}")
+            # logger.debug(f"[registry] Found sync handler for method: {method}")
             return cls._handlers[method], 'sync'
         if method in cls._background_handlers:
             logger.debug(f"[registry] Found background handler for method: {method}")
@@ -111,7 +111,7 @@ class IPCHandlerRegistry:
             "sync": list(cls._handlers.keys()),
             "background": list(cls._background_handlers.keys())
         }
-        logger.debug(f"[registry] Listed handlers: {handlers}")
+        # logger.debug(f"[registry] Listed handlers: {handlers}")
         return handlers
     
     @classmethod

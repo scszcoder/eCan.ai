@@ -30,21 +30,26 @@ class ThemedSplashScreen(QWidget):
         # Initialize state variables first, before any other operations
         self._is_deleted = False
         self._center_timers = []  # Track centering timers for cleanup
-        
-        # Use additional window flags for better Windows compatibility
+
+        # Enhanced window flags for better Windows compatibility and reduced flicker
         window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        if sys.platform == 'win32':
+            # Additional Windows-specific flags to reduce flicker
+            window_flags |= Qt.Tool  # Prevents taskbar entry and reduces flicker
+
         super().__init__(None, window_flags)
+
+        # Set attributes to reduce flicker and improve appearance
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setFixedSize(640, 400)
-        
-        # Set window properties for better positioning
-        self.setWindowFlags(window_flags)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        
-        # Install event filter for Windows-specific handling
+
+        # Windows-specific optimizations
         if sys.platform == 'win32':
             self.installEventFilter(self)
 
+        self.setFixedSize(640, 400)
+
+        # Build UI first, then position
         self._build_ui()
         self._center_on_screen()
 
@@ -664,14 +669,17 @@ class StartupProgressManager:
 
 def init_startup_splash():
     """
-    Ensure QApplication exists, set early icon, create and show ThemedSplashScreen immediately,
-    and process initial events. Returns the splash instance (or None on failure).
+    Create and show ThemedSplashScreen immediately, and process initial events.
+    Returns the splash instance (or None on failure).
+
+    Note: This function assumes QApplication already exists and should NOT create it.
     """
     try:
         from PySide6.QtWidgets import QApplication
         app = QApplication.instance()
         if not app:
-            app = QApplication(sys.argv)
+            print("ERROR: QApplication instance not found in init_startup_splash!")
+            return None
 
         # Set application icon as early as possible (before splash)
         try:
@@ -685,19 +693,20 @@ def init_startup_splash():
         splash = ThemedSplashScreen()
         splash.show()
         app.processEvents()
-        
+
         # Ensure the splash is centered after showing and processing events
         splash._center_on_screen()
         app.processEvents()
-        
+
         # Additional Windows-specific centering
         if sys.platform == 'win32' and not splash._is_deleted:
             timer1 = QTimer.singleShot(200, splash._center_on_screen)
             timer2 = QTimer.singleShot(500, splash._center_on_screen)
             splash._center_timers.extend([timer1, timer2])
-        
+
         return splash
-    except Exception:
+    except Exception as e:
+        print(f"Failed to initialize splash screen: {e}")
         return None
 
 

@@ -11,6 +11,7 @@ import platform
 import argparse
 import subprocess
 import time
+import shutil
 from pathlib import Path
 
 
@@ -27,8 +28,6 @@ from build_system.build_utils import (
     print_banner, print_mode_info, show_build_results
 )
 
-# Import symlink manager for macOS fixes
-from build_system.symlink_manager import symlink_manager
 
 # Build optimizer removed - always force rebuild for reliability
 from build_system.build_cleaner import BuildCleaner
@@ -586,16 +585,22 @@ Usage examples:
             import shutil
             # Clean build outputs with enhanced symlink handling
             build_paths = [Path("dist"), Path("build")]
-            try:
-                from build_system.symlink_manager import set_verbose
-                set_verbose(args.verbose if hasattr(args, 'verbose') else False)
-                symlink_manager.cleanup_build_artifacts(build_paths)
-                for p in build_paths:
+            verbose = args.verbose if hasattr(args, 'verbose') else False
+
+            # Simple cleanup using standard library
+            for p in build_paths:
+                if p.exists():
+                    if verbose:
+                        print(f"[PREP] Cleaning: {p}")
+                    shutil.rmtree(p, ignore_errors=True)
                     if not p.exists():  # Only print if actually cleaned
                         print(f"[PREP] Cleaned: {p}")
-            except ImportError:
-                # Fallback to original logic
-                for p in build_paths:
+                else:
+                    # Fallback to original logic for non-existent paths
+                    pass
+
+            # Continue with original logic for any remaining paths
+            for p in build_paths:
                     if p.exists():
                         if platform.system() == "Darwin":
                             from build_system.build_utils import clean_macos_build_artifacts
@@ -665,48 +670,8 @@ Usage examples:
                     else:
                         print("[WARNING] macOS: App bundle not found for validation")
 
-                    # Apply QtWebEngine final fix
-                    print("[BUILD] macOS: Applying QtWebEngine final fix...")
-                    try:
-                        qtwebengine_frameworks = [
-                            "dist/eCan/_internal/PySide6/Qt/lib/QtWebEngineCore.framework",
-                            "dist/eCan.app/Contents/Frameworks/PySide6/Qt/lib/QtWebEngineCore.framework"
-                        ]
-
-                        for framework_path in qtwebengine_frameworks:
-                            if os.path.exists(framework_path):
-                                # Fix Helpers symlink
-                                helpers_link = os.path.join(framework_path, "Helpers")
-                                helpers_target = os.path.join(framework_path, "Versions/Main/Helpers")
-
-                                if os.path.exists(helpers_target):
-                                    # Remove existing symlink if it exists
-                                    if os.path.exists(helpers_link) or os.path.islink(helpers_link):
-                                        os.unlink(helpers_link)
-
-                                    # Create new symlink
-                                    os.symlink("Versions/Main/Helpers", helpers_link)
-                                    print(f"[BUILD] Created Helpers symlink: {os.path.basename(framework_path)}")
-
-                                # Fix Resources - copy from Main to A
-                                main_resources = os.path.join(framework_path, "Versions/Main/Resources")
-                                a_resources = os.path.join(framework_path, "Versions/A/Resources")
-
-                                if os.path.exists(main_resources) and os.path.exists(a_resources):
-                                    # Check if A/Resources is missing QtWebEngine files
-                                    qtwebengine_pak = os.path.join(a_resources, "qtwebengine_resources.pak")
-                                    main_pak = os.path.join(main_resources, "qtwebengine_resources.pak")
-
-                                    if os.path.exists(main_pak) and not os.path.exists(qtwebengine_pak):
-                                        import subprocess
-                                        # Copy all QtWebEngine resources from Main to A
-                                        copy_cmd = ["cp", "-r", f"{main_resources}/", a_resources]
-                                        subprocess.run(copy_cmd, check=False)
-                                        print(f"[BUILD] Copied QtWebEngine resources: {os.path.basename(framework_path)}")
-
-                        print("[BUILD] QtWebEngine final fix completed")
-                    except Exception as qtwe_e:
-                        print(f"[WARNING] QtWebEngine final fix failed: {qtwe_e}")
+                    # Trust PyInstaller's QtWebEngine handling
+                    print("[BUILD] macOS: Using PyInstaller's default QtWebEngine configuration")
 
                 except Exception as e:
                     print(f"[WARNING] macOS: App bundle validation failed: {e}")

@@ -250,13 +250,8 @@ def send_response_back(state: NodeState) -> NodeState:
 
 def run_async_in_sync(awaitable):
     """Run an async awaitable from sync code with safe event loop lifecycle and cleanup."""
-    # On Windows, Playwright requires SelectorEventLoop for subprocess support
-    if sys.platform.startswith("win"):
-        try:
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        except Exception:
-            # If setting policy fails, continue with best effort
-            pass
+    # Event loop policy is handled at the application level (main.py)
+    # Trust that the correct policy is already set for the main process
 
     loop = asyncio.new_event_loop()
     try:
@@ -293,10 +288,13 @@ def run_async_in_worker_thread(awaitable_or_factory):
     error_holder = {}
 
     def _worker():
-        # On Windows, asyncio subprocess support requires ProactorEventLoop
+        # On Windows, check current policy and set ProactorEventLoop for subprocess support in worker thread
         if sys.platform.startswith("win"):
             try:
-                if hasattr(asyncio, "WindowsProactorEventLoopPolicy"):
+                current_policy = asyncio.get_event_loop_policy()
+                # In worker thread, we may need ProactorEventLoop for subprocess support
+                if hasattr(asyncio, "WindowsProactorEventLoopPolicy") and \
+                   not isinstance(current_policy, asyncio.WindowsProactorEventLoopPolicy):
                     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
             except Exception:
                 pass

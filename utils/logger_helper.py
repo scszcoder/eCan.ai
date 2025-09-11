@@ -6,6 +6,7 @@ import colorlog
 from logging.handlers import RotatingFileHandler
 import os
 import sys
+import signal
 import io
 from config.constants import APP_NAME
 from config.app_info import app_info
@@ -233,9 +234,13 @@ class LoggerHelper:
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
     def install_crash_logger(self):
-        """Install crash logger"""
+        """Install crash logger for both Python exceptions and system signals"""
         # Set global exception handler
         sys.excepthook = self.log_uncaught_exception
+
+        # Setup signal handlers for system crashes
+        self._setup_signal_handlers()
+
         self.info("🛡️  Crash logger installed successfully")
 
     def get_crash_log_info(self) -> dict:
@@ -252,6 +257,49 @@ class LoggerHelper:
         }
 
         return info
+
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for system crashes"""
+        def signal_crash_handler(signum, frame):
+            """Handle system signals that indicate crashes"""
+            signal_names = {
+                signal.SIGSEGV: "SIGSEGV",
+                signal.SIGABRT: "SIGABRT",
+            }
+            if hasattr(signal, 'SIGBUS'):
+                signal_names[signal.SIGBUS] = "SIGBUS"
+
+            signal_name = signal_names.get(signum, f"Signal {signum}")
+
+            # Log the crash
+            self.critical(f"FATAL CRASH: {signal_name} on {sys.platform}")
+
+            # Force flush all handlers
+            for handler in self.logger.handlers:
+                handler.flush()
+
+            # Write to crash file as backup
+            try:
+                crash_file = os.path.join(os.path.expanduser("~"), "eCan_crash.log")
+                with open(crash_file, "a", encoding="utf-8") as f:
+                    f.write(f"{__import__('datetime').datetime.now()}: FATAL CRASH: {signal_name}\n")
+            except:
+                pass
+
+            # Restore default handler and re-raise
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+
+        # Register signal handlers for common crash signals
+        crash_signals = [signal.SIGSEGV, signal.SIGABRT]
+        if hasattr(signal, 'SIGBUS'):
+            crash_signals.append(signal.SIGBUS)
+
+        for sig in crash_signals:
+            try:
+                signal.signal(sig, signal_crash_handler)
+            except (OSError, ValueError):
+                pass
 
 
 logger_helper = LoggerHelper()

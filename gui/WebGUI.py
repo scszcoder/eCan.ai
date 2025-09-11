@@ -31,6 +31,11 @@ class WebGUI(QMainWindow):
         if self._progress_callback:
             self._progress_callback(72, "Setting up main window...")
 
+        # Windows-specific optimizations to reduce flicker
+        if sys.platform == 'win32':
+            # Hide window during setup to prevent flicker
+            self.setAttribute(Qt.WA_DontShowOnScreen, True)
+
         # Set window icon for taskbar display (required for taskbar icon)
         self._set_window_icon()
         # Set window size first, then center it
@@ -113,6 +118,10 @@ class WebGUI(QMainWindow):
             # Use standard menu bar on macOS
             self.menu_manager = MenuManager(self)
             self.menu_manager.setup_menu()
+
+        # Windows-specific: Re-enable showing after setup is complete
+        if sys.platform == 'win32':
+            self.setAttribute(Qt.WA_DontShowOnScreen, False)
 
         # Show behavior: if no splash, show immediately; else splash will call show on finished
         if self._splash is None:
