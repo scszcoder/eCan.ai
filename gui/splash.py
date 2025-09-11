@@ -31,7 +31,7 @@ class ThemedSplashScreen(QWidget):
         self._is_deleted = False
         self._center_timers = []  # Track centering timers for cleanup
 
-        # Enhanced window flags for better Windows compatibility and reduced flicker
+        # Use additional window flags for better Windows compatibility
         window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if sys.platform == 'win32':
             # Additional Windows-specific flags to reduce flicker
@@ -41,9 +41,13 @@ class ThemedSplashScreen(QWidget):
 
         # Set attributes to reduce flicker and improve appearance
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setFixedSize(640, 400)
+
+        # Set window properties for better positioning
+        self.setWindowFlags(window_flags)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
 
-        # Windows-specific optimizations
+        # Install event filter for Windows-specific handling
         if sys.platform == 'win32':
             self.installEventFilter(self)
 
@@ -212,30 +216,30 @@ class ThemedSplashScreen(QWidget):
         # Check if object is still valid
         if self._is_deleted or not hasattr(self, '_is_deleted'):
             return
-            
+
         try:
             screen = QApplication.primaryScreen()
             if not screen:
                 return
-            
+
             # Get screen geometry
             sg = screen.availableGeometry()
-            
+
             # Calculate center position
             x = sg.center().x() - self.width() // 2
             y = sg.center().y() - self.height() // 2
-            
+
             # Ensure position is within screen bounds
             x = max(sg.left(), min(x, sg.right() - self.width()))
             y = max(sg.top(), min(y, sg.bottom() - self.height()))
-            
+
             # Move the window
             self.move(x, y)
-            
+
             # Force update and ensure window is properly positioned
             self.update()
             QApplication.processEvents()
-            
+
             # Windows-specific fix: ensure window stays centered
             if sys.platform == 'win32':
                 self._windows_center_fix()
@@ -260,13 +264,13 @@ class ThemedSplashScreen(QWidget):
         """Windows-specific fix to prevent splash screen from moving to top-left corner"""
         if self._is_deleted:
             return
-            
+
         try:
             # Force the window to stay in the center by re-applying window flags
             current_flags = self.windowFlags()
             self.setWindowFlags(current_flags)
             self.show()
-            
+
             # Re-center after showing
             if not self._is_deleted:
                 timer = QTimer.singleShot(10, self._center_on_screen)
@@ -278,11 +282,11 @@ class ThemedSplashScreen(QWidget):
         """Event filter to handle Windows-specific window positioning issues"""
         try:
             # Check if we have the required attributes and object is valid
-            if (sys.platform == 'win32' and 
-                obj == self and 
-                hasattr(self, '_is_deleted') and 
+            if (sys.platform == 'win32' and
+                obj == self and
+                hasattr(self, '_is_deleted') and
                 not self._is_deleted):
-                
+
                 if event.type() == QEvent.Move:
                     # If window is moved to top-left corner, re-center it
                     pos = self.pos()
@@ -693,6 +697,26 @@ def init_startup_splash():
         splash = ThemedSplashScreen()
         splash.show()
         app.processEvents()
+        # Ensure taskbar icon is set for the splash window on Windows (standard behavior)
+        try:
+            if sys.platform == 'win32':
+                from utils.app_setup_helper import set_windows_taskbar_icon
+                # Prefer the packaged root ICO used by the main app
+                icon_path = None
+                if app_info:
+                    import os as _os
+                    icon_path = _os.path.join(_os.path.dirname(app_info.app_resources_path), 'eCan.ico')
+                if icon_path and os.path.exists(icon_path):
+                    try:
+                        from PySide6.QtGui import QIcon as _QIcon
+                        splash.setWindowIcon(_QIcon(icon_path))
+                    except Exception:
+                        pass
+                    # Target the splash window explicitly so the taskbar updates during splash
+                    set_windows_taskbar_icon(app, icon_path, None, splash)
+        except Exception:
+            pass
+
 
         # Ensure the splash is centered after showing and processing events
         splash._center_on_screen()
