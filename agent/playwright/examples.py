@@ -2,13 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 Playwright 使用示例
-展示如何使用 Playwright 管理器进行各种操作
+展示如何使用重新整理后的 Playwright 系统进行各种操作
 """
 
 from pathlib import Path
 
 from .manager import get_playwright_manager, initialize_playwright_lazy
 from .browser import PlaywrightBrowser, create_browser, with_browser
+from .first_time_setup import run_first_time_setup, check_first_time_setup_needed
+from .diagnostics import run_diagnostics, print_diagnostics
+from .core.installer import install_playwright_with_progress
 
 from utils.logger_helper import logger_helper as logger
 
@@ -140,23 +143,87 @@ def example_status_monitoring():
     print(f"安装验证: {'✅ 有效' if is_valid else '❌ 无效'}")
 
 
+def example_first_time_setup():
+    """首次安装示例"""
+    print("\n=== 首次安装示例 ===")
+
+    # 检查是否需要首次安装
+    if check_first_time_setup_needed():
+        print("检测到需要首次安装")
+
+        # 运行安装向导
+        def progress_callback(state):
+            print(f"安装进度: 步骤 {state.current_step}/{state.total_steps} - {state.step_name}")
+            if state.has_error:
+                print(f"错误: {state.error_message}")
+
+        success = run_first_time_setup(progress_callback=progress_callback)
+        print(f"安装结果: {'成功' if success else '失败'}")
+    else:
+        print("Playwright 已经安装完成")
+
+
+def example_diagnostics():
+    """诊断工具示例"""
+    print("\n=== 诊断工具示例 ===")
+
+    # 运行诊断
+    print("运行诊断检查...")
+    report = run_diagnostics()
+
+    print(f"诊断结果: {report['overall_status']}")
+    print(f"检查项目: {report['summary']['total_checks']}")
+    print(f"正常: {report['summary']['ok']}, 警告: {report['summary']['warnings']}, 错误: {report['summary']['errors']}")
+
+    # 打印详细报告
+    print("\n详细诊断报告:")
+    print_diagnostics()
+
+
+def example_installation_with_progress():
+    """带进度的安装示例"""
+    print("\n=== 带进度的安装示例 ===")
+
+    from .core.utils import core_utils
+    target_path = core_utils.get_app_data_path() / "ms-playwright-example"
+
+    def progress_callback(progress):
+        print(f"安装进度: {progress.current_step} ({progress.progress_percent}%)")
+        if progress.error:
+            print(f"安装错误: {progress.error.message}")
+
+    print(f"开始安装到: {target_path}")
+    success = install_playwright_with_progress(target_path, progress_callback)
+    print(f"安装结果: {'成功' if success else '失败'}")
+
+
 def main():
     """主函数：运行所有示例"""
-    print("Playwright 管理器使用示例")
-    print("=" * 50)
-    
+    print("Playwright 重新整理后的使用示例")
+    print("=" * 60)
+
     try:
+        # 首先检查和安装
+        example_first_time_setup()
+
+        # 运行诊断
+        example_diagnostics()
+
+        # 原有示例
         example_basic_usage()
         example_browser_operations()
         example_decorator_usage()
         example_error_handling()
         example_status_monitoring()
-        
-        print("\n所有示例运行完成！")
-        
+
+        # 新增示例
+        example_installation_with_progress()
+
+        print("\n✅ 所有示例运行完成！")
+
     except Exception as e:
         logger.error(f"示例运行出错: {e}")
-        print(f"示例运行出错: {e}")
+        print(f"❌ 示例运行出错: {e}")
 
 
 if __name__ == "__main__":

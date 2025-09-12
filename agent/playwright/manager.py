@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 from threading import Lock
 
 from .core import setup_playwright, core_utils
+from .core.helpers import log_with_emoji, friendly_error_message
 from app_context import AppContext
 
 from utils.logger_helper import logger_helper as logger
@@ -54,33 +55,38 @@ class PlaywrightManager:
                 return False
             
             try:
-                logger.info("Initializing Playwright browsers...")
-                
+                logger.info("🚀 Initializing Playwright browsers...")
+
+                # 打印环境信息
+                self._print_environment_info()
+
                 # 设置 Playwright 浏览器环境
                 browsers_path = setup_playwright()
-                
+
                 if browsers_path and browsers_path.exists():
                     self._browsers_path = str(browsers_path)
-                    
+
                     # 设置环境变量
                     core_utils.set_environment_variables(browsers_path)
-                    
+                    log_with_emoji("success", f"环境变量设置成功: {browsers_path}")
+
                     # 将 Playwright 路径保存到 AppContext 中
                     self.ctx.set_playwright_browsers_path(self._browsers_path)
-                    
+
                     self._initialized = True
-                    logger.info(f"Playwright browsers initialized at: {browsers_path}")
+                    logger.info(f"✅ Playwright browsers initialized successfully at: {browsers_path}")
                     return True
                 else:
                     error_msg = "Invalid Playwright browsers path"
                     self._initialization_error = error_msg
-                    logger.error(error_msg)
+                    logger.error(f"❌ {error_msg}")
                     return False
-                    
+
             except Exception as e:
-                error_msg = f"Playwright initialization failed: {e}"
-                self._initialization_error = error_msg
-                logger.error(error_msg)
+                # 使用简化的错误处理
+                error_msg = friendly_error_message(e, "manager_initialization")
+                self._initialization_error = str(e)
+                logger.error(f"❌ Playwright initialization failed: {error_msg}")
                 return False
     
     def get_browsers_path(self) -> Optional[str]:
@@ -157,10 +163,32 @@ class PlaywrightManager:
         self._lazy_init_done = True
         return self._ensure_initialized()
     
+    def _print_environment_info(self) -> None:
+        """打印 Playwright 环境信息"""
+        env_info = self.get_environment_info()
+
+        logger.info("📋 Playwright Environment Information:")
+        logger.info(f"  Platform: {env_info['platform']}")
+        logger.info(f"  Frozen (PyInstaller): {env_info['frozen']}")
+
+        if env_info['meipass']:
+            logger.info(f"  MEI Pass: {env_info['meipass']}")
+
+        logger.info(f"  Bundled Path: {env_info['bundled_path'] or 'None'}")
+        logger.info(f"  Default Path: {env_info['default_path']}")
+        logger.info(f"  App Data Path: {env_info['app_data_path']}")
+
+        logger.info("  Environment Variables:")
+        for var_name, var_value in env_info['env_variables'].items():
+            if var_value:
+                logger.info(f"    {var_name}: {var_value}")
+            else:
+                logger.info(f"    {var_name}: <not set>")
+
     def get_environment_info(self) -> Dict[str, Any]:
         """
         获取环境信息
-        
+
         Returns:
             Dict: 环境信息字典
         """

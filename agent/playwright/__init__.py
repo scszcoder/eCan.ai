@@ -11,6 +11,13 @@ import os
 from .manager import PlaywrightManager, get_playwright_manager
 from .decorators import ensure_playwright_initialized, with_playwright_context, browser_use_ready, safe_playwright
 from .core import core_utils, setup_playwright
+from .core.helpers import (
+    friendly_error_message,
+    is_first_time_use,
+    auto_install_playwright,
+    quick_diagnostics,
+    smart_init_prompt
+)
 
 # PyInstaller 环境自动设置
 _auto_setup_completed = False
@@ -45,16 +52,16 @@ def _auto_setup_pyinstaller_environment():
 _auto_setup_pyinstaller_environment()
 
 def ensure_playwright_initialized():
-    """确保 Playwright 已初始化的便捷函数"""
+    """确保 Playwright 已初始化的便捷函数（简化版）"""
     try:
         manager = get_playwright_manager()
         if not manager.is_initialized():
+            smart_init_prompt()
             return manager.lazy_init()
         return True
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Failed to initialize Playwright: {e}")
+        error_msg = friendly_error_message(e, "ensure_initialized")
+        print(error_msg)
         return False
 
 
@@ -105,15 +112,25 @@ def create_browser_use_llm(fallback_llm):
 
 # 导出主要的管理器类、装饰器和核心功能
 __all__ = [
+    # 核心管理器和装饰器
     'PlaywrightManager',
     'get_playwright_manager',
     'ensure_playwright_initialized',
     'with_playwright_context',
     'browser_use_ready',
     'safe_playwright',
+
+    # 核心工具和设置
     'core_utils',
     'setup_playwright',
     'get_playwright_browsers_path',
     'is_playwright_ready',
-    'create_browser_use_llm'
+    'create_browser_use_llm',
+
+    # 简化的辅助函数
+    'friendly_error_message',
+    'is_first_time_use',
+    'auto_install_playwright',
+    'quick_diagnostics',
+    'smart_init_prompt'
 ]

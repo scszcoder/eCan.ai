@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 
 from .utils import core_utils
+from .helpers import friendly_error_message
 
 from utils.logger_helper import logger_helper as logger
 
@@ -54,9 +55,59 @@ def _get_browser_info(browsers_path: Path) -> Dict[str, Any]:
             info['last_updated'] = datetime.fromtimestamp(browsers_path.stat().st_mtime).isoformat()
             
     except Exception as e:
-        logger.error(f"Error getting browser info: {e}")
-    
+        logger.error(f"获取浏览器信息失败: {e}")
+
     return info
+
+
+def _print_setup_environment_info(target_path: Path) -> None:
+    """打印设置时的环境信息"""
+    import os
+    import platform
+
+    logger.info("📋 Playwright Setup Environment:")
+    logger.info(f"  Platform: {platform.system()} {platform.release()}")
+    logger.info(f"  Python: {platform.python_version()}")
+    logger.info(f"  Target Path: {target_path}")
+
+    # 检查各种路径
+    bundled_path = core_utils.get_bundled_path()
+    default_path = core_utils.get_default_browsers_path()
+    app_data_path = core_utils.get_app_data_path()
+    existing_env_path = core_utils.get_environment_browsers_path()
+
+    logger.info("  Path Information:")
+    logger.info(f"    Bundled Path: {bundled_path or 'None'}")
+    logger.info(f"    Default Path: {default_path}")
+    logger.info(f"    App Data Path: {app_data_path}")
+    logger.info(f"    Existing Env Path: {existing_env_path or 'None'}")
+
+    # 检查环境变量
+    env_vars = {
+        "PLAYWRIGHT_BROWSERS_PATH": os.getenv("PLAYWRIGHT_BROWSERS_PATH"),
+        "PLAYWRIGHT_CACHE_DIR": os.getenv("PLAYWRIGHT_CACHE_DIR"),
+        "PLAYWRIGHT_BROWSERS_PATH_OVERRIDE": os.getenv("PLAYWRIGHT_BROWSERS_PATH_OVERRIDE")
+    }
+
+    logger.info("  Environment Variables:")
+    for var_name, var_value in env_vars.items():
+        if var_value:
+            logger.info(f"    {var_name}: {var_value}")
+        else:
+            logger.info(f"    {var_name}: <not set>")
+
+    # 检查现有缓存
+    existing_cache = core_utils.find_playwright_cache()
+    if existing_cache:
+        logger.info(f"  Existing Cache Found: {existing_cache}")
+        if existing_cache.exists():
+            items = list(existing_cache.iterdir())
+            browser_dirs = [d for d in items if d.is_dir() and
+                           any(browser in d.name.lower() for browser in ['chromium', 'firefox', 'webkit'])]
+            if browser_dirs:
+                logger.info(f"    Browser directories: {[d.name for d in browser_dirs]}")
+    else:
+        logger.info("  No existing cache found")
 
 
 def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
@@ -100,11 +151,14 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     
     if app_data_root is None:
         app_data_root = _default_app_data_root()
-    
+
     logger.info(f"Setting up Playwright browsers in: {app_data_root}")
-    
+
     # Target directory in app data
     target = app_data_root / 'ms-playwright'
+
+    # 打印设置环境信息
+    _print_setup_environment_info(target)
     
     # 首先清理任何不完整的浏览器目录
     if target.exists():
@@ -125,7 +179,7 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         core_utils.cleanup_incomplete_browsers(existing_cache)
         if _validate_browser_installation(existing_cache):
             logger.info("Using existing valid browser installation")
-            # 使用专用的复制函数来确保 browsers.json 正确处理
+            # 使用专用的复制函数
             try:
                 core_utils.copy_playwright_browsers(existing_cache, target)
                 logger.info(f"Copied existing browsers to: {target}")
@@ -181,13 +235,18 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     if should_copy:
         logger.info("No bundled browsers available for copying, attempting runtime installation.")
         try:
+            # 使用简化的安装方法
+            logger.info("🚀 开始运行时安装 Playwright 浏览器...")
             core_utils.install_playwright_browsers(target)
+
             if _validate_browser_installation(target):
-                logger.info("Installed Playwright browsers at runtime")
+                logger.info("✅ 运行时安装 Playwright 浏览器成功")
             else:
-                logger.warning("Runtime installation did not produce a valid installation")
+                logger.warning("⚠️ 运行时安装未产生有效的安装")
+
         except Exception as e:
-            logger.error(f"Runtime installation of Playwright browsers failed: {e}")
+            error_msg = friendly_error_message(e, "runtime_installation")
+            logger.error(f"❌ 运行时安装 Playwright 浏览器失败: {error_msg}")
             raise
     else:
         logger.info("Browser installation already exists and is valid")

@@ -14,6 +14,14 @@ from pathlib import Path
 from typing import Optional, List
 from utils.logger_helper import logger_helper as logger
 
+# 导入简化的辅助函数
+try:
+    from .helpers import friendly_error_message
+except ImportError:
+    # 向后兼容，如果新模块不可用
+    def friendly_error_message(exception, context=""):
+        return str(exception)
+
 
 class PlaywrightCoreUtils:
     """Playwright 核心工具类"""
@@ -88,79 +96,87 @@ class PlaywrightCoreUtils:
     @staticmethod
     def validate_browser_installation(path: Path) -> bool:
         """验证浏览器安装是否有效"""
+        logger.info(f"开始验证安装: {path}")
+
         if not path or not path.exists():
+            logger.error(f"安装验证失败: {path} - 路径不存在")
             return False
 
-        # 检查关键文件 - 更宽松的验证
+        # 检查关键文件 - 更实用的验证方法
         try:
-            # 检查 browsers.json 文件
+            # 方法1：检查 browsers.json 文件（推荐但不强制）
             browsers_json = path / "browsers.json"
-            if not browsers_json.exists():
-                logger.warning(f"[PLAYWRIGHT] browsers.json not found at {browsers_json}")
-                return False
-
-            # 验证 browsers.json 文件格式
-            try:
-                import json
-                with open(browsers_json, 'r') as f:
-                    browsers_data = json.load(f)
-                if not isinstance(browsers_data, dict):
-                    logger.warning(f"[PLAYWRIGHT] browsers.json is not a valid JSON object")
-                    return False
-                logger.debug(f"[PLAYWRIGHT] browsers.json is valid JSON")
-            except Exception as e:
-                logger.warning(f"[PLAYWRIGHT] browsers.json is invalid: {e}")
-                return False
-
-            # 检查是否有任何 chromium 相关目录
-            chromium_dirs = list(path.glob("chromium*"))
-            if not chromium_dirs:
-                # 如果没有 chromium 目录，检查是否有其他浏览器目录
-                browser_dirs = [d for d in path.iterdir()
-                              if d.is_dir() and not d.name.startswith('.')]
-                if not browser_dirs:
-                    logger.warning(f"[PLAYWRIGHT] No browser directories found in {path}")
-                    return False
-                logger.debug(f"[PLAYWRIGHT] Found browser directories: {[d.name for d in browser_dirs]}")
+            if browsers_json.exists():
+                try:
+                    import json
+                    with open(browsers_json, 'r') as f:
+                        browsers_data = json.load(f)
+                    if isinstance(browsers_data, dict):
+                        logger.info(f"找到有效的 browsers.json: {path}")
+                        return True
+                    else:
+                        logger.warning(f"browsers.json 格式无效，尝试其他验证方法")
+                except Exception as e:
+                    logger.warning(f"browsers.json 读取失败: {e}，尝试其他验证方法")
             else:
-                logger.debug(f"[PLAYWRIGHT] Found chromium directories: {[d.name for d in chromium_dirs]}")
+                logger.info(f"未找到 browsers.json，使用目录检查方法")
+
+            # 方法2：检查浏览器目录
+            chromium_dirs = list(path.glob("chromium*"))
+            firefox_dirs = list(path.glob("firefox*"))
+            webkit_dirs = list(path.glob("webkit*"))
+
+            all_browser_dirs = chromium_dirs + firefox_dirs + webkit_dirs
+
+            if not all_browser_dirs:
+                # 检查是否有其他可能的浏览器目录
+                browser_dirs = [d for d in path.iterdir()
+                              if d.is_dir() and not d.name.startswith('.') and
+                              any(browser in d.name.lower() for browser in ['chrome', 'firefox', 'safari', 'edge'])]
+                if not browser_dirs:
+                    logger.error(f"安装验证失败: {path} - 未找到任何浏览器目录")
+                    return False
+                all_browser_dirs = browser_dirs
+
+            logger.info(f"找到浏览器目录: {[d.name for d in all_browser_dirs]}")
 
             # 检查目录是否包含实际文件（不是空目录）
             valid_browser_found = False
-            for browser_dir in chromium_dirs:
+            for browser_dir in all_browser_dirs:
                 if browser_dir.is_dir():
                     files = list(browser_dir.rglob("*"))
                     file_count = len(files)
 
                     # 更智能的验证逻辑
                     if file_count < 10:
-                        logger.debug(f"[PLAYWRIGHT] Browser directory {browser_dir} has too few files: {file_count} (likely incomplete)")
+                        logger.warning(f"浏览器目录 {browser_dir.name} 文件较少: {file_count}")
                         # 检查是否有关键的可执行文件
                         executables = [f for f in files if f.is_file() and (
                             f.name.lower().startswith('chrome') or
                             f.name.lower().startswith('chromium') or
+                            f.name.lower().startswith('firefox') or
                             f.suffix.lower() in ['.exe', '.app', '']
                         )]
                         if not executables:
-                            logger.debug(f"[PLAYWRIGHT] No executable files found in {browser_dir}")
+                            logger.warning(f"在 {browser_dir.name} 中未找到可执行文件")
                             continue
                         else:
-                            logger.debug(f"[PLAYWRIGHT] Found {len(executables)} executable(s) in {browser_dir}")
+                            logger.info(f"在 {browser_dir.name} 中找到 {len(executables)} 个可执行文件")
                     else:
-                        logger.debug(f"[PLAYWRIGHT] Browser directory {browser_dir} has {file_count} files")
+                        logger.info(f"浏览器目录 {browser_dir.name} 包含 {file_count} 个文件")
 
                     valid_browser_found = True
                     break
 
-            if not valid_browser_found and chromium_dirs:
-                logger.warning(f"[PLAYWRIGHT] No valid browser installation found in chromium directories")
+            if not valid_browser_found:
+                logger.error(f"安装验证失败: {path} - 未找到有效的浏览器安装")
                 return False
 
-            logger.debug(f"[PLAYWRIGHT] Browser installation at {path} is valid")
+            logger.info(f"安装验证成功: {path}")
             return True
 
         except Exception as e:
-            logger.error(f"[PLAYWRIGHT] Validation error: {e}")
+            logger.error(f"安装验证失败: {path} - 验证过程出错: {e}")
             return False
     
     @staticmethod
@@ -223,7 +239,7 @@ class PlaywrightCoreUtils:
             logger.error("[PLAYWRIGHT] playwright not found; installing...")
             subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
         
-        # 设置环境变量
+        # 设置环境变量用于子进程
         env = os.environ.copy()
         env[PlaywrightCoreUtils.ENV_BROWSERS_PATH] = str(target_path)
         env[PlaywrightCoreUtils.ENV_CACHE_DIR] = str(target_path)
@@ -238,6 +254,9 @@ class PlaywrightCoreUtils:
         """清理不完整的浏览器目录"""
         if not path or not path.exists():
             return
+
+        logger.info(f"开始清理不完整的安装: {path}")
+        cleaned_count = 0
 
         try:
             # 查找所有 chromium 目录
@@ -261,13 +280,16 @@ class PlaywrightCoreUtils:
                             logger.info(f"[PLAYWRIGHT] Cleaning incomplete browser directory: {browser_dir} ({file_count} files)")
                             try:
                                 shutil.rmtree(browser_dir, ignore_errors=True)
+                                cleaned_count += 1
                             except Exception as e:
                                 logger.warning(f"[PLAYWRIGHT] Failed to clean {browser_dir}: {e}")
                         else:
                             logger.debug(f"[PLAYWRIGHT] Keeping {browser_dir} (has executables)")
 
+            logger.info(f"清理完成: {path} (清理了 {cleaned_count} 个项目)")
+
         except Exception as e:
-            logger.warning(f"[PLAYWRIGHT] Error during cleanup: {e}")
+            friendly_error_message(e, "cleanup_incomplete_browsers")
 
     @staticmethod
     def copy_playwright_browsers(src_path: Path, dst_path: Path) -> None:
@@ -278,46 +300,7 @@ class PlaywrightCoreUtils:
 
         logger.info(f"[PLAYWRIGHT] Copying {src_path} -> {dst_path}")
         shutil.copytree(src_path, dst_path)
-
-        # 确保 browsers.json 文件存在且有效
-        browsers_json_dst = dst_path / "browsers.json"
-
-        # 首先检查复制的文件中是否已有有效的 browsers.json
-        if browsers_json_dst.exists():
-            try:
-                import json
-                with open(browsers_json_dst, 'r') as f:
-                    json.load(f)
-                logger.info(f"[PLAYWRIGHT] Valid browsers.json already exists at {browsers_json_dst}")
-            except Exception as e:
-                logger.warning(f"[PLAYWRIGHT] Invalid browsers.json found, will replace: {e}")
-                browsers_json_dst.unlink(missing_ok=True)
-
-        # 如果没有有效的 browsers.json，从 playwright 包复制
-        if not browsers_json_dst.exists():
-            try:
-                import playwright
-                playwright_package_dir = Path(playwright.__file__).parent / "driver" / "package"
-                browsers_json_src = playwright_package_dir / "browsers.json"
-                if browsers_json_src.exists():
-                    shutil.copy2(browsers_json_src, browsers_json_dst)
-                    logger.info(f"[PLAYWRIGHT] Copied browsers.json from {browsers_json_src}")
-
-                    # 验证复制的文件
-                    try:
-                        import json
-                        with open(browsers_json_dst, 'r') as f:
-                            json.load(f)
-                        logger.info(f"[PLAYWRIGHT] Verified browsers.json is valid")
-                    except Exception as e:
-                        logger.error(f"[PLAYWRIGHT] Copied browsers.json is invalid: {e}")
-                        raise
-                else:
-                    logger.warning(f"[PLAYWRIGHT] Warning: browsers.json not found at {browsers_json_src}")
-                    raise FileNotFoundError(f"browsers.json not found at {browsers_json_src}")
-            except Exception as e:
-                logger.error(f"[PLAYWRIGHT] Failed to copy browsers.json: {e}")
-                raise
+        logger.info(f"[PLAYWRIGHT] Successfully copied browsers to {dst_path}")
     
 
     

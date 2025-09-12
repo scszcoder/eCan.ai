@@ -116,15 +116,16 @@ class UnifiedBrowserManager:
 
     def _setup_crawler_environment(self):
         """Setup crawler runtime environment"""
-        import os
+        from pathlib import Path
+        from agent.playwright.core.utils import core_utils
 
         # Ensure Playwright environment variables are set correctly so crawl4ai can find browsers
         if self._playwright_manager and self._playwright_manager.is_initialized():
             browsers_path = self._playwright_manager.get_browsers_path()
             if browsers_path:
-                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
-                os.environ["PLAYWRIGHT_CACHE_DIR"] = browsers_path
-                logger.debug(f"Set crawler environment variable PLAYWRIGHT_BROWSERS_PATH: {browsers_path}")
+                # 使用统一的环境变量设置函数
+                core_utils.set_environment_variables(Path(browsers_path))
+                logger.debug(f"Set crawler environment variables using core_utils: {browsers_path}")
             else:
                 logger.warning("Playwright manager is initialized but browser path is empty")
         else:

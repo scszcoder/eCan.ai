@@ -16,7 +16,9 @@ from utils.logger_helper import logger_helper as logger
 def ensure_playwright_initialized(func: Callable) -> Callable:
     """
     装饰器：确保 Playwright 已初始化
-    
+
+    简化版本，提供基本的错误提示和首次安装建议
+
     用法：
         @ensure_playwright_initialized
         def my_function():
@@ -28,22 +30,36 @@ def ensure_playwright_initialized(func: Callable) -> Callable:
         try:
             # 获取 Playwright 管理器
             manager = get_playwright_manager()
-            
+
             # 检查是否需要初始化
             if not manager.is_initialized():
-                logger.info(f"Auto-initializing Playwright for function: {func.__name__}")
+                from .core.helpers import is_first_time_use, log_with_emoji
+
+                log_with_emoji("info", f"正在为函数 {func.__name__} 初始化 Playwright")
+
+                # 首次使用提示
+                if is_first_time_use():
+                    log_with_emoji("warning", "检测到首次使用 Playwright")
+                    print("💡 建议运行: from agent.playwright.core.helpers import auto_install_playwright; auto_install_playwright()")
+
                 if not manager.lazy_init():
-                    logger.warning(f"Failed to initialize Playwright for function: {func.__name__}")
-                    # 继续执行函数，但可能失败
-            
+                    log_with_emoji("error", f"Playwright 初始化失败: {func.__name__}")
+                    print("💡 运行 quick_diagnostics() 检查问题")
+                else:
+                    log_with_emoji("success", f"Playwright 初始化成功: {func.__name__}")
+
             # 执行原函数
             return func(*args, **kwargs)
-            
+
         except Exception as e:
-            logger.error(f"Error in Playwright initialization for function {func.__name__}: {e}")
+            from .core.helpers import friendly_error_message
+            error_msg = friendly_error_message(e, f"decorator_{func.__name__}")
+            logger.error(error_msg)
+            print(error_msg)
+
             # 继续执行函数，但可能失败
             return func(*args, **kwargs)
-    
+
     return wrapper
 
 
