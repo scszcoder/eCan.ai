@@ -9,6 +9,8 @@ from agent.ec_skills.search_parts.search_parts_chatter_skill import create_searc
 from agent.ec_skills.search_parts.search_parts_skill import create_search_parts_skill
 from agent.ec_skills.self_test.self_test_skill import create_self_test_skill
 from agent.ec_skills.self_test.self_test_chatter_skill import create_self_test_chatter_skill
+from agent.ec_skills.dev_utils.skill_dev_utils import create_test_dev_skill
+
 from agent.mcp.server.tool_schemas import tool_schemas
 from utils.logger_helper import logger_helper as logger
 
@@ -62,6 +64,10 @@ async def build_agent_skills(mainwin, skill_path=""):
 
                 new_skill = await create_self_test_skill(mainwin)
                 skills.append(new_skill)
+
+                new_skill = await create_test_dev_skill(mainwin)
+                skills.append(new_skill)
+
             else:
                 skills = build_agent_skills_from_files(mainwin, skill_path)
 

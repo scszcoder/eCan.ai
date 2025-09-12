@@ -171,7 +171,6 @@ def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         user = request["params"]["username"]
         skill_info = request["params"]["skill"]
         login: Login = AppContext.login
-        skill = request.meta["skill_flowgram"]
         results = run_dev_skill(login.main_win, skill_info)
 
         return create_success_response(request, {

@@ -7,7 +7,7 @@ from agent.tasks import ManagedTask, TaskSchedule
 from agent.tasks import Repeat_Types
 
 from utils.logger_helper import logger_helper as logger
-
+from agent.ec_agents.create_dev_task import create_skill_dev_task
 
 
 def create_my_twin_chat_task(mainwin):
@@ -712,6 +712,7 @@ def create_agent_tasks(main_win):
             all_agent_tasks.append(create_ec_rpa_supervisor_on_request_task(main_win))
             all_agent_tasks.append(create_ec_self_tester_chat_task(main_win))
             all_agent_tasks.append(create_ec_self_tester_work_task(main_win))
+            all_agent_tasks.append(create_skill_dev_task(main_win))
             # all_agent_tasks.append(create_ec_sales_chat_task(main_win))
             # all_agent_tasks.append(create_ec_sales_work_task(main_win))
 
