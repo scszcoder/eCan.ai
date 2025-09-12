@@ -2,7 +2,11 @@ from utils.logger_helper import get_traceback
 from agent.agent_service import get_agent_by_id
 from utils.logger_helper import logger_helper as logger
 
-from agent.cloud_api.cloud_api import send_query_components_request_to_cloud, send_get_nodes_prompts_request_to_cloud
+from agent.cloud_api.cloud_api import (
+    send_query_components_request_to_cloud,
+    send_get_nodes_prompts_request_to_cloud,
+    send_query_fom_request_to_cloud
+)
 import json
 
 
@@ -39,6 +43,44 @@ def ecan_ai_api_query_components(mainwin, empty_components):
         err_trace = get_traceback(e, "ErrorEcanAiApiQueryComponents")
         logger.error(err_trace)
     return filled_components
+
+
+def ecan_ai_api_query_fom(mainwin, fom_query):
+    filled_components = []
+    try:
+        session = mainwin.session
+        token = mainwin.get_auth_token()
+
+        img_engine = mainwin.getImageEngine()
+        if img_engine == "lan":
+            img_endpoint = mainwin.getLanImageEndpoint()
+            logger.debug("img endpoint:", img_endpoint)
+        else:
+            img_endpoint = mainwin.getWanImageEndpoint()
+
+        response = send_query_fom_request_to_cloud(session, token, fom_query, img_endpoint)
+        logger.debug("send_query_fom_request_to_cloud: respnose:", response)
+
+        # Check for errors in the response
+        if "errors" in response or "body" not in response:
+            logger.error(f"Error from cloud: {response.get('errors')}")
+            return []
+
+        body = json.loads(response["body"])
+        if body.get("result") == "error":
+            logger.error(f"Error from cloud lambda: {body.get('error')}")
+            return []
+
+        fom_info = body["data"]
+        logger.debug("fom_info:", fom_info)
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorEcanAiApiQueryFOM")
+        logger.error(err_trace)
+        fom_info = {}
+
+    return fom_info
+
 
 def api_ecan_ai_get_nodes_prompts(mainwin, nodes):
     try:

@@ -942,6 +942,49 @@ def gen_query_components_string(components):
     logger.debug(query_string)
     return query_string
 
+
+def gen_query_fom_string(fom_info):
+    """Generates a GraphQL query string for the queryFOM mutation, ensuring correct syntax."""
+
+    # Use json.dumps to safely format the list of strings for product_app.
+    # This handles quoting and commas automatically, creating a valid JSON array string.
+    product_app_str = json.dumps(fom_info.get('product_app', []))
+
+    # Manually build the string for the 'params' list because GraphQL keys are not quoted.
+    params_list = fom_info.get('params', [])
+    params_str_list = []
+    for param in params_list:
+        # Escape any double quotes within the values to prevent breaking the query string
+        param_name = param.get('name', '').replace('"', '\\"')
+        param_ptype = param.get('ptype', '').replace('"', '\\"')
+        param_value = param.get('value', '').replace('"', '\\"')
+
+        # Note: GraphQL keys (name, ptype, value) are not quoted in the object definition.
+        param_str = f'{{name: "{param_name}", ptype: "{param_ptype}", value: "{param_value}"}}'
+        params_str_list.append(param_str)
+
+    # Join the list of parameter strings into a single string like "[{...}, {...}]"
+    params_str = f"[{', '.join(params_str_list)}]"
+
+    # Construct the final query using an f-string for clarity and correctness.
+    # This is much safer than manual string concatenation.
+    query_string = f"""
+        query MyQuery {{
+          queryFOM(params: {{
+            component_name: "{fom_info.get('component_name', '')}",
+            product_app: {product_app_str},
+            max_product_metrics: {fom_info.get('max_product_metrics', 0)},
+            max_component_metrics: {fom_info.get('max_component_metrics', 0)},
+            params: {params_str}
+          }})
+        }}
+    """
+
+    logger.debug(f"Generated queryFOM string: {query_string}")
+    return query_string
+
+
+
 def gen_get_nodes_prompts_string(nodes):
     query_string = """
             query MyQuery {
@@ -1617,6 +1660,23 @@ def send_query_components_request_to_cloud(session, token, components, endpoint)
         jresponse = jresp["errors"][0]
     else:
         jresponse = json.loads(jresp["data"]["queryComponents"])
+
+    return jresponse
+
+
+
+def send_query_fom_request_to_cloud(session, token, fom_info, endpoint):
+
+    queryInfo = gen_query_fom_string(fom_info)
+
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    logger.debug("send_query_fom_request_to_cloud, response:", jresp)
+    if "errors" in jresp:
+        screen_error = True
+        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(jresp["errors"][0]["message"]))
+        jresponse = jresp["errors"][0]
+    else:
+        jresponse = json.loads(jresp["data"]["queryFOM"])
 
     return jresponse
 

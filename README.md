@@ -1,9 +1,9 @@
-# ECBOT
-E-Commerce Bot is an Agentic RPA software to free e-business owners from the daily chores of running an e-business.
-Even though ECBot is for e-commerce, but it is designed to be extensible be a general purpose RPA software allowing
-one to automate any task. The bot software emulates human's view and move work pattern by extracting structured
-screen contents and create mouse and keyboard actions according to the screen contents. ecbot is written in 
-Python, and works on windows PC (it will be adapated to MAC, and linux later on)
+![](gui_v2/src/assets/logoDark1.png)
+# eCan.ai (E-Commerce Agent Network)
+eCan.ai is an agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce with minimal human overheads.
+This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing to selling, 
+from marketing research to advertising, from legal counsel to customer service. eCan agents can do it all, the goal is to enable single 
+person billion dollar business, run by agents, so the person can be on the beach :)
 
 # Features
 
