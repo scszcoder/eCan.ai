@@ -370,11 +370,19 @@ def _find_playwright_cache() -> Path:
     from pathlib import Path
 
     # Check environment variable first
-    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    from agent.playwright.core.utils import PlaywrightCoreUtils
+    env_path = os.getenv(PlaywrightCoreUtils.ENV_BROWSERS_PATH)
     if env_path:
         env_path_obj = Path(env_path)
-        if env_path_obj.exists() and (env_path_obj / "browsers.json").exists():
-            return env_path_obj
+        if env_path_obj.exists():
+            # 检查浏览器目录
+            browser_dirs = [d for d in env_path_obj.iterdir()
+                           if d.is_dir() and any(browser in d.name.lower()
+                           for browser in ['chromium', 'firefox', 'webkit'])]
+
+            if browser_dirs:
+                print(f"[BUILD] Found Playwright browsers in env path: {[d.name for d in browser_dirs]}")
+                return env_path_obj
 
     # Platform-specific default paths
     if platform.system() == "Windows":
@@ -386,6 +394,7 @@ def _find_playwright_cache() -> Path:
         possible_paths = [
             Path.home() / ".cache" / "ms-playwright",
             Path.home() / "Library" / "Caches" / "ms-playwright",
+            Path.home() / "Library" / "Application Support" / "eCan" / "ms-playwright",  # 自定义路径
         ]
     else:  # Linux
         possible_paths = [
@@ -393,10 +402,17 @@ def _find_playwright_cache() -> Path:
             Path.home() / ".local" / "share" / "ms-playwright",
         ]
 
-    # Find first valid path
+    # Find first valid path by checking browser directories
     for path in possible_paths:
-        if path.exists() and (path / "browsers.json").exists():
-            return path
+        if path.exists():
+            # 检查浏览器目录
+            browser_dirs = [d for d in path.iterdir()
+                           if d.is_dir() and any(browser in d.name.lower()
+                           for browser in ['chromium', 'firefox', 'webkit'])]
+
+            if browser_dirs:
+                print(f"[BUILD] Found Playwright browsers: {[d.name for d in browser_dirs]}")
+                return path
 
     return None
 
