@@ -479,3 +479,15 @@ If build time is critical:
 ### Build Output
 - Executable files are generated in the `dist/` directory
 - Installation packages (if enabled) are created as something like `eCan-1.0.0-windows-amd64-Setup.exe` (Windows) or equivalent for other platforms
+
+## Installation Guide
+
+eCan.ai supports multiple build modes for different use cases:
+
+## Documentations
+
+## API Ref
+
+## Cli Ref
+
+## Quick Links
