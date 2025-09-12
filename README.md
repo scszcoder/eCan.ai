@@ -1,4 +1,5 @@
-![](gui_v2/src/assets/logoDark1.png)
+
+<img src="gui_v2/src/assets/logoDark1.png" alt="" style="width:128px;"/>
 # eCan.ai (E-Commerce Agent Network)
 eCan.ai is an agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce with minimal human overheads.
 This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing to selling, 
