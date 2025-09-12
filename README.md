@@ -3,16 +3,16 @@
 </p>
 
 # eCan.ai (E-Commerce Agent Network)
-eCan.ai is an agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce with minimal human overheads.
-This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing to selling, 
+eCan.ai is an agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce businesses with minimal human overheads.
+This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing/procurement to selling, 
 from marketing research to advertising, from legal counsel to customer service. eCan agents can do it all, the goal is to enable single 
-person billion dollar business, run by agents, so the person can be on the beach :)
+person billion dollar business, run by agents, so the you can be sitting on the beach :)
 
 # Features
 
 ### Networked Agents
 
-With eCan.ai, you can run many agents with cross many computers on a LAN or WAN or a combo of both. There will be at least 1 host computer that serves as a commander, and other 
+With eCan.ai, you can run many agents across many computers on a LAN or WAN or a combo of both. There will be at least 1 host computer that serves as a commander, and other 
 computers serve as vehicles that carries a platoon of agents, a computer or a mobile device such as a smart phone or tablet can also serve as a staff officer, a staff officer 
 computer can monitor and command the agents remotely thru the internet.
 
@@ -37,12 +37,35 @@ eCan.ai builds on top of Langgraph (from Langchain), the state of art agent deve
 at least one skill, which is work-flow described by langgraph.
 
 
-##### Graphic [Flowgram](https://github.com/bytedance/flowgram.ai) based Langgraph IDE
-The .PSK file is a file contains description of the prccess to be automated.
-It is a JSON Object Based Skill (JOBS) description language, with an abstract instruction set.
-each instruction is written as a json object.
+#### Graphic [Flowgram](https://github.com/bytedance/flowgram.ai) based Langgraph IDE
+
+eCan.ai integrates [Flowgram](https://github.com/bytedance/flowgram.ai) to provide a graphic way to author a langgraph based workflow.
+you can simply drop and drop nodes to the canvas, connect them with edges, and fill in the necessary parameters and/or codes, and be done 
+with the graph. You can also run/cancel/pause/resume/single-step(on a per-node basis) through the langgraph based workflow. Breakpoints can
+be added on nodes to pause at certain nodes, and upon pausing, you can inspect the state of the langgraph run, or even modify the state 
+attributes and then resume the run. Flowgram based visual programming of langgraph allows you to focus more effort on work flow rather than
+coding up the langgraph.
+
+#### Rich Local Web Interfacing Support.
+
+Web automation is such an critical aspect of e-commerce, eCan.ai has integrated a rich set of state-of-art opensource web automation tools into the app.
+These includes:
+ * [Browser-use](https://github.com/browser-use/browser-use) -- easy to use, can be run as a langgraph node callable.
+ * [Crawl4ai](https://github.com/unclecode/crawl4ai) --  -- easy to use, can be run as a langgraph node callable.
+ * [Browsebase](https://github.com/browserbase) -- to be included.
+
+While playwright is a state-of-art web automation tool, and pretty much become the de-facto standard for web automation,
+we do realize they're still not the same as some of the popular fingerprint browser, to enable their use, we have added 
+a rich set of tools based on selenium and webdriver (chromedriver) so that you can automate web interface with browsers 
+such as [AdsPower](https://github.com/AdsPower)
+
+In browser actions are nice, but they are some times not enough, pop-ups, captchas, etc., sometimes we need computer vision (CV) guided mouse 
+and keyboard actions, we have made a state-of-art OCR service to allow CV guided screen understanding and actions, further allowing you
+to fully control your browser or any other app in that matter.
+
 
 ###### Streamable HTTP MCP Tools Integration
+
 Here are the procedures related instruction sets of the ecbots RPA virtual machine:
 
 
