@@ -1,7 +1,7 @@
-
 <p align="center">
   <img src="gui_v2/src/assets/logoDark1.png" alt="" style="width:128px;"/>
 </p>
+
 # eCan.ai (E-Commerce Agent Network)
 eCan.ai is an agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce with minimal human overheads.
 This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing to selling, 
@@ -18,43 +18,31 @@ computer can monitor and command the agents remotely thru the internet.
 
 ![](resource/images/icons/org0.png)
 
-### Bots, Missions, Skills
+### Multi-Agent, Multi-Task
 
-with ecbot, one can create, edit and delete any number of:
-- a **bot** - a virtual machine can execute a task automation. 
-- a **mission** - a task to be completed.
-- a **skill** - the instructions to completes the task.
+eCan.ai has built-in agents for several e-commerce tasks, but you can easily create your own agents, create tasks for them
+and launch those task on any available vehicle (host computer). Each task will run in its own thread.
 
-a bot can take on multiple missions, and before executing those missions, 
-the bot needs to be empowered with (or given) the associated skills.
-Armed with skills, the bots can be scheduled to run the tasks.
+### A2A Protocol For Inter-Agent Communication
 
-ecbots also contains a scheduler that will assign the bots to run based 
-the available resources and certain business logics.
+eCan.ai adopts de-facto standard-in-making A2A protocol for messaging between agents. We also supports websocket based real time
+chat between human and agents and between human and agents.
+
 
 ![](resource/images/icons/bms_relationship.png)
 
-### JOBS-DL (Json Object Based Skill Description Language)
+### [Langgraph](https://github.com/langchain-ai/langgraph) based Agent Skills
 
-To support the screen view, mouse and keyboard action, and to be able to describe a work flow to be automated,
-we created a macro language for this purpose, called Json Object Based Skill Description Language (JOBS-DL).
-For each work flow/task to be automated, it will require a "skill", which is a collection of 
-step-by-step instructions to be executed to complete the task. A skill will be written with the 
-JOBS-DL language.
+eCan.ai builds on top of Langgraph (from Langchain), the state of art agent development framework. Any agent task will require
+at least one skill, which is work-flow described by langgraph.
 
-JOBS-DL treats RPA bots as a work execution virtual machine, and at the core, it is consisted of a set
-of instructions that the virtual machine can execute. The instruction set is divided into two sections,
-one set is for the procedural work related, the other set is for describing structured 
-contents on a screen image.
 
-The key files related to JOBS-DL are .psk .rsk and .csk files. They are described below.
-
-##### The Procedural Skill File (.psk)
+##### Graphic [Flowgram](https://github.com/bytedance/flowgram.ai) based Langgraph IDE
 The .PSK file is a file contains description of the prccess to be automated.
 It is a JSON Object Based Skill (JOBS) description language, with an abstract instruction set.
 each instruction is written as a json object.
 
-###### The Procedures Related JOBS Instruction Set
+###### Streamable HTTP MCP Tools Integration
 Here are the procedures related instruction sets of the ecbots RPA virtual machine:
 
 
