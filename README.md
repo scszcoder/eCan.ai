@@ -1,5 +1,7 @@
 
-<img src="gui_v2/src/assets/logoDark1.png" alt="" style="width:128px;"/>
+<p align="center">
+  <img src="gui_v2/src/assets/logoDark1.png" alt="" style="width:128px;"/>
+</p>
 # eCan.ai (E-Commerce Agent Network)
 eCan.ai is an agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce with minimal human overheads.
 This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing to selling, 
@@ -8,10 +10,11 @@ person billion dollar business, run by agents, so the person can be on the beach
 
 # Features
 
-### Networked Bots
+### Networked Agents
 
-ecbot can run many bots(software) cross many computers on a LAN. There will be at least 1 host computer that serves as a commander, and other 
-computers serve as vehicles that carries a platoon of bots, a computer or a mobile device such as a smart phone or tablet can also serve as a staff officer, a staff officer computer can monitor and command the bots remotely thru the internet.
+With eCan.ai, you can run many agents with cross many computers on a LAN or WAN or a combo of both. There will be at least 1 host computer that serves as a commander, and other 
+computers serve as vehicles that carries a platoon of agents, a computer or a mobile device such as a smart phone or tablet can also serve as a staff officer, a staff officer 
+computer can monitor and command the agents remotely thru the internet.
 
 ![](resource/images/icons/org0.png)
 
