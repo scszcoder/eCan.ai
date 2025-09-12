@@ -1395,6 +1395,26 @@ async def api_ecan_ai_query_components(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+
+async def api_ecan_ai_query_fom(mainwin, args):
+    # call put work received from A2A channel, put into today's work data structure
+    # the runbotworks task will then take over.....
+    # including put reactive work into it.
+    try:
+        print("api_ecan_ai_query_fom args: ", args['input']['components'])
+        components = ecan_ai_api_query_fom(mainwin, args['input']['component_results_info'])
+        msg = "completed API query components results"
+        result = TextContent(type="text", text=msg)
+        # meta must be a dict – wrap components list under a key to satisfy pydantic
+        result.meta = {"components": components}
+        print("api_ecan_ai_query_fom about to return: ", result)
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAPIECANAIQueryComponents")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def api_ecan_local_search_components(mainwin, args):
     logger.debug(f"api_ecan_local_search_components initial state: {args}")
     try:
@@ -1529,6 +1549,7 @@ tool_function_mapping = {
         "os_connect_to_chrome": os_connect_to_chrome,
         "os_reconnect_wifi": os_reconnect_wifi,
         "api_ecan_ai_query_components": api_ecan_ai_query_components,
+        "api_ecan_ai_query_fom": api_ecan_ai_query_fom,
         "api_ecan_ai_img2text_icons": api_ecan_ai_img2text_icons,
         "api_ecan_ai_get_nodes_prompts": api_ecan_ai_get_nodes_prompts,
         "api_ecan_ai_ocr_read_screen": api_ecan_ai_ocr_read_screen,

@@ -1425,6 +1425,43 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
+        name="api_ecan_ai_query_fom",
+        description="send ecan_ai API to query figure of merit for an component.",
+        inputSchema={
+            "type": "object",
+            "required": ["component_results_info"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["component_name", "product_app", "params"],
+                    "properties": {
+                        "component_name": {
+                            "type": "string",
+                            "description": "name of the component."
+                        },
+                        "product_app": {
+                            "type": "array",
+                            "description": "list of products or applications.",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "params": {
+                            "type": "array",
+                            "description": "list of parameters in dict.",
+                            "items": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
         name="api_ecan_ai_img2text_icons",
         description="run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
         inputSchema={
