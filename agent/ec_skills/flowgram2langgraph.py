@@ -5,8 +5,9 @@ import importlib
 from agent.ec_skills.llm_utils.llm_utils import node_maker
 from gui.LoginoutGUI import Login
 from utils.logger_helper import logger_helper as logger
-import traceback
+from utils.logger_helper import get_traceback
 from app_context import AppContext
+from agent.ec_skill import NodeState
 
 
 # Simulated function registry to map node types to actual Python functions.
@@ -14,6 +15,7 @@ from app_context import AppContext
 function_registry = {
     "llm": build_llm_node,
     "basic": build_basic_node,
+    "code": build_basic_node,
     "api": build_api_node,
     "loop": build_loop_node,
     "condition": build_condition_node,
@@ -86,7 +88,7 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         node_map[block_id] = block_id
         id_to_node[block_id] = block
 
-        node_type = block.get("type", "default")
+        node_type = block.get("type", "code")
         node_data = block.get("data", {})
 
         # Get the appropriate builder function from the registry
@@ -121,65 +123,112 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
             logger.warning(f"Edge source or target not found in node_map: {source_id} -> {target_id}")
 
 def flowgram2langgraph(flowgram_json):
-    flow = json.loads(flowgram_json) if isinstance(flowgram_json, str) else flowgram_json
-    workflow = StateGraph(dict)
-    node_map = {}
-    id_to_node = {}
+    try:
+        flow = json.loads(flowgram_json) if isinstance(flowgram_json, str) else flowgram_json
+        workflow = StateGraph(NodeState)
+        node_map = {}
+        id_to_node = {}
+        print("flowgram2langgraph", type(flowgram_json), flowgram_json)
+        skill_name = flowgram_json["skillName"]
+        owner = flow.get("owner", "")
+        # find breakpoint manager of the dev task, since it will always be that.
+        login: Login = AppContext.login
+        tester_agent = next((ag for ag in login.main_win.agents if "test" in ag.card.name.lower()), None)
+        bp_manager = tester_agent.runner.bp_manager
 
-    skill_name = flowgram_json["name"]
-    owner = flowgram_json["owner"]
-    # find breakpoint manager of the dev task, since it will always be that.
-    login: Login = AppContext.login
-    tester = next((agent for agent in login.main_win.agents if "test engineer" in agent.card.title.lower()), None)
+        # Find the actual entry point node ID
+        start_node_id = None
+        entry_point_node_id = None
+        for node in flow.get("workFlow", {}).get("nodes", []):
+            if node.get("type") == "start":
+                start_node_id = node["id"]
+                break
 
-    bp_manager = tester.runner.bp_manager
+        if start_node_id:
+            for edge in flow.get("workFlow", {}).get("edges", []):
+                if edge.get("sourceNodeID") == start_node_id:
+                    entry_point_node_id = edge.get("targetNodeID")
+                    break
 
-    for node in flow["nodes"]:
-        node_id = node["id"]
-        node_type = node.get("type", "default")
-        node_data = node.get("data", {})
+        if not entry_point_node_id:
+            raise ValueError("Could not determine the entry point from the start node.")
 
-        node_map[node_id] = node_id
-        id_to_node[node_id] = node
-
-        # Get the appropriate builder function from the registry
-        builder_func = function_registry.get(node_type, build_debug_node)
-
-        # Call the builder function with the node's data to get the final callable
-        node_callable = builder_func(node_data, node_id, skill_name, owner, bp_manager)
-
-        # Add the constructed node to the workflow
-        workflow.add_node(node_id, node_callable)
-
-        if node_type == "start":
-            workflow.set_entry_point(node_id)
-        if node_type in ["loop", "group"] and "blocks" in node:
-            edges_in_block = node.get("edges", [])
-            process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block)
-    # Add edges
-    for edge in flow["edges"]:
-        source = node_map[edge["sourceNodeID"]]
-        target = node_map[edge["targetNodeID"]]
-        if target == "end":
-            workflow.add_edge(source, END)
-        else:
-            workflow.add_edge(source, target)
-    # Add conditional edges
-    for node in flow["nodes"]:
-        if node["type"] == "condition":
+        for node in flow.get("workFlow", {}).get("nodes", []):
             node_id = node["id"]
-            conditions = node["data"].get("conditions", [])
-            outgoing_edges = [e for e in flow["edges"] if e["sourceNodeID"] == node_id]
-            port_map = {}
-            for edge in outgoing_edges:
-                port = edge.get("sourcePortID")
-                if port:
-                    port_map[port] = edge["targetNodeID"]
-            workflow.add_conditional_edges(
-                node_id,
-                make_condition_func(node_id, conditions, port_map),
-                path_map=port_map
-            )
+            node_type = node.get("type", "basic")
+
+            # Skip the visual 'start' and 'end' nodes, as they aren't executable parts of the graph
+            if node_type in ["start", "end"]:
+                continue
+
+            node_data = node.get("data", {})
+
+            node_map[node_id] = node_id
+            id_to_node[node_id] = node
+
+            # Get the appropriate builder function from the registry
+            print("node_type:", node_type)
+            builder_func = function_registry.get(node_type, build_debug_node)
+            print("builder_func:", builder_func)
+
+            # Call the builder function with the node's data to get the final callable
+            node_callable = builder_func(node_data, node_id, skill_name, owner, bp_manager)
+
+            # Add the constructed node to the workflow
+            workflow.add_node(node_id, node_callable)
+
+            if node_type in ["loop", "group"] and "blocks" in node:
+                edges_in_block = node.get("edges", [])
+                process_blocks(workflow, node["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, edges_in_block)
+        
+        # Set the entry point after all nodes have been added
+        workflow.set_entry_point(entry_point_node_id)
+
+        # Add edges
+        for edge in flow.get("workFlow", {}).get("edges", []):
+            source_id = edge.get("sourceNodeID")
+            target_id = edge.get("targetNodeID")
+
+            # Skip edges originating from the start node as it's already handled by set_entry_point
+            if source_id == start_node_id:
+                continue
+
+            source_node = node_map.get(source_id)
+            if not source_node:
+                logger.warning(f"Edge source node not found in map: {source_id}")
+                continue
+
+            # If the target is the special 'end' node, link to LangGraph's END
+            if target_id == "end":
+                workflow.add_edge(source_node, END)
+            else:
+                # Otherwise, it's a regular edge between two nodes
+                target_node = node_map.get(target_id)
+                if not target_node:
+                    logger.warning(f"Edge target node not found in map: {target_id}")
+                    continue
+                workflow.add_edge(source_node, target_node)
+
+        # Add conditional edges
+        for node in flow.get("workFlow", {}).get("nodes", []):
+            if node["type"] == "condition":
+                node_id = node["id"]
+                conditions = node["data"].get("conditions", [])
+                outgoing_edges = [e for e in flow.get("workFlow", {}).get("edges", []) if e["sourceNodeID"] == node_id]
+                port_map = {}
+                for edge in outgoing_edges:
+                    port = edge.get("sourcePortID") # In Flowgram, the handle on the source node is the port
+                    if port:
+                        port_map[port] = edge["targetNodeID"]
+                workflow.add_conditional_edges(
+                    node_id,
+                    make_condition_func(node_id, conditions, port_map),
+                    path_map=port_map
+                )
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorFlowgram2Langgraph")
+        logger.error(f"{err_msg}")
+        workflow = {}
     return workflow
 
 def flatten_blocks(blocks):

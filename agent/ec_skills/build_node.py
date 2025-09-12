@@ -11,6 +11,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.ec_skill import node_builder
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
 
 def get_default_node_schemas():
     schemas = {
@@ -129,8 +131,9 @@ def build_basic_node(config_metadata: dict, node_name, skill_name, owner, bp_man
     Returns:
         A callable function that takes a state dictionary and returns the updated state.
     """
-    code_source = config_metadata.get('code')
-
+    print("building basic node", config_metadata)
+    code_source = config_metadata.get('script').get('content')
+    print("code_source:", code_source)
     if not code_source or not isinstance(code_source, str):
         print("Error: 'code' key is missing or invalid in config_metadata for basic_node.")
         # Return a no-op function that just passes the state through
@@ -139,7 +142,7 @@ def build_basic_node(config_metadata: dict, node_name, skill_name, owner, bp_man
     node_callable = None
 
     # Scenario 1: Code is a file path
-    if code_source.endswith('.py') and os.path.exists(code_source):
+    if False and (code_source.endswith('.py') and os.path.exists(code_source)):
         try:
             # Use a unique module name to avoid conflicts
             module_name = f"dynamic_basic_node_{os.path.basename(code_source)[:-3]}"
@@ -173,7 +176,9 @@ def build_basic_node(config_metadata: dict, node_name, skill_name, owner, bp_man
                  print(f"Warning: No function definition found in inline code for basic node.")
 
         except Exception as e:
-            print(f"Error executing inline code for basic node: {e}")
+            err_msg = get_traceback(e, "ErrorExecutingInlineCodeForBasicNode")
+            print(f"{err_msg}")
+            node_callable = None
 
     # If callable creation failed, return a no-op function
     if node_callable is None:

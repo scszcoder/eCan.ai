@@ -11,6 +11,7 @@ from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_self_tester_chat_task, create_ec_self_tester_work_task
 from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+from agent.ec_agents.create_dev_task import create_skill_dev_task
 
 from agent.tasks import Repeat_Types
 import traceback
@@ -37,8 +38,14 @@ def set_up_ec_tester_agent(mainwin):
         else:
             logger.error("ec_tester chatter skill not found! Make sure 'chatter for ecan.ai self test' is built.")
 
+        test_dev_skill = next((sk for sk in agent_skills if sk and sk.name == "test skill under development"), None)
+        if test_dev_skill:
+            logger.info("ec_tester test dev skill:", test_dev_skill.name)
+        else:
+            logger.error("ec_tester test dev skill not found! Make sure 'test dev for ecan.ai self test' is built.")
+
         # Ensure we have at least one valid skill; otherwise abort setup gracefully
-        skills_for_card = [s for s in [worker_skill, chatter_skill] if s is not None]
+        skills_for_card = [s for s in [worker_skill, chatter_skill, test_dev_skill] if s is not None]
         if not skills_for_card:
             logger.error("ec_tester_agent setup aborted: no valid skills available.")
             return None
@@ -59,6 +66,8 @@ def set_up_ec_tester_agent(mainwin):
 
         chatter_task = create_ec_self_tester_chat_task(mainwin)
         worker_task = create_ec_self_tester_work_task(mainwin)
+        dev_run_task = create_skill_dev_task(mainwin)
+
         browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
         produrement_agent = EC_Agent(
             mainwin=mainwin,
@@ -67,7 +76,7 @@ def set_up_ec_tester_agent(mainwin):
             task="",
             card=agent_card,
             skill_set=skills_for_card,
-            tasks=[t for t in [chatter_task, worker_task] if t is not None]
+            tasks=[t for t in [chatter_task, worker_task, dev_run_task] if t is not None]
         )
 
     except Exception as e:

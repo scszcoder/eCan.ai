@@ -9,7 +9,7 @@ def create_skill_dev_task(mainwin):
     agent_skills = mainwin.agent_skills
     agent_tasks = mainwin.agent_tasks
 
-    dev_skill = next((sk for sk in agent_skills if sk.name == "skill under development"), None)
+    dev_skill = next((sk for sk in agent_skills if sk.name == "test skill under development"), None)
     run_task = next((task for task in agent_tasks if task.name == "run task for skill under development"), None)
 
     if not run_task:

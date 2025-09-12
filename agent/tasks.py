@@ -1173,6 +1173,8 @@ class TaskRunner(Generic[Context]):
         Executes a controlled, interactive development run for a given task,
         allowing for pausing, resuming, and single-stepping from the GUI.
         """
+        web_gui = AppContext.get_web_gui()
+        ipc_api = web_gui.get_ipc_api()
         if not task:
             logger.error("launch_dev_run called without a task.")
             return
@@ -1195,24 +1197,26 @@ class TaskRunner(Generic[Context]):
 
             # Initial state notification to GUI
             # We are paused at the start, waiting for the first command
-            self.agent.mainwin.ipc_api.update_run_stat(
+            ipc_api.update_run_stat(
                 agent_task_id=task.run_id,
                 current_node=paused_at_node,
                 status="paused",
                 langgraph_state={}
             )
-
+            print("about to enter a black hole.........")
             while not task.cancellation_event.is_set():
                 try:
+                    print("in the task loop now.....")
                     # Wait for a command from the GUI
-                    command = self.dev_msg_queue.get(timeout=60)  # Timeout to prevent deadlocks
+                    command = self.dev_msg_queue.get(timeout=1)  # Timeout to prevent deadlocks
                     logger.debug(f"Dev run ({task.run_id}) received command: {command}")
 
                     if command == "step" or (command == "resume" and not self.bp_manager.has_breakpoint(paused_at_node)):
-                        
+                        print("steping?????")
                         # Pre-run notification: Tell the GUI we are now running this node
                         if paused_at_node:
-                            self.agent.mainwin.ipc_api.update_run_stat(
+                            print("pause node.....")
+                            ipc_api.update_run_stat(
                                 agent_task_id=task.run_id,
                                 current_node=paused_at_node,
                                 status="running",
@@ -1224,7 +1228,7 @@ class TaskRunner(Generic[Context]):
 
                         if event is None:
                             logger.info(f"Dev run for {task.name} has completed.")
-                            self.agent.mainwin.ipc_api.update_run_stat(
+                            ipc_api.update_run_stat(
                                 agent_task_id=task.run_id,
                                 current_node=None,
                                 status="completed",
@@ -1237,7 +1241,7 @@ class TaskRunner(Generic[Context]):
                             logger.info(f"Execution paused at node: {paused_at_node}")
 
                             # Post-run notification: Tell the GUI where we are now paused
-                            self.agent.mainwin.ipc_api.update_run_stat(
+                            ipc_api.update_run_stat(
                                 agent_task_id=task.run_id,
                                 current_node=paused_at_node,
                                 status="paused",
@@ -1251,12 +1255,13 @@ class TaskRunner(Generic[Context]):
 
                         # If in step mode, we always wait for the next command
                         if command == "step":
+                            print("single stepping.................")
                             continue
 
                     elif command == "cancel":
                         task.cancel()
-                        logger.info(f"Dev run for {task.name} cancelled by GUI command.")
-                        self.agent.mainwin.ipc_api.update_run_stat(
+                        logger.debug(f"Dev run for {task.name} cancelled by GUI command.")
+                        ipc_api.update_run_stat(
                             agent_task_id=task.run_id,
                             current_node=paused_at_node,
                             status="cancelled",
@@ -1266,24 +1271,25 @@ class TaskRunner(Generic[Context]):
 
                     # If in resume mode, continue the loop to advance the next step automatically
                     elif command == "resume":
+                        print("RESUMING..........")
                         continue
 
                 except queue.Empty:
                     logger.warning(f"Dev run for {task.name} timed out waiting for GUI command. It might be stuck.")
                     continue
                 except StopIteration:
-                    logger.info(f"Dev run for {task.name} has completed.")
-                    self.agent.mainwin.ipc_api.update_run_stat(
+                    logger.debug(f"Dev run for {task.name} has completed.")
+                    ipc_api.update_run_stat(
                         agent_task_id=task.run_id,
                         current_node=None,
                         status="completed",
                         langgraph_state={}
                     )
                     break
-
+            print("dev run ENDED...........")
         except Exception as e:
             logger.error(f"Exception during launch_dev_run for task {task.name}: {e}")
-            self.agent.mainwin.ipc_api.update_run_stat(
+            ipc_api.update_run_stat(
                 agent_task_id=task.run_id,
                 current_node=paused_at_node,
                 status="failed",
