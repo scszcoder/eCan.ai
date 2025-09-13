@@ -10,6 +10,7 @@ import sys
 import shutil
 import subprocess
 import platform
+import time
 from pathlib import Path
 from typing import Optional, List
 from utils.logger_helper import logger_helper as logger
@@ -25,17 +26,22 @@ except ImportError:
 
 class PlaywrightCoreUtils:
     """Playwright Core Tools class"""
-    
+
     # Browser types
     BROWSER_TYPE = "chromium"
-    
+
     # Environment variable names
     ENV_BROWSERS_PATH = "PLAYWRIGHT_BROWSERS_PATH"
     ENV_CACHE_DIR = "PLAYWRIGHT_CACHE_DIR"
     ENV_BROWSERS_PATH_OVERRIDE = "PLAYWRIGHT_BROWSERS_PATH_OVERRIDE"
-    
+
     # Application name
     APP_NAME = "eCan"
+
+    # Cache search results to avoid repeated expensive operations
+    _cache_search_result = None
+    _cache_search_timestamp = 0
+    _cache_search_ttl = 300  # 5 minutes cache
     
     @staticmethod
     def get_default_browsers_path() -> Path:
@@ -64,6 +70,29 @@ class PlaywrightCoreUtils:
             return Path(sys._MEIPASS) / "third_party" / "ms-playwright"
         return None
     
+    @staticmethod
+    def get_most_likely_cache_paths() -> List[Path]:
+        """Get the most likely cache paths in order of probability"""
+        paths = []
+
+        if platform.system() == "Darwin":  # macOS
+            paths.extend([
+                Path.home() / ".cache" / "ms-playwright",
+                Path.home() / "Library" / "Caches" / "ms-playwright",
+            ])
+        elif platform.system() == "Windows":
+            paths.extend([
+                Path.home() / "AppData" / "Local" / "ms-playwright",
+                Path(os.getenv("LOCALAPPDATA", "")) / "ms-playwright",
+            ])
+        else:  # Linux
+            paths.extend([
+                Path.home() / ".cache" / "ms-playwright",
+                Path.home() / ".local" / "share" / "ms-playwright",
+            ])
+
+        return [p for p in paths if p]  # Filter out None values
+
     @staticmethod
     def get_possible_cache_paths() -> List[Path]:
         """Get all possible cache paths"""
@@ -181,53 +210,137 @@ class PlaywrightCoreUtils:
     
     @staticmethod
     def find_playwright_cache() -> Optional[Path]:
-        """Find Playwright cache directory"""
+        """Find Playwright cache directory with caching and performance optimization"""
+        # Check if we have a cached result that's still valid
+        current_time = time.time()
+        if (PlaywrightCoreUtils._cache_search_result is not None and
+            current_time - PlaywrightCoreUtils._cache_search_timestamp < PlaywrightCoreUtils._cache_search_ttl):
+            logger.debug(f"Using cached Playwright cache location: {PlaywrightCoreUtils._cache_search_result}")
+            return PlaywrightCoreUtils._cache_search_result
+
+        logger.debug("Searching for Playwright cache directory...")
+        start_time = time.time()
+
+        # First check most likely locations for quick success
+        most_likely_paths = PlaywrightCoreUtils.get_most_likely_cache_paths()
+        for path in most_likely_paths:
+            if path.exists() and (path / "browsers.json").exists():
+                PlaywrightCoreUtils._cache_search_result = path
+                PlaywrightCoreUtils._cache_search_timestamp = current_time
+                logger.debug(f"Found Playwright cache in likely location: {path}")
+                return path
+
         possible_roots = PlaywrightCoreUtils.get_possible_cache_paths()
-        
+
         # First check paths set in environment variables
         env_path = os.getenv(PlaywrightCoreUtils.ENV_BROWSERS_PATH)
         if env_path:
             env_path_obj = Path(env_path)
             if env_path_obj.exists() and (env_path_obj / "browsers.json").exists():
+                PlaywrightCoreUtils._cache_search_result = env_path_obj
+                PlaywrightCoreUtils._cache_search_timestamp = current_time
+                logger.debug(f"Found Playwright cache in env var: {env_path_obj}")
                 return env_path_obj
         
         # Priority check cache in user home directory
         home_cache = Path.home() / ".cache" / "ms-playwright"
         if home_cache.exists() and (home_cache / "browsers.json").exists():
+            PlaywrightCoreUtils._cache_search_result = home_cache
+            PlaywrightCoreUtils._cache_search_timestamp = current_time
+            logger.debug(f"Found Playwright cache in home directory: {home_cache}")
             return home_cache
-        
+
         # Check application data directory
         app_data_cache = PlaywrightCoreUtils.get_app_data_path() / "ms-playwright"
         if app_data_cache.exists() and (app_data_cache / "browsers.json").exists():
+            PlaywrightCoreUtils._cache_search_result = app_data_cache
+            PlaywrightCoreUtils._cache_search_timestamp = current_time
+            logger.debug(f"Found Playwright cache in app data: {app_data_cache}")
             return app_data_cache
-        
-        # Then search for other possible paths
+
+        # Then search for other possible paths (with timeout protection)
+        search_timeout = 10  # 10 seconds timeout
         for root in possible_roots:
+            if time.time() - start_time > search_timeout:
+                logger.warning(f"Playwright cache search timeout after {search_timeout}s, stopping search")
+                break
+
             if root.exists() and (root / "browsers.json").exists():
+                PlaywrightCoreUtils._cache_search_result = root
+                PlaywrightCoreUtils._cache_search_timestamp = current_time
+                logger.debug(f"Found Playwright cache in possible paths: {root}")
                 return root
         
-        # If browsers.json not found, search for directories containing chromium
+        # If browsers.json not found, search for directories containing chromium (with timeout)
         for root in possible_roots:
+            if time.time() - start_time > search_timeout:
+                logger.warning(f"Playwright cache search timeout during chromium search, stopping")
+                break
+
             if root.exists():
-                chromium_dirs = list(root.glob("**/chromium*"))
-                if chromium_dirs:
-                    # Search upward for ms-playwright root directory
-                    current = chromium_dirs[0].parent
-                    while current.parent != current:  # stop at root directory
-                        if current.name == "ms-playwright":
-                            return current
-                        current = current.parent
+                try:
+                    # Limit search depth to avoid performance issues
+                    chromium_dirs = list(root.glob("*/chromium*"))  # Only search 1 level deep
+                    if chromium_dirs:
+                        # Search upward for ms-playwright root directory
+                        current = chromium_dirs[0].parent
+                        max_levels = 5  # Limit upward search to 5 levels
+                        level = 0
+                        while current.parent != current and level < max_levels:
+                            if current.name == "ms-playwright":
+                                PlaywrightCoreUtils._cache_search_result = current
+                                PlaywrightCoreUtils._cache_search_timestamp = current_time
+                                logger.debug(f"Found Playwright cache via chromium search: {current}")
+                                return current
+                            current = current.parent
+                            level += 1
+                except (PermissionError, OSError) as e:
+                    logger.debug(f"Permission error searching {root}: {e}")
+                    continue
         
-        # Last resort: search for any ms-playwright directory
-        search_paths = [Path.home(), Path.cwd()]
-        for search_path in search_paths:
-            if search_path.exists():
-                for found in search_path.rglob("ms-playwright"):
-                    if (found / "browsers.json").exists():
-                        return found
-        
+        # Last resort: very limited search for ms-playwright directory
+        # Only search in specific cache locations with strict timeout
+        if time.time() - start_time < search_timeout:
+            limited_search_paths = [
+                Path.home() / ".cache",
+                Path.home() / ".local",
+                Path.home() / "Library" / "Caches" if sys.platform == "darwin" else None,
+                Path.home() / "AppData" / "Local" if sys.platform == "win32" else None,
+            ]
+
+            for search_path in limited_search_paths:
+                if time.time() - start_time > search_timeout:
+                    logger.warning(f"Playwright cache search timeout during final search, stopping")
+                    break
+
+                if search_path and search_path.exists():
+                    try:
+                        # Very limited search - only 1 level deep
+                        for found in search_path.glob("*/ms-playwright"):
+                            if found.is_dir() and (found / "browsers.json").exists():
+                                PlaywrightCoreUtils._cache_search_result = found
+                                PlaywrightCoreUtils._cache_search_timestamp = current_time
+                                logger.debug(f"Found Playwright cache in final search: {found}")
+                                return found
+                    except (PermissionError, OSError) as e:
+                        logger.debug(f"Permission error in final search {search_path}: {e}")
+                        continue
+
+        # Cache the "not found" result to avoid repeated expensive searches
+        search_duration = time.time() - start_time
+        logger.info(f"No existing cache found after {search_duration:.2f}s search")
+        PlaywrightCoreUtils._cache_search_result = None
+        PlaywrightCoreUtils._cache_search_timestamp = current_time
+
         return None
-    
+
+    @staticmethod
+    def clear_cache_search_result():
+        """Clear cached search result to force fresh search"""
+        PlaywrightCoreUtils._cache_search_result = None
+        PlaywrightCoreUtils._cache_search_timestamp = 0
+        logger.debug("Cleared Playwright cache search result")
+
     @staticmethod
     def install_playwright_browsers(target_path: Path) -> None:
         """Install Playwright browsers to specified path"""
