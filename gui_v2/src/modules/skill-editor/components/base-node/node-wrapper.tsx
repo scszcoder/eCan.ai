@@ -69,9 +69,15 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           setIsDragging(true);
         }}
         onClick={(e) => {
+          // Prevent upstream click handlers from racing selection/close behavior
+          e.stopPropagation();
+          if (!isDragging) {
+            // Set sidebar node first to avoid flash-close on selection change
+            sidebar.setNodeId(nodeRender.node.id);
+          }
+          // Then apply selection
           selectNode(e);
           if (!isDragging) {
-            sidebar.setNodeId(nodeRender.node.id);
             // 可选：将 isScrollToView 设为 true，可以让节点选中后滚动到画布中间
             // Optional: Set isScrollToView to true to scroll the node to the center of the canvas after it is selected.
             if (isScrollToView) {

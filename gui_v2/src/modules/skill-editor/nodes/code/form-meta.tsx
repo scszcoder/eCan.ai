@@ -12,7 +12,6 @@ import { Outputs } from './components/outputs';
 import { Inputs } from './components/inputs';
 import { Code } from './components/code';
 import { defaultFormMeta } from '../default-form-meta';
-import { FormCallable } from '../../form-components/form-callable';
 import { CodeSaver } from '../../components/code-saver';
 
 export const FormRender = ({ form }: FormRenderProps<CodeNodeJSON>) => (
@@ -23,7 +22,6 @@ export const FormRender = ({ form }: FormRenderProps<CodeNodeJSON>) => (
       <Code />
       <CodeSaver form={form} />
       <Outputs />
-      <FormCallable />
     </FormContent>
   </>
 );

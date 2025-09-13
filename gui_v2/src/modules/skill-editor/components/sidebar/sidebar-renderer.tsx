@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { useCallback, useContext, useEffect, useMemo, startTransition } from 'react';
+import { useCallback, useContext, useEffect, useMemo, startTransition, useRef } from 'react';
 
 import {
   PlaygroundEntityContext,
@@ -18,6 +18,9 @@ import { SidebarNodeRenderer } from './sidebar-node-renderer';
 
 export const SidebarRenderer = () => {
   const { nodeId, setNodeId } = useContext(SidebarContext);
+  // Prevent immediate close after open due to rapid selection/change events
+  const lastOpenAtRef = useRef<number>(0);
+  const LOCK_MS = 300;
   const { selection, playground, document } = useClientContext();
   const refresh = useRefresh();
   const handleClose = useCallback(() => {
@@ -32,7 +35,7 @@ export const SidebarRenderer = () => {
    */
   useEffect(() => {
     const disposable = playground.config.onReadonlyOrDisabledChange(() => {
-      handleClose();
+      // Do not auto-close the sidebar here; readonly/disabled flips can be transient
       refresh();
     });
     return () => disposable.dispose();
@@ -42,18 +45,31 @@ export const SidebarRenderer = () => {
    */
   useEffect(() => {
     const toDispose = selection.onSelectionChanged(() => {
-      /**
-       * 如果没有选中任何节点，则自动关闭侧边栏
-       * If no node is selected, the sidebar is automatically closed
-       */
+      // If no node is selected, close the sidebar
       if (selection.selection.length === 0) {
-        handleClose();
-      } else if (selection.selection.length === 1 && selection.selection[0] !== node) {
+        const now = Date.now();
+        if (now - lastOpenAtRef.current > LOCK_MS) {
+          handleClose();
+        }
+        return;
+      }
+      // If exactly one node is selected, sync the sidebar to that node instead of closing
+      if (selection.selection.length === 1) {
+        const sel = selection.selection[0];
+        if (sel && sel.id !== nodeId) {
+          startTransition(() => setNodeId(sel.id));
+          lastOpenAtRef.current = Date.now();
+        }
+        return;
+      }
+      // For multi-selection, close by default
+      const now = Date.now();
+      if (now - lastOpenAtRef.current > LOCK_MS) {
         handleClose();
       }
     });
     return () => toDispose.dispose();
-  }, [selection, handleClose, node]);
+  }, [selection, handleClose, nodeId]);
   /**
    * Close when node disposed
    */

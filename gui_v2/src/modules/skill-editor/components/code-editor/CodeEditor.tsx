@@ -9,16 +9,17 @@ import ReactDOM from 'react-dom';
 // 配置Monaco Editor使用本地路径
 loader.config({
   paths: {
-    vs: './monaco-editor/vs'
+    // Use absolute path so Vite serves from public/monaco-editor correctly
+    vs: '/monaco-editor/vs'
   }
 });
 
 // 配置Monaco Editor的worker
 if (typeof window !== 'undefined') {
   (window as any).MonacoEnvironment = {
-    getWorkerUrl: function (moduleId: string, label: string) {
-      // 使用Monaco Editor内置的worker配置
-      return './monaco-editor/vs/base/worker/workerMain.js';
+    getWorkerUrl: function (_moduleId: string, _label: string) {
+      // Use absolute worker path so it resolves under Vite dev server
+      return '/monaco-editor/vs/base/worker/workerMain.js';
     }
   };
 }
