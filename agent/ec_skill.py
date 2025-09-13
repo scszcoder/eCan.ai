@@ -278,13 +278,15 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         if isinstance(result, list):
             # Handle cases where debugging injects an Interrupt object
             dict_result = next((item for item in result if isinstance(item, dict)), None)
-            return dict_result or {}
+            state["result"] = dict_result or {}
         elif isinstance(result, dict):
-            return result
+            state["result"] = result
         else:
             # If the result is not a dict (e.g., None), return an empty dict to prevent errors
-            return {}
+            state["result"] = result
 
+        print("returning state...", state)
+        return state
     # The node_builder itself returns the wrapper function
     return wrapper
 
