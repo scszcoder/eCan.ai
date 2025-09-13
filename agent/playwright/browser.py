@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright 浏览器操作封装
-提供高级的浏览器操作接口和错误处理
+Playwright Browser Operations Wrapper
+Provides high-level browser operation interfaces and error handling
 """
 
 from typing import Optional, Dict, Any, List
@@ -15,9 +15,9 @@ from utils.logger_helper import logger_helper as logger
 
 class PlaywrightBrowser:
     """
-    Playwright 浏览器操作封装类
-    
-    提供高级的浏览器操作接口，自动处理初始化
+    Playwright Browser Operations Wrapper Class
+
+    Provides high-level browser operation interfaces with automatic initialization handling
     """
     
     def __init__(self):
@@ -28,10 +28,10 @@ class PlaywrightBrowser:
     
     def _ensure_ready(self) -> bool:
         """
-        确保浏览器环境已准备就绪
-        
+        Ensure browser environment is ready
+
         Returns:
-            bool: 是否准备就绪
+            bool: Whether ready
         """
         if not self._manager.is_initialized():
             logger.info("Playwright not initialized, performing lazy initialization...")
@@ -43,15 +43,15 @@ class PlaywrightBrowser:
     
     def launch_browser(self, headless: bool = True, max_retries: int = 2, **kwargs) -> Optional[Any]:
         """
-        启动浏览器
-        
+        Launch browser
+
         Args:
-            headless: 是否无头模式
-            max_retries: 最大重试次数
-            **kwargs: 其他启动参数
-            
+            headless: Whether to run in headless mode
+            max_retries: Maximum retry attempts
+            **kwargs: Other launch parameters
+
         Returns:
-            浏览器实例，失败时返回 None
+            Browser instance, or None if failed
         """
         if not self._ensure_ready():
             return None
@@ -62,7 +62,7 @@ class PlaywrightBrowser:
                 
                 self._playwright = sync_playwright().start()
                 
-                # 设置启动参数
+                # Set launch parameters
                 launch_args = {
                     'headless': headless,
                     'args': [
@@ -73,11 +73,11 @@ class PlaywrightBrowser:
                         '--disable-features=VizDisplayCompositor'
                     ]
                 }
-                
-                # 合并用户提供的参数
+
+                # Merge user-provided parameters
                 launch_args.update(kwargs)
-                
-                # 启动浏览器
+
+                # Launch browser
                 self._browser = self._playwright.chromium.launch(**launch_args)
                 
                 logger.info("Browser launched successfully")
@@ -86,7 +86,7 @@ class PlaywrightBrowser:
             except Exception as e:
                 logger.warning(f"Browser launch attempt {attempt + 1} failed: {e}")
                 
-                # 清理资源
+                # Clean up resources
                 if self._playwright:
                     try:
                         self._playwright.stop()
@@ -94,10 +94,10 @@ class PlaywrightBrowser:
                         pass
                     self._playwright = None
                 
-                # 如果不是最后一次尝试，等待后重试
+                # If not the last attempt, wait and retry
                 if attempt < max_retries - 1:
                     import time
-                    wait_time = 2 ** attempt  # 指数退避
+                    wait_time = 2 ** attempt  # exponential backoff
                     logger.info(f"Retrying browser launch in {wait_time} seconds...")
                     time.sleep(wait_time)
                 else:
@@ -108,13 +108,13 @@ class PlaywrightBrowser:
     
     def create_context(self, **kwargs) -> Optional[Any]:
         """
-        创建浏览器上下文
+        Create browser context
         
         Args:
-            **kwargs: 上下文参数
+            **kwargs: context parameters
             
         Returns:
-            上下文实例，失败时返回 None
+            Context instance, or None if failed
         """
         if not self._browser:
             logger.error("Browser not launched")
@@ -131,10 +131,10 @@ class PlaywrightBrowser:
     
     def create_page(self) -> Optional[Any]:
         """
-        创建新页面
+        Create new page
         
         Returns:
-            页面实例，失败时返回 None
+            Page instance, or None if failed
         """
         if not self._context:
             logger.error("Browser context not created")
@@ -151,14 +151,14 @@ class PlaywrightBrowser:
     
     def navigate_to(self, url: str, page: Optional[Any] = None) -> bool:
         """
-        导航到指定URL
+        Navigate to specified URL
         
         Args:
-            url: 目标URL
-            page: 页面实例，如果为None则创建新页面
+            url: target URL
+            page: page instance, create new page if None
             
         Returns:
-            bool: 是否成功
+            bool: whether successful
         """
         if not page:
             page = self.create_page()
@@ -176,15 +176,15 @@ class PlaywrightBrowser:
     
     def take_screenshot(self, page: Any, path: str, **kwargs) -> bool:
         """
-        截图
+        Take screenshot
         
         Args:
-            page: 页面实例
-            path: 保存路径
-            **kwargs: 截图参数
+            page: page instance
+            path: save path
+            **kwargs: screenshot parameters
             
         Returns:
-            bool: 是否成功
+            bool: whether successful
         """
         try:
             page.screenshot(path=path, **kwargs)
@@ -197,13 +197,13 @@ class PlaywrightBrowser:
     
     def get_page_content(self, page: Any) -> Optional[str]:
         """
-        获取页面内容
+        Get page content
         
         Args:
-            page: 页面实例
+            page: page instance
             
         Returns:
-            str: 页面内容，失败时返回 None
+            str: page content, or None if failed
         """
         try:
             content = page.content()
@@ -214,7 +214,7 @@ class PlaywrightBrowser:
             return None
     
     def close(self):
-        """关闭浏览器和相关资源"""
+        """Close browser and related resources"""
         try:
             if self._context:
                 self._context.close()
@@ -236,10 +236,10 @@ class PlaywrightBrowser:
     
     def get_status(self) -> Dict[str, Any]:
         """
-        获取当前状态
+        Get current status
         
         Returns:
-            Dict: 状态信息
+            Dict: status information
         """
         return {
             "manager_initialized": self._manager.is_initialized(),
@@ -250,26 +250,26 @@ class PlaywrightBrowser:
         }
     
     def __enter__(self):
-        """上下文管理器入口"""
+        """Context manager entry"""
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """上下文管理器出口"""
+        """Context manager exit"""
         self.close()
 
 
-# 便捷函数
+# Convenience functions
 def create_browser(headless: bool = True, max_retries: int = 2, **kwargs) -> Optional[PlaywrightBrowser]:
     """
-    创建浏览器实例的便捷函数
+    Convenience function to create browser instance
     
     Args:
-        headless: 是否无头模式
-        max_retries: 最大重试次数
-        **kwargs: 其他参数
+        headless: whether to run in headless mode
+        max_retries: maximum retry attempts
+        **kwargs: other parameters
         
     Returns:
-        PlaywrightBrowser 实例
+        PlaywrightBrowser instance
     """
     browser = PlaywrightBrowser()
     if browser.launch_browser(headless=headless, max_retries=max_retries, **kwargs):
@@ -279,12 +279,12 @@ def create_browser(headless: bool = True, max_retries: int = 2, **kwargs) -> Opt
 
 def with_browser(func):
     """
-    装饰器：自动管理浏览器生命周期
+    Decorator: automatically manage browser lifecycle
     
     Usage:
         @with_browser
         def my_function(browser):
-            # 使用 browser 进行操作
+            # use browser for operations
             pass
     """
     def wrapper(*args, **kwargs):

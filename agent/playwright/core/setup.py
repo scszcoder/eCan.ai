@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright 运行时设置模块
-处理应用运行时的 Playwright 浏览器初始化和设置
+Playwright Runtime Setup Module
+Handles Playwright browser initialization and setup at application runtime
 """
 
 import sys
@@ -55,13 +55,13 @@ def _get_browser_info(browsers_path: Path) -> Dict[str, Any]:
             info['last_updated'] = datetime.fromtimestamp(browsers_path.stat().st_mtime).isoformat()
             
     except Exception as e:
-        logger.error(f"获取浏览器信息失败: {e}")
+        logger.error(f"Failed to get browser information: {e}")
 
     return info
 
 
 def _print_setup_environment_info(target_path: Path) -> None:
-    """打印设置时的环境信息"""
+    """Print environment information during setup"""
     import os
     import platform
 
@@ -70,7 +70,7 @@ def _print_setup_environment_info(target_path: Path) -> None:
     logger.info(f"  Python: {platform.python_version()}")
     logger.info(f"  Target Path: {target_path}")
 
-    # 检查各种路径
+    # Check various paths
     bundled_path = core_utils.get_bundled_path()
     default_path = core_utils.get_default_browsers_path()
     app_data_path = core_utils.get_app_data_path()
@@ -82,7 +82,7 @@ def _print_setup_environment_info(target_path: Path) -> None:
     logger.info(f"    App Data Path: {app_data_path}")
     logger.info(f"    Existing Env Path: {existing_env_path or 'None'}")
 
-    # 检查环境变量
+    # Check environment variables
     env_vars = {
         "PLAYWRIGHT_BROWSERS_PATH": os.getenv("PLAYWRIGHT_BROWSERS_PATH"),
         "PLAYWRIGHT_CACHE_DIR": os.getenv("PLAYWRIGHT_CACHE_DIR"),
@@ -96,7 +96,7 @@ def _print_setup_environment_info(target_path: Path) -> None:
         else:
             logger.info(f"    {var_name}: <not set>")
 
-    # 检查现有缓存
+    # Check existing cache
     existing_cache = core_utils.find_playwright_cache()
     if existing_cache:
         logger.info(f"  Existing Cache Found: {existing_cache}")
@@ -130,7 +130,7 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     - If found, copy to <app_data_root>/ms-playwright when missing or incomplete.
     - Finally set PLAYWRIGHT_BROWSERS_PATH to the writable directory and return it.
     """
-    # PyInstaller 特殊处理：直接使用打包的浏览器
+    # PyInstaller special handling: use bundled browsers directly
     if getattr(sys, 'frozen', False):
         bundled_path = Path(sys._MEIPASS) / 'third_party' / 'ms-playwright'
         if bundled_path.exists() and _validate_browser_installation(bundled_path):
@@ -140,14 +140,14 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         else:
             logger.warning(f"Bundled browsers not found or invalid at: {bundled_path}")
 
-    # 检查是否已经设置了有效的环境变量
+    # Check if valid environment variables are already set
     existing_path = core_utils.get_environment_browsers_path()
     if existing_path and not force_refresh:
         if _validate_browser_installation(existing_path):
             logger.info(f"Using existing PLAYWRIGHT_BROWSERS_PATH: {existing_path}")
             return existing_path
     
-    # 简化：不再从配置文件读取路径，避免过度实现
+    # Simplified: no longer read paths from config files to avoid over-implementation
     
     if app_data_root is None:
         app_data_root = _default_app_data_root()
@@ -157,29 +157,29 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     # Target directory in app data
     target = app_data_root / 'ms-playwright'
 
-    # 打印设置环境信息
+    # Print setup environment information
     _print_setup_environment_info(target)
     
-    # 首先清理任何不完整的浏览器目录
+    # First clean up any incomplete browser directories
     if target.exists():
         core_utils.cleanup_incomplete_browsers(target)
 
-    # 然后检查目标目录是否已经有效
+    # Then check if target directory is already valid
     if not force_refresh and _validate_browser_installation(target):
         logger.info("Browser installation already exists and is valid")
         core_utils.set_environment_variables(target)
         logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
         return target
     
-    # 检查是否有现有的 Playwright 缓存可以使用
+    # Check if there are existing Playwright caches that can be used
     existing_cache = core_utils.find_playwright_cache()
     if existing_cache and existing_cache != target and not force_refresh:
         logger.info(f"Found existing Playwright cache at: {existing_cache}")
-        # 清理现有缓存中的不完整目录
+        # Clean up incomplete directories in existing cache
         core_utils.cleanup_incomplete_browsers(existing_cache)
         if _validate_browser_installation(existing_cache):
             logger.info("Using existing valid browser installation")
-            # 使用专用的复制函数
+            # Use dedicated copy function
             try:
                 core_utils.copy_playwright_browsers(existing_cache, target)
                 logger.info(f"Copied existing browsers to: {target}")
@@ -188,14 +188,14 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
                 return target
             except Exception as e:
                 logger.warning(f"Failed to copy existing browsers: {e}")
-                # 继续使用原有逻辑
+                # Continue using original logic
     
-    # 在开发环境中，检查是否有本地的 third_party 目录
+    # In development environment, check if there is a local third_party directory
     if not getattr(sys, 'frozen', False):
         local_third_party = Path.cwd() / 'third_party' / 'ms-playwright'
         if local_third_party.exists() and _validate_browser_installation(local_third_party):
             logger.info(f"Found valid local third_party browsers at: {local_third_party}")
-            # 确保复制到应用内部目录，而不是直接使用本地目录
+            # Ensure copying to application internal directory, not directly using local directory
             try:
                 core_utils.copy_playwright_browsers(local_third_party, target)
                 logger.info(f"Copied local third_party browsers to: {target}")
@@ -204,7 +204,7 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
                 return target
             except Exception as e:
                 logger.warning(f"Failed to copy local third_party browsers: {e}")
-                # 继续使用原有逻辑
+                # Continue using original logic
     
     # Determine base directory for bundled browsers
     if getattr(sys, 'frozen', False):
@@ -235,18 +235,18 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     if should_copy:
         logger.info("No bundled browsers available for copying, attempting runtime installation.")
         try:
-            # 使用简化的安装方法
-            logger.info("🚀 开始运行时安装 Playwright 浏览器...")
+            # Use simplified installation method
+            logger.info("🚀 Starting runtime installation of Playwright browsers...")
             core_utils.install_playwright_browsers(target)
 
             if _validate_browser_installation(target):
-                logger.info("✅ 运行时安装 Playwright 浏览器成功")
+                logger.info("✅ Runtime installation of Playwright browsers successful")
             else:
-                logger.warning("⚠️ 运行时安装未产生有效的安装")
+                logger.warning("⚠️ Runtime installation did not produce valid installation")
 
         except Exception as e:
             error_msg = friendly_error_message(e, "runtime_installation")
-            logger.error(f"❌ 运行时安装 Playwright 浏览器失败: {error_msg}")
+            logger.error(f"❌ Runtime installation of Playwright browsers failed: {error_msg}")
             raise
     else:
         logger.info("Browser installation already exists and is valid")
@@ -304,7 +304,7 @@ def is_playwright_ready() -> bool:
     return _validate_browser_installation(Path(browsers_path))
 
 
-# 配置持久化与路径覆盖逻辑已移除，避免过度实现，保持初始化流程简单明了
+# Configuration persistence and path override logic removed to avoid over-implementation and keep initialization process simple and clear
 
 
 def setup_playwright(app_data_root: Optional[Path] = None) -> Path:
