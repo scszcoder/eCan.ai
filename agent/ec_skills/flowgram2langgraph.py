@@ -95,10 +95,10 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         builder_func = function_registry.get(node_type, build_debug_node)
 
         # Call the builder function with the node's data to get the raw callable
-        node_callable = builder_func(node_data, block_id, skill_name, owner, bp_manager)
+        raw_callable = builder_func(node_data, block_id, skill_name, owner, bp_manager)
 
         # Wrap the raw callable with the node_builder to add retries, context, etc.
-        # node_callable = node_maker(raw_callable, block_id, skill_name, owner, bp_manager)
+        node_callable = node_builder(raw_callable, block_id, skill_name, owner, bp_manager)
 
         # Add the constructed node to the workflow
         workflow.add_node(block_id, node_callable)
@@ -178,10 +178,10 @@ def flowgram2langgraph(flowgram_json):
             print("builder_func:", builder_func)
 
             # Call the builder function with the node's data to get the raw callable
-            node_callable = builder_func(node_data, node_id, skill_name, owner, bp_manager)
+            raw_callable = builder_func(node_data, node_id, skill_name, owner, bp_manager)
 
             # Wrap the raw callable with the node_builder to add retries, context, etc.
-            # node_callable = node_maker(raw_callable, node_id, skill_name, owner, bp_manager)
+            node_callable = node_builder(raw_callable, node_id, skill_name, owner, bp_manager)
 
             # Add the constructed node to the workflow
             workflow.add_node(node_id, node_callable)

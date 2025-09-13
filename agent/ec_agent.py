@@ -484,8 +484,7 @@ class EC_Agent(Agent):
 	def resume_dev_run_task(self):
 		logger.info("launching dev run task!")
 		try:
-			response = ""
-			self.runner.resume_dev_run()
+			response = self.runner.resume_dev_run()
 			logger.info("launching dev run task!", response)
 			return response
 		except Exception as e:
@@ -496,7 +495,7 @@ class EC_Agent(Agent):
 	def step_dev_run_task(self):
 		logger.info("launching dev run task!")
 		try:
-			response = ""
+			response = self.runner.step_dev_run()
 			logger.info("launching dev run task!", response)
 			return response
 		except Exception as e:
@@ -507,7 +506,7 @@ class EC_Agent(Agent):
 	def pause_dev_run_task(self):
 		logger.info("launching dev run task!")
 		try:
-			response = ""
+			response = self.runner.pause_dev_run()
 			logger.info("launching dev run task!", response)
 			return response
 		except Exception as e:
@@ -518,7 +517,7 @@ class EC_Agent(Agent):
 	def cancel_dev_run_task(self):
 		logger.info("launching dev run task!")
 		try:
-			response = ""
+			response = self.runner.cancel_dev_run()
 			logger.info("launching dev run task!", response)
 			return response
 		except Exception as e:
