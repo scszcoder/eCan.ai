@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright 浏览器管理器
-实现延迟初始化和浏览器生命周期管理
+Playwright Browser Manager
+Implements lazy initialization and browser lifecycle management
 """
 
 import os
@@ -20,13 +20,13 @@ from utils.logger_helper import logger_helper as logger
 
 class PlaywrightManager:
     """
-    Playwright 浏览器管理器
-    
-    特性：
-    - 延迟初始化：只在需要时初始化
-    - 线程安全：支持多线程环境
-    - 状态管理：提供完整的状态信息
-    - 错误处理：优雅的错误处理和恢复
+    Playwright Browser Manager
+
+    Features:
+    - Lazy initialization: Initialize only when needed
+    - Thread-safe: Support for multi-threaded environments
+    - State management: Provides complete state information
+    - Error handling: Graceful error handling and recovery
     """
     
     def __init__(self):
@@ -36,15 +36,15 @@ class PlaywrightManager:
         self.ctx = AppContext()
         self._initialization_error: Optional[str] = None
         
-        # 延迟初始化标志
+        # Lazy initialization flag
         self._lazy_init_done = False
     
     def _ensure_initialized(self) -> bool:
         """
-        确保 Playwright 已初始化（线程安全）
-        
+        Ensure Playwright is initialized (thread-safe)
+
         Returns:
-            bool: 初始化是否成功
+            bool: Whether initialization was successful
         """
         with self._lock:
             if self._initialized:
@@ -57,20 +57,20 @@ class PlaywrightManager:
             try:
                 logger.info("🚀 Initializing Playwright browsers...")
 
-                # 打印环境信息
+                # Print environment information
                 self._print_environment_info()
 
-                # 设置 Playwright 浏览器环境
+                # Setup Playwright browser environment
                 browsers_path = setup_playwright()
 
                 if browsers_path and browsers_path.exists():
                     self._browsers_path = str(browsers_path)
 
-                    # 设置环境变量
+                    # Set environment variables
                     core_utils.set_environment_variables(browsers_path)
-                    log_with_emoji("success", f"环境变量设置成功: {browsers_path}")
+                    log_with_emoji("success", f"Environment variables set successfully: {browsers_path}")
 
-                    # 将 Playwright 路径保存到 AppContext 中
+                    # Save Playwright path to AppContext
                     self.ctx.set_playwright_browsers_path(self._browsers_path)
 
                     self._initialized = True
@@ -83,7 +83,7 @@ class PlaywrightManager:
                     return False
 
             except Exception as e:
-                # 使用简化的错误处理
+                # Use simplified error handling
                 error_msg = friendly_error_message(e, "manager_initialization")
                 self._initialization_error = str(e)
                 logger.error(f"❌ Playwright initialization failed: {error_msg}")
@@ -91,10 +91,10 @@ class PlaywrightManager:
     
     def get_browsers_path(self) -> Optional[str]:
         """
-        获取 Playwright 浏览器路径
-        
+        Get Playwright browsers path
+
         Returns:
-            str: 浏览器路径，如果未初始化则返回 None
+            str: Browser path, or None if not initialized
         """
         if not self._ensure_initialized():
             return None
@@ -102,20 +102,20 @@ class PlaywrightManager:
     
     def is_initialized(self) -> bool:
         """
-        检查是否已初始化
-        
+        Check if initialized
+
         Returns:
-            bool: 是否已初始化
+            bool: Whether initialized
         """
         with self._lock:
             return self._initialized
     
     def get_status(self) -> Dict[str, Any]:
         """
-        获取当前状态信息
-        
+        Get current status information
+
         Returns:
-            Dict: 包含状态信息的字典
+            Dict: Dictionary containing status information
         """
         with self._lock:
             status = {
@@ -126,7 +126,7 @@ class PlaywrightManager:
                 "lazy_init_done": self._lazy_init_done
             }
             
-            # 验证浏览器安装
+            # Validate browser installation
             if self._browsers_path:
                 status["browser_installation_valid"] = core_utils.validate_browser_installation(Path(self._browsers_path))
             else:
@@ -136,26 +136,26 @@ class PlaywrightManager:
     
     def force_reinitialize(self) -> bool:
         """
-        强制重新初始化（用于错误恢复）
-        
+        Force re-initialization (for error recovery)
+
         Returns:
-            bool: 重新初始化是否成功
+            bool: Whether re-initialization was successful
         """
         with self._lock:
-            # 清除之前的状态
+            # Clear previous state
             self._initialized = False
             self._browsers_path = None
             self._initialization_error = None
-            
-            # 重新初始化
+
+            # Re-initialize
             return self._ensure_initialized()
     
     def lazy_init(self) -> bool:
         """
-        延迟初始化（在第一次使用时调用）
-        
+        Lazy initialization (called on first use)
+
         Returns:
-            bool: 初始化是否成功
+            bool: Whether initialization was successful
         """
         if self._lazy_init_done:
             return self._initialized
@@ -164,7 +164,7 @@ class PlaywrightManager:
         return self._ensure_initialized()
     
     def _print_environment_info(self) -> None:
-        """打印 Playwright 环境信息"""
+        """Print Playwright environment information"""
         env_info = self.get_environment_info()
 
         logger.info("📋 Playwright Environment Information:")
@@ -187,10 +187,10 @@ class PlaywrightManager:
 
     def get_environment_info(self) -> Dict[str, Any]:
         """
-        获取环境信息
+        Get environment information
 
         Returns:
-            Dict: 环境信息字典
+            Dict: Environment information dictionary
         """
         return {
             "platform": sys.platform,
@@ -208,10 +208,10 @@ class PlaywrightManager:
     
     def validate_installation(self) -> bool:
         """
-        验证当前安装是否有效
-        
+        Validate if current installation is valid
+
         Returns:
-            bool: 安装是否有效
+            bool: Whether installation is valid
         """
         if not self._initialized:
             return False
@@ -223,32 +223,32 @@ class PlaywrightManager:
     
     def cleanup(self):
         """
-        清理资源（如果需要的话）
+        Clean up resources (if needed)
         """
         with self._lock:
-            # 清除环境变量
+            # Clear environment variables
             core_utils.clear_environment_variables()
-            
-            # 重置状态
+
+            # Reset state
             self._initialized = False
             self._browsers_path = None
             self._initialization_error = None
             self._lazy_init_done = False
-            
+
             logger.info("Playwright manager cleaned up")
 
 
-# 全局管理器实例
+# Global manager instance
 _manager_instance: Optional[PlaywrightManager] = None
 _manager_lock = Lock()
 
 
 def get_playwright_manager() -> PlaywrightManager:
     """
-    获取全局 Playwright 管理器实例（单例模式）
-    
+    Get global Playwright manager instance (singleton pattern)
+
     Returns:
-        PlaywrightManager: 管理器实例
+        PlaywrightManager: Manager instance
     """
     global _manager_instance
     
@@ -262,19 +262,19 @@ def get_playwright_manager() -> PlaywrightManager:
 
 def initialize_playwright_lazy() -> bool:
     """
-    便捷函数：延迟初始化 Playwright
-    
+    Convenience function: Lazy initialize Playwright
+
     Returns:
-        bool: 初始化是否成功
+        bool: Whether initialization was successful
     """
     return get_playwright_manager().lazy_init()
 
 
 def get_playwright_status() -> Dict[str, Any]:
     """
-    便捷函数：获取 Playwright 状态
-    
+    Convenience function: Get Playwright status
+
     Returns:
-        Dict: 状态信息
+        Dict: Status information
     """
     return get_playwright_manager().get_status()

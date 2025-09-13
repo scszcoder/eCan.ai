@@ -11,23 +11,21 @@ import { useLocation } from 'react-router-dom';
 // type Theme = 'light' | 'dark' | 'system';
 
 const initialSettings: Settings = {
-  api_api_port: '',
   debug_mode: false,
   default_wifi: '',
   default_printer: '',
   display_resolution: '',
-  default_webdriver: '',
+  default_webdriver_path: '',
   img_engine: '',
-  localUserDB_host: '',
-  localUserDB_port: '',
-  localAgentDB_host: '',
-  localAgentDB_port: '',
-  localAgent_ports: [],
+  local_user_db_host: '',
+  local_user_db_port: '',
+  local_agent_db_host: '',
+  local_agent_db_port: '',
+  local_agent_ports: [],
   local_server_port: '',
   lan_api_endpoint: '',
-  lan_api_host: '',
   last_bots_file: '',
-  last_bots_file_time: '',
+  last_bots_file_time: 0,
   mids_forced_to_run: [],
   new_orders_dir: '',
   new_bots_file_path: '',
@@ -35,6 +33,13 @@ const initialSettings: Settings = {
   ws_api_endpoint: '',
   schedule_engine: '',
   schedule_mode: '',
+  wan_api_key: '',
+  browser_use_file_system_path: '',
+  gui_flowgram_schema: '',
+  build_dom_tree_script_path: '',
+  last_order_file: '',
+  last_order_file_time: 0,
+  new_orders_path: '',
 };
 
 const Settings: React.FC = () => {
@@ -193,31 +198,30 @@ const Settings: React.FC = () => {
               <Col span={12}><Form.Item label={getLabel('display_resolution')} name="display_resolution"><Input size="small" placeholder={getLabel('display_resolution')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('debug_mode')} name="debug_mode" valuePropName="checked"><Switch size="small" /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('default_wifi')} name="default_wifi"><Input size="small" placeholder={getLabel('default_wifi')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('default_webdriver')} name="default_webdriver"><Input size="small" placeholder={getLabel('default_webdriver')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('default_webdriver_path')} name="default_webdriver_path"><Input size="small" placeholder={getLabel('default_webdriver_path')} /></Form.Item></Col>
             </Row>
           </Card>
           {/* 网络与端口 */}
           <Card title={getLabel('network')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
             <Row gutter={12}>
-              <Col span={12}><Form.Item label={getLabel('api_api_port')} name="api_api_port"><Input size="small" placeholder={getLabel('api_api_port')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('localUserDB_host')} name="localUserDB_host"><Input size="small" placeholder={getLabel('localUserDB_host')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('localUserDB_port')} name="localUserDB_port"><Input size="small" placeholder={getLabel('localUserDB_port')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('localAgentDB_host')} name="localAgentDB_host"><Input size="small" placeholder={getLabel('localAgentDB_host')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('localAgentDB_port')} name="localAgentDB_port"><Input size="small" placeholder={getLabel('localAgentDB_port')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('localAgent_ports')} name="localAgent_ports" getValueFromEvent={(vals: any[]) => (vals || []).map((v: any) => Number(v))}>
+              <Col span={12}><Form.Item label={getLabel('local_user_db_host')} name="local_user_db_host"><Input size="small" placeholder={getLabel('local_user_db_host')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('local_user_db_port')} name="local_user_db_port"><Input size="small" placeholder={getLabel('local_user_db_port')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('local_agent_db_host')} name="local_agent_db_host"><Input size="small" placeholder={getLabel('local_agent_db_host')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('local_agent_db_port')} name="local_agent_db_port"><Input size="small" placeholder={getLabel('local_agent_db_port')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('local_agent_ports')} name="local_agent_ports" getValueFromEvent={(vals: any[]) => (vals || []).map((v: any) => Number(v))}>
                 <Select
                   mode="tags"
                   style={{ width: '100%' }}
                   tokenSeparators={[',']}
-                  placeholder={getLabel('localAgent_ports')}
+                  placeholder={getLabel('local_agent_ports')}
                   size="small"
                 />
               </Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('local_server_port')} name="local_server_port"><Input size="small" placeholder={getLabel('local_server_port')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('lan_api_endpoint')} name="lan_api_endpoint"><Input size="small" placeholder={getLabel('lan_api_endpoint')} /></Form.Item></Col>
-              <Col span={12}><Form.Item label={getLabel('lan_api_host')} name="lan_api_host"><Input size="small" placeholder={getLabel('lan_api_host')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('wan_api_endpoint')} name="wan_api_endpoint"><Input size="small" placeholder={getLabel('wan_api_endpoint')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('ws_api_endpoint')} name="ws_api_endpoint"><Input size="small" placeholder={getLabel('ws_api_endpoint')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('wan_api_key')} name="wan_api_key"><Input size="small" placeholder={getLabel('wan_api_key')} /></Form.Item></Col>
             </Row>
           </Card>
           {/* 打印与文件 */}
@@ -228,6 +232,9 @@ const Settings: React.FC = () => {
               <Col span={12}><Form.Item label={getLabel('new_bots_file_path')} name="new_bots_file_path"><Input size="small" placeholder={getLabel('new_bots_file_path')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('last_bots_file')} name="last_bots_file"><Input size="small" placeholder={getLabel('last_bots_file')} /></Form.Item></Col>
               <Col span={12}><Form.Item label={getLabel('last_bots_file_time')} name="last_bots_file_time"><Input size="small" placeholder={getLabel('last_bots_file_time')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('last_order_file')} name="last_order_file"><Input size="small" placeholder={getLabel('last_order_file')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('last_order_file_time')} name="last_order_file_time"><Input size="small" placeholder={getLabel('last_order_file_time')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('new_orders_path')} name="new_orders_path"><Input size="small" placeholder={getLabel('new_orders_path')} /></Form.Item></Col>
             </Row>
           </Card>
           {/* 调度与引擎 */}
@@ -241,6 +248,9 @@ const Settings: React.FC = () => {
           {/* 高级设置 */}
           <Card title={getLabel('advanced')} style={{ marginBottom: 8 }} styles={{ body: { padding: 12 } }}>
             <Row gutter={12}>
+              <Col span={12}><Form.Item label={getLabel('browser_use_file_system_path')} name="browser_use_file_system_path"><Input size="small" placeholder={getLabel('browser_use_file_system_path')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('gui_flowgram_schema')} name="gui_flowgram_schema"><Input size="small" placeholder={getLabel('gui_flowgram_schema')} /></Form.Item></Col>
+              <Col span={12}><Form.Item label={getLabel('build_dom_tree_script_path')} name="build_dom_tree_script_path"><Input size="small" placeholder={getLabel('build_dom_tree_script_path')} /></Form.Item></Col>
               <Col span={24}><Form.Item label={getLabel('mids_forced_to_run')} name="mids_forced_to_run">
                 <Select
                   mode="tags"
