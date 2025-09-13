@@ -9,6 +9,7 @@ import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
 import iconLLM from '../../assets/icon-llm.jpg';
 import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
+import { formMeta } from './form-meta';
 
 let index = 0;
 export const LLMNodeRegistry: FlowNodeRegistry = {
@@ -31,6 +32,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
       data: {
         title: `LLM_${++index}`,
         inputsValues: {
+          modelProvider: {
+            type: 'constant',
+            content: 'OpenAI',
+          },
           modelName: {
             type: 'constant',
             content: 'gpt-3.5-turbo',
@@ -90,4 +95,5 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
       },
     };
   },
+  formMeta: formMeta,
 };
