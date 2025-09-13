@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright 浏览器管理包
-提供延迟初始化的 Playwright 浏览器管理功能
+Playwright Browser Management Package
+Provides lazy initialization of Playwright browser management functionality
 """
 
 import sys
@@ -19,40 +19,40 @@ from .core.helpers import (
     smart_init_prompt
 )
 
-# PyInstaller 环境自动设置
+# PyInstaller environment auto-setup
 _auto_setup_completed = False
 
 def _auto_setup_pyinstaller_environment():
-    """在 PyInstaller 环境中自动设置 Playwright"""
+    """Auto-setup Playwright in PyInstaller environment"""
     global _auto_setup_completed
 
     if _auto_setup_completed:
         return
 
     try:
-        # 只在 PyInstaller 环境中自动设置
+        # Auto-setup only in PyInstaller environment
         if getattr(sys, 'frozen', False):
             from .core.setup import ensure_playwright_browsers_ready
 
-            # 尝试设置 Playwright 环境
+            # Try to setup Playwright environment
             try:
                 browsers_path = ensure_playwright_browsers_ready()
                 print(f"[PLAYWRIGHT] PyInstaller auto-setup completed: {browsers_path}")
             except Exception as e:
                 print(f"[PLAYWRIGHT] PyInstaller auto-setup failed: {e}")
-                # 不阻止应用启动，只是记录错误
+                # Don't block app startup, just log the error
 
         _auto_setup_completed = True
 
     except Exception as e:
         print(f"[PLAYWRIGHT] PyInstaller auto-setup error: {e}")
-        # 不阻止应用启动
+        # Don't block app startup
 
-# 在模块导入时自动执行 PyInstaller 环境设置
+# Auto-execute PyInstaller environment setup on module import
 _auto_setup_pyinstaller_environment()
 
 def ensure_playwright_initialized():
-    """确保 Playwright 已初始化的便捷函数（简化版）"""
+    """Convenience function to ensure Playwright is initialized (simplified version)"""
     try:
         manager = get_playwright_manager()
         if not manager.is_initialized():
@@ -66,7 +66,7 @@ def ensure_playwright_initialized():
 
 
 def get_playwright_browsers_path():
-    """获取 Playwright 浏览器路径的便捷函数"""
+    """Convenience function to get Playwright browsers path"""
     try:
         from .core.setup import get_playwright_browsers_path
         return get_playwright_browsers_path()
@@ -75,24 +75,24 @@ def get_playwright_browsers_path():
 
 
 def is_playwright_ready():
-    """检查 Playwright 是否准备就绪的便捷函数"""
+    """Convenience function to check if Playwright is ready"""
     try:
         from .core.setup import is_playwright_ready
         return is_playwright_ready()
     except ImportError:
-        # 简单检查环境变量
+        # Simple check of environment variables
         path = os.environ.get('PLAYWRIGHT_BROWSERS_PATH')
         return path is not None and os.path.exists(path)
 
 
 def create_browser_use_llm(fallback_llm):
-    """创建 BrowserUse LLM 的便捷函数
+    """Convenience function to create BrowserUse LLM
 
     Args:
-        fallback_llm: 备用 LLM，当 Playwright 初始化失败时使用
+        fallback_llm: Fallback LLM to use when Playwright initialization fails
 
     Returns:
-        BrowserUseChatOpenAI 或备用 LLM
+        BrowserUseChatOpenAI or fallback LLM
     """
     try:
         if ensure_playwright_initialized():
@@ -110,9 +110,9 @@ def create_browser_use_llm(fallback_llm):
         return fallback_llm
 
 
-# 导出主要的管理器类、装饰器和核心功能
+# Export main manager classes, decorators and core functionality
 __all__ = [
-    # 核心管理器和装饰器
+    # Core managers and decorators
     'PlaywrightManager',
     'get_playwright_manager',
     'ensure_playwright_initialized',
@@ -120,14 +120,14 @@ __all__ = [
     'browser_use_ready',
     'safe_playwright',
 
-    # 核心工具和设置
+    # Core tools and setup
     'core_utils',
     'setup_playwright',
     'get_playwright_browsers_path',
     'is_playwright_ready',
     'create_browser_use_llm',
 
-    # 简化的辅助函数
+    # Simplified helper functions
     'friendly_error_message',
     'is_first_time_use',
     'auto_install_playwright',

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright 简化辅助函数
-提供最基本的错误处理、首次安装检测和用户友好提示
+Playwright Simplified Helper Functions
+Provides basic error handling, first-time installation detection and user-friendly prompts
 """
 
 import os
@@ -15,26 +15,26 @@ from utils.logger_helper import logger_helper as logger
 
 
 def friendly_error_message(exception: Exception, context: str = "") -> str:
-    """将技术错误转换为用户友好的消息"""
+    """Convert technical errors to user-friendly messages"""
     error_str = str(exception).lower()
 
-    # 简化的错误匹配
+    # Simplified error matching
     error_types = {
-        ("not found", "no such file", "missing"): "❌ Playwright 浏览器未安装\n💡 运行 auto_install_playwright() 安装",
-        ("permission", "access denied", "forbidden"): "❌ 权限不足\n💡 以管理员身份运行",
-        ("network", "connection", "timeout", "download"): "❌ 网络问题\n💡 检查网络连接",
-        ("disk", "space", "storage"): "❌ 磁盘空间不足\n💡 清理磁盘空间（需要500MB）"
+        ("not found", "no such file", "missing"): "❌ Playwright browsers not installed\n💡 Run auto_install_playwright() to install",
+        ("permission", "access denied", "forbidden"): "❌ Insufficient permissions\n💡 Run as administrator",
+        ("network", "connection", "timeout", "download"): "❌ Network issues\n💡 Check network connection",
+        ("disk", "space", "storage"): "❌ Insufficient disk space\n💡 Free up disk space (500MB required)"
     }
 
     for keywords, message in error_types.items():
         if any(keyword in error_str for keyword in keywords):
             return message
 
-    return f"❌ Playwright 错误: {exception}\n💡 运行 quick_diagnostics() 检查问题"
+    return f"❌ Playwright error: {exception}\n💡 Run quick_diagnostics() to check issues"
 
 
 def is_first_time_use() -> bool:
-    """检查是否是首次使用"""
+    """Check if this is first-time use"""
     try:
         from ..manager import get_playwright_manager
         manager = get_playwright_manager()
@@ -44,7 +44,7 @@ def is_first_time_use() -> bool:
 
 
 def _print_install_environment_info(target_path: Path) -> None:
-    """打印安装时的环境信息"""
+    """Print environment information during installation"""
     import platform
 
     logger.info("📋 Playwright Installation Environment:")
@@ -54,37 +54,37 @@ def _print_install_environment_info(target_path: Path) -> None:
 
 
 def auto_install_playwright(target_path: Optional[Path] = None) -> bool:
-    """自动安装 Playwright 浏览器"""
+    """Automatically install Playwright browsers"""
     try:
         from .utils import core_utils
 
         if target_path is None:
             target_path = core_utils.get_app_data_path() / "ms-playwright"
 
-        logger.info(f"🚀 安装 Playwright 到: {target_path}")
+        logger.info(f"🚀 Installing Playwright to: {target_path}")
         _print_install_environment_info(target_path)
 
         target_path.mkdir(parents=True, exist_ok=True)
 
-        # 检查并安装 playwright 包
+        # Check and install playwright package
         try:
             subprocess.run([sys.executable, "-m", "pip", "show", "playwright"],
                          check=True, capture_output=True)
         except subprocess.CalledProcessError:
-            logger.info("⏳ 安装 Playwright 包...")
+            logger.info("⏳ Installing Playwright package...")
             subprocess.run([sys.executable, "-m", "pip", "install", "playwright"], check=True)
 
-        # 安装浏览器
+        # Install browsers
         env = os.environ.copy()
         env[core_utils.ENV_BROWSERS_PATH] = str(target_path)
         env[core_utils.ENV_CACHE_DIR] = str(target_path)
 
-        logger.info("⏳ 下载浏览器文件...")
+        logger.info("⏳ Downloading browser files...")
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"],
                       check=True, env=env)
 
         core_utils.set_environment_variables(target_path)
-        logger.info(f"✅ 安装成功: {target_path}")
+        logger.info(f"✅ Installation successful: {target_path}")
         return True
 
     except Exception as e:
@@ -94,54 +94,54 @@ def auto_install_playwright(target_path: Optional[Path] = None) -> bool:
 
 
 def quick_diagnostics() -> None:
-    """快速诊断常见问题"""
-    print("\n🔍 Playwright 快速诊断")
+    """Quick diagnosis of common issues"""
+    print("\n🔍 Playwright Quick Diagnosis")
     print("-" * 30)
 
     issues = []
 
-    # 检查 Playwright 状态
+    # Check Playwright status
     try:
         from .utils import core_utils
         from ..manager import get_playwright_manager
 
         manager = get_playwright_manager()
         if not manager.is_initialized():
-            issues.append("Playwright 未初始化")
+            issues.append("Playwright not initialized")
 
         browsers_path = core_utils.get_environment_browsers_path()
         if not browsers_path or not browsers_path.exists():
-            issues.append("浏览器文件不存在")
+            issues.append("Browser files do not exist")
 
     except Exception as e:
-        issues.append(f"检查失败: {e}")
+        issues.append(f"check failed: {e}")
 
-    # 输出结果
+    # output results
     if not issues:
-        print("✅ 系统状态正常")
+        print("✅ System status normal")
     else:
-        print("❌ 发现问题:")
+        print("❌ Issues found:")
         for issue in issues:
             print(f"  • {issue}")
-        print("\n💡 建议: 运行 auto_install_playwright()")
+        print("\n💡 suggestions: Run auto_install_playwright()")
 
     print("-" * 30)
 
 
 def smart_init_prompt() -> None:
-    """智能初始化提示"""
+    """Smart initialization prompt"""
     if is_first_time_use():
-        print("\n🎯 首次使用 Playwright")
-        print("💡 运行: auto_install_playwright()")
-        print("🔍 诊断: quick_diagnostics()")
+        print("\n🎯 First time using Playwright")
+        print("💡 Run: auto_install_playwright()")
+        print("🔍 Diagnose: quick_diagnostics()")
 
 
 def log_with_emoji(level: str, message: str) -> None:
-    """普通的日志记录"""
+    """Simple logging"""
     getattr(logger, level if level in ["error", "warning"] else "info")(message)
 
 
-# 便捷函数导出
+# Convenience functions export
 __all__ = [
     'friendly_error_message',
     'is_first_time_use',
