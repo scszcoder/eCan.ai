@@ -76,6 +76,7 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui #3 finished...")
 from bot.network import myname, fieldLinks, commanderIP, commanderXport, runCommanderLAN, runPlatoonLAN
 from bot.readSkill import RAIS, ARAIS, first_step, get_printable_datetime, prepRunSkill, readPSkillFile, addNameSpaceToAddress, rpaRunAllSteps, running_step_index
 from gui.ui_settings import SettingsManager
+
 from bot.vehicles import VEHICLE
 from gui.tool.MainGUITool import FileResource, StaticResource
 from utils.logger_helper import logger_helper as logger
@@ -111,22 +112,6 @@ ecb_data_homepath = getECBotDataHome()
 
 in_data_string = ""
 
-
-class AsyncInterface:
-    """ Class to handle async tasks within the Qt Event Loop. """
-    def __init__(self,queue):
-        self.active_queue = queue
-        asyncio.create_task(self.worker_task())  # Start the worker task
-
-    def set_active_queue(self, bot):
-        self.active_queue = bot.getMsgQ()
-
-    async def worker_task(self):
-        """ Asynchronous worker task processing items from the queue. """
-        while True:
-            message = await self.queue.get()
-            self.showMsg(f"Processed message from GUI: {message}")
-            self.queue.task_done()
 
 # class MainWindow(QWidget):
 class MainWindow:
@@ -167,7 +152,6 @@ class MainWindow:
         self.agent_knowledges = []
 
         self.todaysSchedule = {}
-        self.schedule_mode = schedule_mode
         self.ip = ip
         self.owner = user
         # Normalize user to a safe email-like value
@@ -186,7 +170,6 @@ class MainWindow:
         self.VEHICLES_FILE = self.my_ecb_data_homepath + "/vehicles.json"
         self.host_role = machine_role
         self.screen_size = getScreenSize()
-        self.display_resolution = "D"+str(self.screen_size[0])+"X"+str(self.screen_size[1])
         if "Only" in self.host_role:
             self.chat_id = self.chat_id + "_Commander"
         else:
@@ -232,8 +215,6 @@ class MainWindow:
         if not os.path.exists(self.ads_profile_dir):
             os.makedirs(self.ads_profile_dir)
 
-        self.ads_settings_file = self.ads_profile_dir + "ads_settings.json"
-        self.ads_settings = {"user name": "", "user pwd": "", "batch_size": 2, "batch_method": "min batches", "ads_port": 50325, "ads_api_key": ""}
         self.bot_states = ["active", "disabled", "banned", "deleted"]
         self.todays_bot_profiles = []
         # self.readBotJsonFile()
@@ -258,7 +239,6 @@ class MainWindow:
         self.reminder_manager = None
         self.platoonWin = None
         self.botsFingerPrintsReady = False
-        self.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
         self.default_webdriver = None
         # Log console removed - no longer needed
         logger.info("some vars init done1....")
@@ -285,11 +265,6 @@ class MainWindow:
 
         self.dbfile = f"{self.my_ecb_data_homepath}/resource/data/myecb.db"
         self.product_catelog_file = f"{self.my_ecb_data_homepath}/resource/data/product_catelog.json"
-        self.general_settings_file = f"{self.my_ecb_data_homepath}/resource/data/settings.json"
-        self.log_settings_file = f"{self.my_ecb_data_homepath}/resource/data/log_settings.json"
-        self.buy_search_settings_file =  f"{self.my_ecb_data_homepath}/resource/data/search_settings.json"
-        self.general_settings = {}
-        self.debug_mode = True
         self.fetch_schedule_counter = 1
         self.readSellerInventoryJsonFile("")
         logger.info("some vars init done2....")
@@ -304,85 +279,25 @@ class MainWindow:
             self.commanderIP = commanderIP
             self.tcpServer = None
 
-        if os.path.exists(self.log_settings_file):
-            with open(self.log_settings_file, 'r', encoding='utf-8') as log_settings_f:
-                self.log_settings = json.load(log_settings_f)
-        else:
-            self.log_settings = {}
+        logger.info("Initializing configuration manager...")
+        from gui.manager import ConfigManager
+        self.config_manager = ConfigManager(self.my_ecb_data_homepath)
 
-        if os.path.exists(self.buy_search_settings_file):
-            print("buy_serach_settings_file:", self.buy_search_settings_file)
-            with open(self.buy_search_settings_file, 'r', encoding='utf-8') as buy_search_settings_f:
-                self.buy_search_settings = json.load(buy_search_settings_f)
-        else:
-            self.buy_search_settings = {}
+        # Set display resolution after config_manager is initialized
+        display_resolution = "D"+str(self.screen_size[0])+"X"+str(self.screen_size[1])
+        self.config_manager.general_settings.display_resolution = display_resolution
 
+        # Set default webdriver path if not already configured
+        if not self.config_manager.general_settings.default_webdriver_path:
+            self.config_manager.general_settings.default_webdriver_path = f"{self.homepath}/chromedriver-win64/chromedriver.exe"
 
-        if os.path.exists(self.general_settings_file):
-            with open(self.general_settings_file, 'r', encoding='utf-8') as gen_settings_f:
-                self.general_settings = json.load(gen_settings_f)
+        # Configuration settings are now accessed directly through config_manager
+        # No need to store them as instance variables
 
-                self.debug_mode = self.general_settings.get("debug_mode", False)
-                self.schedule_mode = self.general_settings.get("schedule_mode", "auto")
-                self.default_wifi = self.general_settings.get("default_wifi", "")
-                self.default_printer = self.general_settings.get("default_printer", "")
-                self.display_resolution = self.general_settings.get("display_resolution", "")
-                self.default_webdriver_path = self.general_settings.get("default_webdriver_path", "")
-                self.build_dom_tree_script_path = self.general_settings.get("build_dom_tree_script_path", "")
-
-                self.new_orders_dir = self.general_settings.get("new_orders_dir", "c:/ding_dan/")
-                self.local_user_db_server = self.general_settings.get("localUserDB_host", "127.0.0.1")
-                self.local_user_db_port = self.general_settings.get("localUserDB_port", "5080")
-                self.local_agent_db_server = self.general_settings.get("localAgentDB_host", "192.168.0.16")
-                self.local_agent_db_port = self.general_settings.get("localAgentDB_port", "6668")
-                self.lan_api_endpoint = self.general_settings.get("lan_api_endpoint", "")
-                self.wan_api_endpoint = self.general_settings.get("wan_api_endpoint", "")
-                self.ws_api_endpoint = self.general_settings.get("ws_api_endpoint", "")
-                self.img_engine = self.general_settings.get("img_engine", "lan")
-                self.schedule_engine = self.general_settings.get("schedule_engine", "wan")
-                self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
-                self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
-        else:
-            logger.warning("no general settings file, and build default general settings values:" + self.general_settings_file)
-            # If configuration file doesn't exist, use default values
-            self.general_settings = {}
-            self.debug_mode = False
-            self.schedule_mode = "auto"
-            self.default_wifi = ""
-            self.default_printer = ""
-            self.display_resolution = ""
-            self.default_webdriver_path = ""
-            self.build_dom_tree_script_path = ""
-            self.new_orders_dir = "c:/ding_dan/"
-            self.local_user_db_server = "127.0.0.1"
-            self.local_user_db_port = "5080"
-
-        # Ensure all required configuration items exist
-        self._ensure_default_settings()
-
-        self.local_agent_db_server = self.general_settings.get("localAgentDB_host", "192.168.0.16")
-        self.local_agent_db_port = self.general_settings.get("localAgentDB_port", "6668")
-        self.lan_api_endpoint = self.general_settings.get("lan_api_endpoint", "")
-        self.wan_api_endpoint = self.general_settings.get("wan_api_endpoint", "")
-        self.ws_api_endpoint = self.general_settings.get("ws_api_endpoint", "")
-        self.img_engine = self.general_settings.get("img_engine", "lan")
-        self.schedule_engine = self.general_settings.get("schedule_engine", "wan")
-        self.local_agents_port_range = self.general_settings.get("localAgent_ports", [3600, 3800])
-        self.browser_use_file_system_path = self.general_settings.get("browser_use_file_system_path", "")
-
-        logger.info("some vars init done3....")
-        logger.debug("loaded general settings:" + json.dumps(self.general_settings))
-        logger.debug("Debug Mode:" + str(self.debug_mode) + " Schedule Mode:" + str(self.schedule_mode))
+        logger.info("Configuration manager initialized successfully")
+        logger.debug("Debug Mode:" + str(self.config_manager.general_settings.debug_mode) +
+                    " Schedule Mode:" + str(self.config_manager.general_settings.schedule_mode))
         logger.debug("self.platform==================================================>" + self.platform)
-        if os.path.exists(self.ads_settings_file):
-            with open(self.ads_settings_file, 'r') as ads_settings_f:
-                self.ads_settings = json.load(ads_settings_f)
-                if "ads_profile_dir" in self.ads_settings:
-                    ads_profile_dir = self.ads_settings.get("ads_profile_dir", "")
-                    if ads_profile_dir:
-                        self.ads_profile_dir = ads_profile_dir
-
-            ads_settings_f.close()
 
 
         self.organizations = [
@@ -399,7 +314,7 @@ class MainWindow:
         self.personalities = ["Introvert", "Extrovert"]
 
 
-        logger.debug("ADS SETTINGS:"+json.dumps(self.ads_settings))
+        logger.debug("ADS SETTINGS:"+json.dumps(self.config_manager.ads_settings.data))
         logger.debug("=========Done With Network Setup, Start Local DB Setup =========")
         logger.debug("HOME PATH is::" + self.homepath, "info")
         logger.debug(self.dbfile)
@@ -466,15 +381,14 @@ class MainWindow:
         # get current wifi ssid and stores it.
         logger.debug("Checking Wifi on OS platform: "+self.platform)
         self.wifis = self.settings_manager.get_wifi_networks()
-        self.default_wifi = self.settings_manager.get_default_wifi()
-        logger.info("default wifi is:" + self.default_wifi)
+        logger.info("default wifi is:" + self.config_manager.general_settings.default_wifi)
 
         logger.debug("load local bots, mission, skills ")
         if ("Commander" in self.machine_role):
             self.readVehicleJsonFile()
             self.showMsg("Vehicle files loaded"+json.dumps(self.vehiclesJsonData))
             # load skills into memory.
-            if not self.debug_mode or self.schedule_mode == "auto":
+            if not self.config_manager.general_settings.debug_mode or self.config_manager.general_settings.schedule_mode == "auto":
                 logger.info("getting bots from cloud....")
                 self.bot_service.sync_cloud_bot_data(self.session, self.get_auth_token(), self)
                 logger.info("bot cloud done....")
@@ -486,7 +400,7 @@ class MainWindow:
 
             self.createNewBotsFromBotsXlsx()
 
-            if not self.debug_mode or self.schedule_mode == "auto":
+            if not self.config_manager.general_settings.debug_mode or self.config_manager.general_settings.schedule_mode == "auto":
                 self.mission_service.sync_cloud_mission_data(self.session, self.get_auth_token(), self)
             logger.info("mission cloud synced")
             missions_data = self.mission_service.find_missions_by_createon()
@@ -556,8 +470,8 @@ class MainWindow:
                "completed" : [],
                "aborted": []
             }
-            logger.info("debug mode:", self.debug_mode, self.schedule_mode)
-            if not self.debug_mode and self.schedule_mode == "auto":
+            logger.info("debug mode:", self.config_manager.general_settings.debug_mode, self.config_manager.general_settings.schedule_mode)
+            if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
                 logger.info("add fetch schedule to todo list....")
                 self.todays_work["tbd"].append(fetchCloudScheduledWork)
 
@@ -594,10 +508,11 @@ class MainWindow:
         self.chat_task = asyncio.create_task(self.connectChat(self.gui_chat_msg_queue))
         self.showMsg("spawned chat task")
 
-        if not self.browser_use_file_system_path:
+        if not self.config_manager.general_settings.browser_use_file_system_path:
             # create a temporary file system using agent ID
             base_tmp = self.my_ecb_data_homepath # e.g., /tmp on Unix
-            self.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
+            self.config_manager.general_settings.browser_use_file_system_path = os.path.join(self.my_ecb_data_homepath, f'browser_use_fs')
+            self.config_manager.general_settings.save()
         # Load environment variables before initializing ChatOpenAI
         # For PyInstaller bundled app, try to load .env from the executable directory
         if getattr(sys, 'frozen', False):
@@ -614,12 +529,12 @@ class MainWindow:
         else:
             logger.warning(f"\nNo .env file found at: {env_path}")
         
-        self.llm = pick_llm(self.general_settings)
+        self.llm = pick_llm(self.config_manager.general_settings.data)
         self.agents = []
         self.mcp_tools_schemas = build_agent_mcp_tools_schemas()
         self.mcp_client = None
         self._sse_cm = None
-        gui_flowgram_schema = self.general_settings.get("gui_flowgram_schema", "")
+        gui_flowgram_schema = self.config_manager.general_settings.data.get("gui_flowgram_schema", "")
         if gui_flowgram_schema:
             node_schema_file = self.my_ecb_data_homepath + gui_flowgram_schema
             if os.path.exists(node_schema_file):
@@ -875,8 +790,9 @@ class MainWindow:
 
     def get_free_agent_ports(self, n):
         used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]
-        logger.info("#agents:", len(self.agents), "used ports:", used_ports, "port range:", self.local_agents_port_range)
-        all_ports = range(self.local_agents_port_range[0], self.local_agents_port_range[1]+1)
+        local_agent_ports = self.config_manager.general_settings.local_agent_ports
+        logger.info("#agents:", len(self.agents), "used ports:", used_ports, "port range:", local_agent_ports)
+        all_ports = range(local_agent_ports[0], local_agent_ports[1]+1)
         free_ports = [port for port in all_ports if port not in used_ports]
 
         if len(free_ports) < n:
@@ -888,8 +804,6 @@ class MainWindow:
     def save_agent_skill(self, skill):
         return save_agent_skills(self, [skill])
 
-    def get_local_server_port(self):
-        return self.general_settings.get("local_server_port", "4668")
 
     def get_vehicle_ecbot_op_agent(self, v):
         # obtain agents on a vehicle.
@@ -932,7 +846,7 @@ class MainWindow:
     # 3) regenerate psk files for each skill
     # 4) build up skill_table (a look up table)
     def dailySkillsetUpdate(self):
-        if self.general_settings.get("schedule_mode", "auto") != "test":
+        if not self.is_test_mode():
             cloud_skills_results = self.skill_manager.fetch_my_skills()
             logger.trace("DAILY SKILL FETCH:", cloud_skills_results)
         else:
@@ -1050,7 +964,7 @@ class MainWindow:
         return self.wifis
 
     def getWebDriverPath(self):
-        return self.default_webdriver_path
+        return self.config_manager.general_settings.default_webdriver_path
 
 
 
@@ -1069,7 +983,7 @@ class MainWindow:
             self.unified_browser_manager = get_unified_browser_manager()
 
             # Pass file system path
-            file_system_path = getattr(self, 'browser_use_file_system_path', None)
+            file_system_path = self.config_manager.general_settings.browser_use_file_system_path
 
             if self.unified_browser_manager.initialize(file_system_path=file_system_path):
                 logger.info("✅ Browser manager initialized successfully")
@@ -1097,15 +1011,15 @@ class MainWindow:
             if success:
                 new_path = await manager.get_webdriver_path()
                 # If we found a new, valid path that is different from the one in settings, update and save.
-                if new_path and new_path != self.general_settings.get("default_webdriver_path"):
+                if new_path and new_path != self.config_manager.general_settings.default_webdriver_path:
                     logger.info(f"WebDriver path updated to: {new_path}. Saving settings...")
-                    self.default_webdriver_path = new_path
-                    self.general_settings["default_webdriver_path"] = new_path
-                    self.saveSettings()
+                    self.config_manager.general_settings.default_webdriver_path = new_path
+                    self.config_manager.general_settings.save()
                 else:
-                    self.default_webdriver_path = new_path # Ensure it's set even if not saved
+                    # Ensure it's set even if not saved
+                    self.config_manager.general_settings.default_webdriver_path = new_path
 
-                logger.info(f"✅ WebDriver initialization successful. Path: {self.default_webdriver_path}")
+                logger.info(f"✅ WebDriver initialization successful. Path: {self.config_manager.general_settings.default_webdriver_path}")
             else:
                 logger.error("❌ WebDriver initialization failed.")
 
@@ -1176,74 +1090,99 @@ class MainWindow:
     def set_host_role(self, role):
         self.host_role = role
 
-    def set_schedule_mode(self, sm):
-        self.general_settings["schedule_mode"] = sm
-
-    def get_schedule_mode(self):
-        return self.general_settings.get("schedule_mode", "auto")
-
     def set_default_wifi(self, default_wifi):
-        self.general_settings["default_wifi"] = default_wifi
+        self.config_manager.general_settings.default_wifi = default_wifi
+        self.config_manager.general_settings.save()
 
     def get_default_wifi(self):
-        return self.general_settings.get("default_wifi", "unknown")
+        return self.config_manager.general_settings.default_wifi
 
     def set_default_printer(self, default_printer):
-        self.general_settings["default_printer"] = default_printer
+        self.config_manager.general_settings.default_printer = default_printer
+        self.config_manager.general_settings.save()
 
     def get_default_printer(self):
-        return self.general_settings.get("default_printer", "unknown")
+        return self.config_manager.general_settings.default_printer
 
-    def _ensure_default_settings(self):
-        """Ensure all required configuration items have default values"""
-        default_settings = {
-            "schedule_mode": "auto",
-            "debug_mode": False,
-            "default_wifi": "",
-            "default_printer": "",
-            "display_resolution": "",
-            "default_webdriver_path": "",
-            "build_dom_tree_script_path": "",
-            "new_orders_dir": "c:/ding_dan/",
-            "new_bots_file_path": "c:/ding_dan/",
-            "localUserDB_host": "127.0.0.1",
-            "localUserDB_port": "5080",
-            "localAgentDB_host": "192.168.0.16",
-            "localAgentDB_port": "6668",
-            "local_server_port": "4668",
-            "localAgent_ports": [3600, 3800],
-            "lan_api_endpoint": "",
-            "lan_api_host": "",
-            "wan_api_endpoint": "",
-            "ws_api_endpoint": "",
-            "img_engine": "lan",
-            "schedule_engine": "wan",
-            "browser_use_file_system_path": "",
-            "last_bots_file": "",
-            "last_bots_file_time": "",
-            "last_order_file": "",
-            "last_order_file_time": "",
-            "mids_forced_to_run": [],
-            "gui_flowgram_schema": ""
-        }
-
-        # Set default values for missing configuration items
-        for key, default_value in default_settings.items():
-            if key not in self.general_settings:
-                self.general_settings[key] = default_value
 
     def saveSettings(self):
         try:
-            self.showMsg("saving general settings:" + json.dumps(self.general_settings))
-            with open(self.general_settings_file, 'w') as f:
-                json.dump(self.general_settings, f, indent=4)
-                # self.rebuildHTML()
-                f.close()
-        except IOError:
-            logger.error(f"Unable to open settings file {self.general_settings_file}")
+            self.showMsg("saving all settings...")
+            return self.config_manager.save_all_settings()
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            return False
+
+    @property
+    def debug_mode(self):
+        return self.config_manager.general_settings.debug_mode
+
+    @property
+    def schedule_mode(self):
+        return self.config_manager.general_settings.schedule_mode
+
+    @property
+    def default_wifi(self):
+        return self.config_manager.general_settings.default_wifi
+
+    @property
+    def default_printer(self):
+        return self.config_manager.general_settings.default_printer
 
     def get_schedule_mode(self):
-        return self.schedule_mode
+        return self.config_manager.general_settings.schedule_mode
+
+    def set_schedule_mode(self, mode: str):
+        self.config_manager.general_settings.schedule_mode = mode
+        self.config_manager.general_settings.save()
+
+    def get_local_server_port(self):
+        return self.config_manager.general_settings.local_server_port
+
+    def is_debug_mode(self):
+        return self.config_manager.general_settings.debug_mode
+
+    def is_test_mode(self):
+        return self.config_manager.general_settings.schedule_mode == "test"
+
+    def get_mids_forced_to_run(self):
+        return self.config_manager.general_settings.data.get("mids_forced_to_run", [])
+
+    def has_new_bots_file_path(self):
+        return bool(self.config_manager.general_settings.data.get("new_bots_file_path"))
+
+    def get_new_bots_file_path(self):
+        return self.config_manager.general_settings.data.get("new_bots_file_path", "")
+
+    def has_new_orders_dir(self):
+        return bool(self.config_manager.general_settings.new_orders_dir)
+
+    def get_new_orders_dir(self):
+        return self.config_manager.general_settings.new_orders_dir
+
+    def get_last_bots_file_info(self):
+        data = self.config_manager.general_settings.data
+        return {
+            "file": data.get("last_bots_file", ""),
+            "time": data.get("last_bots_file_time", 0)
+        }
+
+    def set_last_bots_file_info(self, file_path: str, file_time: int):
+        self.config_manager.general_settings.data["last_bots_file"] = file_path
+        self.config_manager.general_settings.data["last_bots_file_time"] = file_time
+        self.config_manager.general_settings.save()
+
+    def get_last_order_file_info(self):
+        data = self.config_manager.general_settings.data
+        return {
+            "file": data.get("last_order_file", ""),
+            "time": data.get("last_order_file_time", 0)
+        }
+
+    def set_last_order_file_info(self, file_path: str, file_time: int):
+        self.config_manager.general_settings.data["last_order_file"] = file_path
+        self.config_manager.general_settings.data["last_order_file_time"] = file_time
+        self.config_manager.general_settings.save()
 
 
     def get_host_role(self):
@@ -1263,40 +1202,38 @@ class MainWindow:
         return self.user
 
     def getImageEngine(self):
-        return self.general_settings.get("img_engine", "lan")
+        return self.config_manager.general_settings.img_engine
 
     def getLanImageEndpoint(self):
-        return self.general_settings.get("lan_api_endpoint", "")
+        return self.config_manager.general_settings.lan_api_endpoint
 
     def getWanImageEndpoint(self):
-        return self.general_settings.get("wan_api_endpoint", "")
+        return self.config_manager.general_settings.wan_api_endpoint
 
     def getWanApiEndpoint(self):
-        return self.general_settings.get("wan_api_endpoint", "")
+        return self.config_manager.general_settings.wan_api_endpoint
 
     def getWanApiKey(self):
-        return self.general_settings.get("wan_api_key", "")
+        return self.config_manager.general_settings.wan_api_key
 
     def getWSApiEndpoint(self):
-        return self.general_settings.get("ws_api_endpoint", "")
+        return self.config_manager.general_settings.ws_api_endpoint
 
     def getLanApiEndpoint(self):
-        return self.general_settings.get("lan_api_endpoint", "")
+        return self.config_manager.general_settings.lan_api_endpoint
 
     def setMILANServer(self, ip, port="8848"):
-        self.general_settings["lan_api_host"] = ip
-        self.general_settings["lan_api_port"] = port
-        self.general_settings["lan_api_endpoint"] = f"http://{ip}:{port}/graphql"
-        print("lan_api_endpoint:", self.general_settings["lan_api_endpoint"])
+        self.config_manager.general_settings.lan_api_endpoint = f"http://{ip}:{port}"
+        self.config_manager.general_settings.save()
+        logger.info(f"lan_api_endpoint: {self.config_manager.general_settings.lan_api_endpoint}")
 
     def setLanDBServer(self, ip, port="5080"):
-        self.general_settings["localUserDB_host"] = ip
-        self.general_settings["localUserDB_port"] = port
-
-
+        self.config_manager.general_settings.local_user_db_host = ip
+        self.config_manager.general_settings.local_user_db_port = port
+        self.config_manager.general_settings.save()
 
     def getDisplayResolution(self):
-        return self.display_resolution
+        return self.config_manager.general_settings.display_resolution
 
     async def runTodaysLocalWork(self):
         # send a request to commander for today's scheduled work.
@@ -1409,7 +1346,7 @@ class MainWindow:
             log3("Done handling today's new Buy orders...", "fetchSchedule", self)
             bodyobj = {}
             # next line commented out for testing purpose....
-            if not self.debug_mode and self.schedule_mode == "auto":
+            if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
                 log3("schedule setting:"+json.dumps(settings), "fetchSchedule", self)
 
                 log3(f"schedule file {schedule_file} exists: {todaysScheduleExists}", "fetchSchedule", self)
@@ -1429,7 +1366,7 @@ class MainWindow:
             else:
                 # first, need to decompress the body.
                 # very important to use compress and decompress on Base64
-                if not self.debug_mode and self.schedule_mode == "auto":
+                if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
                     if not todaysScheduleExists or forceful:
                         uncompressed = self.zipper.decompressFromBase64(jresp["body"])   # commented out for testing
                     else:
@@ -1446,7 +1383,7 @@ class MainWindow:
 
                     bodyobj = {"task_groups": {}, "added_missions": []}
 
-                    if not self.debug_mode and self.schedule_mode == "auto":
+                    if not self.config_manager.general_settings.debug_mode and self.config_manager.general_settings.schedule_mode == "auto":
                         if not todaysScheduleExists or forceful:
                             bodyobj = json.loads(uncompressed)                      # for test purpose, comment out, put it back when test is done....
                         else:
@@ -1469,7 +1406,7 @@ class MainWindow:
                 else:
                     self.warn("Warning: Empty Network Response.")
 
-            if ((not todaysScheduleExists) or forceful) and (not self.debug_mode) and (self.schedule_mode == "auto"):
+            if ((not todaysScheduleExists) or forceful) and (not self.config_manager.general_settings.debug_mode) and (self.config_manager.general_settings.schedule_mode == "auto"):
                 log3(f"saving schedule file {schedule_file}", "fetchSchedule", self)
 
                 with open(schedule_file, 'w') as sf:
@@ -1615,7 +1552,7 @@ class MainWindow:
                 existingMission.loadNetRespJson(m)
                 newAdded.append(existingMission)
 
-        if not self.debug_mode:
+        if not self.config_manager.general_settings.debug_mode:
             self.addMissionsToLocalDB(true_newly_added)
 
         return(newAdded)
@@ -2013,35 +1950,38 @@ class MainWindow:
         return foundWork
 
     def gen_random_search_term(self, mission):
-        main_cats = list(self.buy_search_settings["search_terms"]["amz"].keys())
+        search_settings = self.config_manager.search_settings.data
+        main_cats = list(search_settings["search_terms"]["amz"].keys())
         main_cat_idx = random.randint(0, len(main_cats))
         main_cat = main_cats[main_cat_idx]
-        sub1_cats = list(self.buy_search_settings["search_terms"]["amz"][main_cat].keys())
+        sub1_cats = list(search_settings["search_terms"]["amz"][main_cat].keys())
         sub1_cat_idx = random.randint(0, len(sub1_cats))
         sub1_cat = sub1_cats[sub1_cat_idx]
-        terms = self.buy_search_settings["search_terms"]["amz"][main_cat][sub1_cat]
+        terms = search_settings["search_terms"]["amz"][main_cat][sub1_cat]
         terms_idx = random.randint(0, len(terms))
         search_term = terms[terms_idx]
         return search_term
 
     def gen_random_product_params(self, mission):
-        random_st_idx = random.randint(0, len(self.buy_search_settings["selType_selections"]))
-        random_dl_idx = random.randint(0, len(self.buy_search_settings["detailLvl_selections"]))
+        search_settings = self.config_manager.search_settings.data
+        random_st_idx = random.randint(0, len(search_settings["selType_selections"]))
+        random_dl_idx = random.randint(0, len(search_settings["detailLvl_selections"]))
         product_params = {
-            "selType": self.buy_search_settings["selType_selections"][random_st_idx],
-            "detailLvl": self.buy_search_settings["selType_selections"][random_dl_idx],
+            "selType": search_settings["selType_selections"][random_st_idx],
+            "detailLvl": search_settings["selType_selections"][random_dl_idx],
             "purchase": []
         }
 
         return product_params
 
     def gen_random_page_params(self, mission):
-        random_flow_idx = random.randint(0, len(self.buy_search_settings["flow_selections"]))
+        search_settings = self.config_manager.search_settings.data
+        random_flow_idx = random.randint(0, len(search_settings["flow_selections"]))
         pg_params = {
-            "flow_type": self.buy_search_settings["flow_selections"][random_flow_idx],
+            "flow_type": search_settings["flow_selections"][random_flow_idx],
             "products": []
         }
-        nProducts = random.randint(1, self.buy_search_settings["max_browse_products_per_page"]+1)
+        nProducts = random.randint(1, search_settings["max_browse_products_per_page"]+1)
         for n in range(nProducts):
             productConfig = self.gen_random_product_params(mission)
             pg_params["products"].append(productConfig)
@@ -2062,7 +2002,8 @@ class MainWindow:
             "prodlist_pages": [],
             "buy_cfg": None
         }
-        nPages = random.randint(1, self.buy_search_settings["max_browse_pages"]+1)
+        search_settings = self.config_manager.search_settings.data
+        nPages = random.randint(1, search_settings["max_browse_pages"]+1)
         for n in range(nPages):
             pageConfig = self.gen_random_page_params(mission)
             search["prodlist_pages"].append(pageConfig)
@@ -2071,7 +2012,8 @@ class MainWindow:
 
     def gen_random_search_config(self, mission):
         config = {"estRunTime": 1, "searches": []}
-        nSearches = random.randint(1, self.buy_search_settings["max_searches"]+1)
+        search_settings = self.config_manager.search_settings.data
+        nSearches = random.randint(1, search_settings["max_searches"]+1)
         log3(f"gen nsearches:{nSearches}", "buyConfig", self)
         for n in range(nSearches):
             search = self.gen_random_search_params(mission)
@@ -2626,7 +2568,7 @@ class MainWindow:
             worksettings = getWorkRunSettings(self, worksTBD)
             mid2br = worksettings["mid"]
 
-            if (not self.checkMissionAlreadyRun(worksettings)) or mid2br in self.general_settings.get("mids_forced_to_run", []):
+            if (not self.checkMissionAlreadyRun(worksettings)) or mid2br in self.get_mids_forced_to_run():
                 log3("worksettings: bid, mid "+str(worksettings["botid"])+" "+str(worksettings["mid"])+" "+str(worksettings["midx"])+" "+json.dumps([m.getFingerPrintProfile() for m in self.missions]), "runRPA", self)
 
                 bot_idx = next((i for i, b in enumerate(self.bots) if str(b.getBid()) == str(worksettings["botid"])), -1)
@@ -3697,7 +3639,7 @@ class MainWindow:
                 self.updateBotRelatedVehicles(new_bots[i])
             # botModel removed - UI components no longer needed
             # now add bots to local DB.
-            if not self.debug_mode:
+            if not self.config_manager.general_settings.debug_mode:
                 self.bot_service.insert_bots_batch(jbody, api_bots)
 
     def updateBots(self, bots, localOnly=False):
@@ -3895,7 +3837,7 @@ class MainWindow:
                         self.missions.append(new_mission)
                         # missionModel removed - UI components no longer needed
                         addedNewMissions.append(new_mission)
-                if not self.debug_mode:
+                if not self.config_manager.general_settings.debug_mode:
                     api_missions = []
                     for new_mission in addedNewMissions:
                         api_missions.append({
@@ -4305,14 +4247,10 @@ class MainWindow:
 
     def readVehicleJsonFile(self):
         self.showMsg("Reading Vehicle Json File: "+self.VEHICLES_FILE)
-        if exists(self.VEHICLES_FILE):
-            with open(self.VEHICLES_FILE, 'r') as file:
-                self.vehiclesJsonData = json.load(file)
-                self.translateVehiclesJson(self.vehiclesJsonData)
-
-            file.close()
+        self.vehiclesJsonData = self.config_manager.get_vehicles()
+        if self.vehiclesJsonData:
+            self.translateVehiclesJson(self.vehiclesJsonData)
         else:
-            self.vehiclesJsonData = {}
             self.showMsg("WARNING: Vehicle Json File NOT FOUND: " + self.VEHICLES_FILE)
 
     def translateVehiclesJson(self, vjds):
@@ -4342,13 +4280,11 @@ class MainWindow:
                     vehiclesdata.append(v.genJson())
 
                 self.showMsg("WRITE TO VEHICLES_FILE: " + self.VEHICLES_FILE)
-                with open(self.VEHICLES_FILE, 'w') as jsonfile:
-                    json.dump(vehiclesdata, jsonfile, indent=4)
-
-                jsonfile.close()
-                # self.rebuildHTML()
-            except IOError:
-                logger.error(f"Unable to save file: {self.VEHICLES_FILE}")
+                self.vehiclesJsonData = vehiclesdata
+                return self.config_manager.save_vehicles(vehiclesdata)
+            except Exception as e:
+                logger.error(f"Unable to save file: {self.VEHICLES_FILE}, error: {e}")
+                return False
         else:
             self.showMsg("Vehicles json file does NOT exist.")
 
@@ -5109,7 +5045,7 @@ class MainWindow:
                                     # missionModel removed - UI components no longer needed
                                     new_missions.append(new_mission)
 
-                                if not self.debug_mode:
+                                if not self.config_manager.general_settings.debug_mode:
                                     self.addMissionsToLocalDB(new_missions)
 
                         else:
@@ -5242,7 +5178,7 @@ class MainWindow:
         day = f"m{dtnow.day}"
 
         new_orders_dir = self.my_ecb_data_homepath + "/new_orders/ORDER" + date_word + "/"
-        new_orders_dir = os.path.join(self.new_orders_dir, year, month, day)
+        new_orders_dir = os.path.join(self.config_manager.general_settings.new_orders_dir, year, month, day)
         self.showMsg("working on new orders:" + new_orders_dir)
 
         new_buy_missions = []
@@ -5282,7 +5218,7 @@ class MainWindow:
                     new_buy_missions.setMid(jbody[i]["mid"])
 
                 #now add to local DB.
-                if not self.debug_mode:
+                if not self.config_manager.general_settings.debug_mode:
                     self.addMissionsToLocalDB(new_buy_missions)
 
                 #add to local data structure
@@ -6000,7 +5936,7 @@ class MainWindow:
                         if repeat_last < (supposed_last_run - repeat_interval*0.5) or current_time >= next_scheduled_run:
                             print("time to run now....")
                             missions_to_run.append(mission)
-                        elif self.debug_mode:
+                        elif self.config_manager.general_settings.debug_mode:
                             if self.fetch_schedule_counter:
                                 missions_to_run.append(mission)
                                 self.fetch_schedule_counter = self.fetch_schedule_counter -1
@@ -7369,23 +7305,25 @@ class MainWindow:
         log3("just build cookie site list:"+json.dumps(self.bot_cookie_site_lists), "build_cookie_site_lists", self)
 
     def setADSBatchSize(self, batch_size):
-        if self.ads_settings is None:
-            self.ads_settings = {}
-        self.ads_settings["batch_size"] = batch_size
+        self.config_manager.ads_settings.batch_size = batch_size
+        self.config_manager.ads_settings.save()
 
     def getADSBatchSize(self):
-        return self.ads_settings.get("batch_size", 10)
+        return self.config_manager.ads_settings.batch_size
 
     def getADSBatchMethod(self):
-        return self.ads_settings.get("batch_method", "min batches")
+        return self.config_manager.ads_settings.batch_method
 
     def getADSSettings(self):
-        return self.ads_settings
+        return self.config_manager.ads_settings.data
 
     def saveADSSettings(self, settings):
-        with open(self.ads_settings_file, 'w') as ads_settings_f:
-            json.dump(settings["fp_browser_settings"], ads_settings_f)
-            ads_settings_f.close()
+        try:
+            for key, value in settings["fp_browser_settings"].items():
+                setattr(self.config_manager.ads_settings, key, value)
+            self.config_manager.ads_settings.save()
+        except Exception as e:
+            logger.error(f"Error saving ADS settings: {e}")
 
     def getIP(self):
         return self.ip
@@ -8324,7 +8262,7 @@ class MainWindow:
             found_vehicle.setStatus("running_idle")       # this vehicle is ready to take more work if needed.
             vehicle_report = self.prepVehicleReportData(found_vehicle)
             log3("vehicle status report"+json.dumps(vehicle_report))
-            if self.general_settings.get("schedule_mode", "auto") != "test":
+            if not self.is_test_mode():
                 resp = send_report_vehicles_to_cloud(self.session, self.get_auth_token(),
                                                  vehicle_report, self.getWanApiEndpoint())
             self.saveVehiclesJsonFile()
@@ -8529,8 +8467,8 @@ class MainWindow:
     def checkNewBotsFiles(self):
         bfiles = []
 
-        if "new_bots_file_path" in self.general_settings:
-            bfiles = self.get_new_bot_files(self.general_settings["new_bots_file_path"])
+        if self.has_new_bots_file_path():
+            bfiles = self.get_new_bot_files(self.get_new_bots_file_path())
 
         return bfiles
 
@@ -8547,13 +8485,14 @@ class MainWindow:
         # Filter files modified after yesterday's 12 AM
         new_bot_files = [file for file in bot_files if os.path.getmtime(file) > timestamp_cutoff]
 
-        if "last_bots_file" not in self.general_settings:
+        last_bots_info = self.get_last_bots_file_info()
+        if not last_bots_info["file"]:
             latest_file = ""
             latest_time = 0
             last_time = 0
         else:
-            latest_file = self.general_settings["last_bots_file"]
-            latest_time = self.general_settings["last_bots_file_time"]
+            latest_file = last_bots_info["file"]
+            latest_time = last_bots_info["time"]
             last_time = latest_time
 
         not_yet_touched_files = []
@@ -8574,8 +8513,7 @@ class MainWindow:
         else:
             print("No new bot files found since yesterday at 12 AM.")
 
-        self.general_settings["last_bots_file"] = latest_file
-        self.general_settings["last_bots_file_time"] = latest_time
+        self.set_last_bots_file_info(latest_file, latest_time)
         return not_yet_touched_files
 
 
@@ -8583,9 +8521,9 @@ class MainWindow:
     def checkNewMissionsFiles(self):
         mfiles = []
 
-        if "new_orders_path" in self.general_settings:
-            log3("new_orders_path:" + self.general_settings["new_orders_dir"])
-            mfiles = self.get_yesterday_orders_files(self.general_settings["new_orders_dir"])
+        if self.has_new_orders_dir():
+            log3("new_orders_dir:" + self.get_new_orders_dir())
+            mfiles = self.get_yesterday_orders_files(self.get_new_orders_dir())
             log3("New order files since yesterday" + json.dumps(mfiles))
 
         return mfiles
@@ -8608,13 +8546,14 @@ class MainWindow:
 
         # Find all .xlsx files in yesterday's directory
         order_files = glob.glob(os.path.join(yesterday_dir, "Order*.xlsx"))
-        if self.general_settings.get("last_order_file", ""):
+        last_order_info = self.get_last_order_file_info()
+        if not last_order_info["file"]:
             latest_file = ""
             latest_time = 0
             last_time = 0
         else:
-            latest_file = self.general_settings["last_order_file"]
-            latest_time = self.general_settings["last_order_file_time"]
+            latest_file = last_order_info["file"]
+            latest_time = last_order_info["time"]
             last_time = latest_time
 
         not_yet_touched_files = []
@@ -8635,8 +8574,7 @@ class MainWindow:
         else:
             print(f"No order files found for {yesterday.strftime('%Y-%m-%d')}.")
 
-        self.general_settings["last_order_file"] = latest_file
-        self.general_settings["last_order_file_time"] = latest_time
+        self.set_last_order_file_info(latest_file, latest_time)
         return not_yet_touched_files
 
     # assume one sheet only in the xlsx file. at this moment no support for multi-sheet.
@@ -8716,7 +8654,8 @@ class MainWindow:
     def createNewMissionsFromOrdersXlsx(self):
         newMisionsFiles = self.checkNewMissionsFiles()
         if newMisionsFiles:
-            log3("last_order_file:"+self.general_settings["last_order_file"]+"..."+str(self.general_settings["last_order_file_time"]))
+            last_order_info = self.get_last_order_file_info()
+            log3("last_order_file:"+last_order_info["file"]+"..."+str(last_order_info["time"]))
             self.createMissionsFromFilesOrJsData(newMisionsFiles)
 
     def createNewBotsFromBotsXlsx(self):
@@ -9293,7 +9232,8 @@ class MainWindow:
         return fbs
 
     def getRPAReports(self, start_date, end_date):
-        base_dir = self.log_settings[""]
+        log_settings = self.config_manager.get_log_settings()
+        base_dir = log_settings.get("", "")
         """
         Get report files from start_date (non-inclusive) to end_date (inclusive),
         clean up the files, and return a dictionary with report data.
