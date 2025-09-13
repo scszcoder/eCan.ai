@@ -5,7 +5,7 @@
 
 import { FC } from 'react';
 
-import { CodeEditor } from '@flowgram.ai/form-materials';
+import { SafeCodeEditor } from '../../SafeCodeEditor';
 
 import { useFormMeta, useSyncDefault } from '../hooks';
 
@@ -27,10 +27,21 @@ export const TestRunJsonInput: FC<TestRunJsonInputProps> = ({ values, setValues 
 
   return (
     <div className={styles['testrun-json-input']}>
-      <CodeEditor
+      <SafeCodeEditor
         languageId="json"
         value={JSON.stringify(values, null, 2)}
-        onChange={(value) => setValues(JSON.parse(value))}
+        onChange={(value) => {
+          // Avoid echo updates
+          const current = JSON.stringify(values, null, 2);
+          if (value === current) return;
+          // Parse and defer to avoid re-entrant editor updates
+          try {
+            const next = JSON.parse(value);
+            Promise.resolve().then(() => setValues(next));
+          } catch (e) {
+            // Ignore until user finishes typing valid JSON
+          }
+        }}
       />
     </div>
   );

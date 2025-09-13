@@ -133,12 +133,12 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
     onCancel();
   };
 
-  // runtime effect - This can be removed or replaced with a listener for backend events
+  // runtime effect - Only close the node editor sidebar when TestRun panel is visible
   useEffect(() => {
-    if (sidebarNodeId) {
+    if (visible && sidebarNodeId) {
       setNodeId(undefined);
     }
-  }, [sidebarNodeId]);
+  }, [visible, sidebarNodeId]);
 
   const renderForm = (
     <div className={styles['testrun-panel-form']}>
