@@ -4,7 +4,7 @@ import importlib.util
 import httpx
 import asyncio
 from agent.mcp.local_client import mcp_call_tool
-from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, node_maker
+from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
 from agent.ec_skills.dev_defs import BreakpointManager
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -118,18 +118,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     return full_node_callable
 
 
-def build_basic_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
+def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner: str, bp_manager) -> callable:
     """
-    Builds a callable function for a basic node that executes custom Python code.
-
-    The code can be provided as an inline string or a path to a .py file.
-
-    Args:
-        config_metadata: A dictionary containing a 'code' key with either a
-                         Python script as a string or a file path.
-
-    Returns:
-        A callable function that takes a state dictionary and returns the updated state.
+    Builds a basic node from a code source, which can be either a file path or an inline string.
+    This function is responsible for dynamically loading or executing the code and returning
+    a callable that can be used as a node in the graph.
     """
     print("building basic node", config_metadata)
     code_source = config_metadata.get('script').get('content')
@@ -162,16 +155,14 @@ def build_basic_node(config_metadata: dict, node_name, skill_name, owner, bp_man
     # Scenario 2: Code is an inline script
     else:
         try:
-            # Create a function from the inline code string
-            # The inline code is expected to be a full function definition
-            temp_scope = {}
-            exec(code_source, globals(), temp_scope)
-            
-            # Find the function defined in the string (assuming one function)
-            func_name = next((key for key, val in temp_scope.items() if callable(val)), None)
-            
-            if func_name:
-                node_callable = temp_scope[func_name]
+            # Define a scope for the exec to run in, so imports are captured
+            local_scope = {}
+            exec(code_source, local_scope, local_scope)
+
+            # Find the 'main' function within the executed code's scope
+            main_func = local_scope.get('main')
+            if callable(main_func):
+                node_callable = main_func
             else:
                  print(f"Warning: No function definition found in inline code for basic node.")
 
@@ -184,9 +175,7 @@ def build_basic_node(config_metadata: dict, node_name, skill_name, owner, bp_man
     if node_callable is None:
         return lambda state: state
 
-    full_node_callable = node_builder(node_callable, node_name, skill_name, owner, bp_manager)
-
-    return full_node_callable
+    return node_callable
 
 
 def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):

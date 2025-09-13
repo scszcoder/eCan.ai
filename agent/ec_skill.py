@@ -43,6 +43,7 @@ from agent.mcp.config import mcp_messages_url
 from agent.ec_skills.dev_defs import BreakpointManager
 from langgraph.types import Interrupt
 
+
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
 # ---------------------------------------------------------------------------
@@ -232,65 +233,61 @@ def node_wrapper(fn, node_name, skill_name, owner):
     return wrapped
 
 
-def node_builder(
-        node_fn,
-        node_name: str,
-        skill_name: str,
-        owner: str,
-        bp_manager: BreakpointManager,
-        default_retries: int = 1,
-        base_delay: float = 1.0,
-        jitter: float = 0.5
-):
+def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retries=3, base_delay=1, jitter=0.5):
     """
-    Wrap node function with retry, random backoff, and breakpoint pause.
-
-    - retries: taken from state['retry'] if present, otherwise default_retries
-    - base_delay: base delay between retries (seconds)
-    - jitter: random jitter (0–jitter) added to each delay
+    A higher-order function that wraps a node's callable to add common functionality
+    like retries, breakpoint handling, and context injection.
     """
 
-    def wrapper(state, *args, **kwargs):
-        retries = state.get("retry", default_retries)
+    def wrapper(state: dict, **kwargs) -> dict:
+        """This inner function is what gets executed by LangGraph for each node.
+        It contains the retry logic and handles processing the return value.
+        """
+        # Safely get and cast the retry value to an integer
+        try:
+            retries = int(state.get("retry", default_retries))
+        except (ValueError, TypeError):
+            retries = default_retries
+
         attempts = 0
         last_exc = None
+        result = None
 
         while attempts < retries:
             try:
-                result = node_fn(state, *args, **kwargs)
+                # Add node context to the state, which is mutable
+                if "attributes" not in state or not isinstance(state.get("attributes"), dict):
+                    state["attributes"] = {}
+                state["attributes"]["__this_node__"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
+                
+                # Execute the actual node function
+                result = node_fn(state, **kwargs)
                 break  # success
             except Exception as e:
                 attempts += 1
                 last_exc = e
                 logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {e}")
-
                 if attempts < retries:
-                    # Exponential backoff with jitter
-                    delay = base_delay * (2 ** (attempts - 1))
-                    delay += random.uniform(0, jitter)
-                    logger.info(f"[{node_name}] retrying in {delay:.2f}s...")
+                    delay = base_delay * (2 ** (attempts - 1)) + random.uniform(0, jitter)
                     time.sleep(delay)
-        else:
-            # retries exhausted
+
+        if last_exc:
             raise last_exc
 
-        # Breakpoint check
-        if bp_manager.has_breakpoint(node_name):
-            return [
-                result,
-                Interrupt(value={"paused_at": node_name, "state": {**state, **result}})
-            ]
-        return result
+        # Process the result to ensure it's a valid dictionary for state update
+        if isinstance(result, list):
+            # Handle cases where debugging injects an Interrupt object
+            dict_result = next((item for item in result if isinstance(item, dict)), None)
+            return dict_result or {}
+        elif isinstance(result, dict):
+            return result
+        else:
+            # If the result is not a dict (e.g., None), return an empty dict to prevent errors
+            return {}
 
+    # The node_builder itself returns the wrapper function
     return wrapper
 
-
-def is_json_parsable(s):
-    try:
-        json.loads(s)
-        return True
-    except (ValueError, TypeError):
-        return False
 
 # ============ scratch here ==============================
 prompt0 = ChatPromptTemplate.from_messages([
@@ -345,3 +342,11 @@ prompt2 = ChatPromptTemplate.from_messages([
             ]),
             ("placeholder", "{messages}"),
         ])
+
+
+def is_json_parsable(s):
+    try:
+        json.loads(s)
+        return True
+    except (ValueError, TypeError):
+        return False

@@ -1168,7 +1168,7 @@ class TaskRunner(Generic[Context]):
                 logger.error(f"{ex_stat}")
             time.sleep(1)
 
-    def launch_dev_run(self, task: ManagedTask = None):
+    def launch_dev_run(self, init_state, task: ManagedTask = None):
         """
         Executes a controlled, interactive development run for a given task,
         allowing for pausing, resuming, and single-stepping from the GUI.
@@ -1182,33 +1182,76 @@ class TaskRunner(Generic[Context]):
         logger.info(f"Launching interactive dev run for task: {task.name} with run_id: {task.run_id}")
 
         try:
+            effective_config = {
+                "configurable": {
+                    "thread_id": str(uuid.uuid4()),
+                    "store": None
+                }
+            }
             runnable = task.skill.get_runnable()
             if not runnable:
                 logger.error(f"Task {task.name} does not have a runnable graph.")
                 return
 
-            # Start the stream, configured to interrupt before every node
-            # The '*' is a wildcard that matches all nodes.
-            controller = runnable.stream({}, config={"interrupt_before": ['*']})
+            # Create a unique thread_id for the checkpointer
+            thread_id = str(uuid.uuid4())
+            config = {
+                "configurable": {"thread_id": thread_id},
+                "interrupt_before": ['*']
+            }
+
+            # Start the stream with the correct config, and initial state
+            controller = runnable.stream(init_state, config=config)
 
             # Get the iterator for the stream
             stream_iterator = iter(controller)
-            paused_at_node = 'start' # Assume we start paused at the entry point
-
-            # Initial state notification to GUI
-            # We are paused at the start, waiting for the first command
-            ipc_api.update_run_stat(
-                agent_task_id=task.run_id,
-                current_node=paused_at_node,
-                status="paused",
-                langgraph_state={}
-            )
+            paused_at_node = "start"
             print("about to enter a black hole.........")
             while not task.cancellation_event.is_set():
                 try:
                     print("in the task loop now.....")
+
+                    ipc_api.update_run_stat(
+                        agent_task_id=task.run_id,
+                        current_node=paused_at_node,
+                        status="running",
+                        langgraph_state=runnable.get_state(config=effective_config)
+                    )
+
+                    # Advance the graph by one step
+                    event = next(stream_iterator, None)
+
+                    if event is None:
+                        logger.info(f"Dev run for {task.name} has completed.")
+                        ipc_api.update_run_stat(
+                            agent_task_id=task.run_id,
+                            current_node=None,
+                            status="completed",
+                            langgraph_state=runnable.get_state(config=effective_config)
+                        )
+                        break
+
+                    if isinstance(event, Interrupt):
+                        paused_at_node = event.value.get('paused_at')
+                        logger.info(f"Execution paused at node: {paused_at_node}")
+                        run_status = "paused"
+                        current_node = paused_at_node
+                    else:
+                        run_status = "running"
+                        current_node = ""
+
+                    # Post-run notification: Tell the GUI where we are now paused
+                    print("current event:", event)
+                    ipc_api.update_run_stat(
+                        agent_task_id=task.run_id,
+                        current_node=current_node,
+                        status=run_status,
+                        langgraph_state=runnable.get_state(config=effective_config)
+                    )
+
+
                     # Wait for a command from the GUI
-                    command = self.dev_msg_queue.get(timeout=1)  # Timeout to prevent deadlocks
+                    command = self.dev_msg_queue.get(timeout=0.3)  # Timeout to prevent deadlocks
                     logger.debug(f"Dev run ({task.run_id}) received command: {command}")
 
                     if command == "step" or (command == "resume" and not self.bp_manager.has_breakpoint(paused_at_node)):
@@ -1216,37 +1259,6 @@ class TaskRunner(Generic[Context]):
                         # Pre-run notification: Tell the GUI we are now running this node
                         if paused_at_node:
                             print("pause node.....")
-                            ipc_api.update_run_stat(
-                                agent_task_id=task.run_id,
-                                current_node=paused_at_node,
-                                status="running",
-                                langgraph_state={}
-                            )
-
-                        # Advance the graph by one step
-                        event = next(stream_iterator, None)
-
-                        if event is None:
-                            logger.info(f"Dev run for {task.name} has completed.")
-                            ipc_api.update_run_stat(
-                                agent_task_id=task.run_id,
-                                current_node=None,
-                                status="completed",
-                                langgraph_state={}
-                            )
-                            break
-
-                        if isinstance(event, Interrupt):
-                            paused_at_node = event.value.get('paused_at')
-                            logger.info(f"Execution paused at node: {paused_at_node}")
-
-                            # Post-run notification: Tell the GUI where we are now paused
-                            ipc_api.update_run_stat(
-                                agent_task_id=task.run_id,
-                                current_node=paused_at_node,
-                                status="paused",
-                                langgraph_state=event.value.get('state', {})
-                            )
 
                             # If in resume mode and we hit a breakpoint, stay paused
                             if command == "resume" and self.bp_manager.has_breakpoint(paused_at_node):
@@ -1265,13 +1277,17 @@ class TaskRunner(Generic[Context]):
                             agent_task_id=task.run_id,
                             current_node=paused_at_node,
                             status="cancelled",
-                            langgraph_state={}
+                            langgraph_state=runnable.get_state(config=effective_config)
                         )
                         break
 
                     # If in resume mode, continue the loop to advance the next step automatically
                     elif command == "resume":
                         print("RESUMING..........")
+                        continue
+
+                    elif command == "pause":
+                        print("Pausing..........")
                         continue
 
                 except queue.Empty:
@@ -1288,7 +1304,8 @@ class TaskRunner(Generic[Context]):
                     break
             print("dev run ENDED...........")
         except Exception as e:
-            logger.error(f"Exception during launch_dev_run for task {task.name}: {e}")
+            err_msg = get_traceback(e, "ErrorLaunchDevRun")
+            logger.error(f"Exception during launch_dev_run for task {task.name}: {err_msg}")
             ipc_api.update_run_stat(
                 agent_task_id=task.run_id,
                 current_node=paused_at_node,
