@@ -33,6 +33,8 @@ def setup_dev_skill(mainwin, skill):
             print("SETTING BREAKPOINTS:", breakpoints)
             tester_agent.runner.bp_manager.set_breakpoints(breakpoints)
             logger.info(f"Breakpoints set for dev run: {breakpoints}")
+            logger.info(f"BreakpointManager now holds: {tester_agent.runner.bp_manager.get_breakpoints()}")
+
     except Exception as e:
         # Get the traceback information
         err_msg = get_traceback(e, "ErrorSetupDevSkill")

@@ -133,6 +133,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
         return lambda state: state
 
     node_callable = None
+    node_name = node_id
 
     # Scenario 1: Code is a file path
     if False and (code_source.endswith('.py') and os.path.exists(code_source)):
@@ -163,6 +164,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
             main_func = local_scope.get('main')
             if callable(main_func):
                 node_callable = main_func
+                print("callable obtained.....")
             else:
                  print(f"Warning: No function definition found in inline code for basic node.")
 
@@ -175,7 +177,10 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     if node_callable is None:
         return lambda state: state
 
-    return node_callable
+    print("done building basic node", node_name)
+    full_node_callable = node_builder(node_callable, node_name, skill_name, owner, bp_manager)
+
+    return full_node_callable
 
 
 def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
