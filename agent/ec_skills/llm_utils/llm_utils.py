@@ -412,61 +412,9 @@ def breakpoint_wrapper(node_fn, node_name: str, bp_manager: BreakpointManager):
     return wrapper
 
 
-def node_maker(
-        node_fn,
-        node_name: str,
-        bp_manager: BreakpointManager,
-        default_retries: int = 1,
-        base_delay: float = 1.0,
-        jitter: float = 0.5
-):
-    """
-    Wrap node function with retry, random backoff, and breakpoint pause.
-
-    - retries: taken from state['retry'] if present, otherwise default_retries
-    - base_delay: base delay between retries (seconds)
-    - jitter: random jitter (0–jitter) added to each delay
-    """
-
-    def wrapper(state, *args, **kwargs):
-        retries = state.get("retry", default_retries)
-        attempts = 0
-        last_exc = None
-
-        while attempts < retries:
-            try:
-                result = node_fn(state, *args, **kwargs)
-                break  # success
-            except Exception as e:
-                attempts += 1
-                last_exc = e
-                logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {e}")
-
-                if attempts < retries:
-                    # Exponential backoff with jitter
-                    delay = base_delay * (2 ** (attempts - 1))
-                    delay += random.uniform(0, jitter)
-                    logger.info(f"[{node_name}] retrying in {delay:.2f}s...")
-                    time.sleep(delay)
-        else:
-            # retries exhausted
-            raise last_exc
-
-        # Breakpoint check
-        if bp_manager.has_breakpoint(node_name):
-            return [
-                result,
-                Interrupt(value={"paused_at": node_name, "state": {**state, **result}})
-            ]
-        return result
-
-    return wrapper
-
-
-
-# def step1(state): return {"a": 1}
-# def step2(state): return {"b": state["a"] + 2}
-# def step3(state): return {"c": state["b"] * 2}
+def step1(state): return {"a": 1}
+def step2(state): return {"b": state["a"] + 2}
+def step3(state): return {"c": state["b"] * 2}
 # Build graph with wrapped nodes
 # python
 # 复制代码
@@ -508,4 +456,3 @@ def node_maker(
 # python
 # 复制代码
 # bp_manager.clear_breakpoint("step2")
-

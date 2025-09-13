@@ -1,5 +1,5 @@
 from utils.logger_helper import logger_helper as logger
-from agent.ec_skill import EC_Skill
+from agent.ec_skill import EC_Skill, NodeState
 from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
 from utils.logger_helper import get_traceback
 
@@ -20,9 +20,19 @@ def setup_dev_skill(mainwin, skill):
         print("dev_run_task: ", dev_run_task)
         tester_agent = next((ag for ag in mainwin.agents if "test" in ag.card.name.lower()), None)
         logger.debug("tester_agent: ", type(skill), tester_agent)
-        skill_under_dev = flowgram2langgraph(skill)
+        
+        # Unpack the workflow and the list of breakpoints
+        skill_under_dev, breakpoints = flowgram2langgraph(skill)
         logger.debug("langgraph skill converted....")
+        
+        # Set the workflow on the task
         dev_run_task.skill.set_work_flow(skill_under_dev)
+
+        # Set the breakpoints on the runner's breakpoint manager
+        if tester_agent and breakpoints:
+            print("SETTING BREAKPOINTS:", breakpoints)
+            tester_agent.runner.bp_manager.set_breakpoints(breakpoints)
+            logger.info(f"Breakpoints set for dev run: {breakpoints}")
     except Exception as e:
         # Get the traceback information
         err_msg = get_traceback(e, "ErrorSetupDevSkill")
@@ -47,7 +57,26 @@ def run_dev_skill(mainwin, skill):
 
     if tester_agent:
         logger.debug("tester_agent found >>>>>>>>")
-        results = tester_agent.launch_dev_run_task()
+        init_state = NodeState(
+            messages=[],
+            input="",
+            attachments=[],
+            prompts=[],
+            formatted_prompts=[],
+            attributes={
+            },
+            result={},
+            tool_input={},
+            tool_result={},
+            threads = [],
+            metadata = {},
+            error="",
+            retries=3,
+            condition=False,
+            case="",
+            goals=[]
+        )
+        results = tester_agent.launch_dev_run_task(init_state)
         run_results = {"success": True, "error": "", "run_status": results}
     else:
         logger.debug("tester_agent NOT found >>>>>>>>")

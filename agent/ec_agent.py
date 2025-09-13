@@ -426,7 +426,7 @@ class EC_Agent(Agent):
 			logger.error(ex_stat)
 
 
-	def launch_dev_run_task(self):
+	def launch_dev_run_task(self, init_state):
 		"""Launches a development run, ensuring any previous dev run is cancelled first."""
 		logger.info("Attempting to launch dev run task...")
 		DEV_RUN_ID = "dev_run_singleton"
@@ -468,7 +468,7 @@ class EC_Agent(Agent):
 
 			# Launch the new dev run task
 			thread_pool_executor = self.mainwin.threadPoolExecutor
-			future = thread_pool_executor.submit(self.runner.launch_dev_run, dev_task_template)
+			future = thread_pool_executor.submit(self.runner.launch_dev_run, init_state, dev_task_template)
 			with self.task_lock:
 				self.active_tasks[DEV_RUN_ID] = future
 			future.add_done_callback(lambda f: self._task_done_callback(DEV_RUN_ID, f))
@@ -525,3 +525,6 @@ class EC_Agent(Agent):
 			# Get the traceback information
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
+
+	def set_checkpointer(self, checkpointer):
+		"""Sets the checkpointer for the agent's runner."""

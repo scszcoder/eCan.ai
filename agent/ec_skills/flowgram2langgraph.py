@@ -2,7 +2,7 @@ import json
 from langgraph.graph import StateGraph, START, END
 from agent.ec_skills.build_node import *
 import importlib
-from agent.ec_skills.llm_utils.llm_utils import node_maker
+# from agent.ec_skills.llm_utils.llm_utils import node_maker
 from gui.LoginoutGUI import Login
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
@@ -94,13 +94,15 @@ def process_blocks(workflow, blocks, node_map, id_to_node, skill_name, owner, bp
         # Get the appropriate builder function from the registry
         builder_func = function_registry.get(node_type, build_debug_node)
 
-        # Call the builder function with the node's data to get the final callable
+        # Call the builder function with the node's data to get the raw callable
         node_callable = builder_func(node_data, block_id, skill_name, owner, bp_manager)
+
+        # Wrap the raw callable with the node_builder to add retries, context, etc.
+        # node_callable = node_maker(raw_callable, block_id, skill_name, owner, bp_manager)
 
         # Add the constructed node to the workflow
         workflow.add_node(block_id, node_callable)
 
-        # Recursively process nested blocks if any
         if node_type in ["loop", "group"] and "blocks" in block:
             nested_edges = block.get("edges", [])
             process_blocks(workflow, block["blocks"], node_map, id_to_node, skill_name, owner, bp_manager, nested_edges)
@@ -128,6 +130,7 @@ def flowgram2langgraph(flowgram_json):
         workflow = StateGraph(NodeState)
         node_map = {}
         id_to_node = {}
+        breakpoints = []
         print("flowgram2langgraph", type(flowgram_json), flowgram_json)
         skill_name = flowgram_json["skillName"]
         owner = flow.get("owner", "")
@@ -163,6 +166,9 @@ def flowgram2langgraph(flowgram_json):
 
             node_data = node.get("data", {})
 
+            if node_data.get("break_point") is True:
+                breakpoints.append(node_id)
+
             node_map[node_id] = node_id
             id_to_node[node_id] = node
 
@@ -171,8 +177,11 @@ def flowgram2langgraph(flowgram_json):
             builder_func = function_registry.get(node_type, build_debug_node)
             print("builder_func:", builder_func)
 
-            # Call the builder function with the node's data to get the final callable
+            # Call the builder function with the node's data to get the raw callable
             node_callable = builder_func(node_data, node_id, skill_name, owner, bp_manager)
+
+            # Wrap the raw callable with the node_builder to add retries, context, etc.
+            # node_callable = node_maker(raw_callable, node_id, skill_name, owner, bp_manager)
 
             # Add the constructed node to the workflow
             workflow.add_node(node_id, node_callable)
@@ -229,7 +238,8 @@ def flowgram2langgraph(flowgram_json):
         err_msg = get_traceback(e, "ErrorFlowgram2Langgraph")
         logger.error(f"{err_msg}")
         workflow = {}
-    return workflow
+        breakpoints = []
+    return workflow, breakpoints
 
 def flatten_blocks(blocks):
     """Recursively flatten blocks for edge mapping."""
