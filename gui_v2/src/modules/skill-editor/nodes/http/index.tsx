@@ -32,6 +32,9 @@ export const HTTPNodeRegistry: FlowNodeRegistry = {
       type: 'http',
       data: {
         title: `HTTP_${++index}`,
+        inputsValues: {
+          apiKey: { type: 'constant', content: '' },
+        },
         api: {
           method: 'GET',
         },
@@ -67,6 +70,7 @@ export const HTTPNode = {
     inputs: {
       type: 'object',
       properties: {
+        apiKey: { type: 'string' },
         api: { type: 'object' },
         headers: { type: 'object' },
         params: { type: 'object' },

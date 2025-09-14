@@ -5,9 +5,9 @@
 
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { createInferInputsPlugin, DisplayOutputs, IJsonSchema, validateFlowValue } from '@flowgram.ai/form-materials';
-import { Divider } from '@douyinfe/semi-ui';
+import { Divider, Input } from '@douyinfe/semi-ui';
 
-import { FormHeader, FormContent } from '../../form-components';
+import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { HTTPNodeJSON } from './types';
 import { Timeout } from './components/timeout';
 import { Params } from './components/params';
@@ -15,13 +15,26 @@ import { Headers } from './components/headers';
 import { Body } from './components/body';
 import { Api } from './components/api';
 import { defaultFormMeta } from '../default-form-meta';
-import { FormCallable } from '../../form-components/form-callable';
 
 export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
   <>
     <FormHeader />
     <FormContent>
       <Api />
+      <Divider />
+      {/* API Key input */}
+      <FormItem name="apiKey" type="string" vertical>
+        <Field<string> name="inputsValues.apiKey">
+          {({ field }) => (
+            <Input
+              value={field.value}
+              onChange={(val) => field.onChange(val)}
+              placeholder="Enter API Key"
+              mode="password"
+            />
+          )}
+        </Field>
+      </FormItem>
       <Divider />
       <Headers />
       <Divider />
@@ -30,8 +43,6 @@ export const FormRender = ({ form }: FormRenderProps<HTTPNodeJSON>) => (
       <Body />
       <Divider />
       <Timeout />
-      <Divider />
-      <FormCallable />
       <DisplayOutputs displayFromScope />
     </FormContent>
   </>
