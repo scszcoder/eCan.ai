@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { MouseEvent, useEffect } from 'react';
+import { MouseEvent } from 'react';
 
 import {
   FlowNodeFormData,
@@ -29,11 +29,7 @@ export const GroupNodeRender = () => {
   const { height, width } = nodeSize ?? {};
   const nodeHeight = height ?? 0;
 
-  useEffect(() => {
-    // prevent lines in outside cannot be selected - 防止外层线条不可选中
-    const element = node.renderData.node;
-    element.style.pointerEvents = 'none';
-  }, [node]);
+  // Allow the group container to receive pointer events so it can be dragged by background/header
 
   return (
     <div
@@ -50,6 +46,17 @@ export const GroupNodeRender = () => {
         height,
       }}
     >
+      {/* Top-left drag handle to mimic other nodes' handle */}
+      <div
+        className="workflow-group-drag-handle"
+        data-flow-editor-selectable="false"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          startDrag(e as MouseEvent);
+        }}
+        title="Drag Group"
+      />
       <Form control={formControl}>
         <>
           <GroupHeader
@@ -68,6 +75,7 @@ export const GroupNodeRender = () => {
           <UngroupButton node={node} />
           <GroupBackground
             node={node}
+            onDrag={(e) => startDrag(e as MouseEvent)}
             style={{
               top: HEADER_HEIGHT + HEADER_PADDING,
               height: nodeHeight - HEADER_HEIGHT - HEADER_PADDING,
