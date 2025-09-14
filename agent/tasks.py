@@ -824,6 +824,7 @@ class TaskRunner(Generic[Context]):
         if found:
             return found[0]
         else:
+            logger.error("NO chatter tasks found!")
             return None
 
     def find_suitable_tasks(self, msg):

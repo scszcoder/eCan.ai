@@ -978,7 +978,7 @@ async def create_search_parts_chatter_skill(mainwin):
         workflow.add_node("pend_for_next_human_msg1", node_wrapper(pend_for_human_input_node, "pend_for_next_human_msg1", THIS_SKILL_NAME, OWNER))
         workflow.add_edge("pend_for_human_input_fill_specs", "examine_filled_specs")
 
-        workflow.set_entry_point("query_fom_specs")
+        workflow.set_entry_point("query_fom_basics")
         workflow.add_node("query_fom_basics", query_fom_basics_node)
 
         workflow.add_node("request_FOM", request_FOM_node)
